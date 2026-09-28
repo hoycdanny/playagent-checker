@@ -7,6 +7,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import AppBadge, { type AppRef } from '../components/AppRef.tsx';
 import TaskIcon from '../components/TaskIcon.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
+import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import './ListPage.css';
 import './TasksPage.css';
 
@@ -153,26 +154,23 @@ export default function TasksPage() {
       .then((r) => setKbs(r.items))
       .catch(() => {});
     // 各角色 Seat 可選模型:vlm=分析畫面、agent=控制遊戲、subagent=子代理。
-    // 預設選中 2026 A 組最佳實踐(若清單含該模型),否則退回第一個。
-    const preferInList = (items: ModelEntry[], preferredId: string): string =>
-      items.find((m) => m.modelId === preferredId)?.modelId ?? items[0]?.modelId ?? '';
+    // 預設 = 各 seat 推薦第 1 名;下拉選項前 5 名置頂並加 ★(見 modelRecommend)。
     apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
       .then((r) => {
-        setVlmModels(r.items);
-        // 預設用 UI-TARS(定位最準);清單無此模型時退回第一個。
-        setVlmModel(preferInList(r.items, 'uitars'));
+        setVlmModels(sortByRecommend('vlm', r.items));
+        setVlmModel(recommendedDefault('vlm', r.items));
       })
       .catch(() => {});
     apiGet<ListResponse<ModelEntry>>('/models?seat=agent')
       .then((r) => {
-        setAgentModels(r.items);
-        setAgentModel(preferInList(r.items, 'minimax.minimax-m2.1'));
+        setAgentModels(sortByRecommend('agent', r.items));
+        setAgentModel(recommendedDefault('agent', r.items));
       })
       .catch(() => {});
     apiGet<ListResponse<ModelEntry>>('/models?seat=subagent')
       .then((r) => {
-        setSubagentModels(r.items);
-        setSubagentModel(preferInList(r.items, 'us.amazon.nova-micro-v1:0'));
+        setSubagentModels(sortByRecommend('subagent', r.items));
+        setSubagentModel(recommendedDefault('subagent', r.items));
       })
       .catch(() => {});
   }, []);
@@ -371,7 +369,7 @@ export default function TasksPage() {
                 <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
                   {agentModels.map((m) => (
                     <option key={m.modelId} value={m.modelId}>
-                      {modelOptionLabel(m)}
+                      {starLabel('agent', m.modelId, modelOptionLabel(m))}
                     </option>
                   ))}
                 </select>
@@ -382,7 +380,7 @@ export default function TasksPage() {
                 <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                   {vlmModels.map((m) => (
                     <option key={m.modelId} value={m.modelId}>
-                      {modelOptionLabel(m)}
+                      {starLabel('vlm', m.modelId, modelOptionLabel(m))}
                     </option>
                   ))}
                 </select>
@@ -393,7 +391,7 @@ export default function TasksPage() {
                 <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
                   {subagentModels.map((m) => (
                     <option key={m.modelId} value={m.modelId}>
-                      {modelOptionLabel(m)}
+                      {starLabel('subagent', m.modelId, modelOptionLabel(m))}
                     </option>
                   ))}
                 </select>
