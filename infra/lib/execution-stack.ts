@@ -390,6 +390,14 @@ export class ExecutionStack extends Stack {
         resources: [taskRole.roleArn, taskDef.executionRole!.roleArn],
       }),
     );
+    // RunTask 帶成本標籤(costTags)需要對「起出來的 task」有 ecs:TagResource;
+    // scope 到本叢集的 task 資源。缺這個會讓帶 tags 的 RunTask 直接 AccessDenied(任務起不來)。
+    this.engineFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ecs:TagResource'],
+        resources: [`arn:aws:ecs:${region}:${account}:task/${cluster.clusterName}/*`],
+      }),
+    );
     // 注意:engine 不再直接呼叫 Device Farm(讀 APK/上傳/開 session 全搬進 Fargate runner,
     // 因 engine 512MB/5 分撐不住數百 MB APK)。engine 僅需 ecs:RunTask + iam:PassRole(上方已授)。
 
