@@ -470,36 +470,78 @@ export default function TasksPage() {
         </form>
       )}
 
-      {(hasFilter || selectedIds.size > 0) && (
-        <div className="tasks__toolbar">
-          {hasFilter && (
-            <button
-              type="button"
-              className="tasks__filter-clear"
-              onClick={() => {
-                setStateFilter('');
-                setBackendFilter('');
-                setLocalityFilter('');
-                setAppFilter('');
-              }}
-            >
-              {t('tasks.filterClear')}
-            </button>
-          )}
-          {selectedIds.size > 0 && (
-            <button
-              type="button"
-              className="tasks__batch-delete"
-              onClick={onBatchDelete}
-              disabled={batchDeleting}
-            >
-              {batchDeleting
-                ? t('tasks.batchDeleting')
-                : t('tasks.batchDelete').replace('{n}', String(selectedIds.size))}
-            </button>
-          )}
-        </div>
-      )}
+      <div className="tasks__filter">
+        <label className="tasks__filter-item">
+          <span className="tasks__filter-label">{t('tasks.filterState')}</span>
+          <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
+            <option value="">{t('tasks.filterAll')}</option>
+            {STATES.map((s) => (
+              <option key={s} value={s}>
+                {t(`state.${s}` as MessageKey)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tasks__filter-item">
+          <span className="tasks__filter-label">{t('tasks.colBackend')}</span>
+          <select value={backendFilter} onChange={(e) => setBackendFilter(e.target.value)}>
+            <option value="">{t('tasks.filterAll')}</option>
+            {availableBackends.map((b) => (
+              <option key={b} value={b}>
+                {t(`backend.${b}` as MessageKey)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tasks__filter-item">
+          <span className="tasks__filter-label">{t('tasks.colLocality')}</span>
+          <select value={localityFilter} onChange={(e) => setLocalityFilter(e.target.value)}>
+            <option value="">{t('tasks.filterAll')}</option>
+            {availableLocalities.map((l) => (
+              <option key={l} value={l}>
+                {t(`locality.${l}` as MessageKey)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tasks__filter-item">
+          <span className="tasks__filter-label">{t('tasks.colApp')}</span>
+          <select value={appFilter} onChange={(e) => setAppFilter(e.target.value)}>
+            <option value="">{t('tasks.filterAll')}</option>
+            {availableApps.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {hasFilter && (
+          <button
+            type="button"
+            className="tasks__filter-clear"
+            onClick={() => {
+              setStateFilter('');
+              setBackendFilter('');
+              setLocalityFilter('');
+              setAppFilter('');
+            }}
+          >
+            {t('tasks.filterClear')}
+          </button>
+        )}
+        {selectedIds.size > 0 && (
+          <button
+            type="button"
+            className="tasks__batch-delete"
+            onClick={onBatchDelete}
+            disabled={batchDeleting}
+          >
+            {batchDeleting
+              ? t('tasks.batchDeleting')
+              : t('tasks.batchDelete').replace('{n}', String(selectedIds.size))}
+          </button>
+        )}
+      </div>
 
       {loading && tasks.length === 0 ? (
         <div className="listpage__skeleton" aria-hidden="true">
@@ -529,71 +571,11 @@ export default function TasksPage() {
                   }}
                 />
               </th>
-              <th className="tasks__col-icon tasks__th-filter">
-                <span className="tasks__th-label">{t('tasks.colState')}</span>
-                <select
-                  className="tasks__th-select"
-                  aria-label={t('tasks.filterState')}
-                  value={stateFilter}
-                  onChange={(e) => setStateFilter(e.target.value)}
-                >
-                  <option value="">{t('tasks.filterAll')}</option>
-                  {STATES.map((s) => (
-                    <option key={s} value={s}>
-                      {t(`state.${s}` as MessageKey)}
-                    </option>
-                  ))}
-                </select>
-              </th>
+              <th className="tasks__col-icon">{t('tasks.colState')}</th>
               <th>{t('tasks.colCreated')}</th>
-              <th className="tasks__th-filter">
-                <span className="tasks__th-label">{t('tasks.colApp')}</span>
-                <select
-                  className="tasks__th-select"
-                  aria-label={t('tasks.colApp')}
-                  value={appFilter}
-                  onChange={(e) => setAppFilter(e.target.value)}
-                >
-                  <option value="">{t('tasks.filterAll')}</option>
-                  {availableApps.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </th>
-              <th className="tasks__col-icon tasks__th-filter">
-                <span className="tasks__th-label">{t('tasks.colBackend')}</span>
-                <select
-                  className="tasks__th-select"
-                  aria-label={t('tasks.colBackend')}
-                  value={backendFilter}
-                  onChange={(e) => setBackendFilter(e.target.value)}
-                >
-                  <option value="">{t('tasks.filterAll')}</option>
-                  {availableBackends.map((b) => (
-                    <option key={b} value={b}>
-                      {t(`backend.${b}` as MessageKey)}
-                    </option>
-                  ))}
-                </select>
-              </th>
-              <th className="tasks__col-icon tasks__th-filter">
-                <span className="tasks__th-label">{t('tasks.colLocality')}</span>
-                <select
-                  className="tasks__th-select"
-                  aria-label={t('tasks.colLocality')}
-                  value={localityFilter}
-                  onChange={(e) => setLocalityFilter(e.target.value)}
-                >
-                  <option value="">{t('tasks.filterAll')}</option>
-                  {availableLocalities.map((l) => (
-                    <option key={l} value={l}>
-                      {t(`locality.${l}` as MessageKey)}
-                    </option>
-                  ))}
-                </select>
-              </th>
+              <th>{t('tasks.colApp')}</th>
+              <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
+              <th className="tasks__col-icon">{t('tasks.colLocality')}</th>
               <th className="tasks__col-steps">{t('tasks.colSteps')}</th>
               <th>{t('tasks.colCost')}</th>
               <th title={t('tasks.roleAgentHint')}>{t('tasks.roleAgent')}</th>

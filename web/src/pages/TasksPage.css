@@ -107,51 +107,47 @@
   cursor: not-allowed;
 }
 
-/* 篩選器已內嵌到表頭(見 .tasks__th-filter);此列僅放「清除篩選 / 批次刪除」按鈕,
-   有套用篩選或有勾選時才出現。 */
-.tasks__toolbar {
-  margin-bottom: var(--space-3);
+/* 篩選列:表格上方一條精緻的獨立列,4 個緊湊下拉(標題在上、下拉在下),
+   右側放清除/批次刪除按鈕。 */
+.tasks__filter {
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-/* 表頭內嵌篩選:標題文字在上、小型下拉在下。 */
-.tasks__th-filter {
-  vertical-align: top;
-}
-
-.tasks__th-label {
-  display: block;
-  margin-bottom: var(--space-1);
-}
-
-.tasks__th-select {
-  display: block;
-  width: 100%;
-  max-width: 160px;
-  padding: 2px var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
   background: var(--surface-raised);
-  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.tasks__filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.tasks__filter-label {
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+/* 篩選下拉:高度統一、寬度一致(比表單下拉緊湊)。 */
+.tasks__filter select {
+  min-width: 120px;
+  padding: var(--space-1) var(--space-2);
+  font-size: 13px;
   cursor: pointer;
 }
 
-/* 圖示欄(環境/位置)的表頭篩選置中且窄一些 */
-.tasks__col-icon.tasks__th-filter .tasks__th-select {
-  max-width: 96px;
-  margin: 0 auto;
-}
-
 .tasks__filter-clear {
-  padding: var(--space-2) var(--space-3);
+  margin-left: auto;
+  align-self: flex-end;
+  padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  background: var(--surface-raised);
+  background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
   cursor: pointer;
@@ -340,6 +336,16 @@
   color: var(--status-fail);
   font-size: 13px;
   cursor: pointer;
+}
+
+/* 在篩選列中對齊底部;預設靠右,若前面已有清除鈕則只留小間距。 */
+.tasks__filter .tasks__batch-delete {
+  align-self: flex-end;
+  margin-left: auto;
+}
+
+.tasks__filter .tasks__filter-clear ~ .tasks__batch-delete {
+  margin-left: var(--space-3);
 }
 
 .tasks__batch-delete:hover {
