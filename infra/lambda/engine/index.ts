@@ -42,11 +42,15 @@ export interface EngineEvent {
   seats?: Partial<SeatSelection>;
   /** 使用者於提交時選的 VLM 模型(判畫面座標用);覆寫 seats.vlm。 */
   vlmModel?: string;
-  /** 本次執行的 Budget 上限(美元);未指定用預設保守值。 */
+  /** 本次執行的 Budget 上限(美元);未指定或 <=0 代表「無上限」。 */
   budgetUsd?: number;
+  /** 步數上限;未指定或 <=0 代表「無上限」(runner 跑到 done/卡死/取消才停)。 */
+  maxSteps?: number;
 }
 
-const DEFAULT_BUDGET_USD = 1;
+// 預設「無上限」:不再預設 $1 保守值(過去導致任務被提早異常終止)。
+// null 代表不設預算閘口;使用者若要控管成本,於提交時明確帶入 budgetUsd。
+const DEFAULT_BUDGET_USD: number | null = null;
 
 function jobPrefix(tenantId: string, jobId: string): string {
   return `tenants/${tenantId}/jobs/${jobId}/`;
@@ -271,6 +275,7 @@ export async function handler(event: EngineEvent): Promise<void> {
         url,
         ...(event.vlmModel ? { vlmModel: event.vlmModel } : {}),
         ...(task ? { caseTask: task } : {}),
+        ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
       });
       await writeStatus(s3, BUCKET, event.tenantId, {
         jobId: event.jobId,
@@ -330,6 +335,7 @@ export async function handler(event: EngineEvent): Promise<void> {
           platform,
           ...(event.vlmModel ? { vlmModel: event.vlmModel } : {}),
           ...(meta.caseTask ? { caseTask: meta.caseTask } : {}),
+          ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
         });
         await writeStatus(s3, BUCKET, event.tenantId, {
           jobId: event.jobId,

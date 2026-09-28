@@ -37,7 +37,8 @@ export interface SeatSnapshot {
 }
 
 export interface ExecutionConfigSnapshot {
-  budgetUsd: number;
+  /** 預算上限(美元);null 代表「無上限」(不設 Budget 閘口)。 */
+  budgetUsd: number | null;
   seats: SeatSnapshot[];
   /** 快照產生時間(審計用)。 */
   resolvedAt: string;
@@ -88,7 +89,7 @@ export function defaultSeatSelection(): SeatSelection {
  */
 export function resolveExecutionConfig(
   selection: SeatSelection,
-  budgetUsd: number,
+  budgetUsd: number | null,
   now = new Date(),
 ): ExecutionConfigSnapshot {
   const seatModel: Array<[Seat, string]> = [
@@ -118,7 +119,8 @@ export function resolveExecutionConfig(
 export class SpendAccumulator {
   private _spentUsd = 0;
 
-  constructor(private readonly budgetUsd: number) {}
+  /** budgetUsd 為 null 代表無上限(shouldStop 恆為 false)。 */
+  constructor(private readonly budgetUsd: number | null) {}
 
   get spentUsd(): number {
     return this._spentUsd;
@@ -132,8 +134,9 @@ export class SpendAccumulator {
     return this._spentUsd;
   }
 
-  /** 迭代頂部判定:是否已達 Budget 閾值而應停止(Req 7.1/7.2)。 */
+  /** 迭代頂部判定:是否已達 Budget 閾值而應停止(Req 7.1/7.2)。無上限(null)恆不停。 */
   shouldStop(): boolean {
+    if (this.budgetUsd == null) return false;
     return budgetExceeded({ budgetUsd: this.budgetUsd, spentUsd: this._spentUsd });
   }
 }
