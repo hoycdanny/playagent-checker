@@ -33,8 +33,27 @@ export type MessageKey =
   | 'nav.devices'
   | 'nav.memory'
   | 'nav.knowledge'
+  | 'nav.cost'
   | 'nav.guide'
   | 'shell.emptyContent'
+  | 'page.cost.title'
+  | 'cost.intro'
+  | 'cost.tabReal'
+  | 'cost.tabEstimated'
+  | 'cost.total'
+  | 'cost.byMonth'
+  | 'cost.byService'
+  | 'cost.byComponent'
+  | 'cost.byApp'
+  | 'cost.byModel'
+  | 'cost.realNote'
+  | 'cost.estimatedNote'
+  | 'cost.taskCount'
+  | 'cost.realUnavailable'
+  | 'cost.enableStep1'
+  | 'cost.enableStep2'
+  | 'cost.enableStep3'
+  | 'cost.retry'
   | 'page.apps.title'
   | 'page.apps.empty'
   | 'page.cases.title'
@@ -463,6 +482,28 @@ const zhHant: Catalog = {
   'nav.devices': '裝置管理',
   'nav.memory': '記憶地圖',
   'nav.knowledge': '知識管理',
+  'nav.cost': '費用分析',
+  'page.cost.title': '費用分析',
+  'cost.intro':
+    'AWS 真實成本來自 Cost Explorer(帳號實際帳單,含全部基礎設施);任務估算成本為 token × 單價估算,兩者口徑不同,不應直接相減。',
+  'cost.tabReal': 'AWS 真實成本',
+  'cost.tabEstimated': '任務估算成本',
+  'cost.total': '總計',
+  'cost.byMonth': '月趨勢',
+  'cost.byService': '依 AWS 服務',
+  'cost.byComponent': '依元件(component 標籤)',
+  'cost.byApp': '依應用程式',
+  'cost.byModel': '依模型',
+  'cost.realNote':
+    '資料來自 AWS Cost Explorer(通常延遲約 24 小時,非即時);每次查詢由 AWS 收取約 US$0.01。依元件分組需先在 Billing 主控台啟用 component 為成本分攤標籤。',
+  'cost.estimatedNote':
+    '此為系統內任務的 token 估算加總,不含常駐 GPU(UI-TARS)、Fargate、EC2、CloudFront 等基礎設施成本,會低於真實 AWS 帳單。',
+  'cost.taskCount': '{priced}/{total} 個任務有估算金額',
+  'cost.realUnavailable': '尚無法取得 AWS 真實成本。可能是 Cost Explorer 未啟用、無權限,或成本分攤標籤尚未啟用。請依下列步驟啟用:',
+  'cost.enableStep1': '登入 AWS Billing 主控台 → Cost Explorer,啟用 Cost Explorer(首次啟用後約 24 小時開始有資料)。',
+  'cost.enableStep2': '至 Billing → Cost allocation tags,啟用 project、stage、component(以及你部署時帶入的 costCenter/owner/team 等)為使用者定義成本分攤標籤。',
+  'cost.enableStep3': '標籤僅對「啟用之後」產生的成本生效,過去成本不回溯;啟用後隔日再回來查看。',
+  'cost.retry': '重試',
   'nav.guide': '使用說明',
   'shell.emptyContent': '各功能頁將在後續階段陸續接入。',
   'page.apps.title': '應用管理',
@@ -892,6 +933,28 @@ const en: Catalog = {
   'nav.devices': 'Devices',
   'nav.memory': 'Memory Map',
   'nav.knowledge': 'Knowledge',
+  'nav.cost': 'Cost Analysis',
+  'page.cost.title': 'Cost Analysis',
+  'cost.intro':
+    'Real AWS cost comes from Cost Explorer (actual account billing, including all infrastructure); task estimated cost is a token × price estimate. The two use different bases and should not be subtracted from each other.',
+  'cost.tabReal': 'Real AWS Cost',
+  'cost.tabEstimated': 'Task Estimated Cost',
+  'cost.total': 'Total',
+  'cost.byMonth': 'Monthly trend',
+  'cost.byService': 'By AWS service',
+  'cost.byComponent': 'By component (component tag)',
+  'cost.byApp': 'By app',
+  'cost.byModel': 'By model',
+  'cost.realNote':
+    'Data from AWS Cost Explorer (usually ~24h delayed, not real-time); AWS charges about US$0.01 per query. Grouping by component requires activating "component" as a cost allocation tag in the Billing console.',
+  'cost.estimatedNote':
+    'This sums token-based estimates for tasks only. It excludes infrastructure such as the always-on GPU (UI-TARS), Fargate, EC2, and CloudFront, so it is lower than the real AWS bill.',
+  'cost.taskCount': '{priced}/{total} tasks have an estimated amount',
+  'cost.realUnavailable': 'Real AWS cost is not available yet. Cost Explorer may not be enabled, permission may be missing, or cost allocation tags may not be activated. Enable them as follows:',
+  'cost.enableStep1': 'Sign in to the AWS Billing console → Cost Explorer and enable it (data appears ~24h after first enabling).',
+  'cost.enableStep2': 'Go to Billing → Cost allocation tags and activate project, stage, component (and any costCenter/owner/team you passed at deploy time) as user-defined cost allocation tags.',
+  'cost.enableStep3': 'Tags only apply to cost incurred after activation; past cost is not backfilled. Check back the next day.',
+  'cost.retry': 'Retry',
   'nav.guide': 'Guide',
   'shell.emptyContent': 'Feature pages will be wired up in later stages.',
   'page.apps.title': 'Apps',
@@ -1326,6 +1389,28 @@ const zhHans: Catalog = {
   'nav.devices': '设备管理',
   'nav.memory': '记忆地图',
   'nav.knowledge': '知识管理',
+  'nav.cost': '费用分析',
+  'page.cost.title': '费用分析',
+  'cost.intro':
+    'AWS 真实成本来自 Cost Explorer(账号实际账单,含全部基础设施);任务估算成本为 token × 单价估算,两者口径不同,不应直接相减。',
+  'cost.tabReal': 'AWS 真实成本',
+  'cost.tabEstimated': '任务估算成本',
+  'cost.total': '总计',
+  'cost.byMonth': '月趋势',
+  'cost.byService': '按 AWS 服务',
+  'cost.byComponent': '按组件(component 标签)',
+  'cost.byApp': '按应用程序',
+  'cost.byModel': '按模型',
+  'cost.realNote':
+    '数据来自 AWS Cost Explorer(通常延迟约 24 小时,非实时);每次查询由 AWS 收取约 US$0.01。按组件分组需先在 Billing 控制台启用 component 为成本分摊标签。',
+  'cost.estimatedNote':
+    '此为系统内任务的 token 估算加总,不含常驻 GPU(UI-TARS)、Fargate、EC2、CloudFront 等基础设施成本,会低于真实 AWS 账单。',
+  'cost.taskCount': '{priced}/{total} 个任务有估算金额',
+  'cost.realUnavailable': '暂时无法获取 AWS 真实成本。可能是 Cost Explorer 未启用、无权限,或成本分摊标签尚未启用。请按以下步骤启用:',
+  'cost.enableStep1': '登录 AWS Billing 控制台 → Cost Explorer,启用 Cost Explorer(首次启用后约 24 小时开始有数据)。',
+  'cost.enableStep2': '前往 Billing → Cost allocation tags,启用 project、stage、component(以及你部署时带入的 costCenter/owner/team 等)为用户定义成本分摊标签。',
+  'cost.enableStep3': '标签仅对「启用之后」产生的成本生效,过去成本不回溯;启用后隔日再回来查看。',
+  'cost.retry': '重试',
   'nav.guide': '使用说明',
   'shell.emptyContent': '各功能页将在后续阶段陆续接入。',
   'page.apps.title': '应用管理',
@@ -1755,6 +1840,28 @@ const ja: Catalog = {
   'nav.devices': 'デバイス管理',
   'nav.memory': '記憶マップ',
   'nav.knowledge': 'ナレッジ管理',
+  'nav.cost': 'コスト分析',
+  'page.cost.title': 'コスト分析',
+  'cost.intro':
+    'AWS 実コストは Cost Explorer(アカウントの実際の請求、全インフラ含む)から取得します。タスク推定コストは token × 単価の見積りで、基準が異なるため直接引き算しないでください。',
+  'cost.tabReal': 'AWS 実コスト',
+  'cost.tabEstimated': 'タスク推定コスト',
+  'cost.total': '合計',
+  'cost.byMonth': '月次推移',
+  'cost.byService': 'AWS サービス別',
+  'cost.byComponent': 'コンポーネント別(component タグ)',
+  'cost.byApp': 'アプリ別',
+  'cost.byModel': 'モデル別',
+  'cost.realNote':
+    'データは AWS Cost Explorer 由来(通常約 24 時間遅延、リアルタイムではありません)。クエリごとに AWS が約 US$0.01 課金します。コンポーネント別集計には Billing コンソールで component をコスト配分タグとして有効化する必要があります。',
+  'cost.estimatedNote':
+    'これはタスクの token 推定の合計で、常駐 GPU(UI-TARS)、Fargate、EC2、CloudFront などのインフラコストを含まないため、実際の AWS 請求より低くなります。',
+  'cost.taskCount': '{priced}/{total} 件のタスクに推定額あり',
+  'cost.realUnavailable': 'AWS 実コストをまだ取得できません。Cost Explorer が未有効、権限不足、またはコスト配分タグが未有効の可能性があります。次の手順で有効化してください:',
+  'cost.enableStep1': 'AWS Billing コンソール → Cost Explorer にサインインし有効化します(初回有効化後、約 24 時間でデータが表示)。',
+  'cost.enableStep2': 'Billing → Cost allocation tags で project、stage、component(およびデプロイ時に渡した costCenter/owner/team など)をユーザー定義コスト配分タグとして有効化します。',
+  'cost.enableStep3': 'タグは「有効化後」に発生したコストにのみ適用され、過去分は遡及されません。翌日に再度ご確認ください。',
+  'cost.retry': '再試行',
   'nav.guide': '使い方',
   'shell.emptyContent': '各機能ページは今後の段階で順次追加されます。',
   'page.apps.title': 'アプリ管理',
@@ -2185,6 +2292,28 @@ const ko: Catalog = {
   'nav.devices': '장치 관리',
   'nav.memory': '기억 지도',
   'nav.knowledge': '지식 관리',
+  'nav.cost': '비용 분석',
+  'page.cost.title': '비용 분석',
+  'cost.intro':
+    'AWS 실제 비용은 Cost Explorer(계정 실제 청구, 모든 인프라 포함)에서 가져옵니다. 작업 추정 비용은 token × 단가 추정이며 기준이 다르므로 직접 빼면 안 됩니다.',
+  'cost.tabReal': 'AWS 실제 비용',
+  'cost.tabEstimated': '작업 추정 비용',
+  'cost.total': '합계',
+  'cost.byMonth': '월별 추이',
+  'cost.byService': 'AWS 서비스별',
+  'cost.byComponent': '구성 요소별(component 태그)',
+  'cost.byApp': '앱별',
+  'cost.byModel': '모델별',
+  'cost.realNote':
+    '데이터는 AWS Cost Explorer 기반(보통 약 24시간 지연, 실시간 아님)이며, 쿼리당 AWS가 약 US$0.01을 청구합니다. 구성 요소별 그룹화는 Billing 콘솔에서 component를 비용 할당 태그로 활성화해야 합니다.',
+  'cost.estimatedNote':
+    '이는 작업의 token 추정 합계로, 상주 GPU(UI-TARS), Fargate, EC2, CloudFront 등 인프라 비용을 포함하지 않아 실제 AWS 청구서보다 낮습니다.',
+  'cost.taskCount': '{priced}/{total}개 작업에 추정 금액 있음',
+  'cost.realUnavailable': '아직 AWS 실제 비용을 가져올 수 없습니다. Cost Explorer가 비활성, 권한 없음, 또는 비용 할당 태그가 미활성일 수 있습니다. 다음 단계로 활성화하세요:',
+  'cost.enableStep1': 'AWS Billing 콘솔 → Cost Explorer에 로그인하여 활성화합니다(최초 활성화 후 약 24시간 뒤 데이터 표시).',
+  'cost.enableStep2': 'Billing → Cost allocation tags에서 project, stage, component(및 배포 시 전달한 costCenter/owner/team 등)를 사용자 정의 비용 할당 태그로 활성화합니다.',
+  'cost.enableStep3': '태그는 "활성화 이후" 발생한 비용에만 적용되며 과거 비용은 소급되지 않습니다. 다음 날 다시 확인하세요.',
+  'cost.retry': '다시 시도',
   'nav.guide': '사용 설명',
   'shell.emptyContent': '각 기능 페이지는 이후 단계에서 순차적으로 연결됩니다.',
   'page.apps.title': '앱 관리',

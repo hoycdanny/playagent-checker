@@ -26,6 +26,8 @@ const UBUNTU_X86_SSM =
 export interface ExecutionStackProps extends StackProps {
   dataBucket: s3.IBucket;
   tenantRole: iam.IRole;
+  /** 成本分攤標籤(project/stage/component + 部署者帶入),序列化後傳給引擎供執行期資源貼標。 */
+  costTags?: Record<string, string>;
 }
 
 /** 每任務主機的生命週期標籤鍵/值。常駐主機不帶此標籤,故不被回收路徑觸及(Req 4.5)。 */
@@ -147,6 +149,11 @@ export class ExecutionStack extends Stack {
       environment: {
         DATA_BUCKET: props.dataBucket.bucketName,
         TENANT_ROLE_ARN: props.tenantRole.roleArn,
+        // 成本分攤標籤(JSON):執行期動態起的 EC2 / Fargate 用它貼標(見 lambda/engine/costTags.ts)。
+        COST_TAGS: JSON.stringify({
+          project: 'playagent-checker',
+          ...(props.costTags ?? {}),
+        }),
       },
       bundling: {
         format: OutputFormat.ESM,

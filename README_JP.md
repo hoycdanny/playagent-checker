@@ -167,6 +167,18 @@ AWS_REGION=us-east-2 npx cdk deploy \
   --require-approval never
 ```
 
+> **任意 —— コスト配分タグ。** すべてのリソースに `project`、`stage`、`component` が自動付与されます。デプロイ時に `-c` で独自のタグ(コストセンターへのチャージバックなど)を渡せます。これらは実行時に起動する EC2/Fargate を含む全リソースに伝播し、有効化後は「コスト分析」ページで使われます(下記「コスト分析ページを有効化する」参照)。
+>
+> ```bash
+> AWS_REGION=us-east-2 npx cdk deploy \
+>   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
+>   PlayAgentDev-Scheduling PlayAgentDev-Execution \
+>   --require-approval never \
+>   -c costCenter=QA-1234 -c owner=alice -c team=game-qa
+> ```
+>
+> 使用可能なキー:`costCenter`、`owner`、`team`、`env`、`costAllocation`。タグを一貫させるため、各スタックのデプロイ時に同じ `-c` フラグを付けてください。
+
 約 10〜15 分。完了後、以下を実行すると必要な 4 つの値が表示されます(命名は自動処理):
 
 ```bash
@@ -282,6 +294,25 @@ aws cognito-idp admin-set-user-password --region us-east-2 \
 ✅ **これで動作する環境が完成です。**
 
 UI-TARS グラウンディングの仕組みは [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md) を参照。
+
+## コスト分析ページを有効化する
+
+**コスト分析**ページ(「ナレッジ管理」の隣)は 2 つの数値を並べて表示します:
+
+- **AWS 実コスト** —— **AWS Cost Explorer** からリアルタイム取得:実際の請求を、サービス別・`component` タグ別・月別に分解。すべて(SageMaker GPU、Fargate、EC2、CloudFront など)を含みます。
+- **タスク推定コスト** —— タスクの token × 単価の推定を合計し、アプリ別・モデル別に集計。インフラを含まないため実請求より低く、基準が異なるので直接引き算しないでください。
+
+推定側はすぐ使えます。実コスト側は **1 回だけのアカウント設定**が必要です(Cost Explorer はアカウントレベルで、CDK では有効化できません):
+
+1. **Cost Explorer を有効化。** AWS コンソールで **Billing and Cost Management → Cost Explorer** を開き有効化します。初回有効化後、約 **24 時間**でデータが出始めます。
+2. **コスト配分タグを有効化。** **Billing and Cost Management → Cost allocation tags → User-defined cost allocation tags** で `project`、`stage`、`component`(およびデプロイ時に渡した `costCenter` / `owner` / `team` など)を選び **Activate** します。
+3. **翌日に確認。** タグは有効化**後**に発生したコストにのみ適用されます —— 過去分は遡及されず、それまで `component` 別集計はすべて「未タグ」になります。翌日また見てください。
+
+補足:
+
+- Cost Explorer API は `us-east-1` のみ提供。デプロイ先リージョンに関わらず、アプリは同リージョンに固定して問い合わせます。
+- クエリごとに AWS が約 **US$0.01** を課金し、データは通常約 24 時間遅延します(リアルタイムではありません)。
+- コスト配分タグを有効化できるのはアカウント所有者 / 請求権限を持つ IAM ユーザーのみです。
 
 ## Device Farm(実機)について
 

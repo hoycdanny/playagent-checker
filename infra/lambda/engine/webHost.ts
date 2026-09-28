@@ -1,4 +1,5 @@
 import { ECSClient, RunTaskCommand } from '@aws-sdk/client-ecs';
+import { costTagsAsEcs } from './costTags.js';
 
 /**
  * WebHost —— engine Lambda 用它啟動「網頁探索」Fargate task(headless Chromium)。
@@ -82,6 +83,8 @@ export async function startWebRun(params: WebRunParams): Promise<WebRunResult> {
       overrides: {
         containerOverrides: [{ name: ECS_CONTAINER_NAME, environment: env }],
       },
+      // 成本分攤標籤:讓執行期 Fargate task 也能在 Cost Explorer 依同一組標籤歸屬。
+      ...(costTagsAsEcs().length > 0 ? { tags: costTagsAsEcs() } : {}),
     }),
   );
   const ecsTaskArn = runResp.tasks?.[0]?.taskArn;

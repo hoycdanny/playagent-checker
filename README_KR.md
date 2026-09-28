@@ -167,6 +167,18 @@ AWS_REGION=us-east-2 npx cdk deploy \
   --require-approval never
 ```
 
+> **선택 —— 비용 할당 태그.** 모든 리소스에 `project`, `stage`, `component`가 자동으로 붙습니다. 배포 시 `-c`로 자체 태그(예: 특정 코스트 센터로 청구)를 전달할 수 있습니다. 이 태그는 런타임에 시작되는 EC2/Fargate를 포함한 모든 리소스에 전파되며, 활성화하면 **비용 분석** 페이지에서 사용됩니다(아래 "비용 분석 페이지 활성화" 참조).
+>
+> ```bash
+> AWS_REGION=us-east-2 npx cdk deploy \
+>   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
+>   PlayAgentDev-Scheduling PlayAgentDev-Execution \
+>   --require-approval never \
+>   -c costCenter=QA-1234 -c owner=alice -c team=game-qa
+> ```
+>
+> 사용 가능한 키: `costCenter`, `owner`, `team`, `env`, `costAllocation`. 태그가 일관되도록 각 스택을 배포할 때마다 동일한 `-c` 플래그를 사용하세요.
+
 약 10~15분. 완료 후 아래를 실행하면 필요한 네 값이 출력됩니다(이름은 자동 처리):
 
 ```bash
@@ -282,6 +294,25 @@ aws cognito-idp admin-set-user-password --region us-east-2 \
 ✅ **이제 동작하는 환경이 완성되었습니다.**
 
 UI-TARS 그라운딩 원리는 [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md) 참고.
+
+## 비용 분석 페이지 활성화
+
+**비용 분석** 페이지("지식 관리" 옆)는 두 가지 수치를 나란히 보여줍니다:
+
+- **AWS 실제 비용** —— **AWS Cost Explorer**에서 실시간으로 가져옵니다: 실제 청구서를 서비스별, `component` 태그별, 월별로 분해합니다. 모든 것(SageMaker GPU, Fargate, EC2, CloudFront 등)을 포함합니다.
+- **작업 추정 비용** —— 작업의 token × 단가 추정을 합산하여 앱별, 모델별로 집계합니다. 인프라를 포함하지 않아 실제 청구서보다 낮으며, 기준이 다르므로 서로 빼면 안 됩니다.
+
+추정 쪽은 즉시 사용할 수 있습니다. 실제 쪽은 **일회성 계정 설정**이 필요합니다(Cost Explorer는 계정 수준이라 CDK로 활성화할 수 없습니다):
+
+1. **Cost Explorer 활성화.** AWS 콘솔에서 **Billing and Cost Management → Cost Explorer**로 이동하여 활성화합니다. 최초 활성화 후 약 **24시간** 뒤 데이터가 나타나기 시작합니다.
+2. **비용 할당 태그 활성화.** **Billing and Cost Management → Cost allocation tags → User-defined cost allocation tags**에서 `project`, `stage`, `component`(및 배포 시 전달한 `costCenter` / `owner` / `team` 등)를 선택하고 **Activate**를 클릭합니다.
+3. **다음 날 확인.** 태그는 활성화 **이후** 발생한 비용에만 적용됩니다 —— 과거 비용은 소급되지 않으며, 그전까지 `component`별 집계는 모두 "태그 없음"으로 표시됩니다. 다음 날 다시 확인하세요.
+
+참고:
+
+- Cost Explorer API는 `us-east-1`에만 있습니다. 배포 리전과 관계없이 앱이 해당 리전으로 조회합니다.
+- 쿼리마다 AWS가 약 **US$0.01**을 청구하며, 데이터는 보통 약 24시간 지연됩니다(실시간 아님).
+- 계정 소유자 / 청구 권한이 있는 IAM 사용자만 비용 할당 태그를 활성화할 수 있습니다.
 
 ## Device Farm(실제 휴대폰) 참고
 
