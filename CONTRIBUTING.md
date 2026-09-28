@@ -1,0 +1,46 @@
+# Contributing
+
+Thanks for your interest in PlayAgent Checker. This guide covers the essentials for working in the repo.
+
+## Project layout
+
+- `agent/` — execution runners that run inside Fargate containers (Device Farm + Web) and the SageMaker/UI-TARS deploy scripts.
+- `infra/` — AWS CDK app (stacks + Lambda source + tests).
+- `web/` — React + Vite web console.
+- `docs/` — architecture, design notes, research.
+
+## Local checks (run before opening a PR)
+
+```bash
+# Infra: CDK synth + unit tests
+cd infra && npm install && npm test
+
+# Web: i18n completeness + type-check + tests + build
+cd ../web && npm install && npm run ci
+```
+
+Both must pass. The web `ci` script includes `check:i18n`, which enforces that the primary locales (zh-Hant, en) have every message key — do not merge with missing keys.
+
+## Conventions
+
+- **Internationalization:** all user-facing strings go through the i18n catalog (`web/src/i18n/messages.ts`). The app supports 5 locales: zh-Hant, en, zh-Hans, ja, ko. zh-Hant is the authoritative key set; en must be complete.
+- **Icons/graphics:** use self-drawn inline SVG; do not add binary image assets for icons.
+- **Secrets:** never commit credentials. Test cases must use `${ENV}` placeholders / secret references, not literal passwords.
+- **Honesty in docs & UI:** architecture diagrams and the in-app Guide must reflect what is actually verified end-to-end. Mark scaffolded-but-unverified pieces as such.
+- **Cost-sensitive resources:** anything that bills continuously (e.g. the SageMaker UI-TARS endpoint) must have a teardown path and be documented.
+
+## Commit & PR
+
+- Keep changes focused; describe what changed, what you tested, and any follow-ups.
+- Push to a feature branch and open a PR against `main` (do not push directly to `main`).
+- Do not modify git hooks or config as part of a feature PR.
+
+## Deploying
+
+Deploys target AWS **us-east-2**:
+
+```bash
+cd infra && AWS_REGION=us-east-2 npx cdk deploy --all --require-approval never
+```
+
+Large container images (vLLM, exploration runner) are built in the cloud via AWS CodeBuild (`agent/sagemaker/cloudBuild.mjs`, `cloudBuildRunner.mjs`) to avoid local disk/bandwidth limits.
