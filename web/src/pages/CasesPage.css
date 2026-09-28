@@ -1,0 +1,238 @@
+.cases__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.cases__create-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cases__create-btn:hover {
+  background: var(--brand-hover);
+}
+
+.cases__header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cases__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.cases__row {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.cases__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cases__field--grow {
+  flex: 1;
+}
+
+.cases__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cases__field input,
+.cases__field select {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.cases__tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border);
+}
+
+.cases__tab {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.cases__tab--active {
+  color: var(--text-primary);
+  border-bottom-color: var(--brand);
+}
+
+.cases__textarea {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.cases__textarea--mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cases__draft-row {
+  margin-top: var(--space-2);
+}
+
+.cases__draft-btn {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--brand);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cases__draft-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cases__error {
+  margin: 0;
+  color: var(--status-fail);
+  font-size: 13px;
+}
+
+.cases__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.cases__cancel {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cases__submit {
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cases__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .cases__row {
+    flex-direction: column;
+  }
+}
+
+.cases__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.cases__item-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cases__item-trend {
+  margin-left: auto;
+}
+
+.cases__item-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.cases__row-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.cases__row-btn:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.cases__row-btn--danger:hover:not(:disabled) {
+  border-color: var(--status-fail);
+  color: var(--status-fail);
+}
+
+.cases__row-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cases__form-title {
+  margin: 0 0 var(--space-2);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 範本感知編修:從記憶地圖帶入範本時的提示 */
+.cases__tpl-note {
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  word-break: normal;
+  line-break: strict;
+  overflow-wrap: anywhere;
+}

@@ -1,0 +1,221 @@
+.topbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.topbar__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--topbar-h);
+  padding: var(--space-2) var(--space-6);
+}
+
+.topbar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.topbar__logo {
+  color: var(--brand);
+  font-size: 18px;
+}
+
+.topbar__name {
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+}
+
+.topbar__nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 0;
+}
+
+.topbar__nav-link {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  white-space: nowrap;
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.topbar__nav-link:hover {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.topbar__lang select {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: 13px;
+  cursor: pointer;
+  max-width: 40vw;
+}
+
+.topbar__theme,
+.topbar__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 16px;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.topbar__theme:hover,
+.topbar__menu-btn:hover {
+  border-color: var(--border-strong);
+}
+
+/* 漢堡鈕:桌面隱藏 */
+.topbar__menu-btn {
+  display: none;
+}
+
+/* 行動展開導覽 */
+.topbar__mobile-nav {
+  display: none;
+  flex-direction: column;
+  padding: var(--space-2) var(--space-4) var(--space-4);
+  border-top: 1px solid var(--border);
+  gap: var(--space-1);
+}
+
+.topbar__mobile-link {
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 15px;
+}
+
+.topbar__mobile-link:hover {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.topbar__user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  max-width: 200px;
+}
+
+.topbar__email {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.topbar__tenant {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.topbar__logout {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.topbar__logout:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/*
+ * 響應式(Req 15 操作流暢性 + 手機可用):
+ * 窄螢幕(<=720px)收起桌面內嵌導覽,改用漢堡選單,避免頂欄擁擠。
+ * 觸控目標維持 38px 以上。
+ */
+@media (max-width: 720px) {
+  .topbar__row {
+    padding: var(--space-2) var(--space-4);
+  }
+  .topbar__nav {
+    display: none;
+  }
+  .topbar__menu-btn {
+    display: inline-flex;
+  }
+  .topbar__mobile-nav {
+    display: flex;
+  }
+  .topbar__name {
+    font-size: 15px;
+  }
+  /* 窄螢幕隱藏 email/租戶文字,保留登出鈕,避免頂欄擁擠 */
+  .topbar__user-info {
+    display: none;
+  }
+}
+
+/* 極窄螢幕:語言下拉縮短,避免擠壓 */
+@media (max-width: 400px) {
+  .topbar__lang select {
+    max-width: 96px;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "playagent-checker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Serverless AI QA Platform",
+  "workspaces": [
+    "web",
+    "infra"
+  ],
+  "scripts": {
+    "build:web": "npm run build --workspace web",
+    "dev:web": "npm run dev --workspace web",
+    "test:web": "npm run test --workspace web",
+    "synth": "npm run synth --workspace infra",
+    "test:infra": "npm run test --workspace infra"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

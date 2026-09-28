@@ -1,0 +1,57 @@
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.app-shell__content {
+  flex: 1;
+}
+
+.app-shell__loading {
+  height: 3px;
+  background: var(--brand);
+  animation: app-shell-loading 1s ease infinite;
+  transform-origin: left;
+}
+
+@keyframes app-shell-loading {
+  0% {
+    transform: scaleX(0);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-shell__loading {
+    animation: none;
+  }
+}
+
+.app-shell__empty {
+  text-align: center;
+  max-width: 520px;
+}
+
+.app-shell__title {
+  margin: 0 0 var(--space-2);
+  font-size: 28px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.app-shell__tagline {
+  margin: 0 0 var(--space-6);
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.app-shell__hint {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-tertiary);
+}

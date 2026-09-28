@@ -1,0 +1,387 @@
+.tasks__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.tasks__submit-btn {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tasks__submit-btn:hover {
+  background: var(--brand-hover);
+}
+
+.tasks__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: flex-end;
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.tasks__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 160px;
+}
+
+.tasks__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 模型分工:區塊前導說明 + 每個下拉的角色說明 */
+.tasks__models-intro {
+  flex-basis: 100%;
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.tasks__field-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.tasks__field select,
+.tasks__filter select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.tasks__error {
+  margin: 0;
+  color: var(--status-fail);
+  font-size: 13px;
+  flex-basis: 100%;
+}
+
+.tasks__actions {
+  display: flex;
+  gap: var(--space-3);
+  margin-left: auto;
+}
+
+.tasks__cancel-btn {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tasks__go {
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tasks__go:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tasks__filter {
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3) var(--space-4);
+}
+
+.tasks__filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tasks__filter-clear {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks__filter-clear:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.tasks__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tasks__table th,
+.tasks__table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.tasks__table th {
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.tasks__created {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* 狀態徽章:文字 + 顏色 + 形狀(圓點)三重編碼,不只靠顏色(Req 11.4) */
+.task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.task-state::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.task-state--pass {
+  color: var(--status-pass);
+}
+.task-state--fail {
+  color: var(--status-fail);
+}
+.task-state--error {
+  color: var(--status-error);
+}
+.task-state--cancelled {
+  color: var(--status-cancelled);
+}
+.task-state--budget {
+  color: var(--status-error);
+}
+.task-state--dead {
+  color: var(--status-fail);
+}
+.task-state--running {
+  color: var(--status-running);
+}
+.task-state--queued {
+  color: var(--text-tertiary);
+}
+
+.tasks__state-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 狀態圖示顏色(僅作用於任務列表的狀態欄圖示,不動全域 --status-* token)。
+   只有四種狀態上「淡色」:通過=淡綠、失敗=淡紅、執行中=淡藍、錯誤/警告=淡黃;
+   其餘(排隊/取消/超預算/逾時)維持中性灰(不上色)。淡色以 color-mix 混白(亮色)/混深(暗色主題)。 */
+.tasks__state-link.task-state--pass {
+  color: color-mix(in srgb, var(--status-pass) 55%, var(--surface));
+}
+.tasks__state-link.task-state--fail {
+  color: color-mix(in srgb, var(--status-fail) 55%, var(--surface));
+}
+.tasks__state-link.task-state--running {
+  color: color-mix(in srgb, var(--status-running) 55%, var(--surface));
+}
+.tasks__state-link.task-state--error {
+  color: color-mix(in srgb, var(--status-error) 60%, var(--surface));
+}
+/* 其他狀態(budget/dead/cancelled/queued)不特別上色,用次要文字色的中性灰。 */
+.tasks__state-link.task-state--budget,
+.tasks__state-link.task-state--dead,
+.tasks__state-link.task-state--cancelled,
+.tasks__state-link.task-state--queued {
+  color: var(--text-tertiary);
+}
+
+/* 關鍵:狀態欄的 TaskIcon 內層 .taskicon 本身有 color:var(--text-secondary)(給環境/位置用的灰),
+   會擋住 Link 上的狀態色,使 SVG 的 currentColor 解析成灰。故在狀態欄讓 .taskicon 改為繼承,
+   SVG 才能吃到 Link 的淡色。只作用於狀態欄,不影響環境/位置圖示。 */
+.tasks__state-link .taskicon {
+  color: inherit;
+}
+
+.tasks__row-cancel {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks__row-cancel:hover {
+  border-color: var(--status-fail);
+  color: var(--status-fail);
+}
+
+/* 圖示欄(環境/位置):置中、固定小寬度,標題不被壓成直排 */
+.tasks__col-icon {
+  text-align: center;
+  white-space: nowrap;
+  width: 64px;
+}
+
+/* 步數欄:置中、窄,數字右不換行 */
+.tasks__col-steps {
+  text-align: center;
+  white-space: nowrap;
+  width: 64px;
+  color: var(--text-secondary);
+}
+
+/* 文字欄(模型三角色):不換行 */
+.tasks__text-cell {
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.tasks__model {
+  cursor: default;
+}
+
+.tasks__cost {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tasks__cost-est {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.tasks__muted-cell {
+  color: var(--text-tertiary);
+}
+
+/* 批次刪除:勾選欄 + 刪除鈕 + 選取列高亮 */
+.tasks__col-check {
+  width: 36px;
+  text-align: center;
+}
+
+.tasks__row--selected {
+  background: color-mix(in srgb, var(--brand) 6%, transparent);
+}
+
+.tasks__batch-delete {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--status-fail);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--status-fail) 8%, transparent);
+  color: var(--status-fail);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tasks__batch-delete:hover {
+  background: color-mix(in srgb, var(--status-fail) 16%, transparent);
+}
+
+.tasks__batch-delete:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 操作欄:單一 icon 按鈕(取消/刪除),hover 由 title 顯示動作 */
+.tasks__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.tasks__icon-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.tasks__icon-btn--danger:hover {
+  border-color: var(--status-fail);
+  color: var(--status-fail);
+}
+
+@media (max-width: 640px) {
+  /* 手機:隱藏建立時間(第 2 欄)以讓出空間給圖示與花費 */
+  .tasks__table th:nth-child(2),
+  .tasks__table td:nth-child(2) {
+    display: none;
+  }
+}
+
+/* 提交時的知識庫多選 */
+.tasks__kb-field {
+  flex-basis: 100%;
+  min-width: 240px;
+}
+
+.tasks__kb-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) 0;
+}
+
+.tasks__kb-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.tasks__kb-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+

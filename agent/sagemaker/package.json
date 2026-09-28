@@ -1,0 +1,12 @@
+{
+  "name": "playagent-uitars-deploy",
+  "private": true,
+  "type": "module",
+  "description": "Deploy/teardown scripts for the UI-TARS SageMaker endpoint (plan B).",
+  "dependencies": {
+    "@aws-sdk/client-sagemaker": "^3.658.0",
+    "@aws-sdk/client-sts": "^3.658.0",
+    "@aws-sdk/client-codebuild": "^3.658.0",
+    "@aws-sdk/client-iam": "^3.658.0"
+  }
+}

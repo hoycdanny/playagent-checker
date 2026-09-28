@@ -1,0 +1,21 @@
+# Web 探索 runner 容器(跑在 ECS Fargate)。
+# headless Chromium via Playwright,跑 screenshot→VLM→act 迴圈測試網頁應用。
+# 用 Playwright 官方 image:已內含 Chromium + 所有系統相依(字型、libnss 等),版本需與 npm 的 playwright 對齊。
+FROM mcr.microsoft.com/playwright:v1.48.0-jammy
+
+WORKDIR /app
+
+# ImageMagick:座標校正(smart-resize / 落點標記 / pHash)用 convert/identify;字型供 -annotate。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends imagemagick fonts-dejavu-core \
+  && rm -rf /var/lib/apt/lists/*
+
+# 只裝執行相依(aws-sdk + playwright)。用容器專用 package.json。
+COPY web-runner.package.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
+
+# 複製 runner 與其模組(共用 imageTools.mjs)。
+COPY webExplorationRunner.mjs playwrightClient.mjs imageTools.mjs ./
+
+# 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_URL / PA_JOB / ...)。
+CMD ["node", "webExplorationRunner.mjs"]

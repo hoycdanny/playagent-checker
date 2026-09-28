@@ -1,0 +1,42 @@
+.taskicon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  cursor: default;
+  outline: none;
+}
+
+.taskicon:focus-visible {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 2px var(--brand);
+}
+
+/* 即時 tooltip:hover 或鍵盤 focus 顯示,說明此圖示代表什麼 */
+.taskicon__tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border-strong, var(--border));
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.2));
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.2;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.taskicon:hover .taskicon__tip,
+.taskicon:focus-visible .taskicon__tip {
+  opacity: 1;
+  visibility: visible;
+}

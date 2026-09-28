@@ -1,0 +1,34 @@
+# Device Farm 探索 runner 容器(跑在 ECS Fargate)。
+# 用 Appium(webdriverio)驅動 Device Farm 真機,跑 screenshot→VLM→act 迴圈。
+# 不需 Android SDK/adb——Device Farm 提供的是遠端 Appium(WebDriver)端點,純 HTTP。
+FROM public.ecr.aws/docker/library/node:22-slim
+
+WORKDIR /app
+
+# ImageMagick:座標校正三件套(網格疊圖 / 亮鈕吸附 / 落點標記)用 `convert`/`identify`。
+# 提升 VLM 在真機截圖上的點擊精度(Cocos2d-x/Unity 遊戲整張畫布無原生元素,VLM 易估偏)。
+# imagemagick + 一組基本字型(fonts-dejavu-core):IM 的 -annotate 需要字型,否則會 Abort。
+# imagemagick + 字型:座標校正三件套用。
+# unzip:偵測 XAPK(列 ZIP 內容找 .apk)。
+# default-jre-headless:跑 APKEditor.jar 合併 XAPK/split → universal APK(Device Farm 只吃單一 APK)。
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends imagemagick fonts-dejavu-core unzip default-jre-headless curl \
+  && rm -rf /var/lib/apt/lists/*
+
+# APKEditor:把 XAPK / split APK 合併成單一 universal APK。釘版本以求可重現建置。
+# 來源為官方 GitHub release(REAndroid/APKEditor),純 Java jar,無需額外相依。
+ARG APKEDITOR_VERSION=1.4.3
+RUN mkdir -p /opt/apkeditor \
+  && curl -fsSL -o /opt/apkeditor/APKEditor.jar \
+     "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" \
+  && test -s /opt/apkeditor/APKEditor.jar
+
+# 只裝執行相依(webdriverio + aws-sdk)。用容器專用 package.json。
+COPY exploration-runner.package.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
+
+# 複製 runner 與其模組。
+COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs ./
+
+# 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_APPIUM_URL / PA_JOB / ...)。
+CMD ["node", "explorationRunner.mjs"]

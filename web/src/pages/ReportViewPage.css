@@ -1,0 +1,254 @@
+.report__back {
+  display: inline-block;
+  margin-bottom: var(--space-4);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.report__back:hover {
+  color: var(--text-primary);
+}
+
+.report__state {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+}
+
+.report__cost {
+  display: flex;
+  gap: var(--space-6);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.report__narrative-box {
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.report__narrative-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.report__subtitle {
+  margin: 0 0 var(--space-3);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.report__narrative-head .report__subtitle {
+  margin: 0;
+}
+
+.report__lang select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.report__narrative {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.report__fallback {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.report__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.report__step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.report__step-idx {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.report__step-action {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-raised);
+}
+
+.report__step-url {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+
+.report__step-title {
+  color: var(--text-primary);
+}
+
+/* emulator 報告:任務描述 */
+.report__task {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--brand);
+}
+
+.report__model {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.report__empty-note {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  margin: 0 0 var(--space-4);
+}
+
+/* 遊戲畫面畫廊 */
+.report__gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+}
+
+.report__shot {
+  margin: 0;
+}
+
+.report__shot-btn {
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: #000;
+  cursor: pointer;
+  overflow: hidden;
+  display: block;
+  width: 100%;
+}
+
+.report__shot-btn img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.report__shot figcaption {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: var(--space-1);
+  text-align: center;
+}
+
+/* 逐步 trace */
+.report__trace {
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.report__trace-step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: var(--space-3);
+}
+
+.report__trace-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.report__trace-action {
+  font-weight: 600;
+  color: var(--brand);
+}
+
+.report__trace-screen {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.report__trace-coords {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.report__trace-dur {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.report__trace-reason {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* 截圖放大燈箱 */
+.report__lightbox {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  cursor: zoom-out;
+  padding: var(--space-6);
+}
+
+.report__lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: var(--radius-sm);
+}
