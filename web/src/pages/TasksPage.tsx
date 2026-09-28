@@ -8,6 +8,7 @@ import AppBadge, { type AppRef } from '../components/AppRef.tsx';
 import TaskIcon from '../components/TaskIcon.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
+import RangeSlider from '../components/RangeSlider.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 
@@ -131,11 +132,17 @@ export default function TasksPage() {
   const [budgetUsd, setBudgetUsd] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 多欄位篩選:狀態 / 環境 / 位置 / 應用(空字串 = 全部)。
+  // 多欄位篩選:狀態 / 環境 / 位置 / 應用 / 三個模型欄(空字串 = 全部)。
   const [stateFilter, setStateFilter] = useState<string>('');
   const [backendFilter, setBackendFilter] = useState<string>('');
   const [localityFilter, setLocalityFilter] = useState<string>('');
   const [appFilter, setAppFilter] = useState<string>('');
+  const [agentFilter, setAgentFilter] = useState<string>('');
+  const [vlmFilter, setVlmFilter] = useState<string>('');
+  const [subagentFilter, setSubagentFilter] = useState<string>('');
+  // 範圍篩選:步數 / 花費。null = 尚未縮限(用完整上下界)。
+  const [stepsRange, setStepsRange] = useState<[number, number] | null>(null);
+  const [costRange, setCostRange] = useState<[number, number] | null>(null);
   // 批次刪除:勾選的 jobId 集合。
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [batchDeleting, setBatchDeleting] = useState(false);
@@ -208,8 +215,61 @@ export default function TasksPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [tasks, appById]);
 
-  // 是否已套用任一篩選(用於顯示「清除篩選」)。篩選器現在內嵌於表頭。
-  const hasFilter = Boolean(stateFilter || backendFilter || localityFilter || appFilter);
+  // 每列任務在三個模型欄實際顯示的 modelId(與表格 render 邏輯一致,供篩選比對)。
+  const taskAgentModel = (x: TaskItem) => x.seatModels?.agent ?? x.vlmModel;
+  const taskVlmModel = (x: TaskItem) => x.seatModels?.vlm ?? x.vlmModel;
+  const taskSubagentModel = (x: TaskItem) => x.seatModels?.subagent;
+
+  // 模型欄篩選選項:只列目前任務中實際出現過的 modelId(避免死選項)。
+  const availableAgentModels = useMemo(
+    () => [...new Set(tasks.map(taskAgentModel).filter(Boolean) as string[])].sort(),
+    [tasks],
+  );
+  const availableVlmModels = useMemo(
+    () => [...new Set(tasks.map(taskVlmModel).filter(Boolean) as string[])].sort(),
+    [tasks],
+  );
+  const availableSubagentModels = useMemo(
+    () => [...new Set(tasks.map(taskSubagentModel).filter(Boolean) as string[])].sort(),
+    [tasks],
+  );
+
+  // 步數 / 花費的上下界:取清單實際最小最大(無資料時退回 0)。
+  const stepsBounds = useMemo<[number, number]>(() => {
+    const v = tasks.map((x) => x.stepCount).filter((n): n is number => typeof n === 'number');
+    return v.length ? [Math.min(...v), Math.max(...v)] : [0, 0];
+  }, [tasks]);
+  const costBounds = useMemo<[number, number]>(() => {
+    const v = tasks
+      .map((x) => x.billableSpendUsd)
+      .filter((n): n is number => typeof n === 'number');
+    if (!v.length) return [0, 0];
+    // 花費以 2 位小數為 step,上界向上取整到 0.01。
+    return [Math.floor(Math.min(...v) * 100) / 100, Math.ceil(Math.max(...v) * 100) / 100];
+  }, [tasks]);
+
+  // 目前生效的範圍值(未縮限時用完整上下界)。
+  const stepsVal = stepsRange ?? stepsBounds;
+  const costVal = costRange ?? costBounds;
+  const stepsNarrowed = Boolean(
+    stepsRange && (stepsRange[0] > stepsBounds[0] || stepsRange[1] < stepsBounds[1]),
+  );
+  const costNarrowed = Boolean(
+    costRange && (costRange[0] > costBounds[0] || costRange[1] < costBounds[1]),
+  );
+
+  // 是否已套用任一篩選(用於顯示「清除篩選」)。
+  const hasFilter = Boolean(
+    stateFilter ||
+      backendFilter ||
+      localityFilter ||
+      appFilter ||
+      agentFilter ||
+      vlmFilter ||
+      subagentFilter ||
+      stepsNarrowed ||
+      costNarrowed,
+  );
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -290,7 +350,19 @@ export default function TasksPage() {
       (!stateFilter || x.state === stateFilter) &&
       (!backendFilter || x.backend === backendFilter) &&
       (!localityFilter || x.locality === localityFilter) &&
-      (!appFilter || x.appId === appFilter),
+      (!appFilter || x.appId === appFilter) &&
+      (!agentFilter || taskAgentModel(x) === agentFilter) &&
+      (!vlmFilter || taskVlmModel(x) === vlmFilter) &&
+      (!subagentFilter || taskSubagentModel(x) === subagentFilter) &&
+      // 範圍篩選:僅在縮限時套用。無 stepCount/花費的任務在縮限時排除。
+      (!stepsNarrowed ||
+        (typeof x.stepCount === 'number' &&
+          x.stepCount >= stepsVal[0] &&
+          x.stepCount <= stepsVal[1])) &&
+      (!costNarrowed ||
+        (typeof x.billableSpendUsd === 'number' &&
+          x.billableSpendUsd >= costVal[0] &&
+          x.billableSpendUsd <= costVal[1])),
   );
   // 客戶端分頁(Req 15.5):清單增長時單次渲染量不隨總量無上限成長。
   const { visible, hasMore, shownCount, total, loadMore } = usePagedList(filtered);
@@ -515,6 +587,76 @@ export default function TasksPage() {
             ))}
           </select>
         </label>
+        {availableAgentModels.length > 0 && (
+          <label className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.roleAgent')}</span>
+            <select value={agentFilter} onChange={(e) => setAgentFilter(e.target.value)}>
+              <option value="">{t('tasks.filterAll')}</option>
+              {availableAgentModels.map((id) => (
+                <option key={id} value={id}>
+                  {modelLabel(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {availableVlmModels.length > 0 && (
+          <label className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.roleVlm')}</span>
+            <select value={vlmFilter} onChange={(e) => setVlmFilter(e.target.value)}>
+              <option value="">{t('tasks.filterAll')}</option>
+              {availableVlmModels.map((id) => (
+                <option key={id} value={id}>
+                  {modelLabel(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {availableSubagentModels.length > 0 && (
+          <label className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.roleSubagent')}</span>
+            <select value={subagentFilter} onChange={(e) => setSubagentFilter(e.target.value)}>
+              <option value="">{t('tasks.filterAll')}</option>
+              {availableSubagentModels.map((id) => (
+                <option key={id} value={id}>
+                  {modelLabel(id)}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {stepsBounds[1] > stepsBounds[0] && (
+          <div className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.colSteps')}</span>
+            <RangeSlider
+              min={stepsBounds[0]}
+              max={stepsBounds[1]}
+              step={1}
+              value={[stepsVal[0], stepsVal[1]]}
+              onChange={setStepsRange}
+              label={t('tasks.colSteps')}
+              minLabel={t('tasks.rangeMin')}
+              maxLabel={t('tasks.rangeMax')}
+            />
+          </div>
+        )}
+        {costBounds[1] > costBounds[0] && (
+          <div className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.colCost')}</span>
+            <RangeSlider
+              min={costBounds[0]}
+              max={costBounds[1]}
+              step={0.01}
+              value={[costVal[0], costVal[1]]}
+              onChange={setCostRange}
+              format={(n) => `$${n.toFixed(2)}`}
+              label={t('tasks.colCost')}
+              minLabel={t('tasks.rangeMin')}
+              maxLabel={t('tasks.rangeMax')}
+            />
+          </div>
+        )}
         {hasFilter && (
           <button
             type="button"
@@ -524,6 +666,11 @@ export default function TasksPage() {
               setBackendFilter('');
               setLocalityFilter('');
               setAppFilter('');
+              setAgentFilter('');
+              setVlmFilter('');
+              setSubagentFilter('');
+              setStepsRange(null);
+              setCostRange(null);
             }}
           >
             {t('tasks.filterClear')}

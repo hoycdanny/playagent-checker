@@ -1,0 +1,85 @@
+/* 雙把手範圍滑桿:兩個透明的原生 range 疊在同一條軌道上,
+   軌道與填色用底層 div 畫,把手(thumb)用原生元件、pointer-events 只給把手。 */
+.rangeslider {
+  position: relative;
+  width: 160px;
+  height: 28px;
+}
+
+.rangeslider__track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+.rangeslider__fill {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, #2f6df6);
+}
+
+/* 兩個 range 疊在一起;軌道透明,只讓把手可點(否則上層 input 會擋住下層把手)。 */
+.rangeslider__input {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 16px;
+  margin: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.rangeslider__input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  border: 2px solid var(--accent, #2f6df6);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.rangeslider__input::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  border: 2px solid var(--accent, #2f6df6);
+  cursor: pointer;
+}
+
+.rangeslider__input::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.rangeslider__input::-moz-range-track {
+  background: transparent;
+}
+
+.rangeslider__values {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 16px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
+.rangeslider[data-disabled] {
+  opacity: 0.5;
+}

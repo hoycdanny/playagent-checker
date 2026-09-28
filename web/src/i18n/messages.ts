@@ -266,6 +266,8 @@ export type MessageKey =
   | 'tasks.colActions'
   | 'tasks.filterState'
   | 'tasks.filterAll'
+  | 'tasks.rangeMin'
+  | 'tasks.rangeMax'
   | 'tasks.needAppCase'
   | 'backend.web'
   | 'backend.emulator'
@@ -693,6 +695,8 @@ const zhHant: Catalog = {
   'tasks.filterClear': '清除篩選',
   'tasks.colActions': '操作',
   'tasks.filterState': '狀態篩選',
+  'tasks.rangeMin': '最小',
+  'tasks.rangeMax': '最大',
   'tasks.filterAll': '全部',
   'tasks.needAppCase': '請先選擇應用與測試案例',
   'backend.web': 'Web 瀏覽器',
@@ -1120,6 +1124,8 @@ const en: Catalog = {
   'tasks.filterClear': 'Clear filters',
   'tasks.colActions': 'Actions',
   'tasks.filterState': 'Filter by state',
+  'tasks.rangeMin': 'Min',
+  'tasks.rangeMax': 'Max',
   'tasks.filterAll': 'All',
   'tasks.needAppCase': 'Select an app and test case first',
   'backend.web': 'Web browser',
@@ -1552,6 +1558,8 @@ const zhHans: Catalog = {
   'tasks.filterClear': '清除筛选',
   'tasks.colActions': '操作',
   'tasks.filterState': '状态筛选',
+  'tasks.rangeMin': '最小',
+  'tasks.rangeMax': '最大',
   'tasks.filterAll': '全部',
   'tasks.needAppCase': '请先选择应用与测试用例',
   'backend.web': 'Web 浏览器',
@@ -1979,6 +1987,8 @@ const ja: Catalog = {
   'tasks.filterClear': 'フィルターをクリア',
   'tasks.colActions': '操作',
   'tasks.filterState': '状態フィルター',
+  'tasks.rangeMin': '最小',
+  'tasks.rangeMax': '最大',
   'tasks.filterAll': 'すべて',
   'tasks.needAppCase': 'アプリとテストケースを先に選択してください',
   'backend.web': 'Web ブラウザ',
@@ -2407,6 +2417,8 @@ const ko: Catalog = {
   'tasks.filterClear': '필터 지우기',
   'tasks.colActions': '작업',
   'tasks.filterState': '상태 필터',
+  'tasks.rangeMin': '최소',
+  'tasks.rangeMax': '최대',
   'tasks.filterAll': '전체',
   'tasks.needAppCase': '먼저 앱과 테스트 케이스를 선택하세요',
   'backend.web': 'Web 브라우저',
