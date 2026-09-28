@@ -86,19 +86,20 @@ const NODES: ArchNode[] = [
   { id: 'leng', layer: 'compute', kind: 'compute', title: 'Engine', sub: L('Lambda · AI 執行迴圈編排', 'Lambda · AI loop orchestrator'), col: 8, row: 4 },
   { id: 'eb', layer: 'compute', kind: 'msg', title: 'EventBridge', sub: L('Amazon EventBridge · 即時回推', 'Amazon EventBridge · push'), col: 8, row: 2 },
 
-  // AI 大腦(左欄 col 0-2):三個 Seat + KB 都是 Amazon Bedrock 上的模型/檢索
-  { id: 'vlm', layer: 'ai', kind: 'ai', title: 'VLM', sub: L('Bedrock · 判座標', 'Bedrock · locate'), status: 'ok', col: 0, row: 8 },
+  // AI 大腦(左欄 col 0-2):三個 Seat + KB。Agent/SubAgent 在 Bedrock;VLM(判座標)可選 Bedrock 通用
+  // 視覺模型,或 UI-TARS(GUI grounding,部署在 SageMaker)以取得更準的座標。
+  { id: 'vlm', layer: 'ai', kind: 'ai', title: 'VLM', sub: L('Bedrock / UI-TARS · 判座標', 'Bedrock / UI-TARS · locate'), status: 'ok', col: 0, row: 8 },
   { id: 'agent', layer: 'ai', kind: 'ai', title: 'Agent', sub: L('Bedrock · 主決策', 'Bedrock · decide'), status: 'ok', col: 1, row: 8 },
   { id: 'sub', layer: 'ai', kind: 'ai', title: 'SubAgent', sub: L('Bedrock · 子任務', 'Bedrock · subtask'), status: 'ok', col: 2, row: 8 },
-  { id: 'kb', layer: 'ai', kind: 'ai', title: 'Knowledge Base', sub: L('Bedrock KB · Titan+S3 Vectors', 'Bedrock KB · Titan+S3 Vectors'), status: 'ok', col: 1, row: 9 },
+  { id: 'uitars', layer: 'ai', kind: 'ai', title: 'UI-TARS', sub: L('SageMaker · GUI grounding', 'SageMaker · GUI grounding'), status: 'ok', col: 0, row: 9 },
+  { id: 'kb', layer: 'ai', kind: 'ai', title: 'Knowledge Base', sub: L('Bedrock KB · Titan+S3 Vectors', 'Bedrock KB · Titan+S3 Vectors'), status: 'ok', col: 2, row: 9 },
   { id: 'data', layer: 'data', kind: 'data', title: 'S3', sub: L('Amazon S3 · 截圖·軌跡·報告', 'Amazon S3 · shots·trace·report'), col: 1, row: 10 },
 
-  // 裝置後端(右欄 col 5-7)
-  { id: 'web', layer: 'device', kind: 'device', title: 'Web', sub: L('Lambda · serverless 瀏覽器', 'Lambda · serverless browser'), status: 'ok', col: 5, row: 8 },
-  { id: 'emu', layer: 'device', kind: 'device', title: 'EC2 Redroid', sub: L('Amazon EC2 · per-job Android', 'Amazon EC2 · per-job Android'), status: 'ok', col: 6, row: 8 },
-  { id: 'df', layer: 'device', kind: 'device', title: 'Device Farm', sub: L('AWS Device Farm · 實機', 'AWS Device Farm · real'), status: 'todo', col: 5, row: 9 },
-  { id: 'win', layer: 'device', kind: 'device', title: 'Windows EC2', sub: L('Amazon EC2 · Appium', 'Amazon EC2 · Appium'), status: 'todo', col: 6, row: 9 },
-  { id: 'att', layer: 'device', kind: 'device', title: 'Attached', sub: L('本地裝置 + 輕量代理', 'local device + agent'), status: 'todo', col: 7, row: 9 },
+  // 裝置後端(右欄 col 5-7):Web(Playwright)與 Device Farm 實機皆走 ECS Fargate,已端到端驗證。
+  { id: 'df', layer: 'device', kind: 'device', title: 'Device Farm', sub: L('Fargate+Appium · 實機', 'Fargate+Appium · real device'), status: 'ok', col: 5, row: 8 },
+  { id: 'web', layer: 'device', kind: 'device', title: 'Web', sub: L('Fargate · Playwright Chromium', 'Fargate · Playwright Chromium'), status: 'ok', col: 6, row: 8 },
+  { id: 'win', layer: 'device', kind: 'device', title: 'Windows EC2', sub: L('Amazon EC2 · Appium', 'Amazon EC2 · Appium'), status: 'todo', col: 5, row: 9 },
+  { id: 'att', layer: 'device', kind: 'device', title: 'Attached', sub: L('本地裝置 + 輕量代理', 'local device + agent'), status: 'todo', col: 6, row: 9 },
 
   // 支援:放在裝置下方,留一整排空 row(row10)當走線通道,支援層在 row11(與裝置層不重疊)。
   { id: 'ssm', layer: 'support', kind: 'api', title: 'SSM', sub: L('SSM Parameter Store · AMI', 'SSM Parameter Store · AMI'), col: 6, row: 11 },
@@ -125,7 +126,8 @@ const EDGES: ArchEdge[] = [
   { from: 'leng', to: 'grp-device', kind: 'flow', fromSide: 'bottom', fromSlot: 'c', toSide: 'right', label: L('驅動裝置', 'drive') },
   // 呼叫模型:一條線指向整個「AI 大腦 · Bedrock」群組框(不再分三條到各 Seat)。
   { from: 'leng', to: 'grp-ai', kind: 'model', fromSide: 'bottom', toSide: 'top', label: L('呼叫模型', 'invoke') },
-  // AI 內部往下:Agent → KB → S3
+  // AI 內部:VLM 判座標可改用 SageMaker 上的 UI-TARS(GUI grounding);Agent → KB → S3。
+  { from: 'vlm', to: 'uitars', kind: 'model', fromSide: 'bottom', toSide: 'top', label: L('可選', 'optional') },
   { from: 'agent', to: 'kb', kind: 'model', fromSide: 'bottom', toSide: 'top' },
   { from: 'kb', to: 'data', kind: 'flow', fromSide: 'bottom', toSide: 'top' },
   // 支援:SSM(AMI)/ Secrets(登入)各一條線往上接到整個「裝置後端」群組框的底部(不接個別節點)。
