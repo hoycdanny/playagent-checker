@@ -68,6 +68,7 @@ import {
   type Hasher,
 } from './devices.js';
 import { readCaseTrend } from './trends.js';
+import { aggregateEstimatedCost, type RealCost } from './cost.js';
 import { readMemoryOverview, memScreenshotKey } from './memoryStructure.js';
 import { generateScenarioTemplates } from './scenarioTemplates.js';
 import {
@@ -137,6 +138,8 @@ export interface ApiDeps {
   hasher: Hasher;
   /** 列出 Device Farm 真機池(可用手機;唯讀)。選填,未注入時 GET /devices/cloud 回空清單。 */
   listCloudDevices?: () => Promise<CloudDevice[]>;
+  /** 取 AWS 真實成本(Cost Explorer)。選填;未注入或失敗時費用頁只顯示估算成本。 */
+  getRealCost?: (opts: { start?: string; end?: string }) => Promise<RealCost>;
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示)。 */
@@ -378,6 +381,54 @@ export async function handleRequest(
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const trend = await readCaseTrend(s3, deps.bucket, tenant.tenantId, app, caseId);
         return json(200, trend);
+      }
+
+      case 'GET /cost': {
+        // 費用分析(方案 C):AWS 真實成本(Cost Explorer)+ 系統內任務估算成本對照。
+        // 估算成本:由本租戶任務清單彙整(依應用/模型/月)。
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        const tasks = await listJobs(s3, deps.bucket, tenant.tenantId);
+        const estimated = aggregateEstimatedCost(tasks);
+
+        // 真實成本:呼叫 Cost Explorer(可能未啟用/無權限/未注入)——失敗時回 available:false,
+        // 附說明,前端只呈現估算成本並提示如何啟用。
+        const from = req.query?.['from'];
+        const to = req.query?.['to'];
+        let real: RealCost;
+        if (deps.getRealCost) {
+          try {
+            real = await deps.getRealCost({
+              ...(from ? { start: from } : {}),
+              ...(to ? { end: to } : {}),
+            });
+          } catch (err) {
+            real = {
+              available: false,
+              start: from ?? '',
+              end: to ?? '',
+              currency: 'USD',
+              totalUsd: 0,
+              byService: [],
+              byComponent: [],
+              byMonth: [],
+              note: err instanceof Error ? err.message : String(err),
+            };
+          }
+        } else {
+          real = {
+            available: false,
+            start: from ?? '',
+            end: to ?? '',
+            currency: 'USD',
+            totalUsd: 0,
+            byService: [],
+            byComponent: [],
+            byMonth: [],
+            note: 'Cost Explorer 未設定',
+          };
+        }
+
+        return json(200, { real, estimated });
       }
 
       case 'POST /devices/register': {

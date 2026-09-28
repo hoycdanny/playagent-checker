@@ -1,5 +1,6 @@
 import { ECSClient, RunTaskCommand } from '@aws-sdk/client-ecs';
 import { DEVICE_FARM_REGION, type DevicePlatform } from './deviceFarm.js';
+import { costTagsAsEcs } from './costTags.js';
 
 /**
  * DeviceFarmHost —— engine Lambda 用它啟動 Device Farm 真機探索。
@@ -112,6 +113,8 @@ export async function startDeviceFarmRun(
       overrides: {
         containerOverrides: [{ name: ECS_CONTAINER_NAME, environment: env }],
       },
+      // 成本分攤標籤:讓執行期 Fargate task 也能在 Cost Explorer 依同一組標籤歸屬。
+      ...(costTagsAsEcs().length > 0 ? { tags: costTagsAsEcs() } : {}),
     }),
   );
   const ecsTaskArn = runResp.tasks?.[0]?.taskArn;

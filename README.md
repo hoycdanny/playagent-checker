@@ -168,6 +168,18 @@ AWS_REGION=us-east-2 npx cdk deploy \
   --require-approval never
 ```
 
+> **Optional — cost allocation tags.** Every resource is auto-tagged with `project`, `stage`, and `component`. You can add your own tags at deploy time (e.g. to charge back to a cost center) by passing `-c` context. These flow to all resources, including the EC2/Fargate started at runtime, and power the **Cost Analysis** page once activated (see "Enable the Cost Analysis page" below).
+>
+> ```bash
+> AWS_REGION=us-east-2 npx cdk deploy \
+>   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
+>   PlayAgentDev-Scheduling PlayAgentDev-Execution \
+>   --require-approval never \
+>   -c costCenter=QA-1234 -c owner=alice -c team=game-qa
+> ```
+>
+> Recognized keys: `costCenter`, `owner`, `team`, `env`, `costAllocation`. Use the same `-c` flags on every stack you deploy so the tags stay consistent.
+
 This takes ~10–15 minutes. When it finishes, run this one command to print the four values you need (it handles the naming automatically):
 
 ```bash
@@ -283,6 +295,25 @@ Open the CloudFront URL from Step 8, log in with the email/password from Step 9.
 ✅ **You now have a working environment.**
 
 More on how UI-TARS grounding works: [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md).
+
+## Enable the Cost Analysis page
+
+The **Cost Analysis** page (next to Knowledge) shows two things side by side:
+
+- **Real AWS cost** — pulled live from **AWS Cost Explorer**: your actual bill, broken down by service, by the `component` tag, and by month. This includes everything (SageMaker GPU, Fargate, EC2, CloudFront, etc.).
+- **Task estimated cost** — a token × price estimate summed from your tasks, grouped by app and model. It excludes infrastructure, so it is lower than the real bill; the two use different bases and should not be subtracted from each other.
+
+The estimated side works immediately. The real side needs a **one-time account setup** (Cost Explorer is account-level and cannot be enabled by CDK):
+
+1. **Enable Cost Explorer.** In the AWS console go to **Billing and Cost Management → Cost Explorer** and enable it. Data starts appearing roughly **24 hours** after first enabling.
+2. **Activate the cost allocation tags.** In **Billing and Cost Management → Cost allocation tags → User-defined cost allocation tags**, select `project`, `stage`, `component` (and any `costCenter` / `owner` / `team` you passed at deploy time) and click **Activate**.
+3. **Wait a day.** Tags only apply to cost incurred **after** activation — past cost is never backfilled, and grouping by `component` shows everything under "untagged" until then. Come back the next day.
+
+Notes:
+
+- Cost Explorer's API is only in `us-east-1`; the app already queries there regardless of your deploy region.
+- Each query costs about **US$0.01** (charged by AWS), and data is typically ~24h delayed (not real-time).
+- Only the account owner / an IAM user with billing access can activate cost allocation tags.
 
 ## Device Farm (real phones) note
 

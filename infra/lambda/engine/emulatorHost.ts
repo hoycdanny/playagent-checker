@@ -9,6 +9,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AcquireSpec } from './deviceProvider.js';
 import type { HostControl, ProvisionedKind } from './provisionedProvider.js';
+import { costTagsAsEc2 } from './costTags.js';
 
 /**
  * EmulatorHost —— 真實 EC2 + Redroid 主機控制面(參考 game-ai-qa 真機驗證配置)。
@@ -120,6 +121,19 @@ export class EmulatorHostControl implements HostControl {
                   { Key: 'playagent:tenantRole', Value: TENANT_ROLE_ARN },
                   { Key: 'playagent:vlmModel', Value: spec.vlmModel ?? '' },
                   { Key: 'playagent:budget', Value: String(spec.budgetUsd ?? 1) },
+                  // 成本分攤標籤(project/stage/component + 部署者帶入):讓執行期 EC2 也能在
+                  // Cost Explorer 依同一組標籤歸屬。與上方保留標籤合併(重複鍵以上方為準罕見)。
+                  ...costTagsAsEc2(),
+                ],
+              },
+              {
+                // EBS 根磁碟同步貼標,否則 EBS 成本無法依標籤歸屬。
+                ResourceType: 'volume',
+                Tags: [
+                  { Key: 'Name', Value: `playagent-emu-${spec.jobId}` },
+                  { Key: HOST_LIFECYCLE_TAG, Value: HOST_LIFECYCLE_PER_JOB },
+                  { Key: 'playagent:jobId', Value: spec.jobId },
+                  ...costTagsAsEc2(),
                 ],
               },
             ],

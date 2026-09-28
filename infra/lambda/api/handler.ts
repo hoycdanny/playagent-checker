@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice } from './core.js';
 import { assumeTenantS3 } from './tenantCredentials.js';
 import { draftCaseYaml, makeBedrockClient } from './draft.js';
+import { getRealCost, makeCostExplorerClient } from './cost.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-east-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
@@ -24,6 +25,8 @@ const sharedS3 = new S3Client({ region: REGION });
 // Device Farm 真機服務僅在 us-west-2;列真機池供裝置管理頁顯示(唯讀)。
 const DF_REGION = process.env.DF_REGION ?? 'us-west-2';
 const deviceFarm = new DeviceFarmClient({ region: DF_REGION });
+// Cost Explorer 僅 us-east-1;費用分析頁取真實成本用(唯讀)。
+const costExplorer = makeCostExplorerClient();
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
 let cloudDeviceCache: { at: number; items: CloudDevice[] } | null = null;
@@ -77,6 +80,7 @@ const deps: ApiDeps = {
     randomToken: () => randomBytes(24).toString('base64url'),
   },
   listCloudDevices,
+  getRealCost: (opts) => getRealCost(costExplorer, opts),
 };
 
 const CORS_HEADERS: Record<string, string> = {

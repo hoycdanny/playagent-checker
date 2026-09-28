@@ -14,6 +14,7 @@ const NAV_KEYS = [
   { key: 'nav.devices' as const, path: '/devices' },
   { key: 'nav.memory' as const, path: '/memory' },
   { key: 'nav.knowledge' as const, path: '/knowledge' },
+  { key: 'nav.cost' as const, path: '/cost' },
 ];
 
 export function TopBar() {

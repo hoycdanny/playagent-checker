@@ -1,0 +1,209 @@
+.cost__intro {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.cost__tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.cost__tab {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.cost__tab--active {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent, #2f6df6);
+  font-weight: 600;
+}
+
+.cost__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cost__summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.cost__total {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cost__total-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.cost__total-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.cost__range {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.cost__note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.cost__note--warn {
+  border-color: color-mix(in srgb, var(--status-error, #d97706) 40%, var(--border));
+  color: var(--text-secondary);
+}
+
+.cost__section-title {
+  margin: var(--space-3) 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* 水平長條清單 */
+.cost__bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cost__bar-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.cost__bar-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cost__bar-track {
+  height: 14px;
+  border-radius: 7px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+
+.cost__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 7px;
+  background: var(--accent, #2f6df6);
+}
+
+.cost__bar-amount {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+/* 月趨勢直條圖 */
+.cost__months {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  min-height: 140px;
+  padding-top: var(--space-2);
+  overflow-x: auto;
+}
+
+.cost__month {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 48px;
+}
+
+.cost__month-bar-wrap {
+  display: flex;
+  align-items: flex-end;
+  height: 96px;
+  width: 28px;
+}
+
+.cost__month-bar {
+  width: 100%;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--accent, #2f6df6);
+  min-height: 2px;
+}
+
+.cost__month-amount {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.cost__month-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* 真實成本未就緒 */
+.cost__unavailable {
+  padding: var(--space-5);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.cost__enable-steps {
+  margin: var(--space-3) 0 0;
+  padding-left: var(--space-5);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.cost__error-detail {
+  margin: var(--space-3) 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  word-break: break-word;
+}
+
+.cost__retry {
+  margin-left: var(--space-3);
+  padding: 2px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}

@@ -169,6 +169,19 @@ export class HttpApiLambda extends Construct {
       }),
     );
 
+    // 費用分析頁取 AWS 真實成本:Cost Explorer 唯讀(CE 不支援資源級條件,故 *)。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'ce:GetCostAndUsage',
+          'ce:GetCostForecast',
+          'ce:GetDimensionValues',
+          'ce:GetTags',
+        ],
+        resources: ['*'],
+      }),
+    );
+
     // JWT authorizer(綁 User Pool + client)。
     const issuer = `https://cognito-idp.${props.region}.amazonaws.com/${props.userPool.userPoolId}`;
     const authorizer = new HttpJwtAuthorizer('JwtAuthorizer', issuer, {

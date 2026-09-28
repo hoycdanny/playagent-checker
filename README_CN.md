@@ -167,6 +167,18 @@ AWS_REGION=us-east-2 npx cdk deploy \
   --require-approval never
 ```
 
+> **可选 —— 成本分摊标签。** 每个资源都会自动打上 `project`、`stage`、`component`。你可以在部署时用 `-c` 带入自己的标签(例如归账到某成本中心),这些标签会套到所有资源(含运行期动态起的 EC2/Fargate),并在启用后供「费用分析」页使用(见下方「启用费用分析页」)。
+>
+> ```bash
+> AWS_REGION=us-east-2 npx cdk deploy \
+>   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
+>   PlayAgentDev-Scheduling PlayAgentDev-Execution \
+>   --require-approval never \
+>   -c costCenter=QA-1234 -c owner=alice -c team=game-qa
+> ```
+>
+> 可用的键:`costCenter`、`owner`、`team`、`env`、`costAllocation`。每次部署各 stack 都带相同的 `-c` 旗标,标签才会一致。
+
 约 10–15 分钟。完成后,运行下面这一段就会印出你需要的四个值(会自动处理命名):
 
 ```bash
@@ -282,6 +294,25 @@ aws cognito-idp admin-set-user-password --region us-east-2 \
 ✅ **你的环境已经可以用了。**
 
 UI-TARS 定位的原理说明见 [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
+
+## 启用费用分析页
+
+**费用分析**页(在「知识管理」旁)并排显示两种数字:
+
+- **AWS 真实成本** —— 实时取自 **AWS Cost Explorer**:你的实际账单,按服务、按 `component` 标签、按月份分解。涵盖全部(SageMaker GPU、Fargate、EC2、CloudFront 等)。
+- **任务估算成本** —— 由任务的 token × 单价估算加总,按应用与模型分组。不含基础设施,所以会低于真实账单;两者口径不同,不应直接相减。
+
+估算那侧立即可用。真实那侧需要**一次性的账号设置**(Cost Explorer 属账号层级,CDK 无法代为启用):
+
+1. **启用 Cost Explorer。** 在 AWS 控制台进入 **Billing and Cost Management → Cost Explorer** 启用它。首次启用后约 **24 小时**开始有数据。
+2. **启用成本分摊标签。** 在 **Billing and Cost Management → Cost allocation tags → User-defined cost allocation tags**,勾选 `project`、`stage`、`component`(以及你部署时带入的 `costCenter` / `owner` / `team` 等),点 **Activate**。
+3. **隔天再看。** 标签仅对启用**之后**产生的成本生效 —— 过去成本不回溯,在此之前按 `component` 分组会全部落在「未标记」。隔天再回来看。
+
+备注:
+
+- Cost Explorer API 仅在 `us-east-1`;无论你部署在哪一区,程序都已固定查该区。
+- 每次查询由 AWS 收取约 **US$0.01**,且数据通常延迟约 24 小时(非实时)。
+- 只有账号拥有者 / 具账务权限的 IAM 用户能启用成本分摊标签。
 
 ## Device Farm(真实手机)说明
 
