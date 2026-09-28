@@ -543,6 +543,8 @@ export default function TasksPage() {
       )}
 
       <div className="tasks__filter">
+        {/* 篩選欄順序對齊表格欄位:狀態 →(建立時間無篩選)→ 應用程式 → 環境 → 位置 →
+            步數 → 花費 → 控制遊戲 → 分析畫面 → 子代理。 */}
         <label className="tasks__filter-item">
           <span className="tasks__filter-label">{t('tasks.filterState')}</span>
           <select value={stateFilter} onChange={(e) => setStateFilter(e.target.value)}>
@@ -550,6 +552,17 @@ export default function TasksPage() {
             {STATES.map((s) => (
               <option key={s} value={s}>
                 {t(`state.${s}` as MessageKey)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="tasks__filter-item">
+          <span className="tasks__filter-label">{t('tasks.colApp')}</span>
+          <select value={appFilter} onChange={(e) => setAppFilter(e.target.value)}>
+            <option value="">{t('tasks.filterAll')}</option>
+            {availableApps.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
               </option>
             ))}
           </select>
@@ -576,17 +589,37 @@ export default function TasksPage() {
             ))}
           </select>
         </label>
-        <label className="tasks__filter-item">
-          <span className="tasks__filter-label">{t('tasks.colApp')}</span>
-          <select value={appFilter} onChange={(e) => setAppFilter(e.target.value)}>
-            <option value="">{t('tasks.filterAll')}</option>
-            {availableApps.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {stepsBounds[1] > stepsBounds[0] && (
+          <div className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.colSteps')}</span>
+            <RangeSlider
+              min={stepsBounds[0]}
+              max={stepsBounds[1]}
+              step={1}
+              value={[stepsVal[0], stepsVal[1]]}
+              onChange={setStepsRange}
+              label={t('tasks.colSteps')}
+              minLabel={t('tasks.rangeMin')}
+              maxLabel={t('tasks.rangeMax')}
+            />
+          </div>
+        )}
+        {costBounds[1] > costBounds[0] && (
+          <div className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.colCost')}</span>
+            <RangeSlider
+              min={costBounds[0]}
+              max={costBounds[1]}
+              step={0.01}
+              value={[costVal[0], costVal[1]]}
+              onChange={setCostRange}
+              format={(n) => `$${n.toFixed(2)}`}
+              label={t('tasks.colCost')}
+              minLabel={t('tasks.rangeMin')}
+              maxLabel={t('tasks.rangeMax')}
+            />
+          </div>
+        )}
         {availableAgentModels.length > 0 && (
           <label className="tasks__filter-item">
             <span className="tasks__filter-label">{t('tasks.roleAgent')}</span>
@@ -625,37 +658,6 @@ export default function TasksPage() {
               ))}
             </select>
           </label>
-        )}
-        {stepsBounds[1] > stepsBounds[0] && (
-          <div className="tasks__filter-item">
-            <span className="tasks__filter-label">{t('tasks.colSteps')}</span>
-            <RangeSlider
-              min={stepsBounds[0]}
-              max={stepsBounds[1]}
-              step={1}
-              value={[stepsVal[0], stepsVal[1]]}
-              onChange={setStepsRange}
-              label={t('tasks.colSteps')}
-              minLabel={t('tasks.rangeMin')}
-              maxLabel={t('tasks.rangeMax')}
-            />
-          </div>
-        )}
-        {costBounds[1] > costBounds[0] && (
-          <div className="tasks__filter-item">
-            <span className="tasks__filter-label">{t('tasks.colCost')}</span>
-            <RangeSlider
-              min={costBounds[0]}
-              max={costBounds[1]}
-              step={0.01}
-              value={[costVal[0], costVal[1]]}
-              onChange={setCostRange}
-              format={(n) => `$${n.toFixed(2)}`}
-              label={t('tasks.colCost')}
-              minLabel={t('tasks.rangeMin')}
-              maxLabel={t('tasks.rangeMax')}
-            />
-          </div>
         )}
         {hasFilter && (
           <button

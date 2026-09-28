@@ -107,43 +107,48 @@
   cursor: not-allowed;
 }
 
-/* 篩選列:表格上方一條精緻的獨立列,4 個緊湊下拉(標題在上、下拉在下),
-   右側放清除/批次刪除按鈕。 */
+/* 篩選列:表格上方一條精緻的獨立列。所有篩選(下拉 + 步數/花費滑桿)排在同一行,
+   放不下時整列橫向捲動(不換行),避免分成醜醜的兩行。 */
 .tasks__filter {
   margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-4);
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
-  gap: var(--space-3) var(--space-4);
+  gap: var(--space-3);
   background: var(--surface-raised);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  overflow-x: auto;
 }
 
 .tasks__filter-item {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  flex: 0 0 auto; /* 不被壓縮,維持可讀寬度;整列改用捲動容納 */
 }
 
 .tasks__filter-label {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-tertiary);
+  white-space: nowrap;
 }
 
-/* 篩選下拉:高度統一、寬度一致(比表單下拉緊湊)。 */
+/* 篩選下拉:高度統一、緊湊(同一行要塞下較多欄位,故 min-width 收小)。 */
 .tasks__filter select {
-  min-width: 120px;
+  min-width: 96px;
+  max-width: 150px;
   padding: var(--space-1) var(--space-2);
   font-size: 13px;
   cursor: pointer;
 }
 
 .tasks__filter-clear {
-  margin-left: auto;
   align-self: flex-end;
+  flex: 0 0 auto;
+  white-space: nowrap;
   padding: var(--space-1) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -156,6 +161,11 @@
 .tasks__filter-clear:hover {
   border-color: var(--border-strong);
   color: var(--text-primary);
+}
+
+/* 篩選列內的範圍滑桿收窄一點,讓同一行能容納更多欄位。 */
+.tasks__filter .rangeslider {
+  width: 128px;
 }
 
 .tasks__table {
@@ -341,11 +351,7 @@
 /* 在篩選列中對齊底部;預設靠右,若前面已有清除鈕則只留小間距。 */
 .tasks__filter .tasks__batch-delete {
   align-self: flex-end;
-  margin-left: auto;
-}
-
-.tasks__filter .tasks__filter-clear ~ .tasks__batch-delete {
-  margin-left: var(--space-3);
+  flex: 0 0 auto;
 }
 
 .tasks__batch-delete:hover {
