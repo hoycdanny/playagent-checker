@@ -122,6 +122,9 @@ export default function AppWorkspacePage() {
   const [backend, setBackend] = useState('web');
   const [vlmModel, setVlmModel] = useState('');
   const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
+  // 步數/預算上限:空 = 無上限。
+  const [maxSteps, setMaxSteps] = useState('');
+  const [budgetUsd, setBudgetUsd] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
@@ -304,6 +307,8 @@ export default function AppWorkspacePage() {
         category: 'exploration',
         ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
+        ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
+        ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
       });
       setShowTaskForm(false);
       setTaskCaseId('');
@@ -594,6 +599,29 @@ export default function AppWorkspacePage() {
                   </label>
                 </>
               )}
+              <label className="ws__field">
+                <span className="ws__label">{t('tasks.maxSteps')}</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  placeholder={t('tasks.unlimited')}
+                  value={maxSteps}
+                  onChange={(e) => setMaxSteps(e.target.value)}
+                />
+              </label>
+              <label className="ws__field">
+                <span className="ws__label">{t('tasks.budgetUsd')}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder={t('tasks.unlimited')}
+                  value={budgetUsd}
+                  onChange={(e) => setBudgetUsd(e.target.value)}
+                />
+              </label>
               {kbs.length > 0 && (
                 <div className="ws__field">
                   <span className="ws__label">{t('tasks.knowledgeBases')}</span>

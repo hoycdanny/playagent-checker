@@ -31,7 +31,9 @@ const APP_ID = process.env.PA_APP || '';
 const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
 const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
-const MAX_STEPS = Number(process.env.PA_MAXSTEPS || 30);
+// 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 死循環 / 取消 / 連續失敗才停)。
+const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
+const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
 const [VP_W, VP_H] = (process.env.PA_VIEWPORT || '1280x800').split('x').map((n) => Number(n) || 0);
 const CONSEC_FAIL_LIMIT = 3;
 
@@ -187,7 +189,8 @@ async function main() {
   const struct = await loadStructure();
   let prevPageId = null, prevAction = null;
   let consecFail = 0;
-  let finalState = 'fail', finalMsg = '達步數上限仍未完成';
+  let finalState = 'fail';
+  let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
   const tok = { input: 0, output: 0 };
   let lastPhash = null, stuckCount = 0;
   const screenSeen = new Map();

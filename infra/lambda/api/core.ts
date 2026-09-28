@@ -128,6 +128,10 @@ export interface ApiDeps {
     vlmModel?: string;
     /** 各角色模型選擇(agent=控制遊戲、vlm=分析畫面、subagent=子代理);引擎據此解析單價並 Fail Closed。 */
     seats?: { agent?: string; vlm?: string; subagent?: string };
+    /** 步數上限(未設=無上限)。 */
+    maxSteps?: number;
+    /** 預算上限(美元;未設=無上限)。 */
+    budgetUsd?: number;
   }) => Promise<void>;
   /** 裝置 token 雜湊/產生(注入以利測試)。 */
   hasher: Hasher;
@@ -913,6 +917,8 @@ async function handleSubmitTask(
     backend: input.backend,
     ...(input.vlmModel ? { vlmModel: input.vlmModel } : {}),
     ...(Object.keys(seats).length > 0 ? { seats } : {}),
+    ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
+    ...(input.budgetUsd !== undefined ? { budgetUsd: input.budgetUsd } : {}),
   });
 
   return json(201, { jobId: job.jobId, locality: localityOf(input.backend) });

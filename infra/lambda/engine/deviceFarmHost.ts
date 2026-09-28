@@ -41,6 +41,8 @@ export interface DeviceFarmRunParams {
   platform?: DevicePlatform;
   vlmModel?: string;
   caseTask?: string;
+  /** 步數上限;未給代表無上限(runner 端 PA_MAXSTEPS 不設 = Infinity)。 */
+  maxSteps?: number;
   maxOsVersion?: number;
   minOsVersion?: number;
 }
@@ -81,6 +83,10 @@ export async function startDeviceFarmRun(
     // 使用者選 UI-TARS 定位:把 endpoint 名傳給 runner(需 endpoint 已部署 InService)。
     ...(params.vlmModel === 'uitars' && UITARS_ENDPOINT
       ? [{ name: 'PA_UITARS_ENDPOINT', value: UITARS_ENDPOINT }]
+      : []),
+    // 步數上限:僅在使用者設了有限值時注入;不設 = runner 端無上限。
+    ...(params.maxSteps && params.maxSteps > 0
+      ? [{ name: 'PA_MAXSTEPS', value: String(params.maxSteps) }]
       : []),
     ...(params.maxOsVersion !== undefined
       ? [{ name: 'PA_MAX_OS', value: String(params.maxOsVersion) }]

@@ -16,6 +16,8 @@ const ECS_TASK_DEF = process.env.WEB_ECS_TASK_DEF ?? '';
 const ECS_SUBNETS = (process.env.WEB_ECS_SUBNETS ?? '').split(',').filter(Boolean);
 const ECS_SECURITY_GROUP = process.env.WEB_ECS_SG ?? '';
 const ECS_CONTAINER_NAME = process.env.WEB_ECS_CONTAINER ?? 'web-runner';
+// UI-TARS SageMaker endpoint(CDK 注入);使用者選 vlmModel='uitars' 時傳給 runner 做定位。
+const UITARS_ENDPOINT = process.env.UITARS_ENDPOINT ?? '';
 
 const ecs = new ECSClient({ region: DATA_REGION });
 
@@ -28,6 +30,8 @@ export interface WebRunParams {
   url: string; // 起始網址(engine 已從 case/app 解析)
   vlmModel?: string;
   caseTask?: string;
+  /** 步數上限;未給代表無上限。 */
+  maxSteps?: number;
 }
 
 export interface WebRunResult {
@@ -52,6 +56,14 @@ export async function startWebRun(params: WebRunParams): Promise<WebRunResult> {
     { name: 'PA_DATA_REGION', value: DATA_REGION },
     { name: 'PA_VLM', value: params.vlmModel ?? '' },
     { name: 'PA_TASK', value: params.caseTask ?? '' },
+    // 使用者選 UI-TARS 定位:把 endpoint 名傳給 runner(需 endpoint 已 InService)。
+    ...(params.vlmModel === 'uitars' && UITARS_ENDPOINT
+      ? [{ name: 'PA_UITARS_ENDPOINT', value: UITARS_ENDPOINT }]
+      : []),
+    // 步數上限:僅在使用者設了有限值時注入;不設 = runner 端無上限。
+    ...(params.maxSteps && params.maxSteps > 0
+      ? [{ name: 'PA_MAXSTEPS', value: String(params.maxSteps) }]
+      : []),
   ];
 
   const runResp = await ecs.send(

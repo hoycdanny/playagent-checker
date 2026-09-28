@@ -125,6 +125,9 @@ export default function TasksPage() {
   const [agentModels, setAgentModels] = useState<ModelEntry[]>([]);
   const [subagentModel, setSubagentModel] = useState('');
   const [subagentModels, setSubagentModels] = useState<ModelEntry[]>([]);
+  // 步數/預算上限:空字串 = 無上限(不帶入提交,引擎/ runner 端不設閘口)。
+  const [maxSteps, setMaxSteps] = useState('');
+  const [budgetUsd, setBudgetUsd] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 多欄位篩選:狀態 / 環境 / 位置 / 應用(空字串 = 全部)。
@@ -224,6 +227,9 @@ export default function TasksPage() {
         ...(VLM_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
         ...(VLM_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
+        // 空 = 無上限:僅在填了正數時帶入。
+        ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
+        ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
       });
       setShowForm(false);
       setCaseId('');
@@ -394,6 +400,31 @@ export default function TasksPage() {
               </label>
             </>
           )}
+          <label className="tasks__field">
+            <span className="tasks__label">{t('tasks.maxSteps')}</span>
+            <span className="tasks__field-hint">{t('tasks.maxStepsHint')}</span>
+            <input
+              type="number"
+              min="0"
+              inputMode="numeric"
+              placeholder={t('tasks.unlimited')}
+              value={maxSteps}
+              onChange={(e) => setMaxSteps(e.target.value)}
+            />
+          </label>
+          <label className="tasks__field">
+            <span className="tasks__label">{t('tasks.budgetUsd')}</span>
+            <span className="tasks__field-hint">{t('tasks.budgetUsdHint')}</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              placeholder={t('tasks.unlimited')}
+              value={budgetUsd}
+              onChange={(e) => setBudgetUsd(e.target.value)}
+            />
+          </label>
           {kbs.length > 0 && (
             <div className="tasks__field tasks__kb-field">
               <span className="tasks__label">{t('tasks.knowledgeBases')}</span>

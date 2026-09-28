@@ -36,6 +36,10 @@ export interface JobRecord {
   agentModel?: string;
   /** 使用者選的 Subagent 模型(子代理)。 */
   subagentModel?: string;
+  /** 步數上限(未設=無上限)。 */
+  maxSteps?: number;
+  /** 預算上限(美元;未設=無上限)。 */
+  budgetUsd?: number;
   /** 被測產物的完整 S3 key(emulator userdata 據此拉 APK)。 */
   artifactKey?: string;
   /** 案例任務描述(emulator runner 給 VLM 的目標)。 */
@@ -83,6 +87,10 @@ interface SubmitInput {
   subagentModel?: string;
   /** 選用的共用知識庫 id(可多選,Slot + RTP 疊加)。 */
   knowledgeBaseIds?: string[];
+  /** 步數上限;未指定或 <=0 代表「無上限」。 */
+  maxSteps?: number;
+  /** 預算上限(美元);未指定或 <=0 代表「無上限」。 */
+  budgetUsd?: number;
 }
 
 /** 提交前校驗請求形狀(存在性校驗於 core 內另做,需 S3)。 */
@@ -108,6 +116,11 @@ export function validateSubmit(body: unknown): SubmitInput {
   const knowledgeBaseIds = Array.isArray(rawKbIds)
     ? rawKbIds.filter((x): x is string => typeof x === 'string' && /^[a-zA-Z0-9_-]+$/.test(x))
     : undefined;
+  // 步數/預算上限:僅收「有限正數」;空/0/負/非數 一律視為無上限(不帶入)。
+  const rawMaxSteps = Number(b['maxSteps']);
+  const maxSteps = Number.isFinite(rawMaxSteps) && rawMaxSteps > 0 ? Math.floor(rawMaxSteps) : undefined;
+  const rawBudget = Number(b['budgetUsd']);
+  const budgetUsd = Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : undefined;
   return {
     backend: backend as Backend,
     appId,
@@ -117,6 +130,8 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(agentModel ? { agentModel } : {}),
     ...(subagentModel ? { subagentModel } : {}),
     ...(knowledgeBaseIds && knowledgeBaseIds.length > 0 ? { knowledgeBaseIds } : {}),
+    ...(maxSteps !== undefined ? { maxSteps } : {}),
+    ...(budgetUsd !== undefined ? { budgetUsd } : {}),
   };
 }
 
@@ -152,6 +167,8 @@ export async function createJob(
     ...(input.vlmModel ? { vlmModel: input.vlmModel } : {}),
     ...(input.agentModel ? { agentModel: input.agentModel } : {}),
     ...(input.subagentModel ? { subagentModel: input.subagentModel } : {}),
+    ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
+    ...(input.budgetUsd !== undefined ? { budgetUsd: input.budgetUsd } : {}),
     ...(extra?.artifactKey ? { artifactKey: extra.artifactKey } : {}),
     ...(extra?.caseTask ? { caseTask: extra.caseTask } : {}),
     ...(extra?.abi ? { abi: extra.abi } : {}),

@@ -193,12 +193,11 @@ export default function TaskDetailPage() {
                   <dd className="detail__info-cost">
                     {fmtUsd(meta!.billableSpendUsd)}
                     {meta!.spendEstimated ? `(${t('detail.costEstimated')})` : ''}
-                    {meta!.budgetUsd !== undefined && (
-                      <span className="detail__info-budget">
-                        {' / '}
-                        {t('detail.budget')} {fmtUsd(meta!.budgetUsd)}
-                      </span>
-                    )}
+                    <span className="detail__info-budget">
+                      {' / '}
+                      {t('detail.budget')}{' '}
+                      {meta!.budgetUsd !== undefined ? fmtUsd(meta!.budgetUsd) : t('tasks.unlimited')}
+                    </span>
                   </dd>
                 </div>
               )}

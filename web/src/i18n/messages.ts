@@ -406,6 +406,11 @@ export type MessageKey =
   | 'backend.unsupported'
   | 'backend.webPreview'
   | 'tasks.vlmModel'
+  | 'tasks.maxSteps'
+  | 'tasks.maxStepsHint'
+  | 'tasks.budgetUsd'
+  | 'tasks.budgetUsdHint'
+  | 'tasks.unlimited'
   | 'tasks.modelAgent'
   | 'tasks.modelVlm'
   | 'tasks.modelSubagent'
@@ -828,6 +833,11 @@ const zhHant: Catalog = {
   'backend.unsupported': '尚未支援',
   'backend.webPreview': '預覽版:僅檢查網址可達,尚未真正操作遊戲',
   'tasks.vlmModel': 'VLM 模型(判畫面座標)',
+  'tasks.maxSteps': '步數上限',
+  'tasks.maxStepsHint': '留空 = 無上限;跑到完成或卡住才停',
+  'tasks.budgetUsd': '預算上限(美元)',
+  'tasks.budgetUsdHint': '留空 = 無上限;達此金額即停止',
+  'tasks.unlimited': '無上限',
   'tasks.modelAgent': '控制遊戲模型(Agent)',
   'tasks.modelVlm': '分析畫面模型(VLM)',
   'tasks.modelSubagent': '子代理模型(Subagent)',
@@ -1250,6 +1260,11 @@ const en: Catalog = {
   'backend.unsupported': 'not yet supported',
   'backend.webPreview': 'Preview: only checks URL reachability, does not yet drive the game',
   'tasks.vlmModel': 'VLM model (screen coordinates)',
+  'tasks.maxSteps': 'Max steps',
+  'tasks.maxStepsHint': 'Leave empty = unlimited; stops only when done or stuck',
+  'tasks.budgetUsd': 'Budget cap (USD)',
+  'tasks.budgetUsdHint': 'Leave empty = unlimited; stops when spend hits this',
+  'tasks.unlimited': 'unlimited',
   'tasks.modelAgent': 'Game control model (Agent)',
   'tasks.modelVlm': 'Screen analysis model (VLM)',
   'tasks.modelSubagent': 'Subagent model',
@@ -1675,6 +1690,11 @@ const zhHans: Catalog = {
   'backend.unsupported': '尚未支持',
   'backend.webPreview': '预览版:仅检查网址可达,尚未真正操作游戏',
   'tasks.vlmModel': 'VLM 模型(判画面坐标)',
+  'tasks.maxSteps': '步数上限',
+  'tasks.maxStepsHint': '留空 = 无上限;跑到完成或卡住才停',
+  'tasks.budgetUsd': '预算上限(美元)',
+  'tasks.budgetUsdHint': '留空 = 无上限;达此金额即停止',
+  'tasks.unlimited': '无上限',
   'tasks.modelAgent': '控制游戏模型(Agent)',
   'tasks.modelVlm': '分析画面模型(VLM)',
   'tasks.modelSubagent': '子代理模型(Subagent)',
@@ -2097,6 +2117,11 @@ const ja: Catalog = {
   'backend.unsupported': '未対応',
   'backend.webPreview': 'プレビュー:URL 到達性のみ確認、まだゲーム操作はしません',
   'tasks.vlmModel': 'VLM モデル(座標判定)',
+  'tasks.maxSteps': 'ステップ上限',
+  'tasks.maxStepsHint': '空欄 = 無制限;完了または行き詰まりでのみ停止',
+  'tasks.budgetUsd': '予算上限(USD)',
+  'tasks.budgetUsdHint': '空欄 = 無制限;この額に達すると停止',
+  'tasks.unlimited': '無制限',
   'tasks.modelAgent': 'ゲーム操作モデル(Agent)',
   'tasks.modelVlm': '画面解析モデル(VLM)',
   'tasks.modelSubagent': 'サブエージェントモデル(Subagent)',
@@ -2519,6 +2544,11 @@ const ko: Catalog = {
   'backend.unsupported': '아직 미지원',
   'backend.webPreview': '미리보기: URL 도달 여부만 확인, 아직 게임을 조작하지 않음',
   'tasks.vlmModel': 'VLM 모델(좌표 판정)',
+  'tasks.maxSteps': '스텝 상한',
+  'tasks.maxStepsHint': '비우면 = 무제한; 완료 또는 막힐 때만 중지',
+  'tasks.budgetUsd': '예산 상한(USD)',
+  'tasks.budgetUsdHint': '비우면 = 무제한; 이 금액에 도달하면 중지',
+  'tasks.unlimited': '무제한',
   'tasks.modelAgent': '게임 제어 모델(Agent)',
   'tasks.modelVlm': '화면 분석 모델(VLM)',
   'tasks.modelSubagent': '서브에이전트 모델(Subagent)',

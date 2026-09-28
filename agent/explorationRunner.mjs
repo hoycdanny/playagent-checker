@@ -54,7 +54,9 @@ const DF_REGION = process.env.PA_DF_REGION || 'us-west-2';
 const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const PKG = process.env.PA_PKG || '';
 const TASK = process.env.PA_TASK || '啟動遊戲,通過開場動畫與任何彈窗,進入主畫面,並嘗試開始一場遊戲';
-const MAX_STEPS = Number(process.env.PA_MAXSTEPS || 40);
+// 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 卡死偵測 / 取消 / 連續失敗才停)。
+const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
+const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
 const CONSEC_FAIL_LIMIT = 3;
 
 const s3 = new S3Client({ region: DATA_REGION });
@@ -344,7 +346,9 @@ async function main() {
   const struct = await loadStructure();
   let prevPageId = null, prevAction = null;
   let consecFail = 0;
-  let finalState = 'fail', finalMsg = '達步數上限仍未完成';
+  // 無上限時不會「達步數上限」;若真的迴圈自然結束(理論上只有有限步才會),訊息才用步數上限。
+  let finalState = 'fail';
+  let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
   const tok = { input: 0, output: 0 };
   // 卡住偵測:連續多步畫面沒變(pHash 幾乎相同)就介入,輪換嘗試中央偏下主按鈕/back/右上角。
   let lastPhash = null;
