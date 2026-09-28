@@ -5,6 +5,7 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
+import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import './ListPage.css';
 import './TasksPage.css';
 import './CasesPage.css';
@@ -168,10 +169,9 @@ export default function AppWorkspacePage() {
     // VLM 模型清單(判畫面座標的 VLM Seat 可選模型);真機/Web 探索用。
     apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
       .then((r) => {
-        setVlmModels(r.items);
-        // 預設用 UI-TARS(定位最準);清單無此模型時退回第一個。
-        const preferred = r.items.find((m) => m.modelId === 'uitars')?.modelId ?? r.items[0]?.modelId;
-        if (preferred) setVlmModel(preferred);
+        // 預設 = VLM 推薦第 1 名(UI-TARS);下拉前 5 名置頂並加 ★(見 modelRecommend)。
+        setVlmModels(sortByRecommend('vlm', r.items));
+        setVlmModel(recommendedDefault('vlm', r.items));
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -593,7 +593,9 @@ export default function AppWorkspacePage() {
                     <span className="ws__label">{t('tasks.vlmModel')}</span>
                     <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                       {vlmModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>{modelOptionLabel(m)}</option>
+                        <option key={m.modelId} value={m.modelId}>
+                          {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                        </option>
                       ))}
                     </select>
                   </label>
