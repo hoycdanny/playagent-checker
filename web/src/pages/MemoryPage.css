@@ -1,0 +1,248 @@
+.memory__app select {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+/* 統計列 */
+.memory__vitals {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.memory__vital {
+  flex: 1;
+  min-width: 90px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.memory__vital b {
+  font-size: 24px;
+  color: var(--text-primary);
+}
+
+.memory__vital span {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* 分頁切換 */
+.memory__tabs {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-raised);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-4);
+}
+
+.memory__tab {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.memory__tab--active {
+  background: var(--surface);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.memory__hint {
+  color: var(--text-tertiary);
+  font-size: 13px;
+  margin: 0 0 var(--space-3);
+}
+
+/* 樣片本 */
+.memory__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.memory__card {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.memory__card-heat {
+  height: 4px;
+  background: #ff2d95;
+}
+
+.memory__card-thumb {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+}
+
+.memory__card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.memory__card-noimg {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(45deg, var(--surface), var(--surface) 6px, var(--surface-raised) 6px, var(--surface-raised) 12px);
+}
+
+.memory__card figcaption {
+  padding: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.memory__card-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.memory__card-meta {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 清空記憶按鈕 */
+.memory__clear-btn {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.memory__clear-btn:hover {
+  border-color: var(--status-fail);
+  color: var(--status-fail);
+}
+.memory__clear-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* App 選擇器 + 遊戲類型 icon(與其他頁的 App 標注一致) */
+.memory__app-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.memory__app-genre {
+  display: inline-flex;
+  align-items: center;
+  color: var(--brand);
+}
+
+/* 場景範本區塊(由記憶地圖生成) */
+.memory__templates {
+  margin-bottom: var(--space-6);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.memory__templates-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+.memory__templates-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.memory__templates-hint {
+  font-size: 12.5px;
+  color: var(--text-tertiary);
+}
+.memory__tpl-msg {
+  margin: 0 0 var(--space-3);
+  font-size: 13px;
+  color: var(--brand);
+}
+.memory__tpl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+.memory__tpl-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.memory__tpl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.memory__tpl-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.memory__tpl-path {
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: normal;
+  line-break: strict;
+  overflow-wrap: anywhere;
+}
+.memory__tpl-btn {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.memory__tpl-btn:hover {
+  background: var(--brand-hover);
+}
+.memory__tpl-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

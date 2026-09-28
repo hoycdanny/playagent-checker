@@ -1,0 +1,104 @@
+.iconselect {
+  position: relative;
+  width: 100%;
+}
+
+.iconselect__button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.iconselect__button:hover {
+  border-color: var(--border-strong);
+}
+
+.iconselect__value {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.iconselect__value > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconselect__icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--brand);
+  flex-shrink: 0;
+}
+
+.iconselect__placeholder {
+  color: var(--text-tertiary);
+}
+
+.iconselect__chevron {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.iconselect__list {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-md, 0 4px 16px rgba(0, 0, 0, 0.2));
+  outline: none;
+}
+
+.iconselect__option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.iconselect__option--active {
+  background: var(--surface-raised);
+}
+
+.iconselect__option--selected {
+  color: var(--brand);
+  font-weight: 600;
+}
+
+.iconselect__option-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.iconselect__check {
+  color: var(--brand);
+  flex-shrink: 0;
+}

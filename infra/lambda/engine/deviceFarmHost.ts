@@ -1,0 +1,118 @@
+import { ECSClient, RunTaskCommand } from '@aws-sdk/client-ecs';
+import { DEVICE_FARM_REGION, type DevicePlatform } from './deviceFarm.js';
+
+/**
+ * DeviceFarmHost —— engine Lambda 用它啟動 Device Farm 真機探索。
+ *
+ * 設計要點(為何 engine 只起 task、不做前置):
+ *   被測 APK/IPA 常達數百 MB。engine Lambda 記憶體 512MB、逾時 5 分,無法把整包讀進
+ *   記憶體再上傳 Device Farm + 等真機 session RUNNING(實測 456MB APK 直接撐爆並逾時)。
+ *   因此所有重活(讀 APK、上傳、開 session、Appium 迴圈)全部搬進 ECS Fargate 容器內的
+ *   explorationRunner —— Fargate 有較大記憶體且無時限,可從 S3 串流 APK。
+ *
+ * engine 這裡只做一件事:以 RunTask 啟動 Fargate task,把 S3 位置 / 被測產物 key / VLM /
+ * 探索目標等以環境變數注入,立即返回(不 block)。真機有真實網路/GMS,可通過遊戲伺服器
+ * 對模擬器環境的檢查(解決 Redroid 的 50019999)。
+ */
+
+const DATA_REGION = process.env.AWS_REGION ?? 'us-east-2';
+const DF_PROJECT_NAME = 'playagent-checker';
+
+// CDK 注入:Fargate 執行所需。
+const ECS_CLUSTER = process.env.DF_ECS_CLUSTER ?? '';
+const ECS_TASK_DEF = process.env.DF_ECS_TASK_DEF ?? '';
+const ECS_SUBNETS = (process.env.DF_ECS_SUBNETS ?? '').split(',').filter(Boolean);
+const ECS_SECURITY_GROUP = process.env.DF_ECS_SG ?? '';
+const ECS_CONTAINER_NAME = process.env.DF_ECS_CONTAINER ?? 'exploration-runner';
+// UI-TARS SageMaker endpoint 名(CDK 注入)。使用者選 vlmModel='uitars' 時,把它以 PA_UITARS_ENDPOINT
+// 傳進 runner,runner 就改用 UI-TARS 做定位(見 agent/uitarsClient.mjs)。留空則走 Bedrock 通用 VLM。
+const UITARS_ENDPOINT = process.env.UITARS_ENDPOINT ?? '';
+
+const ecs = new ECSClient({ region: DATA_REGION });
+
+export interface DeviceFarmRunParams {
+  tenantId: string;
+  jobId: string;
+  appId: string;
+  bucket: string;
+  prefix: string; // tenants/<t>/jobs/<jobId>
+  artifactKey: string;
+  package?: string;
+  platform?: DevicePlatform;
+  vlmModel?: string;
+  caseTask?: string;
+  maxOsVersion?: number;
+  minOsVersion?: number;
+}
+
+export interface DeviceFarmRunResult {
+  ecsTaskArn: string;
+}
+
+/**
+ * 啟動 Fargate 探索 task(不 block)。task 內的 runner 會自行讀 APK、上傳 Device Farm、
+ * 開真機 session 並跑 Appium 探索迴圈,終態由 runner 寫回 S3。
+ * 只在「環境未配置」或「RunTask 失敗」時拋錯,由 engine 落 error 終態。
+ */
+export async function startDeviceFarmRun(
+  params: DeviceFarmRunParams,
+): Promise<DeviceFarmRunResult> {
+  if (!ECS_CLUSTER || !ECS_TASK_DEF || ECS_SUBNETS.length === 0) {
+    throw new Error(
+      'Device Farm 執行環境未配置(需 DF_ECS_CLUSTER / DF_ECS_TASK_DEF / DF_ECS_SUBNETS)',
+    );
+  }
+  const platform = params.platform ?? 'android';
+
+  const env: Array<{ name: string; value: string }> = [
+    { name: 'PA_ARTIFACT_KEY', value: params.artifactKey },
+    { name: 'PA_PLATFORM', value: platform },
+    { name: 'PA_JOB', value: params.jobId },
+    { name: 'PA_TENANT', value: params.tenantId },
+    { name: 'PA_APP', value: params.appId },
+    { name: 'PA_BUCKET', value: params.bucket },
+    { name: 'PA_PREFIX', value: params.prefix },
+    { name: 'PA_DATA_REGION', value: DATA_REGION },
+    { name: 'PA_DF_REGION', value: DEVICE_FARM_REGION },
+    { name: 'PA_DF_PROJECT', value: DF_PROJECT_NAME },
+    { name: 'PA_VLM', value: params.vlmModel ?? '' },
+    { name: 'PA_PKG', value: params.package ?? '' },
+    { name: 'PA_TASK', value: params.caseTask ?? '' },
+    // 使用者選 UI-TARS 定位:把 endpoint 名傳給 runner(需 endpoint 已部署 InService)。
+    ...(params.vlmModel === 'uitars' && UITARS_ENDPOINT
+      ? [{ name: 'PA_UITARS_ENDPOINT', value: UITARS_ENDPOINT }]
+      : []),
+    ...(params.maxOsVersion !== undefined
+      ? [{ name: 'PA_MAX_OS', value: String(params.maxOsVersion) }]
+      : []),
+    ...(params.minOsVersion !== undefined
+      ? [{ name: 'PA_MIN_OS', value: String(params.minOsVersion) }]
+      : []),
+  ];
+
+  const runResp = await ecs.send(
+    new RunTaskCommand({
+      cluster: ECS_CLUSTER,
+      taskDefinition: ECS_TASK_DEF,
+      launchType: 'FARGATE',
+      count: 1,
+      networkConfiguration: {
+        awsvpcConfiguration: {
+          subnets: ECS_SUBNETS,
+          assignPublicIp: 'ENABLED', // 需出網連 Device Farm(us-west-2)與 Bedrock/S3
+          ...(ECS_SECURITY_GROUP ? { securityGroups: [ECS_SECURITY_GROUP] } : {}),
+        },
+      },
+      overrides: {
+        containerOverrides: [{ name: ECS_CONTAINER_NAME, environment: env }],
+      },
+    }),
+  );
+  const ecsTaskArn = runResp.tasks?.[0]?.taskArn;
+  if (!ecsTaskArn) {
+    const reason = runResp.failures?.[0]?.reason ?? '未知';
+    throw new Error(`啟動 Fargate 探索 task 失敗: ${reason}`);
+  }
+
+  return { ecsTaskArn };
+}

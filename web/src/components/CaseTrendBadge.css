@@ -1,0 +1,78 @@
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.trend--loading {
+  width: 60px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--surface-raised);
+  opacity: 0.5;
+}
+
+.trend--none {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.trend__dots {
+  display: inline-flex;
+  gap: 3px;
+}
+
+.trend__dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+/* 顏色編碼(輔以上方符號的形狀編碼,達三重編碼 Req 11.4) */
+.trend__dot--pass {
+  color: var(--status-pass);
+  border-color: var(--status-pass);
+}
+.trend__dot--fail {
+  color: var(--status-fail);
+  border-color: var(--status-fail);
+}
+.trend__dot--error {
+  color: var(--status-error);
+  border-color: var(--status-error);
+}
+
+.trend__rate {
+  color: var(--text-tertiary);
+}
+
+.trend__flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.trend__flag--flaky {
+  color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 12%, transparent);
+  cursor: help;
+}
+
+.trend__flag--stable {
+  color: var(--status-pass);
+  background: color-mix(in srgb, var(--status-pass) 12%, transparent);
+}

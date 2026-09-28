@@ -1,0 +1,41 @@
+version: 0.2
+
+# 雲端 build(AWS CodeBuild):在 AWS 內完成三件重活,不佔本機頻寬/磁碟:
+#   1. HF 下載 UI-TARS-1.5-7B(CodeBuild 對 HF 頻寬快)
+#   2. 同步權重到 S3(未壓縮字首,供 SageMaker CreateModel 的 ModelDataSource 用)
+#   3. docker build vLLM BYOC 映像 + 推 ECR
+# 環境變數(由 create/run 腳本以 environmentVariablesOverride 帶入):
+#   AWS_REGION, ACCOUNT_ID, IMAGE_REPO, MODEL_ID, S3_BUCKET, S3_PREFIX
+# 需 privileged mode(docker build)。source 為 agent/sagemaker 目錄(含 Dockerfile.vllm 等)。
+
+env:
+  variables:
+    IMAGE_REPO: "playagent-vllm-byoc"
+    MODEL_ID: "ByteDance-Seed/UI-TARS-1.5-7B"
+
+phases:
+  pre_build:
+    commands:
+      - echo "== pre_build =="
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_REPO}:latest"
+      - echo "IMAGE_URI=$IMAGE_URI"
+      # ECR repo 不存在就建
+      - aws ecr describe-repositories --repository-names "$IMAGE_REPO" --region "$AWS_REGION" 2>/dev/null || aws ecr create-repository --repository-name "$IMAGE_REPO" --region "$AWS_REGION" --image-scanning-configuration scanOnPush=true
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+      # HF CLI
+      - pip install -q "huggingface_hub[cli]"
+  build:
+    commands:
+      - echo "== 1. HF 下載 model =="
+      - hf download "$MODEL_ID" --local-dir /tmp/model
+      - echo "== 2. S3 上傳(未壓縮字首)=="
+      - aws s3 sync /tmp/model "s3://${S3_BUCKET}/${S3_PREFIX}/" --region "$AWS_REGION" --only-show-errors
+      - echo "== 3. docker build + push vLLM 映像(CodeBuild 已在 linux/amd64,無需 QEMU)=="
+      - docker build -f Dockerfile.vllm -t "$IMAGE_URI" .
+      - docker push "$IMAGE_URI"
+  post_build:
+    commands:
+      - echo "== done =="
+      - echo "IMAGE_URI=$IMAGE_URI"
+      - echo "S3_MODEL=s3://${S3_BUCKET}/${S3_PREFIX}/"

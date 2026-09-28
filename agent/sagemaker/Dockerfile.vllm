@@ -1,0 +1,26 @@
+# UI-TARS-1.5-7B 用的自建 vLLM 容器(SageMaker BYOC)。
+# 移植自 game-ai-qa/vendor/sagemaker-deploy/docker/Dockerfile.vllm,忠於其關鍵決策:
+#   - 基底 vllm/vllm-openai:v0.19.1(釘版本,FastAPI shim + smart_resize 行為已驗證)
+#   - vllm_server.py 提供 SageMaker 需要的 /ping + /invocations,內部代理到 127.0.0.1:8000 的 vLLM
+FROM --platform=linux/amd64 vllm/vllm-openai:v0.19.1
+
+ENV HF_HOME=/tmp/hf_home
+ENV VLLM_WORKER_MULTIPROC_METHOD=spawn
+
+# 修正 vLLM v0.19.1 動態 FP8 bias 歸零 bug(vllm-project/vllm#39663, PR #39962)。
+# UI-TARS 走 bfloat16 不量化時其實用不到,但保留此 patch 與參考容器一致,日後切 fp8 才安全。
+# 三步:(1) sentinel 必須先存在(pin 到 vLLM 0.19.1);(2) 注入;(3) 驗證注入成功。
+RUN META=/usr/local/lib/python3.12/dist-packages/vllm/model_executor/model_loader/reload/meta.py \
+ && grep -q '"_expert_map",' "$META" \
+   || (echo "ERROR: FP8 bias patch sentinel missing — vLLM base image likely changed. Inspect $META." && exit 1) \
+ && sed -i 's/"_expert_map",/"_expert_map",\n    "bias",/' "$META" \
+ && grep -q '"bias",' "$META" \
+   || (echo "ERROR: FP8 bias patch did not apply." && exit 1)
+
+COPY vllm_server.py /opt/ml/code/model.py
+COPY serve.sh /opt/ml/code/serve.sh
+RUN chmod +x /opt/ml/code/serve.sh
+
+EXPOSE 8080
+
+ENTRYPOINT ["/opt/ml/code/serve.sh"]

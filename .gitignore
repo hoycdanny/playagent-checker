@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+web/dist/
+infra/cdk.out/
+
+# CDK
+*.js.map
+cdk.context.json
+
+# env & local
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+*.log
+
+# test coverage
+coverage/

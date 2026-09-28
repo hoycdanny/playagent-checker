@@ -1,0 +1,238 @@
+.login {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  background: var(--bg);
+}
+
+/* 左側介紹面板:品牌漸層背景 */
+.login__intro {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-6);
+  padding: var(--space-8);
+  color: #ffffff;
+  background: linear-gradient(150deg, var(--brand) 0%, #2a2f6b 100%);
+}
+
+.login__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.login__logo {
+  font-size: 22px;
+  opacity: 0.9;
+}
+
+.login__lead {
+  margin: 0;
+  font-size: 18px;
+  line-height: 1.6;
+  max-width: 34ch;
+  opacity: 0.95;
+}
+
+.login__features {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.login__features li {
+  position: relative;
+  padding-left: var(--space-6);
+  font-size: 15px;
+  opacity: 0.92;
+}
+
+.login__features li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  font-weight: 700;
+}
+
+/* 右側表單面板 */
+.login__panel {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6);
+}
+
+.login__panel-top {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.login__lang select {
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.login__card {
+  margin: auto;
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.login__card-brand {
+  display: none;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.login__title {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.login__notice {
+  margin: 0;
+  padding: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.login__social {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.login__social-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.login__social-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.login__badge {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-tertiary);
+}
+
+.login__divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.login__divider::before,
+.login__divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.login__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.login__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.login__field input {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.login__field input:focus-visible {
+  border-color: var(--brand);
+}
+
+.login__error {
+  margin: 0;
+  color: var(--status-fail);
+  font-size: 13px;
+}
+
+.login__submit {
+  margin-top: var(--space-2);
+  padding: var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.login__submit:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.login__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 響應式:窄螢幕(手機/平板直向)收起左側介紹,表單置中並顯示卡片內品牌 */
+@media (max-width: 800px) {
+  .login {
+    grid-template-columns: 1fr;
+  }
+  .login__intro {
+    display: none;
+  }
+  .login__card-brand {
+    display: flex;
+  }
+}

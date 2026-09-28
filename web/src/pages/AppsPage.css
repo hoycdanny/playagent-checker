@@ -1,0 +1,529 @@
+.apps__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.apps__count {
+  display: inline-block;
+  margin-top: var(--space-1);
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.apps__create-btn {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.apps__create-btn:hover {
+  background: var(--brand-hover);
+}
+
+/* ---------- 表單 ---------- */
+.apps__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.apps__form-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.apps__form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-4);
+}
+
+.apps__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.apps__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.apps__field input,
+.apps__field select,
+.apps__textarea {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.apps__textarea {
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.apps__hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ---------- 圖示上傳 ---------- */
+.apps__icon-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.apps__icon-preview {
+  flex-shrink: 0;
+  width: 72px;
+  height: 72px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-raised);
+}
+
+.apps__icon-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.apps__icon-empty {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: var(--space-1);
+}
+
+.apps__icon-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.apps__upload {
+  display: inline-block;
+  cursor: pointer;
+}
+
+.apps__upload-btn {
+  display: inline-block;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.apps__upload-status {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.apps__upload-ok {
+  color: var(--status-pass);
+}
+
+.apps__upload-err {
+  color: var(--status-fail);
+}
+
+.apps__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.apps__cancel {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.apps__submit {
+  padding: var(--space-2) var(--space-6);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apps__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---------- 工具列(搜尋 + 篩選) ---------- */
+.apps__toolbar {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.apps__search {
+  flex: 1 1 240px;
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.apps__filter select {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+/* 類型篩選改用帶 icon 的自訂下拉;固定一個合理寬度,不撐滿整列。 */
+.apps__filter--genre {
+  width: 180px;
+  flex-shrink: 0;
+}
+
+/* ---------- 應用卡片網格 ---------- */
+.apps__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space-4);
+}
+
+.apps__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.apps__card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.12));
+}
+
+.apps__card--busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.apps__card--skeleton {
+  height: 220px;
+  background: linear-gradient(
+    90deg,
+    var(--surface) 0%,
+    var(--surface-raised) 50%,
+    var(--surface) 100%
+  );
+  background-size: 200% 100%;
+  animation: apps-shimmer 1.2s ease-in-out infinite;
+  border-style: dashed;
+}
+
+@keyframes apps-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.apps__card-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* 卡片頂部整塊可點進工作區 */
+.apps__card-link {
+  text-decoration: none;
+  color: inherit;
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  margin: -2px;
+  transition: background-color var(--transition-fast);
+}
+.apps__card-link:hover .apps__card-name {
+  color: var(--brand);
+}
+
+/* 進入工作區主按鈕 */
+.apps__enter-btn {
+  display: block;
+  text-align: center;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  margin-top: auto;
+}
+.apps__enter-btn:hover {
+  background: var(--brand-hover);
+}
+
+.apps__thumb {
+  flex-shrink: 0;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.apps__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.apps__thumb-fallback {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.apps__card-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.apps__card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.apps__platform {
+  align-self: flex-start;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.apps__platform--android {
+  color: #3ddc84;
+}
+.apps__platform--ios {
+  color: var(--text-primary);
+}
+.apps__platform--windows {
+  color: #4aa3ff;
+}
+.apps__platform--web {
+  color: #f5a623;
+}
+
+.apps__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: center;
+}
+
+.apps__genre {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--brand);
+  border: 1px solid var(--border);
+  max-width: 100%;
+}
+
+.apps__genre svg {
+  flex-shrink: 0;
+}
+
+/* ---------- 卡片資訊 ---------- */
+.apps__meta {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.apps__meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 13px;
+}
+
+.apps__meta-row dt {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.apps__meta-row dd {
+  margin: 0;
+  color: var(--text-secondary);
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.apps__mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.apps__muted {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+.apps__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.apps__dot--ok {
+  background: var(--status-pass);
+}
+
+.apps__dot--warn {
+  background: var(--status-fail);
+}
+
+.apps__notes {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(1.5em * 2);
+}
+
+/* ---------- 卡片操作 ---------- */
+.apps__card-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.apps__card-btn {
+  flex: 1;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.apps__card-btn:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: var(--border-strong);
+}
+
+.apps__card-btn--danger {
+  color: var(--status-fail);
+}
+
+.apps__card-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--status-fail) 12%, transparent);
+  border-color: var(--status-fail);
+}
+
+.apps__card-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 預設知識庫多選 */
+.apps__kb-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.apps__kb-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}

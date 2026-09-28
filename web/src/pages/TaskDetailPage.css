@@ -1,0 +1,488 @@
+.detail__topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.detail__back {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.detail__back:hover {
+  color: var(--text-primary);
+}
+
+.detail__conn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  padding: 2px var(--space-3);
+  border-radius: 999px;
+}
+
+.detail__conn::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.detail__conn--on {
+  color: var(--status-running);
+}
+
+.detail__conn--off {
+  color: var(--text-tertiary);
+}
+
+.detail__state {
+  margin: 0;
+  font-size: 15px;
+  color: var(--text-secondary);
+}
+
+.detail__panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.detail__panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+  min-height: 320px;
+}
+
+.detail__panel-title {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.detail__live {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: #000;
+  border-radius: var(--radius-sm);
+}
+
+.detail__no-live,
+.detail__no-steps {
+  color: var(--text-tertiary);
+  font-size: 14px;
+  padding: var(--space-4);
+}
+
+.detail__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.detail__step {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3);
+  background: var(--surface-raised);
+}
+
+.detail__step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.detail__step-idx {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.detail__step-action {
+  font-size: 12px;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-secondary-surface, var(--bg));
+  color: var(--text-secondary);
+}
+
+.detail__step-body {
+  font-size: 13px;
+  color: var(--text-secondary);
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-3);
+  align-items: flex-start;
+}
+
+.detail__step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 即時畫面:最新截圖 */
+.detail__live-shot {
+  margin: 0;
+}
+
+.detail__live-shot img {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  background: #000;
+  display: block;
+  object-fit: contain;
+  max-height: 420px;
+}
+
+.detail__live-cap {
+  margin-top: var(--space-2);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 每步畫面名徽章 */
+.detail__step-screen {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 每步截圖縮圖 */
+.detail__step-thumb {
+  flex: 0 0 auto;
+  display: block;
+  width: 132px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.detail__step-thumb img {
+  width: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+/* AI 思考文字 */
+.detail__step-think {
+  color: var(--text-secondary);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.detail__step-url {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+  color: var(--text-tertiary);
+}
+
+.detail__step-title {
+  color: var(--text-primary);
+}
+
+@media (max-width: 720px) {
+  .detail__panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.detail__triage {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border-left: 3px solid transparent;
+}
+
+.detail__triage--fail {
+  color: var(--status-fail);
+  border-left-color: var(--status-fail);
+  background: color-mix(in srgb, var(--status-fail) 8%, transparent);
+}
+
+.detail__triage--error {
+  color: var(--status-error);
+  border-left-color: var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 8%, transparent);
+}
+
+/* 任務資訊面板:套用情境 / 使用模型 / 花費 */
+.detail__info {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+}
+
+.detail__info-grid {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.detail__info-row {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.detail__info-row dt {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.detail__info-row dd {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.5;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.detail__info-mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.detail__info-tags {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.detail__info-tag {
+  font-size: 12px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+/* 使用模型:三角色分工列表 */
+.detail__roles {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.detail__role {
+  display: grid;
+  grid-template-columns: 88px 1fr auto;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+}
+
+.detail__role-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.detail__role-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+.detail__role-model {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .detail__role {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+.detail__info-cost {
+  font-weight: 600;
+}
+
+.detail__info-budget {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+@media (max-width: 720px) {
+  .detail__info-row {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
+
+/* 頂列右側:Log 按鈕 + 連線指示 */
+.detail__topline-right {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.detail__logs-btn {
+  padding: 2px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.detail__logs-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.detail__logs-btn--on {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+/* 模型互動 Log 面板 */
+.detail__logs {
+  margin-top: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+}
+
+.detail__log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.detail__log {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  padding: var(--space-3);
+}
+
+.detail__log--err {
+  border-color: var(--status-fail);
+  background: color-mix(in srgb, var(--status-fail) 6%, transparent);
+}
+
+.detail__log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.detail__log-idx {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.detail__log-seat,
+.detail__log-channel {
+  font-size: 11px;
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.detail__log-model {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.detail__log-status {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.detail__log-status.is-ok {
+  color: var(--status-running);
+}
+
+.detail__log-status.is-err {
+  color: var(--status-fail);
+}
+
+.detail__log-row {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  gap: var(--space-3);
+  align-items: start;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.detail__log-key {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.detail__log-val {
+  color: var(--text-primary);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.detail__log-pre {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.detail__log-mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.detail__log-errtext {
+  color: var(--status-fail);
+  font-family: var(--font-mono);
+}
+
+@media (max-width: 720px) {
+  .detail__log-row {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}

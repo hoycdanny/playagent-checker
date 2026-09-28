@@ -1,0 +1,314 @@
+.ws__back {
+  display: inline-block;
+  margin-bottom: var(--space-4);
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.ws__back:hover {
+  color: var(--text-primary);
+}
+
+/* ---------- App 身份區 ---------- */
+.ws__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding-bottom: var(--space-5);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-5);
+}
+
+.ws__thumb {
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ws__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ws__thumb-fallback {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+}
+
+.ws__identity-main {
+  min-width: 0;
+}
+
+.ws__title {
+  margin: 0 0 var(--space-2);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ws__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ws__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+
+.ws__badge--genre {
+  color: var(--brand);
+}
+
+.ws__mono {
+  font-family: var(--font-mono);
+  font-weight: 500;
+}
+
+/* ---------- Tabs ---------- */
+.ws__tabs {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-5);
+}
+
+.ws__tab {
+  padding: var(--space-3) var(--space-4);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+
+.ws__tab:hover {
+  color: var(--text-primary);
+}
+
+.ws__tab--active {
+  color: var(--brand);
+  border-bottom-color: var(--brand);
+}
+
+/* ---------- Panels ---------- */
+.ws__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+/* 表格在窄螢幕可水平捲動,不撐破版面 */
+.ws__panel .tasks__table {
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.ws__panel-head {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ws__subtitle {
+  margin: var(--space-2) 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws__empty-note {
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.ws__muted {
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* ---------- 統計卡 ---------- */
+.ws__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+
+.ws__stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  text-align: left;
+  cursor: default;
+}
+
+button.ws__stat {
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+button.ws__stat:hover {
+  border-color: var(--border-strong);
+}
+
+.ws__stat b {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ws__stat span {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ---------- 表單 ---------- */
+.ws__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.ws__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+
+.ws__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ws__field input,
+.ws__field select,
+.ws__textarea {
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.ws__textarea {
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+.ws__textarea.ws__mono {
+  font-family: var(--font-mono);
+}
+
+.ws__form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.ws__primary {
+  padding: var(--space-2) var(--space-5);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ws__primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ws__link-btn {
+  display: inline-block;
+  align-self: flex-start;
+  text-decoration: none;
+}
+
+.ws__secondary {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+.ws__secondary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 知識庫多選 */
+.ws__kb-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) 0;
+}
+
+.ws__kb-option {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+/* 費用估算(探索模型下方) */
+.ws__cost-est {
+  gap: var(--space-2);
+}
+.ws__cost-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.ws__cost-steps {
+  width: 120px;
+}
+.ws__cost-unit {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.ws__cost-approx {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: auto;
+}

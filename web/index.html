@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233b5bdb'/%3E%3Cpath d='M12 9l10 7-10 7z' fill='white'/%3E%3C/svg%3E"
+    />
+    <title>PlayAgent Checker</title>
+    <!--
+      無閃爍主題套用(Req 10.10):在首次繪製前,依「已記憶選擇 > 系統偏好」
+      決定並套上 data-theme,避免亮/暗閃爍。此段刻意 inline 且極小。
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('playagent.theme');
+          var theme =
+            stored === 'light' || stored === 'dark'
+              ? stored
+              : window.matchMedia &&
+                  window.matchMedia('(prefers-color-scheme: dark)').matches
+                ? 'dark'
+                : 'light';
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'light');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

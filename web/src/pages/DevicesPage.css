@@ -1,0 +1,248 @@
+.devices__subtitle {
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-6);
+  font-size: 14px;
+}
+
+.devices__card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.devices__section {
+  margin: 0 0 var(--space-2);
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.devices__desc {
+  margin: 0 0 var(--space-4);
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.devices__hint {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 雲端裝置清單 */
+.devices__cloud-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.devices__cloud-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.devices__cloud-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Device Farm 真機 OS/架構等次要資訊;把後面的來源徽章推到最右 */
+.devices__cloud-meta {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-right: auto;
+}
+
+/* 真機清單可能很長,限高可捲動,避免佔滿整頁 */
+.devices__cloud-list {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* 表單 */
+.devices__form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.devices__form--secret .devices__field {
+  min-width: 220px;
+}
+
+.devices__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  min-width: 180px;
+}
+
+.devices__label {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.devices__field input {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.devices__btn {
+  padding: var(--space-3) var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.devices__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 一次性 token */
+.devices__token {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.devices__token-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-2);
+  color: var(--text-primary);
+}
+
+.devices__token-close {
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.devices__token-value {
+  display: block;
+  word-break: break-all;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: var(--space-2);
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-2);
+}
+
+.devices__token-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.devices__token-warn {
+  margin: var(--space-2) 0 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* 清單項 */
+.devices__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.devices__item-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.devices__item-hint {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.devices__remove {
+  margin-left: auto;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* 狀態徽章:文字 + 顏色 + 圓點三重編碼(Req 11.4) */
+.devices__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+}
+
+.devices__badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.devices__badge--auto::before {
+  display: none;
+}
+
+.devices__badge--online {
+  color: var(--status-pass);
+}
+
+.devices__badge--offline {
+  color: var(--text-tertiary);
+}
+
+.devices__badge--registered {
+  color: var(--brand);
+}
+
+@media (max-width: 640px) {
+  .devices__form {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .devices__btn {
+    width: 100%;
+  }
+}

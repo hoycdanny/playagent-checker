@@ -1,0 +1,133 @@
+/*
+ * 語意化設計權杖(Req 10.11 / 15.3)。
+ * 元件一律引用這些 token,不用硬編碼色值 → 新元件自動支援深/淺兩主題。
+ * 主題只換 token 值(:root[data-theme=...]),不改任何元件。
+ * 顏色對比以 WCAG AA 為準(Req 10.10 / 11.4)。
+ */
+
+:root {
+  /* 尺度與排版 —— 主題無關 */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans TC',
+    'Noto Sans', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Menlo', 'Consolas', monospace;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --topbar-h: 56px;
+  --transition-fast: 120ms ease;
+}
+
+/* 淺色主題 */
+:root[data-theme='light'] {
+  --bg: #f7f8fa;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #e2e5ea;
+  --border-strong: #c8cdd6;
+  --text-primary: #1a1d23;
+  --text-secondary: #4a5160;
+  --text-tertiary: #6b7280;
+  --brand: #3b5bdb;
+  --brand-hover: #2f4ac0;
+  --brand-contrast: #ffffff;
+  --focus-ring: #3b5bdb;
+
+  --status-pass: #1a7f3c;
+  --status-fail: #c0392b;
+  --status-error: #b15c00;
+  --status-cancelled: #5a6472;
+  --status-running: #2f6fd0;
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.1);
+
+  /* 架構圖服務配色(淺色主題:飽和深色,在白底上對比足夠) */
+  --arch-blue: #3b5bdb;
+  --arch-purple: #7048c4;
+  --arch-orange: #c76a1a;
+  --arch-pink: #b8358f;
+  --arch-green: #1f8f4e;
+  --arch-teal: #0e8a86;
+  --arch-slate: #647089;
+}
+
+/* 深色主題 */
+:root[data-theme='dark'] {
+  --bg: #0e0f12;
+  --surface: #16181d;
+  --surface-raised: #1d2027;
+  --border: #2a2e37;
+  --border-strong: #3a3f4b;
+  --text-primary: #f2f4f8;
+  --text-secondary: #b7bec9;
+  --text-tertiary: #8a919e;
+  --brand: #7c8cff;
+  --brand-hover: #93a0ff;
+  --brand-contrast: #0e0f12;
+  --focus-ring: #7c8cff;
+
+  --status-pass: #4ec97a;
+  --status-fail: #ff7a6b;
+  --status-error: #f0a24b;
+  --status-cancelled: #9aa3b2;
+  --status-running: #6ba8ff;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5);
+
+  /* 架構圖服務配色(深色主題:明亮色,在深底上清楚) */
+  --arch-blue: #7c8cff;
+  --arch-purple: #b18cff;
+  --arch-orange: #f0a24b;
+  --arch-pink: #ff7ad0;
+  --arch-green: #4ec97a;
+  --arch-teal: #35c9c2;
+  --arch-slate: #9aa3b2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text-primary);
+  /* 主題切換即時、無版面跳動(Req 10.10) */
+  transition:
+    background-color var(--transition-fast),
+    color var(--transition-fast);
+}
+
+/* 全域可見焦點樣式(Req 11.1) */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* 螢幕報讀器可見、視覺隱藏(Req 11.2) */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

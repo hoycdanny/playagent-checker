@@ -1,0 +1,29 @@
+version: 0.2
+
+# 雲端 build exploration runner 映像(Device Farm 真機 runner,含 UI-TARS client)。
+# source = agent/ 目錄(含所有 .mjs + Dockerfile.exploration + exploration-runner.package.json)。
+# 環境變數:AWS_REGION, IMAGE_REPO(playagent-exploration-runner)。需 privileged mode。
+
+env:
+  variables:
+    IMAGE_REPO: "playagent-exploration-runner"
+
+phases:
+  pre_build:
+    commands:
+      - echo "== pre_build =="
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_REPO}:latest"
+      - echo "IMAGE_URI=$IMAGE_URI"
+      - aws ecr describe-repositories --repository-names "$IMAGE_REPO" --region "$AWS_REGION" 2>/dev/null || aws ecr create-repository --repository-name "$IMAGE_REPO" --region "$AWS_REGION" --image-scanning-configuration scanOnPush=true
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+  build:
+    commands:
+      - echo "== docker build exploration runner (CodeBuild 已在 linux/amd64) =="
+      # Dockerfile.exploration 用容器專用 package.json;先就位成 package.json 供 npm install。
+      - cp exploration-runner.package.json package.json
+      - docker build -f Dockerfile.exploration -t "$IMAGE_URI" .
+      - docker push "$IMAGE_URI"
+  post_build:
+    commands:
+      - echo "== done == IMAGE_URI=$IMAGE_URI"

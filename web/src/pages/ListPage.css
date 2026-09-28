@@ -1,0 +1,165 @@
+.listpage {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: var(--space-6);
+}
+
+/* 寬版列表(如任務列表:欄位多,960px 會左右大片留白)。
+   多了「步數」欄且兩側仍有餘裕,放寬到 1520px 讓內容更舒展。 */
+.listpage--wide {
+  max-width: 1520px;
+}
+
+.listpage__header {
+  margin-bottom: var(--space-6);
+}
+
+.listpage__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.listpage__empty {
+  padding: var(--space-8);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.listpage__error {
+  color: var(--status-fail);
+  font-size: 14px;
+}
+
+.listpage__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.listpage__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* 骨架屏:載入時的即時回饋(Req 15.4) */
+.listpage__skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.listpage__skeleton-row {
+  height: 48px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--surface-raised) 37%,
+    var(--surface) 63%
+  );
+  background-size: 400% 100%;
+  animation: listpage-shimmer 1.4s ease infinite;
+}
+
+@keyframes listpage-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .listpage__skeleton-row {
+    animation: none;
+  }
+}
+
+.listpage__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.listpage__more-count {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.listpage__more-btn {
+  padding: var(--space-2) var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.listpage__more-btn:hover {
+  border-color: var(--brand);
+}
+
+/* 報告列的操作(開啟 + 刪除) */
+.reports__row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.reports__row-delete {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.reports__row-delete:hover {
+  border-color: var(--status-fail);
+  color: var(--status-fail);
+}
+
+/* 報告頁:標題列含批次刪除工具列 */
+.reports__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.reports__toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.reports__selectall {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}

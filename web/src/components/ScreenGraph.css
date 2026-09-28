@@ -1,0 +1,69 @@
+.sg-canvas {
+  height: 70vh;
+  min-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.sg-node {
+  width: 150px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  font-size: 12px;
+}
+
+.sg-node__heat {
+  height: 4px;
+  background: #ff2d95;
+}
+
+.sg-node__thumb {
+  width: 100%;
+  height: 120px;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sg-node__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.sg-node__noimg {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(45deg, var(--surface), var(--surface) 6px, var(--surface-raised) 6px, var(--surface-raised) 12px);
+}
+
+.sg-node__name {
+  padding: 4px 6px 0;
+  color: var(--text-primary);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-node__visits {
+  padding: 0 6px 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+/* React Flow 控制項配合主題 */
+.sg-canvas .react-flow__controls-button {
+  background: var(--surface-raised);
+  border-color: var(--border);
+  fill: var(--text-secondary);
+}
+.sg-canvas .react-flow__minimap {
+  background: var(--surface-raised);
+}

@@ -1,0 +1,357 @@
+/* 使用說明頁放寬(覆蓋 .listpage 的 960px),左右不浪費、AWS 圖可大而清楚。 */
+.listpage.guide {
+  max-width: 1360px;
+}
+
+/* 段落文字:限制行長以利閱讀。中英混排斷行規則:
+   word-break:normal → 中文依 CJK 規則逐字自然折行(keep-all 會把整段中文
+     當成單一不可斷詞,導致在句中標點處硬斷,反而更亂);
+   line-break:strict → 套用標點禁則(句號、逗號等不落行首);
+   overflow-wrap:anywhere → 極長英文字(如 modelId)仍可斷,不撐破容器。 */
+.guide__hero-lead,
+.guide__lead,
+.guide__purpose,
+.guide__section-intro,
+.guide__footnote {
+  /* 用 px 而非 ch:ch 以西文字寬計,中文字較寬會使實際可容納字數偏少,
+     導致一般長度的中文句子被過早折行。放寬到 1200px 讓說明句在寬螢幕單行
+     (量測:最長的第3段說明單行需 ~1160px,容器 1360px 可容納)。 */
+  max-width: 1200px;
+  word-break: normal;
+  line-break: strict;
+  overflow-wrap: anywhere;
+}
+
+.guide__hero {
+  padding: var(--space-6) 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-6);
+}
+
+.guide__hero-title {
+  margin: 0 0 var(--space-3);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.guide__hero-lead {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.guide__block {
+  margin-bottom: var(--space-8);
+}
+
+.guide__h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.guide__h3 {
+  margin: 0 0 var(--space-2);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.guide__lead {
+  margin: 0 0 var(--space-4);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+/* 流程 */
+.guide__flow {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-3);
+}
+
+.guide__flow-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.guide__flow-label {
+  font-weight: 700;
+  color: var(--brand);
+  font-size: 14px;
+}
+
+.guide__flow-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+/* 功能區塊 */
+.guide__section {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--border);
+}
+.guide__section:last-child {
+  border-bottom: none;
+}
+
+.guide__section-intro {
+  margin: 0 0 var(--space-3);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.guide__steps,
+.guide__seats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.guide__step,
+.guide__seat {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.guide__step-title,
+.guide__seat-name {
+  display: block;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.guide__step-body,
+.guide__seat-role {
+  color: var(--text-secondary);
+}
+
+/* 模型表格 */
+.guide__table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.guide__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.guide__table th,
+.guide__table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.guide__table th {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.guide__table tr:last-child td {
+  border-bottom: none;
+}
+
+.guide__model-name {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.guide__model-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.guide__mono {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.guide__model-note {
+  color: var(--text-secondary);
+}
+
+.guide__footnote {
+  margin: var(--space-3) 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+}
+
+.guide__cta {
+  margin-top: var(--space-6);
+}
+
+.guide__cta-btn {
+  display: inline-block;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.guide__cta-btn:hover {
+  background: var(--brand-hover);
+}
+
+/* 架構圖載入中的佔位 */
+.guide__arch-loading {
+  height: 90vh;
+  min-height: 900px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+/* 「用文字看六步流程」摺疊區 */
+.guide__flow-details {
+  margin-top: var(--space-4);
+}
+.guide__flow-details > summary {
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: var(--space-2) 0;
+  user-select: none;
+}
+.guide__flow-details[open] > summary {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* 四區塊:標題編號徽章 */
+.guide__num-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin-right: var(--space-2);
+  border-radius: 50%;
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 14px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+/* ① 系統用途:大字、簡短。放寬限寬讓整句在寬螢幕單行呈現。 */
+.guide__purpose {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.75;
+  color: var(--text-primary);
+  max-width: 1200px;
+}
+
+/* ④ 區塊內的次標題,彼此之間拉開間距 */
+.guide__block .guide__h3 {
+  margin-top: var(--space-6);
+}
+.guide__block .guide__h3:first-of-type {
+  margin-top: var(--space-4);
+}
+
+.guide__h4 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ④ 名詞解釋:無框定義列表(術語左、說明右),每項以細分隔線分開,乾淨易讀 */
+.guide__glossary {
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+.guide__gloss-item {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: var(--space-2) var(--space-6);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.guide__gloss-term {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.guide__gloss-desc {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+
+/* 窄螢幕:術語與說明改上下堆疊 */
+@media (max-width: 640px) {
+  .guide__gloss-item {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+}
+
+/* 統一所有說明性文字的中英混排斷行:中文逐字自然折行,標點套禁則,超長英文可斷 */
+.guide__step-body,
+.guide__seat-role,
+.guide__model-note,
+.guide__gloss-desc,
+.guide__gloss-term,
+.guide__section-intro {
+  word-break: normal;
+  line-break: strict;
+  overflow-wrap: anywhere;
+}
+
+/* 模型數量徽章(顯示目錄實際筆數) */
+.guide__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  margin-left: var(--space-2);
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 12px;
+  font-weight: 700;
+  vertical-align: middle;
+}
