@@ -62,7 +62,7 @@ export interface GuideContent {
 }
 
 const zhHant: GuideContent = {
-  heroTitle: 'PlayAgent Checker 使用說明',
+  heroTitle: '使用說明',
   heroLead:
     '這份說明分四部分:系統用途、操作流程、系統架構,以及技術名詞與模型細節。',
   purposeTitle: '系統用途',
@@ -213,7 +213,7 @@ const zhHant: GuideContent = {
 };
 
 const en: GuideContent = {
-  heroTitle: 'PlayAgent Checker Guide',
+  heroTitle: 'Guide',
   heroLead:
     'Four parts: what the system is for, how you use it, the system architecture, and technical terms & model details.',
   purposeTitle: 'What it is for',

@@ -27,30 +27,31 @@
   border-color: var(--border-strong);
 }
 
-/* 卡片間箭頭:畫在右側 gap 中央(品牌色,較明顯);每列最後一張(6 的倍數)不畫。 */
+/* 卡片間箭頭:完整畫在兩卡之間的 gap(--space-5=20px)裡,兩端都留白,不碰到任一張卡框。
+   佈局(從卡片右緣往右量):橫線 4px→14px;箭頭尖端約 12px→17px。gap 尾(20px)前留 ~3px。 */
 .flowg__card--linked::after {
-  /* 箭頭連接線:完整落在兩卡之間的 gap(--space-5=20px)內,不越界到任一張卡。
-     橫線從卡片右緣(right:0 外側)畫到 gap 尾端前 5px,總長 = gap - 5px。 */
   content: '';
   position: absolute;
   top: 50%;
-  right: calc(var(--space-5) * -1 + 5px);
-  width: calc(var(--space-5) - 5px);
+  right: -14px; /* 線的右端在 gap 內 14px 處 */
+  width: 10px; /* 線從 gap 4px 延伸到 14px */
   height: 0;
   border-top: 2px solid var(--brand);
   transform: translateY(-50%);
+  pointer-events: none;
 }
 .flowg__card--linked::before {
-  /* 箭頭頭:6px 方塊旋轉後尖端收在 gap 內,距下一張卡左緣至少 ~3px,不戳到框。 */
+  /* 箭頭頭:5px 方塊旋轉 45°;右端收在 gap 約 17px 處,距下一張卡左緣(20px)約 3px,不戳到框。 */
   content: '';
   position: absolute;
   top: 50%;
-  right: calc(var(--space-5) * -1 + 7px);
-  width: 6px;
-  height: 6px;
+  right: -17px;
+  width: 5px;
+  height: 5px;
   border-top: 2px solid var(--brand);
   border-right: 2px solid var(--brand);
   transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
   z-index: 0;
 }
 /* 3 欄時每列尾端(第 3、6 張)不畫箭頭 */
