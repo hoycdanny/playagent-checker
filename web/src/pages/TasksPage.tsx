@@ -613,19 +613,15 @@ export default function TasksPage() {
                   />
                 </td>
                 <td className="tasks__col-icon">
-                  {/* 狀態改用小圖示 + hover tooltip(與環境/位置一致);顏色沿用 task-state--* */}
-                  {/* 只取 task-state--* 色彩修飾(不套 task-state 基底,避免多出圓點與膠囊底);
-                      圖示吃 currentColor,故顏色由 stateClass 提供。 */}
-                  <Link
-                    to={`/tasks/${x.jobId}`}
-                    className={`tasks__state-link ${stateClass(x.state)}`}
-                  >
+                  {/* 狀態只是狀態指示(小圖示 + tooltip),不再是進詳情的連結;
+                      進詳情改由「操作」欄的檢視 icon(較符合直覺)。顏色沿用 task-state--*。 */}
+                  <span className={`tasks__state-link ${stateClass(x.state)}`}>
                     <TaskIcon
                       kind="state"
                       value={x.state}
                       label={t(`state.${x.state}` as MessageKey)}
                     />
-                  </Link>
+                  </span>
                 </td>
                 <td className="tasks__created">
                   {formatCreated(x.createdAt)}
@@ -668,32 +664,46 @@ export default function TasksPage() {
                 <td className="tasks__text-cell">{renderModel(x.seatModels?.vlm ?? x.vlmModel)}</td>
                 <td className="tasks__text-cell">{renderModel(x.seatModels?.subagent)}</td>
                 <td className="tasks__col-icon">
-                  {!TERMINAL.has(x.state) ? (
-                    <button
-                      type="button"
+                  <div className="tasks__actions">
+                    {/* 檢視:進任務詳情(進詳情的唯一入口)。 */}
+                    <Link
+                      to={`/tasks/${x.jobId}`}
                       className="tasks__icon-btn"
-                      onClick={() => onCancel(x.jobId)}
-                      title={t('tasks.cancel')}
-                      aria-label={t('tasks.cancel')}
-                    >
-                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" />
-                        <path d="M9 9l6 6M15 9l-6 6" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="tasks__icon-btn tasks__icon-btn--danger"
-                      onClick={() => onDelete(x.jobId)}
-                      title={t('tasks.delete')}
-                      aria-label={t('tasks.delete')}
+                      title={t('tasks.view')}
+                      aria-label={t('tasks.view')}
                     >
                       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M10 11v6M14 11v6" />
+                        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
+                        <circle cx="12" cy="12" r="3" />
                       </svg>
-                    </button>
-                  )}
+                    </Link>
+                    {!TERMINAL.has(x.state) ? (
+                      <button
+                        type="button"
+                        className="tasks__icon-btn"
+                        onClick={() => onCancel(x.jobId)}
+                        title={t('tasks.cancel')}
+                        aria-label={t('tasks.cancel')}
+                      >
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M9 9l6 6M15 9l-6 6" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="tasks__icon-btn tasks__icon-btn--danger"
+                        onClick={() => onDelete(x.jobId)}
+                        title={t('tasks.delete')}
+                        aria-label={t('tasks.delete')}
+                      >
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M10 11v6M14 11v6" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
               );

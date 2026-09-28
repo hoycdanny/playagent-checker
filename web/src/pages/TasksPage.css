@@ -338,6 +338,7 @@
   background: var(--surface-raised);
   color: var(--text-secondary);
   cursor: pointer;
+  text-decoration: none; /* Link(檢視 icon)也套用此樣式,去除底線 */
 }
 
 .tasks__icon-btn:hover {
