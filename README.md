@@ -17,6 +17,64 @@ PlayAgent Checker runs entirely on **AWS (region `us-east-2`)**: a serverless co
 
 Architecture details: [docs/architecture.md](docs/architecture.md).
 
+## Who it's for
+
+- **QA teams** who want to test games/apps without writing or maintaining brittle UI scripts.
+- **Studios shipping many titles** (slots, RPG, MMORPG, casual…) that need repeatable smoke/regression runs across builds.
+- **Anyone** who can describe a flow in words but doesn't want to learn an automation framework.
+
+## How it works (end to end)
+
+```
+① Create an app        Upload APK/IPA/ZIP, or point at a web URL. Tag its genre.
+② Write a test case    Describe the flow in plain language → AI drafts runnable YAML.
+③ (Optional) Knowledge Attach game-genre or scenario knowledge so the AI understands the domain.
+④ Submit a task        Pick runtime (Web / Device Farm) + coordinate model, queue to the cloud.
+⑤ The agent runs       screenshot → VLM finds coordinates → Agent decides → act → repeat.
+⑥ Report + memory      Multilingual report (narrative, screenshots, step trace, cost) +
+                        a navigation map that accumulates across runs.
+```
+
+The AI never relies on brittle element selectors — it **looks at the actual screen** like a human tester, which is why it works on canvas-rendered games (Cocos2d-x, Unity) that have no inspectable UI tree.
+
+## Features (what each page does)
+
+| Page | What it's for |
+| --- | --- |
+| **Guide** | The in-app walkthrough (this is your landing page after login), localized in 5 languages. |
+| **Apps** | One workspace per game/app. Create with name + platform + genre; upload the artifact (native) or a URL (Web). Holds that app's cases, tasks, reports, and memory. |
+| **Test Cases** | A case = one flow for the AI to run. Draft it in plain language (AI → YAML) or hand-write YAML. Secrets use `${ENV}` placeholders; literal passwords are rejected. |
+| **Test Tasks** | Send a case to run. Choose **runtime** (Web browser or Device Farm real device), the **coordinate model** (defaults to UI-TARS), and multi-select **knowledge bases**. Watch live; cancel anytime. |
+| **Test Reports** | Read-only result: AI narrative, step-by-step trace, gameplay screenshots, navigation graph, plus budget vs actual spend and token usage. |
+| **Memory Map** | An app-wide picture built across all runs: visited screens become nodes, transitions become edges — later tests navigate faster. |
+| **Knowledge** | Reusable knowledge bases shared across users. Two kinds (game genre / scenario), each holding **Markdown** (injected in full) and/or **PDF retrieval** (vector search over uploaded docs). |
+| **Devices** | Browse the real device models available on AWS Device Farm. Cloud runners are created per task and reclaimed automatically — no manual device management. |
+
+## The AI: three model "seats"
+
+Models are organized by **role (seat)**, not by vendor. Each seat is chosen independently per task:
+
+- **Agent (decision)** — the brain; looks at the current screen and goal and decides the next action.
+- **VLM (coordinates)** — vision; turns "the thing to tap" into actual on-screen pixels. **Defaults to UI-TARS-1.5-7B on SageMaker** (fine-tuned for GUI grounding; far more accurate on game art than general models, and replies in Traditional Chinese).
+- **Subagent (helper)** — lighter sub-tasks on a cheaper model to save cost.
+
+Knowledge-base search additionally uses **Amazon Titan Text Embeddings v2** with **Amazon Bedrock Knowledge Bases + S3 Vectors**. You never pick an SDK/endpoint — the system derives it from the model id.
+
+## Cost guardrails
+
+Every task has a budget. Before running, the engine **locks a price snapshot** for each seat's model (fail-closed: if a price is unknown, the run is refused — it never starts at unknown cost). Execution stops once spend hits the budget, and the report shows actual spend and token usage.
+
+## Glossary
+
+- **Seat** — a model role (Agent / VLM / SubAgent), not a vendor.
+- **VLM** — Vision-Language Model; reads the screenshot and locates coordinates.
+- **UI-TARS** — a ByteDance vision model fine-tuned for GUI grounding, served on SageMaker via vLLM; reports absolute pixels on the smart-resized image.
+- **Agent loop** — screenshot → VLM locates → Agent decides → act → repeat. The engine runs in the cloud (Lambda orchestrates; the runner container runs on Fargate).
+- **Knowledge base** — Markdown (injected in full) or PDF retrieval (vector search by task goal).
+- **Locality** — where the device under test is: `cloud` (provided) or `attached` (your local device, still driven by the cloud brain).
+- **Terminal state** — a task's end state: `pass` / `fail` / `error` / `cancelled` / `budget_exceeded` / `dead`.
+- **Fail-closed** — refuse to run rather than spend at an unknown price.
+
 ---
 
 # 🚀 Install on a clean AWS account (step by step)
