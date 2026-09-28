@@ -229,6 +229,7 @@ export type MessageKey =
   | 'cases.deleteConfirm'
   | 'cases.batchDeleteConfirm'
   | 'tasks.delete'
+  | 'tasks.view'
   | 'tasks.deleteConfirm'
   | 'report.delete'
   | 'report.deleteConfirm'
@@ -656,6 +657,7 @@ const zhHant: Catalog = {
   'cases.deleteConfirm': '確定要刪除這個測試案例?',
   'cases.batchDeleteConfirm': '確定要刪除選取的 {n} 個測試案例嗎?不可復原。',
   'tasks.delete': '刪除',
+  'tasks.view': '檢視詳情',
   'tasks.deleteConfirm': '確定要刪除這個任務?會連同它的報告與截圖一起刪除,無法復原。',
   'report.delete': '刪除',
   'report.deleteConfirm': '確定要刪除這份報告?會連同任務紀錄一起刪除,無法復原。',
@@ -1082,6 +1084,7 @@ const en: Catalog = {
   'cases.deleteConfirm': 'Delete this test case?',
   'cases.batchDeleteConfirm': 'Delete the {n} selected test cases? This cannot be undone.',
   'tasks.delete': 'Delete',
+  'tasks.view': 'View details',
   'tasks.deleteConfirm': 'Delete this task? Its report and screenshots are removed too. This cannot be undone.',
   'report.delete': 'Delete',
   'report.deleteConfirm': 'Delete this report? The task record is removed too. This cannot be undone.',
@@ -1513,6 +1516,7 @@ const zhHans: Catalog = {
   'cases.deleteConfirm': '确定要删除这个测试用例?',
   'cases.batchDeleteConfirm': '确定要删除选取的 {n} 个测试用例吗?不可恢复。',
   'tasks.delete': '删除',
+  'tasks.view': '查看详情',
   'tasks.deleteConfirm': '确定要删除这个任务?会连同它的报告与截图一起删除,无法恢复。',
   'report.delete': '删除',
   'report.deleteConfirm': '确定要删除这份报告?会连同任务记录一起删除,无法恢复。',
@@ -1939,6 +1943,7 @@ const ja: Catalog = {
   'cases.deleteConfirm': 'このテストケースを削除しますか?',
   'cases.batchDeleteConfirm': '選択した {n} 件のテストケースを削除しますか?元に戻せません。',
   'tasks.delete': '削除',
+  'tasks.view': '詳細を見る',
   'tasks.deleteConfirm': 'このタスクを削除しますか?レポートとスクリーンショットも削除され、元に戻せません。',
   'report.delete': '削除',
   'report.deleteConfirm': 'このレポートを削除しますか?タスク記録も削除され、元に戻せません。',
@@ -2366,6 +2371,7 @@ const ko: Catalog = {
   'cases.deleteConfirm': '이 테스트 케이스를 삭제하시겠습니까?',
   'cases.batchDeleteConfirm': '선택한 {n}개의 테스트 케이스를 삭제하시겠습니까? 되돌릴 수 없습니다.',
   'tasks.delete': '삭제',
+  'tasks.view': '상세 보기',
   'tasks.deleteConfirm': '이 작업을 삭제하시겠습니까? 리포트와 스크린샷도 함께 삭제되며 되돌릴 수 없습니다.',
   'report.delete': '삭제',
   'report.deleteConfirm': '이 리포트를 삭제하시겠습니까? 작업 기록도 함께 삭제되며 되돌릴 수 없습니다.',
