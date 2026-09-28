@@ -60,7 +60,7 @@ const CATALOG_SPECS: CatalogSpec[] = [
   { modelId: 'qwen.qwen3-vl-235b-a22b', displayName: 'Qwen3 VL 235B', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   // UI-TARS-1.5-7B:專為 GUI grounding 微調,部署在 SageMaker(非 Bedrock)。座標=smart-resize 幀絕對像素。
   // 只坐 vlm(定位);channel=sagemaker,engine 依 vlmModel==='uitars' 把 endpoint 名傳給 runner。
-  { modelId: 'uitars', displayName: 'UI-TARS 1.5 7B(SageMaker · 定位專用)', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['vlm'] },
+  { modelId: 'uitars', displayName: 'ByteDance-Seed/UI-TARS-1.5-7B(SageMaker · 定位專用)', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['vlm'] },
   { modelId: 'mistral.pixtral-large-2502-v1:0', displayName: 'Pixtral Large 25.02', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'google.gemma-3-27b-it', displayName: 'Gemma 3 27B', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'google.gemma-3-12b-it', displayName: 'Gemma 3 12B', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },

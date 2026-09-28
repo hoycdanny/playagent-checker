@@ -161,8 +161,8 @@ const zhHant: GuideContent = {
     '以下列出幾個代表性模型;完整清單直接向 /models API 取得(隨目錄更新,不會過時)。你可以針對不同 App、不同 Seat 換模型調效能。有視覺能力的模型才可坐 VLM(要看截圖判座標),純文字模型只坐 Agent/Subagent。VLM(判座標)預設使用部署在 SageMaker 的 UI-TARS(專為 GUI grounding 微調,定位最準);其餘通用視覺模型可作備援。使用者不需選 Channel/SDK,系統依 modelId 自動推導;非 Anthropic 模型的價格由 AWS Pricing API 抓取並標「估算」。',
   models: [
     {
-      name: 'UI-TARS 1.5 7B(預設)',
-      modelId: 'uitars(SageMaker)',
+      name: 'ByteDance-Seed/UI-TARS-1.5-7B(預設)',
+      modelId: 'ByteDance-Seed/UI-TARS-1.5-7B(SageMaker)',
       seat: 'VLM(定位專用)',
       price: '常駐 GPU 計費(非 token)',
       note: '預設定位模型,專為 GUI 座標定位微調,實測比通用 VLM 準得多;回覆使用繁體中文。',
