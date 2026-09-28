@@ -107,18 +107,44 @@
   cursor: not-allowed;
 }
 
-.tasks__filter {
-  margin-bottom: var(--space-4);
+/* 篩選器已內嵌到表頭(見 .tasks__th-filter);此列僅放「清除篩選 / 批次刪除」按鈕,
+   有套用篩選或有勾選時才出現。 */
+.tasks__toolbar {
+  margin-bottom: var(--space-3);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3) var(--space-4);
+  gap: var(--space-3);
 }
 
-.tasks__filter label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
+/* 表頭內嵌篩選:標題文字在上、小型下拉在下。 */
+.tasks__th-filter {
+  vertical-align: top;
+}
+
+.tasks__th-label {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.tasks__th-select {
+  display: block;
+  width: 100%;
+  max-width: 160px;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 400;
+  cursor: pointer;
+}
+
+/* 圖示欄(環境/位置)的表頭篩選置中且窄一些 */
+.tasks__col-icon.tasks__th-filter .tasks__th-select {
+  max-width: 96px;
+  margin: 0 auto;
 }
 
 .tasks__filter-clear {
