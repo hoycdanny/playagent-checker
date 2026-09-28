@@ -13,10 +13,28 @@
  *   - payload = OpenAI chat-completions 形態(system + user[image_url]),endpoint 內 vLLM 相容。
  */
 import { SageMakerRuntimeClient, InvokeEndpointCommand } from '@aws-sdk/client-sagemaker-runtime';
+import * as OpenCC from 'opencc-js';
 
 const ENDPOINT = process.env.PA_UITARS_ENDPOINT || '';
 const REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-east-2';
-const LANG = (process.env.PA_UITARS_LANG === 'en') ? 'English' : 'Chinese';
+// 語言:預設繁體中文(Traditional Chinese);設 PA_UITARS_LANG=en 才用英文。
+// 講明「Traditional Chinese(繁體中文)」而非只寫 Chinese,先在 prompt 引導。
+const LANG = (process.env.PA_UITARS_LANG === 'en') ? 'English' : 'Traditional Chinese (繁體中文)';
+
+// UI-TARS 是簡體語料微調的模型,即使 prompt 要求繁中仍常吐簡體。故對「給人看的文字」
+// (thinking / screen)做確定性的簡→繁轉換(OpenCC 純 JS,無原生相依);座標/動作不受影響。
+// cn→twp:大陸簡體 → 台灣正體(含常用詞彙轉換,如「屏幕→螢幕」「登录→登入」)。
+let _s2t = null;
+function toTraditional(text) {
+  if (LANG === 'English') return text;
+  if (typeof text !== 'string' || text.length === 0) return text;
+  try {
+    if (!_s2t) _s2t = OpenCC.Converter({ from: 'cn', to: 'twp' });
+    return _s2t(text);
+  } catch {
+    return text; // 轉換失敗不擋流程,回原文
+  }
+}
 
 let _client = null;
 function client() {
@@ -50,13 +68,13 @@ press_back()
 finished(content='xxx')
 
 ## Note
-- Use {language} in \`Thought\` part.
+- Use {language} in \`Thought\` part. IMPORTANT: when the language is Traditional Chinese (繁體中文), always write in Traditional Chinese characters only — never use Simplified Chinese (简体) characters.
 - Write a small plan and finally summarize your next action (with its target element) in one sentence in \`Thought\` part.
 
 ## User Instruction
 {instruction}`;
 
-function buildMobilePrompt(instruction, language = 'Chinese') {
+function buildMobilePrompt(instruction, language = 'Traditional Chinese (繁體中文)') {
   return MOBILE_USE_DOUBAO.replace('{language}', language).replace('{instruction}', instruction);
 }
 
@@ -159,7 +177,7 @@ export function parseUitarsToCmd(line, cw, ch, thinking) {
     case 'press_home':
       return { action: 'back', thinking }; // runner 無 home 動作,退而用 back
     case 'finished':
-      return { action: 'done', thinking: extractContent(args) || thinking };
+      return { action: 'done', thinking: toTraditional(extractContent(args)) || thinking };
     case 'open_app':
       return { action: 'wait', thinking: thinking || 'open_app 不支援(交由執行層)' };
     default:
@@ -235,6 +253,7 @@ export async function decideUitars(instruction, messages, cw, ch) {
   }
 
   const { thinking, actionLine } = parseThoughtAction(text);
-  const cmd = parseUitarsToCmd(actionLine, cw, ch, thinking);
+  // thinking 給人看:簡→繁轉換(UI-TARS 慣吐簡體)。座標由 actionLine 解析,不受影響。
+  const cmd = parseUitarsToCmd(actionLine, cw, ch, toTraditional(thinking));
   return { cmd, usage, rawText: text, trace: { ...baseTrace, ok: true, rawResponse: text, tokens: usage } };
 }

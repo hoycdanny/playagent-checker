@@ -52,10 +52,12 @@ interface ModelEntry {
   pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
 }
 
-/** 模型下拉顯示:名稱 + 每百萬 token 進/出價(估算價標註)。 */
+/** 模型下拉顯示:名稱 + 每百萬 token 進/出價(估算價標註)。
+ *  自建模型(如 UI-TARS,單價 0/0)不按 token 計費,改標「常駐 GPU 計費」。 */
 function modelOptionLabel(m: ModelEntry): string {
   if (!m.pricing) return m.displayName;
   const { inputPerM, outputPerM, estimated } = m.pricing;
+  if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — 常駐 GPU 計費`;
   const fmt = (n: number) => `$${n.toFixed(2)}`;
   return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} 每百萬 token${estimated ? '(估算)' : ''}`;
 }
@@ -154,7 +156,8 @@ export default function TasksPage() {
     apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
       .then((r) => {
         setVlmModels(r.items);
-        setVlmModel(preferInList(r.items, 'qwen.qwen3-vl-235b-a22b'));
+        // 預設用 UI-TARS(定位最準);清單無此模型時退回第一個。
+        setVlmModel(preferInList(r.items, 'uitars'));
       })
       .catch(() => {});
     apiGet<ListResponse<ModelEntry>>('/models?seat=agent')

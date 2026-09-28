@@ -128,7 +128,34 @@ aws cloudformation describe-stacks --region us-east-2 \
 - **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
 - **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
 
-## 步骤 6 — 用这些值构建网页控制台
+## 步骤 6 — 部署 UI-TARS 定位模型(必备)
+
+PlayAgent 用 SageMaker 上的 **UI-TARS-1.5-7B** 做精准的画面坐标定位 —— 它是默认、也是好结果的必要条件(通用模型在游戏美术上点击常偏差数百像素)。全程在云端构建,**不占**你电脑的磁盘或带宽。
+
+```bash
+cd ../agent/sagemaker && npm install
+# 1) 云端构建:下载模型、构建服务镜像、推到你的账号(走 AWS CodeBuild)。
+#    约 20–40 分,在 AWS 内运行,不会下载到你电脑。
+AWS_REGION=us-east-2 node cloudBuild.mjs
+# 2) 创建 endpoint(权重与镜像已就绪)。InService 后会印出 ENDPOINT_NAME。
+PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
+```
+
+记下它最后印出的 `ENDPOINT_NAME=ui-tars-...`。接着把它接进 engine,只重新部署 execution stack:
+
+```bash
+cd ../../infra
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
+  --require-approval never --exclusively -c uitarsEndpoint=粘贴_ENDPOINT_NAME
+```
+
+> **💲 重要成本提醒:** UI-TARS 运行在 GPU 机器(`ml.g6e.xlarge`,约 US$1.86/小时),**开着就持续计费**。当天测试结束后请关掉:
+> ```bash
+> node agent/sagemaker/teardownUitars.mjs 粘贴_ENDPOINT_NAME
+> ```
+> 模型与镜像会保留,之后要再用只需几分钟(重跑上面第 2 步的 skip 参数,再重新部署 execution stack)。
+
+## 步骤 7 — 用这些值构建网页控制台
 
 网页 App 需要在构建时把这四个值烤进去。创建文件 `web/.env.production`(从 repo 根目录):
 
@@ -150,7 +177,7 @@ EOF
 npm run build
 ```
 
-## 步骤 7 — 部署网页控制台
+## 步骤 8 — 部署网页控制台
 
 ```bash
 cd ../infra
@@ -165,7 +192,7 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## 步骤 8 — 创建你的登录账号(第一个用户)
+## 步骤 9 — 创建你的登录账号(第一个用户)
 
 系统刻意关闭自助注册,所以第一个用户用命令创建。挑一个 email 与密码(至少 8 字,含大小写与数字)。`tenantId` 用来隔离各客户的数据 —— 填任意短字符串即可,例如公司名。
 
@@ -186,43 +213,18 @@ aws cognito-idp admin-set-user-password --region us-east-2 \
   --password 'ChangeMe123!' --permanent
 ```
 
-## 步骤 9 — 登录
+## 步骤 10 — 登录
 
-打开步骤 7 的 CloudFront 网址,用步骤 8 的 email/密码登录。**你登录后看到的第一页就是「使用说明」** —— 内建的完整功能导览,按你的语言呈现。从那里:
+打开步骤 8 的 CloudFront 网址,用步骤 9 的 email/密码登录。**你登录后看到的第一页就是「使用说明」** —— 内建的完整功能导览,按你的语言呈现。从那里:
 
 1. **应用管理** — 创建 App;原生上传 APK/IPA/ZIP,Web 只需网址。
 2. **测试用例** — 用大白话描述流程,AI 转成可执行用例。
-3. **测试任务** — 选 App + 用例 + 执行环境(**Web** 或 **Device Farm**)后提交,可实时监看。
+3. **测试任务** — 选 App + 用例 + 执行环境(**Web** 或 **Device Farm**)后提交;定位模型默认就是**步骤 6** 装好的 **UI-TARS 1.5 7B**。可实时监看。
 4. **测试报告** — 看 AI 叙述、截图、逐步轨迹与成本。
 
 ✅ **你的环境已经可以用了。**
 
----
-
-## 可选:用 UI-TARS(SageMaker)提升定位精准度
-
-通用视觉模型在繁复游戏美术上,点击位置可能偏差数百像素。UI-TARS-1.5-7B(专为 GUI grounding 微调)准得多。这是**可选**且会额外收费(启用期间有一台 GPU 持续运行)。
-
-```bash
-cd agent/sagemaker && npm install
-# 云端构建(不占本机磁盘/带宽):模型 + vLLM 镜像 → S3/ECR(走 CodeBuild)
-AWS_REGION=us-east-2 node cloudBuild.mjs
-# 创建 endpoint(权重与镜像已就绪)
-PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
-# 把 endpoint 名接进 engine(用它印出的 ENDPOINT_NAME)
-cd ../../infra && AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
-  --require-approval never --exclusively -c uitarsEndpoint=<endpoint 名>
-```
-
-之后创建任务时,把定位模型选成 **UI-TARS 1.5 7B** 即可。
-
-> **💲 成本:** UI-TARS endpoint 运行在 `ml.g6e.xlarge`(约 US$1.86/小时),开着就持续计费。**不用时请关闭:**
-> ```bash
-> node agent/sagemaker/teardownUitars.mjs <endpoint 名>
-> ```
-> 模型权重与镜像会留在 S3/ECR,之后重建很快(可跳过下载/构建)。
-
-设计说明见 [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
+UI-TARS 定位的原理说明见 [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
 
 ## Device Farm(真实手机)说明
 
@@ -232,7 +234,7 @@ Web 后端不需额外设置即可用。真机测试使用 **AWS Device Farm**,�
 
 ## 成本、清除与疑难解答
 
-**大致运行成本(评估用):** serverless 控制面在低用量下每月数美元;每次测试按 token 计费(每次几美分到一两美元,报告都会显示)。唯一的大额成本是**可选的** UI-TARS GPU endpoint(开着约 US$1.86/小时)。
+**大致运行成本(评估用):** serverless 控制面在低用量下每月数美元;每次测试按 token 计费(每次几美分到一两美元,报告都会显示)。最大的成本是 **UI-TARS GPU endpoint**(`ml.g6e.xlarge`,约 US$1.86/小时)—— 开着就持续计费,所以**不测试时请关掉**(`node agent/sagemaker/teardownUitars.mjs <endpoint 名>`),要用时几分钟就能重建。
 
 **整个拆除**(删除 stacks;数据桶与 Cognito 用户池按设计会保留,以免误删数据 —— 若真要删,到 Console 手动删除):
 

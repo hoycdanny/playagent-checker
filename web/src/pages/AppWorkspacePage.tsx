@@ -66,10 +66,12 @@ interface ModelEntry {
   pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
 }
 
-/** 模型下拉的顯示文字:名稱 + 每百萬 token 進/出價(估算價標註)。 */
+/** 模型下拉的顯示文字:名稱 + 每百萬 token 進/出價(估算價標註)。
+ *  自建模型(如 UI-TARS,單價 0/0)不按 token 計費,改標「常駐 GPU 計費」。 */
 function modelOptionLabel(m: ModelEntry): string {
   if (!m.pricing) return m.displayName;
   const { inputPerM, outputPerM, estimated } = m.pricing;
+  if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — 常駐 GPU 計費`;
   const fmt = (n: number) => `$${n.toFixed(2)}`;
   return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} 每百萬 token${estimated ? '(估算)' : ''}`;
 }
@@ -160,11 +162,13 @@ export default function AppWorkspacePage() {
     apiGet<ListResponse<{ id: string; name: string }>>('/knowledge-bases')
       .then((r) => setKbs(r.items))
       .catch(() => {});
-    // VLM 模型清單(判畫面座標的 VLM Seat 可選模型);真機/模擬器探索用。
+    // VLM 模型清單(判畫面座標的 VLM Seat 可選模型);真機/Web 探索用。
     apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
       .then((r) => {
         setVlmModels(r.items);
-        if (r.items[0]) setVlmModel(r.items[0].modelId);
+        // 預設用 UI-TARS(定位最準);清單無此模型時退回第一個。
+        const preferred = r.items.find((m) => m.modelId === 'uitars')?.modelId ?? r.items[0]?.modelId;
+        if (preferred) setVlmModel(preferred);
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps

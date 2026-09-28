@@ -128,7 +128,34 @@ You are looking for four values:
 - **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
 - **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
 
-## Step 6 — Build the web console with those values
+## Step 6 — Deploy the UI-TARS coordinate model (required)
+
+PlayAgent uses **UI-TARS-1.5-7B** on SageMaker for accurate on-screen coordinates — it is the default and is required for good results (general models miss tap targets by hundreds of pixels on game art). This is built entirely in the cloud, so it does **not** use your computer's disk or bandwidth.
+
+```bash
+cd ../agent/sagemaker && npm install
+# 1) Cloud build: download the model, build the serving image, push to your account (via AWS CodeBuild).
+#    Takes ~20–40 min; runs in AWS, nothing downloads to your machine.
+AWS_REGION=us-east-2 node cloudBuild.mjs
+# 2) Create the endpoint (weights + image are already staged). Prints ENDPOINT_NAME when InService.
+PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
+```
+
+Note the `ENDPOINT_NAME=ui-tars-...` it prints at the end. Now wire it into the engine and re-deploy just the execution stack:
+
+```bash
+cd ../../infra
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
+  --require-approval never --exclusively -c uitarsEndpoint=PASTE_ENDPOINT_NAME
+```
+
+> **💲 Important cost note:** UI-TARS runs on a GPU instance (`ml.g6e.xlarge`, ~US$1.86/hour) and **bills continuously while it is running**. When you are done testing for the day, turn it off:
+> ```bash
+> node agent/sagemaker/teardownUitars.mjs PASTE_ENDPOINT_NAME
+> ```
+> The model and image stay saved, so bringing it back later only takes a few minutes (re-run step 2 above with the skip flags, then re-deploy the execution stack).
+
+## Step 7 — Build the web console with those values
 
 The web app needs the four values baked in at build time. Create the file `web/.env.production` (from the repo root):
 
@@ -150,7 +177,7 @@ Edit the file and replace each `PASTE_...` with the matching Output from Step 5.
 npm run build
 ```
 
-## Step 7 — Deploy the web console
+## Step 8 — Deploy the web console
 
 ```bash
 cd ../infra
@@ -165,7 +192,7 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## Step 8 — Create your login (first user)
+## Step 9 — Create your login (first user)
 
 Sign-up is disabled on purpose, so you create the first user from the command line. Pick an email and a password (min 8 chars, upper + lower + number). The `tenantId` isolates each customer's data — use anything short, e.g. the company name.
 
@@ -186,43 +213,18 @@ aws cognito-idp admin-set-user-password --region us-east-2 \
   --password 'ChangeMe123!' --permanent
 ```
 
-## Step 9 — Log in
+## Step 10 — Log in
 
-Open the CloudFront URL from Step 7, log in with the email/password from Step 8. **The first page you land on is the Guide** — an in-app walkthrough of every feature, in your language. From there:
+Open the CloudFront URL from Step 8, log in with the email/password from Step 9. **The first page you land on is the Guide** — an in-app walkthrough of every feature, in your language. From there:
 
 1. **Apps** — create an app; upload an APK/IPA/ZIP for native, or just a URL for Web.
 2. **Test cases** — describe a flow in plain language; the AI turns it into a runnable case.
-3. **Tasks** — pick app + case + runtime (**Web** or **Device Farm**) and submit; watch it live.
+3. **Tasks** — pick app + case + runtime (**Web** or **Device Farm**) and submit; the coordinate model defaults to **UI-TARS 1.5 7B** (from Step 6). Watch it run live.
 4. **Reports** — read the AI narrative, screenshots, step trace, and cost.
 
 ✅ **You now have a working environment.**
 
----
-
-## Optional: sharper coordinates with UI-TARS (SageMaker)
-
-General vision models can misjudge tap positions on busy game art by hundreds of pixels. UI-TARS-1.5-7B (fine-tuned for GUI grounding) is far more precise. This is **optional** and costs extra (a GPU runs continuously while enabled).
-
-```bash
-cd agent/sagemaker && npm install
-# Build in the cloud (no local disk/bandwidth): model + vLLM image → S3/ECR via CodeBuild
-AWS_REGION=us-east-2 node cloudBuild.mjs
-# Create the endpoint (weights + image already staged)
-PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
-# Wire the endpoint name into the engine (use the ENDPOINT_NAME it printed)
-cd ../../infra && AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
-  --require-approval never --exclusively -c uitarsEndpoint=<endpoint-name>
-```
-
-Then pick **UI-TARS 1.5 7B** as the coordinate model when creating a task.
-
-> **💲 Cost:** the UI-TARS endpoint runs on `ml.g6e.xlarge` (~US$1.86/hour) and bills continuously while up. **Turn it off when idle:**
-> ```bash
-> node agent/sagemaker/teardownUitars.mjs <endpoint-name>
-> ```
-> The model weights and image stay in S3/ECR, so re-creating it later is quick (skip download/build).
-
-See [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md).
+More on how UI-TARS grounding works: [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md).
 
 ## Device Farm (real phones) note
 
@@ -232,7 +234,7 @@ The Web backend works with no extra setup. Real-device testing uses **AWS Device
 
 ## Costs, cleanup, and troubleshooting
 
-**Rough running cost (evaluation):** the serverless control plane is a few dollars/month at low use; test runs cost per-token (cents to a couple of dollars each, shown in every report). The only large cost is the **optional** UI-TARS GPU endpoint (~US$1.86/hour while on).
+**Rough running cost (evaluation):** the serverless control plane is a few dollars/month at low use; test runs cost per-token (cents to a couple of dollars each, shown in every report). The biggest cost is the **UI-TARS GPU endpoint** (`ml.g6e.xlarge`, ~US$1.86/hour) — it bills continuously while running, so **tear it down when you're not testing** (`node agent/sagemaker/teardownUitars.mjs <endpoint-name>`) and re-create it in a few minutes when you need it again.
 
 **Tear everything down** (deletes the stacks; the data bucket and Cognito user pool are retained by design so you don't lose data — delete them by hand in the console if you truly want them gone):
 

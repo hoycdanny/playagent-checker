@@ -158,14 +158,14 @@ const zhHant: GuideContent = {
   ],
   modelsTitle: '可用模型',
   modelsLead:
-    '以下列出幾個代表性模型;完整清單直接向 /models API 取得(隨目錄更新,不會過時)。你可以針對不同 App、不同 Seat 換模型調效能。有視覺能力的模型才可坐 VLM(要看截圖判座標),純文字模型只坐 Agent/Subagent。定位若要更準,VLM 可改用部署在 SageMaker 的 UI-TARS(專為 GUI grounding 微調)。使用者不需選 Channel/SDK,系統依 modelId 自動推導;非 Anthropic 模型的價格由 AWS Pricing API 抓取並標「估算」。',
+    '以下列出幾個代表性模型;完整清單直接向 /models API 取得(隨目錄更新,不會過時)。你可以針對不同 App、不同 Seat 換模型調效能。有視覺能力的模型才可坐 VLM(要看截圖判座標),純文字模型只坐 Agent/Subagent。VLM(判座標)預設使用部署在 SageMaker 的 UI-TARS(專為 GUI grounding 微調,定位最準);其餘通用視覺模型可作備援。使用者不需選 Channel/SDK,系統依 modelId 自動推導;非 Anthropic 模型的價格由 AWS Pricing API 抓取並標「估算」。',
   models: [
     {
-      name: 'UI-TARS 1.5 7B',
+      name: 'UI-TARS 1.5 7B(預設)',
       modelId: 'uitars(SageMaker)',
       seat: 'VLM(定位專用)',
       price: '常駐 GPU 計費(非 token)',
-      note: '專為 GUI 座標定位微調,實測比通用 VLM 準得多;需自行部署 SageMaker endpoint。',
+      note: '預設定位模型,專為 GUI 座標定位微調,實測比通用 VLM 準得多;回覆使用繁體中文。',
     },
     {
       name: 'Claude Sonnet 4.5',
@@ -306,14 +306,14 @@ const en: GuideContent = {
   ],
   modelsTitle: 'Available models',
   modelsLead:
-    'A few representative models are shown below; the complete list is fetched live from the /models API (so it never goes stale). You can swap models per app and per seat to tune performance. Only vision-capable models can take the VLM seat (it reads screenshots to locate coordinates); text-only models take Agent/Subagent. For sharper grounding, the VLM seat can use UI-TARS deployed on SageMaker (fine-tuned for GUI grounding). You never pick a Channel/SDK — the system derives it from the modelId; non-Anthropic prices come from the AWS Pricing API and are marked "estimated".',
+    'A few representative models are shown below; the complete list is fetched live from the /models API (so it never goes stale). You can swap models per app and per seat to tune performance. Only vision-capable models can take the VLM seat (it reads screenshots to locate coordinates); text-only models take Agent/Subagent. The VLM (coordinate) seat defaults to UI-TARS deployed on SageMaker (fine-tuned for GUI grounding, most accurate); other general vision models are available as fallback. You never pick a Channel/SDK — the system derives it from the modelId; non-Anthropic prices come from the AWS Pricing API and are marked "estimated".',
   models: [
     {
-      name: 'UI-TARS 1.5 7B',
+      name: 'UI-TARS 1.5 7B (default)',
       modelId: 'uitars (SageMaker)',
       seat: 'VLM (grounding)',
       price: 'GPU hourly (not per-token)',
-      note: 'Fine-tuned for GUI coordinate grounding; markedly more accurate than general VLMs. Requires deploying a SageMaker endpoint.',
+      note: 'Default coordinate model, fine-tuned for GUI grounding; markedly more accurate than general VLMs. Replies in Traditional Chinese.',
     },
     {
       name: 'Claude Sonnet 4.5',

@@ -128,7 +128,34 @@ aws cloudformation describe-stacks --region us-east-2 \
 - **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
 - **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
 
-## ステップ 6 — その値で Web コンソールをビルド
+## ステップ 6 — UI-TARS 座標モデルをデプロイ(必須)
+
+PlayAgent は正確な画面座標のために SageMaker 上の **UI-TARS-1.5-7B** を使います。これは既定であり、良い結果に必須です(汎用モデルはゲーム画面でタップ位置を数百ピクセル外します)。ビルドはすべてクラウドで行われ、ローカルのディスク/帯域を**消費しません**。
+
+```bash
+cd ../agent/sagemaker && npm install
+# 1) クラウドビルド:モデルのダウンロード、サービスイメージのビルド、あなたのアカウントへ push(AWS CodeBuild)。
+#    約 20〜40 分。AWS 内で実行され、ローカルには何もダウンロードされません。
+AWS_REGION=us-east-2 node cloudBuild.mjs
+# 2) エンドポイント作成(重みとイメージは準備済み)。InService になると ENDPOINT_NAME を表示します。
+PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
+```
+
+最後に表示される `ENDPOINT_NAME=ui-tars-...` を控えます。次に engine へ接続し、execution スタックだけ再デプロイします:
+
+```bash
+cd ../../infra
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
+  --require-approval never --exclusively -c uitarsEndpoint=貼り付け_ENDPOINT_NAME
+```
+
+> **💲 重要なコスト注意:** UI-TARS は GPU インスタンス(`ml.g6e.xlarge`、約 US$1.86/時)で動作し、**起動中は継続課金**されます。その日のテストが終わったら停止してください:
+> ```bash
+> node agent/sagemaker/teardownUitars.mjs 貼り付け_ENDPOINT_NAME
+> ```
+> モデルとイメージは保存されるため、再開は数分です(上記ステップ 2 を skip フラグ付きで再実行し、execution スタックを再デプロイ)。
+
+## ステップ 7 — その値で Web コンソールをビルド
 
 Web アプリはビルド時にこの 4 つの値を埋め込みます。`web/.env.production` を作成します(リポジトリ直下から):
 
@@ -150,7 +177,7 @@ EOF
 npm run build
 ```
 
-## ステップ 7 — Web コンソールをデプロイ
+## ステップ 8 — Web コンソールをデプロイ
 
 ```bash
 cd ../infra
@@ -165,7 +192,7 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## ステップ 8 — ログインを作成(最初のユーザー)
+## ステップ 9 — ログインを作成(最初のユーザー)
 
 サインアップは意図的に無効です。最初のユーザーはコマンドラインで作成します。メールとパスワード(8 文字以上、大小英字と数字を含む)を決めます。`tenantId` は顧客ごとのデータを分離します — 会社名など短い文字列で構いません。
 
@@ -186,43 +213,18 @@ aws cognito-idp admin-set-user-password --region us-east-2 \
   --password 'ChangeMe123!' --permanent
 ```
 
-## ステップ 9 — ログイン
+## ステップ 10 — ログイン
 
-ステップ 7 の CloudFront URL を開き、ステップ 8 のメール/パスワードでログイン。**最初に表示されるのは「ガイド」ページ** — 全機能を言語別に案内する組み込みウォークスルーです。そこから:
+ステップ 8 の CloudFront URL を開き、ステップ 9 のメール/パスワードでログイン。**最初に表示されるのは「ガイド」ページ** — 全機能を言語別に案内する組み込みウォークスルーです。そこから:
 
 1. **アプリ** — アプリを作成。ネイティブは APK/IPA/ZIP をアップロード、Web は URL のみ。
 2. **テストケース** — フローを普通の言葉で記述、AI が実行可能なケースに変換。
-3. **タスク** — アプリ + ケース + 実行環境(**Web** または **Device Farm**)を選んで送信、ライブ監視可。
+3. **タスク** — アプリ + ケース + 実行環境(**Web** または **Device Farm**)を選んで送信。座標モデルは**ステップ 6** で導入した **UI-TARS 1.5 7B** が既定です。ライブ監視可。
 4. **レポート** — AI の説明、スクリーンショット、ステップ軌跡、コストを確認。
 
 ✅ **これで動作する環境が完成です。**
 
----
-
-## 任意:UI-TARS(SageMaker)で座標精度を向上
-
-汎用視覚モデルは絵の多いゲーム画面でタップ位置を数百ピクセル誤ることがあります。UI-TARS-1.5-7B(GUI グラウンディング用にファインチューニング)は格段に正確です。**任意**で、追加コストが発生します(有効時は GPU が常時稼働)。
-
-```bash
-cd agent/sagemaker && npm install
-# クラウドビルド(ローカルのディスク/帯域を消費しない):モデル + vLLM イメージ → S3/ECR(CodeBuild 経由)
-AWS_REGION=us-east-2 node cloudBuild.mjs
-# エンドポイント作成(重みとイメージは準備済み)
-PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
-# エンドポイント名を engine に接続(出力された ENDPOINT_NAME を使用)
-cd ../../infra && AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
-  --require-approval never --exclusively -c uitarsEndpoint=<エンドポイント名>
-```
-
-その後、タスク作成時に座標モデルとして **UI-TARS 1.5 7B** を選択します。
-
-> **💲 コスト:** UI-TARS エンドポイントは `ml.g6e.xlarge`(約 US$1.86/時)で動作し、起動中は継続課金されます。**使わないときは削除してください:**
-> ```bash
-> node agent/sagemaker/teardownUitars.mjs <エンドポイント名>
-> ```
-> 重みとイメージは S3/ECR に残るため、再作成は高速です(ダウンロード/ビルドをスキップ)。
-
-設計は [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md) を参照。
+UI-TARS グラウンディングの仕組みは [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md) を参照。
 
 ## Device Farm(実機)について
 
@@ -232,7 +234,7 @@ Web バックエンドは追加設定なしで動作します。実機テスト�
 
 ## コスト・クリーンアップ・トラブルシューティング
 
-**おおよその運用コスト(評価):** サーバーレスのコントロールプレーンは低使用時に月数ドル。テスト実行はトークン課金(1 回あたり数セント〜数ドル、レポートに表示)。唯一の大きなコストは**任意**の UI-TARS GPU エンドポイント(稼働中 約 US$1.86/時)。
+**おおよその運用コスト(評価):** サーバーレスのコントロールプレーンは低使用時に月数ドル。テスト実行はトークン課金(1 回あたり数セント〜数ドル、レポートに表示)。最大のコストは **UI-TARS GPU エンドポイント**(`ml.g6e.xlarge`、約 US$1.86/時)—— 稼働中は継続課金されるため、**テストしないときは停止**してください(`node agent/sagemaker/teardownUitars.mjs <エンドポイント名>`)。再開は数分です。
 
 **すべて削除**(スタックを削除。データバケットと Cognito ユーザープールは設計上保持され、データを失いません — 完全に消すには Console から手動削除):
 
