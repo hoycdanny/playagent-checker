@@ -55,6 +55,8 @@ function stripPrefix(modelId: string): string {
  */
 export function modelLabel(modelId: string | undefined): string {
   if (!modelId) return '—';
+  // 自建 SageMaker 模型:用官方全名顯示(catalog id 為精簡 'uitars',但 UI 要讓人看得懂是哪個模型)。
+  if (stripPrefix(modelId) === 'uitars') return 'ByteDance-Seed/UI-TARS-1.5-7B';
   const provider = providerOf(modelId);
   const providerName = PROVIDER_LABEL[provider];
   const base = stripPrefix(modelId);
