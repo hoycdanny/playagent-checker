@@ -513,8 +513,9 @@ async function main() {
     let escapeOverride = false;
     // 安裝/載入偵測:VLM 的 thinking 或畫面名提到 install/loading/安裝/載入 → 視為載入中。
     const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中/i;
+    // 注意:此處在 screenName 宣告之前,只能用 cmd.screen(別引用 screenName,否則 TDZ ReferenceError)。
     const looksLoading =
-      loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || screenName || ''));
+      loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || ''));
 
     if (stuckCount >= 3) {
       // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
