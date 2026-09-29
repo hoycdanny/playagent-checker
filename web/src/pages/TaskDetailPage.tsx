@@ -108,7 +108,7 @@ export default function TaskDetailPage() {
   const liveUrl = latestShot?.annotatedUrl ?? latestShot?.screenshotUrl;
 
   return (
-    <section className="listpage detail">
+    <section className="listpage listpage--wide detail">
       <div className="detail__topline">
         <Link to="/tasks" className="detail__back">
           ← {t('detail.back')}

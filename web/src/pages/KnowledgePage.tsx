@@ -182,7 +182,7 @@ export default function KnowledgePage() {
   }
 
   return (
-    <section className="listpage kb">
+    <section className="listpage listpage--wide kb">
       <header className="listpage__header kb__header">
         <div>
           <h1 className="listpage__title">{t('page.knowledge.title')}</h1>

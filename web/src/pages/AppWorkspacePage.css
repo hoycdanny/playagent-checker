@@ -148,6 +148,13 @@
   font-size: 13px;
 }
 
+/* 模型分工:三個 Seat 下拉前的區塊說明 */
+.ws__models-intro {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
 /* ---------- 統計卡 ---------- */
 .ws__stats {
   display: grid;
