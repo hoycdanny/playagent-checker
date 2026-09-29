@@ -121,8 +121,13 @@ export default function AppWorkspacePage() {
   }, [showTaskForm]);
   const [taskCaseId, setTaskCaseId] = useState('');
   const [backend, setBackend] = useState('web');
+  // 三個 Seat 模型(與獨立「測試任務」頁一致):agent=控制遊戲、vlm=分析畫面、subagent=子代理。
   const [vlmModel, setVlmModel] = useState('');
   const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
+  const [agentModel, setAgentModel] = useState('');
+  const [agentModels, setAgentModels] = useState<ModelEntry[]>([]);
+  const [subagentModel, setSubagentModel] = useState('');
+  const [subagentModels, setSubagentModels] = useState<ModelEntry[]>([]);
   // 步數/預算上限:空 = 無上限。
   const [maxSteps, setMaxSteps] = useState('');
   const [budgetUsd, setBudgetUsd] = useState('');
@@ -167,11 +172,23 @@ export default function AppWorkspacePage() {
       .then((r) => setKbs(r.items))
       .catch(() => {});
     // VLM 模型清單(判畫面座標的 VLM Seat 可選模型);真機/Web 探索用。
+    // 三個 Seat 可選模型:預設 = 各 seat 推薦第 1 名;下拉前 5 名置頂並加 ★(與測試任務頁一致)。
     apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
       .then((r) => {
-        // 預設 = VLM 推薦第 1 名(UI-TARS);下拉前 5 名置頂並加 ★(見 modelRecommend)。
         setVlmModels(sortByRecommend('vlm', r.items));
         setVlmModel(recommendedDefault('vlm', r.items));
+      })
+      .catch(() => {});
+    apiGet<ListResponse<ModelEntry>>('/models?seat=agent')
+      .then((r) => {
+        setAgentModels(sortByRecommend('agent', r.items));
+        setAgentModel(recommendedDefault('agent', r.items));
+      })
+      .catch(() => {});
+    apiGet<ListResponse<ModelEntry>>('/models?seat=subagent')
+      .then((r) => {
+        setSubagentModels(sortByRecommend('subagent', r.items));
+        setSubagentModel(recommendedDefault('subagent', r.items));
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -306,6 +323,8 @@ export default function AppWorkspacePage() {
         caseId: taskCaseId,
         category: 'exploration',
         ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
+        ...(VLM_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
+        ...(VLM_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
         ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
@@ -332,7 +351,7 @@ export default function AppWorkspacePage() {
 
   if (notFound) {
     return (
-      <section className="listpage">
+      <section className="listpage listpage--wide">
         <Link to="/apps" className="ws__back">← {t('workspace.back')}</Link>
         <div className="listpage__empty">
           <p>{t('workspace.notFound')}</p>
@@ -342,7 +361,7 @@ export default function AppWorkspacePage() {
   }
 
   return (
-    <section className="listpage ws">
+    <section className="listpage listpage--wide ws">
       <Link to="/apps" className="ws__back">← {t('workspace.back')}</Link>
 
       {/* App 身份區 */}
@@ -586,15 +605,39 @@ export default function AppWorkspacePage() {
                   ))}
                 </select>
               </label>
-              {/* 真機/模擬器探索:選判座標的 VLM 模型(這就是「探索時選模型」)。 */}
-              {VLM_BACKENDS.has(backend) && vlmModels.length > 0 && (
+              {/* 三個 Seat 模型選擇(與獨立「測試任務」頁一致):控制遊戲 / 分析畫面 / 子代理。 */}
+              {VLM_BACKENDS.has(backend) && (
                 <>
+                  <p className="ws__models-intro">{t('tasks.modelsIntro')}</p>
                   <label className="ws__field">
-                    <span className="ws__label">{t('tasks.vlmModel')}</span>
+                    <span className="ws__label">{t('tasks.modelAgent')}</span>
+                    <span className="ws__muted">{t('detail.roleAgentHint')}</span>
+                    <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
+                      {agentModels.map((m) => (
+                        <option key={m.modelId} value={m.modelId}>
+                          {starLabel('agent', m.modelId, modelOptionLabel(m))}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="ws__field">
+                    <span className="ws__label">{t('tasks.modelVlm')}</span>
+                    <span className="ws__muted">{t('detail.roleVlmHint')}</span>
                     <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                       {vlmModels.map((m) => (
                         <option key={m.modelId} value={m.modelId}>
                           {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="ws__field">
+                    <span className="ws__label">{t('tasks.modelSubagent')}</span>
+                    <span className="ws__muted">{t('detail.roleSubagentHint')}</span>
+                    <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
+                      {subagentModels.map((m) => (
+                        <option key={m.modelId} value={m.modelId}>
+                          {starLabel('subagent', m.modelId, modelOptionLabel(m))}
                         </option>
                       ))}
                     </select>

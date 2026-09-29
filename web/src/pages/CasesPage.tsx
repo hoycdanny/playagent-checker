@@ -205,7 +205,7 @@ export default function CasesPage() {
   }
 
   return (
-    <section className="listpage">
+    <section className="listpage listpage--wide">
       <header className="listpage__header cases__header">
         <h1 className="listpage__title">{t('page.cases.title')}</h1>
         <span className="cases__header-actions">

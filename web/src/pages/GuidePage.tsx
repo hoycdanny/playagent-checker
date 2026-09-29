@@ -37,7 +37,7 @@ export default function GuidePage() {
   const catalog = models.data?.items ?? [];
 
   return (
-    <section className="listpage guide">
+    <section className="listpage listpage--wide guide">
       {/* Hero */}
       <header className="guide__hero">
         <h1 className="guide__hero-title">{g.heroTitle}</h1>

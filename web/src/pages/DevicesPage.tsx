@@ -114,7 +114,7 @@ export default function DevicesPage() {
   const secretItems = secrets.data?.items ?? [];
 
   return (
-    <section className="listpage devices">
+    <section className="listpage listpage--wide devices">
       <header className="listpage__header">
         <h1 className="listpage__title">{t('devices.title')}</h1>
       </header>

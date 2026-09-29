@@ -137,7 +137,7 @@ export default function MemoryPage() {
   const stats = overview?.stats;
 
   return (
-    <section className="listpage memory">
+    <section className="listpage listpage--wide memory">
       <header className="listpage__header">
         <h1 className="listpage__title">{t('page.memory.title')}</h1>
         <div className="memory__app-picker">

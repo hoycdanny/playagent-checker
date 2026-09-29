@@ -75,7 +75,7 @@ export default function ReportsPage() {
   }
 
   return (
-    <section className="listpage">
+    <section className="listpage listpage--wide">
       <header className="listpage__header reports__header">
         <h1 className="listpage__title">{t('page.reports.title')}</h1>
         {items.length > 0 && (
