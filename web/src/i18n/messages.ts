@@ -46,6 +46,7 @@ export type MessageKey =
   | 'cost.byComponent'
   | 'cost.byApp'
   | 'cost.byModel'
+  | 'cost.scopeProject'
   | 'cost.realNote'
   | 'cost.estimatedNote'
   | 'cost.taskCount'
@@ -494,8 +495,9 @@ const zhHant: Catalog = {
   'cost.byComponent': '依元件(component 標籤)',
   'cost.byApp': '依應用程式',
   'cost.byModel': '依模型',
+  'cost.scopeProject': '僅本專案({value})',
   'cost.realNote':
-    '資料來自 AWS Cost Explorer(通常延遲約 24 小時,非即時);每次查詢由 AWS 收取約 US$0.01。依元件分組需先在 Billing 主控台啟用 component 為成本分攤標籤。',
+    '僅計入本專案(以 project 標籤篩選)的資源成本,非整個帳號。資料來自 AWS Cost Explorer(通常延遲約 24 小時,非即時);每次查詢由 AWS 收取約 US$0.01。若總額接近 0 或為空,通常是 project / component 標籤尚未在 Billing 主控台啟用,或成本產生在啟用之前(過去成本不回溯貼標)。',
   'cost.estimatedNote':
     '此為系統內任務的 token 估算加總,不含常駐 GPU(UI-TARS)、Fargate、EC2、CloudFront 等基礎設施成本,會低於真實 AWS 帳單。',
   'cost.taskCount': '{priced}/{total} 個任務有估算金額',
@@ -945,8 +947,9 @@ const en: Catalog = {
   'cost.byComponent': 'By component (component tag)',
   'cost.byApp': 'By app',
   'cost.byModel': 'By model',
+  'cost.scopeProject': 'This project only ({value})',
   'cost.realNote':
-    'Data from AWS Cost Explorer (usually ~24h delayed, not real-time); AWS charges about US$0.01 per query. Grouping by component requires activating "component" as a cost allocation tag in the Billing console.',
+    'Counts only this project\'s resources (filtered by the project tag), not the whole account. Data from AWS Cost Explorer (usually ~24h delayed, not real-time); AWS charges about US$0.01 per query. If the total is near 0 or empty, the project / component tags are usually not yet activated in the Billing console, or the cost was incurred before activation (past cost is not backfilled).',
   'cost.estimatedNote':
     'This sums token-based estimates for tasks only. It excludes infrastructure such as the always-on GPU (UI-TARS), Fargate, EC2, and CloudFront, so it is lower than the real AWS bill.',
   'cost.taskCount': '{priced}/{total} tasks have an estimated amount',
@@ -1401,8 +1404,9 @@ const zhHans: Catalog = {
   'cost.byComponent': '按组件(component 标签)',
   'cost.byApp': '按应用程序',
   'cost.byModel': '按模型',
+  'cost.scopeProject': '仅本项目({value})',
   'cost.realNote':
-    '数据来自 AWS Cost Explorer(通常延迟约 24 小时,非实时);每次查询由 AWS 收取约 US$0.01。按组件分组需先在 Billing 控制台启用 component 为成本分摊标签。',
+    '仅计入本项目(以 project 标签筛选)的资源成本,非整个账号。数据来自 AWS Cost Explorer(通常延迟约 24 小时,非实时);每次查询由 AWS 收取约 US$0.01。若总额接近 0 或为空,通常是 project / component 标签尚未在 Billing 控制台启用,或成本产生在启用之前(过去成本不回溯贴标)。',
   'cost.estimatedNote':
     '此为系统内任务的 token 估算加总,不含常驻 GPU(UI-TARS)、Fargate、EC2、CloudFront 等基础设施成本,会低于真实 AWS 账单。',
   'cost.taskCount': '{priced}/{total} 个任务有估算金额',
@@ -1852,8 +1856,9 @@ const ja: Catalog = {
   'cost.byComponent': 'コンポーネント別(component タグ)',
   'cost.byApp': 'アプリ別',
   'cost.byModel': 'モデル別',
+  'cost.scopeProject': 'このプロジェクトのみ({value})',
   'cost.realNote':
-    'データは AWS Cost Explorer 由来(通常約 24 時間遅延、リアルタイムではありません)。クエリごとに AWS が約 US$0.01 課金します。コンポーネント別集計には Billing コンソールで component をコスト配分タグとして有効化する必要があります。',
+    'このプロジェクト(project タグで絞り込み)のリソースコストのみを計上し、アカウント全体ではありません。データは AWS Cost Explorer 由来(通常約 24 時間遅延、リアルタイムではありません)。クエリごとに AWS が約 US$0.01 課金します。合計が 0 近く/空の場合、通常は project / component タグが Billing コンソールで未有効、またはコストが有効化前に発生(過去分は遡及されません)です。',
   'cost.estimatedNote':
     'これはタスクの token 推定の合計で、常駐 GPU(UI-TARS)、Fargate、EC2、CloudFront などのインフラコストを含まないため、実際の AWS 請求より低くなります。',
   'cost.taskCount': '{priced}/{total} 件のタスクに推定額あり',
@@ -2304,8 +2309,9 @@ const ko: Catalog = {
   'cost.byComponent': '구성 요소별(component 태그)',
   'cost.byApp': '앱별',
   'cost.byModel': '모델별',
+  'cost.scopeProject': '이 프로젝트만({value})',
   'cost.realNote':
-    '데이터는 AWS Cost Explorer 기반(보통 약 24시간 지연, 실시간 아님)이며, 쿼리당 AWS가 약 US$0.01을 청구합니다. 구성 요소별 그룹화는 Billing 콘솔에서 component를 비용 할당 태그로 활성화해야 합니다.',
+    '이 프로젝트(project 태그로 필터링)의 리소스 비용만 계산하며 전체 계정이 아닙니다. 데이터는 AWS Cost Explorer 기반(보통 약 24시간 지연, 실시간 아님)이며, 쿼리당 AWS가 약 US$0.01을 청구합니다. 합계가 0에 가깝거나 비어 있으면 보통 project / component 태그가 Billing 콘솔에서 아직 활성화되지 않았거나 비용이 활성화 이전에 발생한 것입니다(과거 비용은 소급되지 않음).',
   'cost.estimatedNote':
     '이는 작업의 token 추정 합계로, 상주 GPU(UI-TARS), Fargate, EC2, CloudFront 등 인프라 비용을 포함하지 않아 실제 AWS 청구서보다 낮습니다.',
   'cost.taskCount': '{priced}/{total}개 작업에 추정 금액 있음',
