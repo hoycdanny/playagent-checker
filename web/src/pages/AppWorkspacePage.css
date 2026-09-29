@@ -400,3 +400,24 @@ button.ws__stat:hover {
   color: var(--text-secondary);
   font-size: 14px;
 }
+
+/* 憑證「可見給 AI」勾選 + 可見徑章 */
+.ws__check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.ws__cred-badge {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+}
+
+.ws__cred-badge--visible {
+  color: var(--brand);
+  border-color: var(--brand);
+}

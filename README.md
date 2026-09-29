@@ -350,10 +350,13 @@ The Web backend works with no extra setup. Real-device testing uses **AWS Device
 Some flows need the agent to type a real account/password/server (e.g. register, pick a server, then enter the game). You keep these per app and the agent uses them on its own — no need to write them in the case:
 
 1. Open the app, go to the **Test credentials** tab, and add a key–value row for each field: e.g. `帳號` = your bot account, `密碼` = the password, `伺服器名稱` = `daily-aws`, `伺服器IP` = `192.168.0.1`. Use whatever field names make sense to you (Chinese is fine).
-2. Write the case normally ("log in and enter the lobby") — you do **not** reference the credentials in the case.
-3. At run time the agent is told *which* fields are available (only the names, e.g. `帳號`/`密碼`). When it reaches a form it types the matching `${帳號}`, and the runner swaps in the real value at the moment of input.
+2. For each row, choose **可見給 AI / visible to AI** or leave it **masked** (default):
+   - **Masked** — for secrets like `帳號` / `密碼`. The AI never sees the value; it only knows the field exists and types `${帳號}`, which the runner fills in at the moment of input.
+   - **Visible** — for things the AI must recognise and **select from a list**, like `伺服器名稱` / `伺服器IP`. The value is shown to the AI so it can pick the right item in a dropdown/menu. (Only mark non-sensitive selectors visible — a visible value does enter the AI's context.)
+3. Write the case normally ("log in and enter the lobby") — you do **not** reference the credentials in the case.
+4. At run time the agent is told the masked field *names* (e.g. `帳號`/`密碼`) plus the visible field *values* (e.g. `伺服器名稱=daily-aws`). When it reaches a form it types the matching `${key}`, and the runner swaps in the real value at the moment of input.
 
-Security: values live only in **AWS Secrets Manager** (`playagent/tenant/<tenant>/app/<appId>/credentials`) and, for a split second, in the runner container's memory when typing. They are **never** shown in the UI, returned by the API, put in the model prompt / context, written to S3 (`job.json`), the ECS task definition, reports, or the step/trace records — those keep only the `${key}` placeholder. Each tenant+app can only read its own credentials. A missing value is left as the literal placeholder (with a warning) rather than substituting an empty string.
+Security: values live only in **AWS Secrets Manager** (`playagent/tenant/<tenant>/app/<appId>/credentials`) and, for a split second, in the runner container's memory when typing. **Masked** values are **never** shown in the UI, returned by the API, put in the model prompt / context, written to S3 (`job.json`), the ECS task definition, reports, or the step/trace records — those keep only the `${key}` placeholder. **Visible** values (your opt-in) do appear in the AI's context so it can select them, so only mark non-sensitive selectors visible. Each tenant+app can only read its own credentials. A missing value is left as the literal placeholder (with a warning) rather than substituting an empty string.
 
 (A tenant-wide `${KEY}` / `secretRef:<name>` form still works for shared secrets — see [docs/design/test-credentials.md](docs/design/test-credentials.md).)
 

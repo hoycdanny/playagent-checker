@@ -71,7 +71,7 @@ import {
 import { tenantSecretPrefix } from './secretRefs.js';
 import type { SecretWriter } from './secretValueStore.js';
 import {
-  listAppCredentialKeys,
+  listAppCredentials,
   putAppCredential,
   deleteAppCredential,
   isValidCredentialKey,
@@ -561,27 +561,29 @@ export async function handleRequest(
           const appId = credMatch[1]!;
           if (!deps.secretWriter) return json(501, { error: '未啟用機密值寫入' });
           if (req.method === 'GET') {
-            const keys = await listAppCredentialKeys(deps.secretWriter, tenant.tenantId, appId);
-            return json(200, { keys });
+            const items = await listAppCredentials(deps.secretWriter, tenant.tenantId, appId);
+            // 只回 {key, visible},永不回值。
+            return json(200, { items });
           }
           if (req.method === 'PUT') {
-            const b = (req.body ?? {}) as { key?: string; value?: string };
+            const b = (req.body ?? {}) as { key?: string; value?: string; visible?: boolean };
             const key = (b.key ?? '').trim();
             if (!key || !isValidCredentialKey(key)) {
-              return json(400, { error: 'key 必填,且僅允許字母/數字/_./-(首字為字母或底線)' });
+              return json(400, { error: 'key 必填,且不可含空白 / 大括號 / $(可用中文)' });
             }
             if (typeof b.value !== 'string' || b.value === '') {
               return json(400, { error: 'value 為必填' });
             }
-            const keys = await putAppCredential(deps.secretWriter, tenant.tenantId, appId, key, b.value);
-            // 只回 key 名清單,永不回值。
-            return json(200, { keys });
+            const items = await putAppCredential(
+              deps.secretWriter, tenant.tenantId, appId, key, b.value, b.visible === true,
+            );
+            return json(200, { items });
           }
           if (req.method === 'DELETE') {
             const key = (req.query?.['key'] ?? '').trim();
             if (!key) return json(400, { error: 'key 為必填' });
-            const keys = await deleteAppCredential(deps.secretWriter, tenant.tenantId, appId, key);
-            return json(200, { keys });
+            const items = await deleteAppCredential(deps.secretWriter, tenant.tenantId, appId, key);
+            return json(200, { items });
           }
           return json(405, { error: 'method not allowed' });
         }

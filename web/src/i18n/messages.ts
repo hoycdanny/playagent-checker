@@ -186,6 +186,9 @@ export type MessageKey =
   | 'workspace.credSecurityNote'
   | 'workspace.credEmpty'
   | 'workspace.credRemove'
+  | 'workspace.credVisibleLabel'
+  | 'workspace.credVisibleHint'
+  | 'workspace.credVisibleTag'
   | 'workspace.statCases'
   | 'workspace.statTasks'
   | 'workspace.statReports'
@@ -691,6 +694,9 @@ const zhHant: Catalog = {
   'workspace.credSecurityNote': '值加密存於 AWS Secrets Manager,只在執行容器輸入到裝置的那一刻使用;不會顯示、不進 log、不進報告或執行軌跡。',
   'workspace.credEmpty': '尚未設定任何測試憑證。',
   'workspace.credRemove': '刪除',
+  'workspace.credVisibleLabel': '可讓 AI 看到此值(供在畫面/下拉清單中選對項目)',
+  'workspace.credVisibleHint': '帳號、密碼請「不要」勾(AI 只會在輸入框打字時用到,值全程隱藏)。伺服器名稱、區域這類「要在清單裡點選對的項目」才勾——AI 需要看到值才能挑對。',
+  'workspace.credVisibleTag': '可見',
   'workspace.statCases': '測試案例',
   'workspace.statTasks': '測試任務',
   'workspace.statReports': '測試報告',
@@ -1195,6 +1201,9 @@ const en: Catalog = {
   'workspace.credSecurityNote': 'Values are stored encrypted in AWS Secrets Manager and used only at the moment the run container types into the device — never shown, logged, or written to reports or the step trace.',
   'workspace.credEmpty': 'No test credentials set yet.',
   'workspace.credRemove': 'Delete',
+  'workspace.credVisibleLabel': 'Let the AI see this value (to pick the right item in a menu/list)',
+  'workspace.credVisibleHint': 'Leave this OFF for account/password (the AI only types them into a field; the value stays hidden). Turn it ON for things the AI must pick from a list, like server name or region — it needs to see the value to choose correctly.',
+  'workspace.credVisibleTag': 'Visible',
   'workspace.statCases': 'Test cases',
   'workspace.statTasks': 'Test tasks',
   'workspace.statReports': 'Reports',
@@ -1704,6 +1713,9 @@ const zhHans: Catalog = {
   'workspace.credSecurityNote': '值加密存于 AWS Secrets Manager,只在执行容器输入到设备的那一刻使用;不会显示、不进 log、不进报告或执行轨迹。',
   'workspace.credEmpty': '尚未设置任何测试凭证。',
   'workspace.credRemove': '删除',
+  'workspace.credVisibleLabel': '让 AI 看到此值(供在画面/下拉列表中选对项目)',
+  'workspace.credVisibleHint': '帐号、密码请「不要」勾(AI 只会在输入框打字时用到,值全程隐藏)。服务器名称、区域这类「要在列表里点选对的项目」才勾——AI 需要看到值才能挑对。',
+  'workspace.credVisibleTag': '可见',
   'workspace.statCases': '测试用例',
   'workspace.statTasks': '测试任务',
   'workspace.statReports': '测试报告',
@@ -2208,6 +2220,9 @@ const ja: Catalog = {
   'workspace.credSecurityNote': '値は AWS Secrets Manager に暗号化して保存され、実行コンテナが端末へ入力する瞬間だけ使われます。表示・ログ・レポート・実行トレースには残りません。',
   'workspace.credEmpty': 'テスト認証情報はまだ設定されていません。',
   'workspace.credRemove': '削除',
+  'workspace.credVisibleLabel': 'この値を AI に見せる(メニュー/リストで正しい項目を選ぶため)',
+  'workspace.credVisibleHint': 'アカウント・パスワードはオフのまま(AI は入力欄に打ち込むだけで、値は常に非表示)。サーバー名やリージョンなど「リストから正しい項目を選ぶ」ものだけオンに——値が見えないと正しく選べません。',
+  'workspace.credVisibleTag': '表示',
   'workspace.statCases': 'テストケース',
   'workspace.statTasks': 'テストタスク',
   'workspace.statReports': 'レポート',
@@ -2713,6 +2728,9 @@ const ko: Catalog = {
   'workspace.credSecurityNote': '값은 AWS Secrets Manager에 암호화되어 저장되며 실행 컨테이너가 기기에 입력하는 순간에만 사용됩니다. 표시·로그·리포트·실행 트레이스에 남지 않습니다.',
   'workspace.credEmpty': '아직 설정된 테스트 자격 증명이 없습니다.',
   'workspace.credRemove': '삭제',
+  'workspace.credVisibleLabel': 'AI가 이 값을 보게 하기(메뉴/목록에서 올바른 항목 선택용)',
+  'workspace.credVisibleHint': '계정·비밀번호는 끄세요(AI는 입력란에 입력만 하며 값은 항상 숨겨짐). 서버 이름·리전처럼 "목록에서 올바른 항목을 선택"하는 것만 켜세요 — 값이 보여야 올바르게 고를 수 있습니다.',
+  'workspace.credVisibleTag': '표시',
   'workspace.statCases': '테스트 케이스',
   'workspace.statTasks': '테스트 작업',
   'workspace.statReports': '리포트',

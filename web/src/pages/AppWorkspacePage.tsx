@@ -148,17 +148,18 @@ export default function AppWorkspacePage() {
   const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
 
-  // App 測試憑證(key-value 存 Secrets Manager;前端只拿得到 key 名,拿不到值)。
-  const [credKeys, setCredKeys] = useState<string[]>([]);
+  // App 測試憑證(存 Secrets Manager;前端只拿得到 {key, visible},拿不到值)。
+  const [credItems, setCredItems] = useState<{ key: string; visible: boolean }[]>([]);
   const [credKey, setCredKey] = useState('');
   const [credValue, setCredValue] = useState('');
+  const [credVisible, setCredVisible] = useState(false);
   const [credBusy, setCredBusy] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
 
   function loadCredentials() {
-    apiGet<{ keys: string[] }>(`/apps/${encodeURIComponent(appId)}/credentials`)
-      .then((r) => setCredKeys(r.keys ?? []))
-      .catch(() => setCredKeys([]));
+    apiGet<{ items: { key: string; visible: boolean }[] }>(`/apps/${encodeURIComponent(appId)}/credentials`)
+      .then((r) => setCredItems(r.items ?? []))
+      .catch(() => setCredItems([]));
   }
   async function onSaveCredential(e: FormEvent) {
     e.preventDefault();
@@ -168,9 +169,11 @@ export default function AppWorkspacePage() {
       await apiPut(`/apps/${encodeURIComponent(appId)}/credentials`, {
         key: credKey.trim(),
         value: credValue,
+        visible: credVisible,
       });
       setCredKey('');
       setCredValue('');
+      setCredVisible(false);
       loadCredentials();
     } catch (err) {
       setCredError(err instanceof Error ? err.message : String(err));
@@ -900,24 +903,39 @@ export default function AppWorkspacePage() {
                 onChange={(e) => setCredValue(e.target.value)}
               />
             </label>
+            <label className="ws__check">
+              <input
+                type="checkbox"
+                checked={credVisible}
+                onChange={(e) => setCredVisible(e.target.checked)}
+              />
+              <span>{t('workspace.credVisibleLabel')}</span>
+            </label>
+            <span className="ws__muted">{t('workspace.credVisibleHint')}</span>
             <button type="submit" className="ws__primary" disabled={credBusy}>
               {credBusy ? t('workspace.credSaving') : t('workspace.credSave')}
             </button>
           </form>
           <p className="ws__muted">{t('workspace.credSecurityNote')}</p>
           {credError && <p className="listpage__error" role="alert">{credError}</p>}
-          {credKeys.length === 0 ? (
+          {credItems.length === 0 ? (
             <div className="listpage__empty"><p>{t('workspace.credEmpty')}</p></div>
           ) : (
             <ul className="listpage__list">
-              {credKeys.map((k) => (
-                <li key={k} className="ws__cred-item">
-                  <code className="ws__cred-key">{k}</code>
-                  <span className="ws__cred-masked">••••••</span>
+              {credItems.map((it) => (
+                <li key={it.key} className="ws__cred-item">
+                  <code className="ws__cred-key">{it.key}</code>
+                  {it.visible ? (
+                    <span className="ws__cred-badge ws__cred-badge--visible">
+                      {t('workspace.credVisibleTag')}
+                    </span>
+                  ) : (
+                    <span className="ws__cred-masked">••••••</span>
+                  )}
                   <button
                     type="button"
                     className="ws__remove"
-                    onClick={() => void onDeleteCredential(k)}
+                    onClick={() => void onDeleteCredential(it.key)}
                   >
                     {t('workspace.credRemove')}
                   </button>
