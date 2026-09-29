@@ -68,6 +68,29 @@
   color: var(--text-primary);
 }
 
+/* LIVE 徽章:即時串流中閃動的紅點標籤 */
+.detail__live-badge {
+  margin-left: var(--space-2);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--status-fail) 16%, transparent);
+  color: var(--status-fail);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+  animation: detail-live-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes detail-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail__live-badge { animation: none; }
+}
+
 .detail__live {
   width: 100%;
   aspect-ratio: 16 / 10;

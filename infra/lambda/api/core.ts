@@ -40,6 +40,7 @@ import {
   validateSubmit,
   writeCancelFlag,
   isValidJobId,
+  liveFrameKey,
   localityOf,
   ValidationError as TaskValidationError,
   type Backend,
@@ -682,6 +683,17 @@ export async function handleRequest(
         const cancelMatch = req.method === 'POST' && /^\/tasks\/([^/]+)\/cancel$/.exec(req.path);
         if (cancelMatch) {
           return await handleCancelTask(deps, tenant.tenantId, cancelMatch[1]!);
+        }
+        // 動態路由:GET /tasks/{id}/live-frame(即時畫面最新幀的短效 presigned URL)。
+        // runner 持續覆寫同一個 live key;前端在任務執行中以 ~3-5fps 輪詢此路由換 <img>。
+        // 幀不存在(任務剛起/非即時後端)時簽出的 URL 會 404,前端自行回退顯示。
+        const liveMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/live-frame$/.exec(req.path);
+        if (liveMatch) {
+          const jobId = liveMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const url = await createDownloadUrl(s3, deps.bucket, liveFrameKey(tenant.tenantId, jobId));
+          return json(200, { url });
         }
         // 動態路由:GET /tasks/{id}/logs(每步完整互動 log:模型/請求摘要/原始回應/錯誤,供除錯)
         const logsMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/logs$/.exec(req.path);

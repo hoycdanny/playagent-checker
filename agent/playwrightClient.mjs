@@ -47,6 +47,11 @@ export class PlaywrightClient {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage', // 容器 /dev/shm 常太小,避免 Chromium 崩潰
         '--disable-gpu',
+        // 即時串流:headless 分頁常被視為「背景」而停止 compositor 重繪,導致 CDP screencast
+        // 只送第一幀就停。關閉背景節流,讓畫面持續產幀(遊戲動畫才會串流出來)。
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-backgrounding-occluded-windows',
       ],
     });
     const context = await browser.newContext({
@@ -140,6 +145,52 @@ export class PlaywrightClient {
       default:
         throw new Error(`不支援的動作: ${cmd.action}`);
     }
+  }
+
+  /**
+   * 啟動 CDP screencast:瀏覽器每渲染一幀就回呼一張 JPEG(base64)。用於「即時畫面」串流。
+   * 每幀都要 ack(screencastFrameAck)否則 Chromium 會停止送幀。
+   * @param onFrame (b64Jpeg:string) => void  每幀回呼(呼叫端負責節流/上傳,勿阻塞)
+   * @param options { everyNthFrame, quality, maxWidth, maxHeight }
+   * @returns stop() 停止 screencast
+   */
+  async startScreencast(onFrame, options = {}) {
+    const quality = options.quality ?? 55;
+    const everyNth = Math.max(1, options.everyNthFrame ?? 1);
+    let cdp;
+    try {
+      cdp = await this.#context.newCDPSession(this.#page);
+    } catch (err) {
+      // CDP 不可用(理論上 Chromium 一定有);回傳 no-op 停止函式,不影響主流程。
+      return async () => {};
+    }
+    // 強制分頁為「active」生命週期,避免 headless 被當背景而停止重繪(screencast 只送一幀就停)。
+    try { await cdp.send('Page.enable'); } catch { /* ignore */ }
+    try { await cdp.send('Page.setWebLifecycleState', { state: 'active' }); } catch { /* ignore */ }
+    let frameNo = 0;
+    cdp.on('Page.screencastFrame', async (evt) => {
+      // 先 ack 讓下一幀能來(即使我們這幀略過)。
+      try { await cdp.send('Page.screencastFrameAck', { sessionId: evt.sessionId }); } catch { /* ignore */ }
+      frameNo++;
+      if (frameNo % everyNth !== 0) return; // 抽幀降頻
+      try { onFrame(evt.data); } catch { /* 呼叫端錯誤不影響串流 */ }
+    });
+    try {
+      await cdp.send('Page.startScreencast', {
+        format: 'jpeg',
+        quality,
+        ...(options.maxWidth ? { maxWidth: options.maxWidth } : {}),
+        ...(options.maxHeight ? { maxHeight: options.maxHeight } : {}),
+        everyNthFrame: 1,
+      });
+    } catch {
+      try { await cdp.detach(); } catch { /* ignore */ }
+      return async () => {};
+    }
+    return async () => {
+      try { await cdp.send('Page.stopScreencast'); } catch { /* ignore */ }
+      try { await cdp.detach(); } catch { /* ignore */ }
+    };
   }
 
   async quit() {
