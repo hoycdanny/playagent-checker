@@ -30,7 +30,11 @@ const BUCKET = process.env.PA_BUCKET;
 const PREFIX = process.env.PA_PREFIX;
 const APP_ID = process.env.PA_APP || '';
 const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
-const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+// Web runner 無 UI-TARS 路徑(UI-TARS 為行動 GUI 微調,且 web task role 無 SageMaker 權限)。
+// 'uitars' 為 SageMaker 定位哨兵 id,非 Bedrock 可呼叫模型;web 一律回退到真實 Bedrock 通用 VLM。
+const BEDROCK_VLM_FALLBACK = 'qwen.qwen3-vl-235b-a22b';
+const _vlmRaw = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+const VLM = _vlmRaw === 'uitars' ? BEDROCK_VLM_FALLBACK : _vlmRaw;
 // 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。真值只在 type 到頁面那一刻替換,不改寫 TASK。
 const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 死循環 / 取消 / 連續失敗才停)。

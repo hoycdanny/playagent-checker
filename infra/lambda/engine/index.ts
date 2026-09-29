@@ -317,6 +317,11 @@ export async function handler(event: EngineEvent): Promise<void> {
     throw err;
   }
 
+  // 生效的 VLM 定位模型(解析後的 seat,非只有使用者明選)。未明選時預設 seat(如 UI-TARS)也要
+  // 傳到 runner,否則 runner 只會用它自己的內建預設(通用 VLM),預設精準定位形同虛設。
+  const resolvedVlmModel =
+    snapshot.seats.find((s) => s.seat === 'vlm')?.modelId ?? event.vlmModel;
+
   // 組裝 Knowledge/Memory 上下文(Req 9),固化供審計。失敗不擋執行。
   try {
     const meta = await readJobMeta(s3, BUCKET, event.tenantId, event.jobId);
@@ -351,7 +356,7 @@ export async function handler(event: EngineEvent): Promise<void> {
         bucket: BUCKET,
         prefix: `tenants/${event.tenantId}/jobs/${event.jobId}`,
         url,
-        ...(event.vlmModel ? { vlmModel: event.vlmModel } : {}),
+        ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
         ...(task ? { caseTask: task } : {}),
         ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
       });
@@ -373,7 +378,7 @@ export async function handler(event: EngineEvent): Promise<void> {
           tenantId: event.tenantId,
           jobId: event.jobId,
           ...(meta?.abi ? { abi: meta.abi } : {}),
-          ...(event.vlmModel ? { vlmModel: event.vlmModel } : {}),
+          ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
           budgetUsd,
         },
         'emulator',
@@ -411,7 +416,7 @@ export async function handler(event: EngineEvent): Promise<void> {
           artifactKey: meta.artifactKey,
           ...(meta.package ? { package: meta.package } : {}),
           platform,
-          ...(event.vlmModel ? { vlmModel: event.vlmModel } : {}),
+          ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
           ...(meta.caseTask ? { caseTask: meta.caseTask } : {}),
           ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
           // 使用者提交時明選的裝置:deviceArn 直接指定實體真機(runner 短路挑此台);

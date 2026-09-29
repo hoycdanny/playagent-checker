@@ -19,9 +19,10 @@ describe('成本護欄 — 執行配置快照(Req 7.5)', () => {
     for (const seat of snapshot.seats) {
       expect(seat.modelId).toBeTruthy();
       expect(seat.channel).toBeTruthy();
-      // 生效後模型必有正單價(可定價)。
-      expect(seat.inputPerM).toBeGreaterThan(0);
-      expect(seat.outputPerM).toBeGreaterThan(0);
+      // 生效後模型必可定價(單價已解析、非負)。UI-TARS 走 SageMaker 常駐計費,per-token 為 0,
+      // 仍屬可定價(滿足 Fail-Closed 不變式),故只要求「非負」而非「嚴格為正」。
+      expect(seat.inputPerM).toBeGreaterThanOrEqual(0);
+      expect(seat.outputPerM).toBeGreaterThanOrEqual(0);
     }
     expect(snapshot.resolvedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
@@ -35,19 +36,21 @@ describe('成本護欄 — 執行配置快照(Req 7.5)', () => {
     expect(() => resolveExecutionConfig(bad, 5)).toThrow(PricingError);
   });
 
-  it('預設選型為 2026 A 組(Qwen3-VL / MiniMax M2.1 / DeepSeek V3.2)', () => {
+  it('預設選型:vlm=UI-TARS(定位專用)/ agent=MiniMax M2.1 / subagent=Nova Micro', () => {
     const sel = defaultSeatSelection();
-    // 性價比最佳組:Qwen/MiniMax 原始 id(無前綴),Amazon 走 us. 前綴(經 Bedrock 實測)。
-    expect(sel.vlm).toBe('qwen.qwen3-vl-235b-a22b');
+    // vlm 預設為 UI-TARS(GUI grounding 專用,座標最準);agent/subagent 維持性價比最佳組。
+    // UI-TARS 走 SageMaker(id 'uitars'),MiniMax 走原始 id,Amazon 走 us. 前綴(經 Bedrock 實測)。
+    expect(sel.vlm).toBe('uitars');
     expect(sel.agent).toBe('minimax.minimax-m2.1');
     expect(sel.subagent).toBe('us.amazon.nova-micro-v1:0');
   });
 
-  it('channel 由 modelId 推導寫入快照(Qwen/MiniMax/DeepSeek → bedrock-converse)', () => {
+  it('channel 由 modelId 推導寫入快照(UI-TARS → sagemaker;agent/subagent → bedrock-converse)', () => {
     const snapshot = resolveExecutionConfig(defaultSeatSelection(), 1);
-    for (const seat of snapshot.seats) {
-      expect(seat.channel).toBe('bedrock-converse');
-    }
+    const bySeat = Object.fromEntries(snapshot.seats.map((s) => [s.seat, s.channel]));
+    expect(bySeat.vlm).toBe('sagemaker');
+    expect(bySeat.agent).toBe('bedrock-converse');
+    expect(bySeat.subagent).toBe('bedrock-converse');
   });
 });
 

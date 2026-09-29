@@ -54,7 +54,11 @@ const BUCKET = process.env.PA_BUCKET;
 const PREFIX = process.env.PA_PREFIX;
 const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
 const DF_REGION = process.env.PA_DF_REGION || 'us-west-2';
-const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+// 'uitars' 是 SageMaker 定位模型的哨兵 id,不是 Bedrock 可呼叫的 modelId。走 Bedrock 通用 VLM 路徑時
+// (UI-TARS endpoint 缺席而回退)必須換成真實 Bedrock VLM,否則 InvokeModel 會因無此模型而失敗。
+const BEDROCK_VLM_FALLBACK = 'qwen.qwen3-vl-235b-a22b';
+const _vlmRaw = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
+const VLM = _vlmRaw === 'uitars' ? BEDROCK_VLM_FALLBACK : _vlmRaw;
 const PKG = process.env.PA_PKG || '';
 // 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。憑證的真值「只在 type 到裝置那一刻」替換,
 // 不改寫 TASK,避免明文進入 prompt / trace / 報告 / log。
