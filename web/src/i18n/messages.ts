@@ -286,6 +286,7 @@ export type MessageKey =
   | 'tasks.app'
   | 'tasks.case'
   | 'tasks.backend'
+  | 'tasks.backendLocked'
   | 'tasks.submitBtn'
   | 'tasks.submitting'
   | 'tasks.cancel'
@@ -790,6 +791,7 @@ const zhHant: Catalog = {
   'tasks.app': '應用',
   'tasks.case': '測試案例',
   'tasks.backend': '執行環境',
+  'tasks.backendLocked': '依應用平台自動決定(Web 應用用瀏覽器,原生應用用真機)',
   'tasks.submitBtn': '提交',
   'tasks.submitting': '提交中…',
   'tasks.cancel': '取消',
@@ -1293,6 +1295,7 @@ const en: Catalog = {
   'tasks.app': 'App',
   'tasks.case': 'Test case',
   'tasks.backend': 'Runtime',
+  'tasks.backendLocked': 'Set automatically by the app platform (web apps use the browser; native apps use a real device)',
   'tasks.submitBtn': 'Submit',
   'tasks.submitting': 'Submitting…',
   'tasks.cancel': 'Cancel',
@@ -1801,6 +1804,7 @@ const zhHans: Catalog = {
   'tasks.app': '应用',
   'tasks.case': '测试用例',
   'tasks.backend': '执行环境',
+  'tasks.backendLocked': '按应用平台自动决定(Web 应用用浏览器,原生应用用真机)',
   'tasks.submitBtn': '提交',
   'tasks.submitting': '提交中…',
   'tasks.cancel': '取消',
@@ -2304,6 +2308,7 @@ const ja: Catalog = {
   'tasks.app': 'アプリ',
   'tasks.case': 'テストケース',
   'tasks.backend': '実行環境',
+  'tasks.backendLocked': 'アプリのプラットフォームで自動決定(Web アプリはブラウザ、ネイティブアプリは実機)',
   'tasks.submitBtn': '送信',
   'tasks.submitting': '送信中…',
   'tasks.cancel': 'キャンセル',
@@ -2808,6 +2813,7 @@ const ko: Catalog = {
   'tasks.app': '앱',
   'tasks.case': '테스트 케이스',
   'tasks.backend': '실행 환경',
+  'tasks.backendLocked': '앱 플랫폼에 따라 자동 결정(웹 앱은 브라우저, 네이티브 앱은 실기기)',
   'tasks.submitBtn': '제출',
   'tasks.submitting': '제출 중…',
   'tasks.cancel': '취소',
