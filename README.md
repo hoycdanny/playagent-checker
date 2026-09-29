@@ -310,6 +310,9 @@ Open the CloudFront URL from Step 8, log in with the email/password from Step 9.
 2. **Test cases** — describe a flow in plain language; the AI turns it into a runnable case.
 3. **Tasks** — pick app + case + runtime (**Web** or **Device Farm**) and submit; the coordinate model defaults to **UI-TARS 1.5 7B** (from Step 6). Watch it run live.
 4. **Reports** — read the AI narrative, screenshots, step trace, and cost.
+5. **Members** (admins only) — the last nav item. Add users (email + tenant + initial password), disable/enable accounts, and optionally grant admin. No CLI needed after your first admin.
+
+> **If you don't see the Members item:** the nav only shows it to admins, and your login token carries group membership only from the moment you signed in. After making an account an admin (Step 9), **log out and log back in** so the new token includes the `admins` group.
 
 ✅ **You now have a working environment.**
 
