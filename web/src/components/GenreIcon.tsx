@@ -27,6 +27,7 @@ export const GENRES = [
   'board',
   'rhythm',
   'survival',
+  'survivor',
   'roguelike',
   'battle_royale',
   'sandbox',
@@ -174,6 +175,14 @@ const PATHS: Record<Genre, ReactNode> = {
     <>
       <path d="M12 3c2 3 4 4 4 8a4 4 0 01-8 0c0-2 1-3 2-4 0 1 1 2 2 2 1-2-1-4 0-6z" />
       <path d="M6 21l12 0M8 18l8 3M16 18l-8 3" />
+    </>
+  ),
+  // 倖存者/割草:鐮刀劃過(移動即戰鬥)
+  survivor: (
+    <>
+      <path d="M4 20c6 0 12-4 15-11" />
+      <path d="M19 9a5 5 0 00-9-2" />
+      <circle cx="6" cy="18" r="1.5" />
     </>
   ),
   // Roguelike:地城入口(拱門 + 骷髏點)

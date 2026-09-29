@@ -125,9 +125,16 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `但若「同一個錯誤彈窗」(如登入失敗 login failed)已反覆出現多次、點掉又立刻跳出,代表此裝置環境無法完成該登入,` +
     `不要一直點它空轉;改走其他入口(如免登入的訪客/Play now),真的無其他路可走再用 done 收尾並在 thinking 說明原因。` +
     `目標:${TASK}` +
+    `【割草/動作遊戲的移動|重要】若這是「進入遊戲後靠虛擬搖桿/按住螢幕拖曳來移動角色」的遊戲` +
+    `(如倖存者 Vampire-Survivors-like 割草、動作、生存類):移動不是點按鈕,而是用 move 動作。` +
+    `move 語意=「按住畫面朝某方向壓住並持續行走一段時間」。用 dir 指定方向(up/down/left/right,` +
+    `或斜向 upleft/upright/downleft/downright),holdMs 指定按住毫秒數(走多久,建議 1000~3000)。` +
+    `這類遊戲通常「移動即戰鬥」(邊走位邊自動攻擊靠近的敵人),你的任務是持續走位:朝敵人少/空曠處移動來躲怪,` +
+    `撿道具/經驗,活得越久越好。觀察 HP/血條、存活時間、經驗/等級、敵人位置來決定往哪走。` +
+    `不要在遊戲進行畫面亂點 tap(那多半無效);用 move 走位才是對的。升級/選技能彈窗才用 tap 選項。` +
     `先簡短思考(thinking),再給動作。只輸出 JSON:` +
-    `{"thinking":"...","action":"tap|swipe|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"text":"...","screen":"畫面名稱"}。` +
-    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;type 需 text;done 只在真正完成或完全無法進行時用。` +
+    `{"thinking":"...","action":"tap|swipe|move|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>,"text":"...","screen":"畫面名稱"}。` +
+    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500),x,y 省略時以畫面中心為搖桿中心;type 需 text;done 只在真正完成或完全無法進行時用。` +
     `screen 用精確畫面名(如「主選單」「大廳」「轉軸畫面」「載入中」)描述當前畫面,不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
   if (!k) return base;

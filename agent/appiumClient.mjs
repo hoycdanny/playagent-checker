@@ -166,6 +166,34 @@ export class AppiumClient {
         await this.#swipe(sx, sy, ex, ey, cmd.durationMs ?? 500);
         break;
       }
+      // move:虛擬搖桿「持續移動」手勢。割草/動作遊戲(如倖存者/Vampire-Survivors-like)
+      // 的走位不是「從 A 滑到 B 放開」,而是「在搖桿上按住不放、朝某方向壓住、維持數秒」。
+      // 語意:從起點(x,y;預設畫面中心=搖桿中心)按住 → 朝 dir/角度方向壓到偏移點 → 保持 holdMs → 放開。
+      // dir 支援 up/down/left/right/upleft/upright/downleft/downright,或用 x2,y2 指定終點方向。
+      case 'move': {
+        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) / 2);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) / 2);
+        // 位移量:預設為畫面較短邊的 22%(搖桿壓到底約略距離);可用 magnitude 覆寫(截圖像素)。
+        const shortSide = Math.min(this.#shotW || 1080, this.#shotH || 2340);
+        const mag = Number.isFinite(cmd.magnitude) ? Math.round(cmd.magnitude) : Math.round(shortSide * 0.22);
+        let dx = 0, dy = 0;
+        if (Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2)) {
+          dx = Math.round(cmd.x2) - cx; dy = Math.round(cmd.y2) - cy;
+        } else {
+          const dir = String(cmd.dir ?? cmd.direction ?? 'up').toLowerCase();
+          if (dir.includes('up')) dy -= mag;
+          if (dir.includes('down')) dy += mag;
+          if (dir.includes('left')) dx -= mag;
+          if (dir.includes('right')) dx += mag;
+          if (dx === 0 && dy === 0) dy = -mag; // 預設往上
+        }
+        const [sx, sy] = this.#toWindow(cx, cy);
+        const [ex, ey] = this.#toWindow(cx + dx, cy + dy);
+        // holdMs:按住維持的時間(角色實際行走的秒數),預設 1500ms,夾在 300–8000ms。
+        const holdMs = Math.max(300, Math.min(8000, Number.isFinite(cmd.holdMs) ? cmd.holdMs : (Number.isFinite(cmd.durationSec) ? cmd.durationSec * 1000 : 1500)));
+        await this.#holdMove(sx, sy, ex, ey, holdMs);
+        break;
+      }
       case 'type':
         await this.#typeText(cmd.text ?? '');
         break;
@@ -243,6 +271,20 @@ export class AppiumClient {
     await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
       .move({ x: x2, y: y2, duration: durationMs }).up({ button: 0 }).perform();
+  }
+
+  /**
+   * 虛擬搖桿「持續移動」:按住起點 → 快速壓到方向偏移點(當作把搖桿推到底)→ 保持 holdMs
+   * 讓角色持續朝該方向行走 → 放開。與 #swipe 的差別是「到位後停住不放」,對應割草/動作遊戲
+   * 的持續走位。用 W3C pointer 的多段 move + pause,pause 期間手指維持按下、座標不動。
+   */
+  async #holdMove(x1, y1, x2, y2, holdMs) {
+    await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
+      .move({ x: x2, y: y2, duration: 180 })  // 180ms 把搖桿推到方向底
+      .pause(holdMs)                            // 維持按住,角色持續行走
+      .up({ button: 0 }).perform();
+    await this.#driver.releaseActions().catch(() => {});
   }
 
   async #typeText(text) {

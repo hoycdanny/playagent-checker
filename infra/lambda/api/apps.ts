@@ -34,6 +34,7 @@ export const APP_GENRES = [
   'board',
   'rhythm',
   'survival',
+  'survivor',
   'roguelike',
   'battle_royale',
   'sandbox',
