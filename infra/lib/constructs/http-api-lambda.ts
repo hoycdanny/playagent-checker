@@ -187,6 +187,8 @@ export class HttpApiLambda extends Construct {
           'secretsmanager:DescribeSecret',
           'secretsmanager:DeleteSecret',
           'secretsmanager:TagResource',
+          // App 憑證表:API 需讀回 secret 的 JSON 以 merge/列 key(值只用於內部,永不回傳前端)。
+          'secretsmanager:GetSecretValue',
         ],
         resources: [`arn:aws:secretsmanager:*:${acct}:secret:playagent/tenant/*`],
       }),

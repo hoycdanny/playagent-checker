@@ -1,5 +1,7 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { STSClient } from '@aws-sdk/client-sts';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
+import { appCredentialsSecretName } from '../api/appCredentialsStore.js';
 import { readCaseTarget as resolveWebTarget } from './webRunner.js';
 import { type ReportLang } from './report.js';
 import { writeStatus } from '../api/status.js';
@@ -28,6 +30,29 @@ const TENANT_ROLE_ARN = process.env.TENANT_ROLE_ARN ?? '';
 const sts = new STSClient({ region: REGION });
 // 共用知識庫(shared/*)用引擎自身角色讀取(唯讀),不經租戶隔離角色。
 const sharedS3 = new S3Client({ region: REGION });
+// App 憑證:engine 只讀 secret 以「列出 key 名」注入 context(值不進 context/log,見 readAppCredentialKeys)。
+const secretsClient = new SecretsManagerClient({ region: REGION });
+
+/**
+ * 讀某 App 憑證表的「key 名清單」(僅名稱,不把值放進回傳/context/log)。
+ * 雖然 GetSecretValue 會拿到值,但此處只取 Object.keys —— 值不外流。取不到回空陣列。
+ */
+async function readAppCredentialKeys(tenantId: string, appId: string): Promise<string[]> {
+  if (!appId) return [];
+  try {
+    const res = await secretsClient.send(
+      new GetSecretValueCommand({ SecretId: appCredentialsSecretName(tenantId, appId) }),
+    );
+    if (typeof res.SecretString !== 'string' || res.SecretString === '') return [];
+    const parsed = JSON.parse(res.SecretString);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.keys(parsed).sort();
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * 生命週期 Lambda 直接 Invoke 的事件(非 SQS ESM,Req 3.8)。
@@ -146,13 +171,15 @@ async function assembleAgentContext(
   caseTask: string,
 ): Promise<void> {
   if (!appId) return;
-  const [knowledge, memory, kbMarkdown, kbReference] = await Promise.all([
+  const [knowledge, memory, kbMarkdown, kbReference, credentialKeys] = await Promise.all([
     readKnowledge(s3, bucket, tenantId, appId),
     readMemory(s3, bucket, tenantId, appId, locality),
     // 共用知識庫 Markdown(提交時選的,可多選)—— 走 sharedS3(跨租戶),失敗不擋執行。
     composeKnowledgeBases(sharedS3, bucket, knowledgeBaseIds).catch(() => ''),
     // Bedrock KB 檢索(Stage B):以任務目標為 query,對每座已接文件的 KB 撈 top-K 片段。
     retrieveReference(bucket, knowledgeBaseIds, caseTask).catch(() => ''),
+    // App 憑證:只取 key 名清單(值不進 context/log)。
+    readAppCredentialKeys(tenantId, appId).catch(() => []),
   ]);
   let context = composeContext(knowledge, memory);
   // 注入順序/優先序:手寫 App 知識 > 知識庫 Markdown > KB 檢索片段 > 記憶。
@@ -163,6 +190,17 @@ async function assembleAgentContext(
   if (kbReference.trim()) {
     const refBlock = `# KNOWLEDGE BASE REFERENCES (retrieved for this task — lower priority than authored knowledge)\n${kbReference.trim()}`;
     context = context.trim() ? `${context}\n\n${refBlock}` : refBlock;
+  }
+  // 可用測試資料:只列 key 名,不含值。指示 AI 需要帳密/伺服器資訊時,在 type 的 text 用 ${key}
+  // 代入(系統會在輸入到裝置那一刻填入真值);切勿自行猜測或明寫。
+  if (credentialKeys.length > 0) {
+    const credBlock =
+      `# 可用測試資料 / AVAILABLE TEST CREDENTIALS\n` +
+      `這個 App 已設定下列測試資料(僅列名稱,實際值受保護):${credentialKeys.map((k) => `\${${k}}`).join('、')}。\n` +
+      `當畫面需要輸入帳號、密碼、伺服器名稱/IP 等資訊時,請在 type 動作的 text 欄位直接寫對應的 \${key}` +
+      `(例如需要帳號就填 \${${credentialKeys[0]}});系統會在真正輸入到裝置的那一刻替換成真實值。` +
+      `切勿自行猜測或明寫帳密,也不要把 \${key} 當成畫面上的字面文字。`;
+    context = context.trim() ? `${context}\n\n${credBlock}` : credBlock;
   }
   if (!context.trim()) return;
   await s3.send(
@@ -176,6 +214,8 @@ async function assembleAgentContext(
         hasMemory: memory.trim().length > 0,
         hasKnowledgeBases: kbMarkdown.trim().length > 0,
         hasKbReferences: kbReference.trim().length > 0,
+        // 只記 key 名(不含值),供審計「本次告訴 AI 有哪些可用憑證」。
+        credentialKeys,
         knowledgeBaseIds,
         context,
         assembledAt: new Date().toISOString(),

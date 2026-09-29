@@ -43,7 +43,7 @@ The AI never relies on brittle element selectors — it **looks at the actual sc
 | --- | --- |
 | **Guide** | The in-app walkthrough (this is your landing page after login), localized in 5 languages. |
 | **Apps** | One workspace per game/app. Create with name + platform + genre; upload the artifact (native) or a URL (Web). Holds that app's cases, tasks, reports, and memory. |
-| **Test Cases** | A case = one flow for the AI to run. Draft it in plain language (AI → YAML) or hand-write YAML. Secrets use `${ENV}` placeholders (or `secretRef:<name>`); literal passwords are rejected. Set the actual values under **Devices → Test credentials** — they are substituted at run time (see below). |
+| **Test Cases** | A case = one flow for the AI to run. Draft it in plain language (AI → YAML) or hand-write YAML. You don't put credentials in the case — set them per app under **App → Test credentials** and the agent uses them automatically when a form needs them (see below). Literal passwords in YAML are rejected. |
 | **Test Tasks** | Send a case to run. Choose **runtime** (Web browser or Device Farm real device), the **coordinate model** (defaults to UI-TARS), and multi-select **knowledge bases**. Watch live; cancel anytime. |
 | **Test Reports** | Read-only result: AI narrative, step-by-step trace, gameplay screenshots, navigation graph, plus budget vs actual spend and token usage. |
 | **Memory Map** | An app-wide picture built across all runs: visited screens become nodes, transitions become edges — later tests navigate faster. |
@@ -347,13 +347,15 @@ The Web backend works with no extra setup. Real-device testing uses **AWS Device
 
 ## Test credentials (registration/login flows)
 
-Some flows need the agent to type a real account/password (e.g. register then enter the game). Write placeholders in the case goal and set the values separately:
+Some flows need the agent to type a real account/password/server (e.g. register, pick a server, then enter the game). You keep these per app and the agent uses them on its own — no need to write them in the case:
 
-1. In the case YAML, reference credentials as `${TEST_USERNAME}` / `${TEST_PASSWORD}` (any `${KEY}`), or `secretRef:playagent/tenant/<tenant>/<KEY>`. Literal passwords in YAML are rejected.
-2. On the **Devices** page under **Test credentials**, add each key + value (e.g. `TEST_USERNAME` = your bot account). The value is stored in **AWS Secrets Manager** under `playagent/tenant/<tenant>/<KEY>`.
-3. At run time the runner container reads the value (via its task role) and substitutes it into the task goal, so the agent types the real credential.
+1. Open the app, go to the **Test credentials** tab, and add a key–value row for each field: e.g. `帳號` = your bot account, `密碼` = the password, `伺服器名稱` = `daily-aws`, `伺服器IP` = `192.168.0.1`. Use whatever field names make sense to you (Chinese is fine).
+2. Write the case normally ("log in and enter the lobby") — you do **not** reference the credentials in the case.
+3. At run time the agent is told *which* fields are available (only the names, e.g. `帳號`/`密碼`). When it reaches a form it types the matching `${帳號}`, and the runner swaps in the real value at the moment of input.
 
-Security: values live only in Secrets Manager. They are never written to S3, never put on the job record or the ECS task definition, never returned by the API, and never written to reports or the step trace — the list only ever shows the key name and label. Each tenant can only read secrets under its own `playagent/tenant/<tenant>/` prefix. A missing value is left as the literal placeholder (with a warning) rather than substituting an empty string.
+Security: values live only in **AWS Secrets Manager** (`playagent/tenant/<tenant>/app/<appId>/credentials`) and, for a split second, in the runner container's memory when typing. They are **never** shown in the UI, returned by the API, put in the model prompt / context, written to S3 (`job.json`), the ECS task definition, reports, or the step/trace records — those keep only the `${key}` placeholder. Each tenant+app can only read its own credentials. A missing value is left as the literal placeholder (with a warning) rather than substituting an empty string.
+
+(A tenant-wide `${KEY}` / `secretRef:<name>` form still works for shared secrets — see [docs/design/test-credentials.md](docs/design/test-credentials.md).)
 
 ---
 

@@ -371,3 +371,22 @@ button.ws__stat:hover {
 .ws__device-btn:hover {
   border-color: var(--border-strong);
 }
+
+/* 測試憑證清單項:key 名 + 遮罩(值永不顯示)+ 刪除 */
+.ws__cred-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+}
+
+.ws__cred-key {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ws__cred-masked {
+  flex: 1;
+  color: var(--text-tertiary);
+  letter-spacing: 2px;
+}

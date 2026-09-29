@@ -201,6 +201,14 @@ export class ExecutionStack extends Stack {
       }),
     );
 
+    // App 憑證:engine 組 context 時讀 secret 以「列出 key 名」注入(值不進 context/log)。
+    this.engineFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [`arn:aws:secretsmanager:*:${Stack.of(this).account}:secret:playagent/tenant/*`],
+      }),
+    );
+
     // 報告的 AI 敘述預生成需呼叫 Bedrock。
     this.engineFn.addToRolePolicy(
       new iam.PolicyStatement({
