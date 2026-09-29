@@ -281,19 +281,30 @@ button.ws__stat:hover {
 
 /* 知識庫多選 */
 .ws__kb-list {
-  display: flex;
-  flex-wrap: wrap;
+  /* 網格:每欄固定最小寬度、自動填滿;避免寬版頁面把 CJK 標題壓成直排。 */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: var(--space-2) var(--space-4);
   padding: var(--space-1) 0;
 }
 
 .ws__kb-option {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
   font-size: 14px;
   color: var(--text-primary);
   cursor: pointer;
+}
+
+/* 勾選框不被壓縮;標題單行、過長省略號 */
+.ws__kb-option input {
+  flex: 0 0 auto;
+}
+.ws__kb-option span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 費用估算(探索模型下方) */
