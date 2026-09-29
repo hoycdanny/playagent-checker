@@ -5,7 +5,7 @@ import type {
 import { STSClient } from '@aws-sdk/client-sts';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { S3Client } from '@aws-sdk/client-s3';
-import { DeviceFarmClient, ListDevicesCommand } from '@aws-sdk/client-device-farm';
+import { DeviceFarmClient, ListDevicesCommand, type Device } from '@aws-sdk/client-device-farm';
 import { createHash, randomBytes } from 'node:crypto';
 import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice } from './core.js';
 import { assumeTenantS3 } from './tenantCredentials.js';
@@ -41,17 +41,26 @@ async function listCloudDevices(): Promise<CloudDevice[]> {
   if (cloudDeviceCache && Date.now() - cloudDeviceCache.at < CLOUD_DEVICE_TTL_MS) {
     return cloudDeviceCache.items;
   }
-  const res = await deviceFarm.send(
-    new ListDevicesCommand({
-      filters: [
-        { attribute: 'PLATFORM', operator: 'EQUALS', values: ['ANDROID'] },
-        { attribute: 'AVAILABILITY', operator: 'EQUALS', values: ['AVAILABLE', 'HIGHLY_AVAILABLE'] },
-        { attribute: 'FORM_FACTOR', operator: 'EQUALS', values: ['PHONE'] },
-        { attribute: 'REMOTE_ACCESS_ENABLED', operator: 'EQUALS', values: ['TRUE'] },
-      ],
-    }),
-  );
-  const items: CloudDevice[] = (res.devices ?? [])
+  // ListDevices 一次只回一頁(約 ~19 台),必須用 nextToken 分頁把整個真機池撈完,
+  // 否則清單會被截斷(us-west-2 Android 手機池實際有 ~90 台)。
+  const rawDevices: Device[] = [];
+  let nextToken: string | undefined;
+  do {
+    const res = await deviceFarm.send(
+      new ListDevicesCommand({
+        filters: [
+          { attribute: 'PLATFORM', operator: 'EQUALS', values: ['ANDROID'] },
+          { attribute: 'AVAILABILITY', operator: 'EQUALS', values: ['AVAILABLE', 'HIGHLY_AVAILABLE'] },
+          { attribute: 'FORM_FACTOR', operator: 'EQUALS', values: ['PHONE'] },
+          { attribute: 'REMOTE_ACCESS_ENABLED', operator: 'EQUALS', values: ['TRUE'] },
+        ],
+        ...(nextToken ? { nextToken } : {}),
+      }),
+    );
+    if (res.devices) rawDevices.push(...res.devices);
+    nextToken = res.nextToken;
+  } while (nextToken);
+  const items: CloudDevice[] = rawDevices
     .map((d) => ({
       ...(d.arn ? { arn: d.arn } : {}),
       name: d.name ?? d.model ?? '未知裝置',
