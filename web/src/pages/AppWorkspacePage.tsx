@@ -6,6 +6,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
+import TasksTable from '../components/TasksTable.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 import './CasesPage.css';
@@ -706,52 +707,13 @@ export default function AppWorkspacePage() {
           {tasks.length === 0 ? (
             <div className="listpage__empty"><p>{t('page.tasks.empty')}</p></div>
           ) : (
-            <table className="tasks__table">
-              <thead>
-                <tr>
-                  <th>{t('tasks.colState')}</th>
-                  <th>{t('tasks.case')}</th>
-                  <th>{t('tasks.colBackend')}</th>
-                  <th>{t('tasks.colCreated')}</th>
-                  <th>{t('tasks.colActions')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tasks.map((x) => (
-                  <tr key={x.jobId}>
-                    <td>
-                      <Link to={`/tasks/${x.jobId}`} className="tasks__state-link">
-                        <span className={`task-state ${stateClass(x.state)}`}>
-                          {t(`state.${x.state}` as MessageKey)}
-                        </span>
-                      </Link>
-                    </td>
-                    <td className="ws__muted">{caseNameById.get(x.caseId) ?? x.caseId}</td>
-                    <td>{t(`backend.${x.backend}` as MessageKey)}</td>
-                    <td className="tasks__created">{new Date(x.createdAt).toLocaleString()}</td>
-                    <td>
-                      {!TERMINAL.has(x.state) ? (
-                        <button
-                          type="button"
-                          className="tasks__row-cancel"
-                          onClick={() => onCancelTask(x.jobId)}
-                        >
-                          {t('tasks.cancel')}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="tasks__row-cancel"
-                          onClick={() => void onDeleteTask(x.jobId)}
-                        >
-                          {t('tasks.delete')}
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            /* 與獨立「測試任務」頁共用同一份表格(不含勾選/篩選;操作=檢視+取消/刪除)。 */
+            <TasksTable
+              tasks={tasks}
+              appById={() => app ?? undefined}
+              onCancel={(jobId) => void onCancelTask(jobId)}
+              onDelete={(jobId) => void onDeleteTask(jobId)}
+            />
           )}
         </div>
       )}
