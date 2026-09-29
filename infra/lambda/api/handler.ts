@@ -11,6 +11,7 @@ import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice } from '
 import { assumeTenantS3 } from './tenantCredentials.js';
 import { draftCaseYaml, makeBedrockClient } from './draft.js';
 import { getRealCost, makeCostExplorerClient } from './cost.js';
+import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-east-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
@@ -27,6 +28,11 @@ const DF_REGION = process.env.DF_REGION ?? 'us-west-2';
 const deviceFarm = new DeviceFarmClient({ region: DF_REGION });
 // Cost Explorer 僅 us-east-1;費用分析頁取真實成本用(唯讀)。
 const costExplorer = makeCostExplorerClient();
+// 成員管理(admin 專用):對本 user pool 做 Admin* 操作。未設 USER_POOL_ID 則不注入。
+const USER_POOL_ID = process.env.USER_POOL_ID ?? '';
+const userAdmin = USER_POOL_ID
+  ? makeUserAdmin(makeCognitoAdminClient(REGION), USER_POOL_ID)
+  : undefined;
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
 let cloudDeviceCache: { at: number; items: CloudDevice[] } | null = null;
@@ -81,6 +87,7 @@ const deps: ApiDeps = {
   },
   listCloudDevices,
   getRealCost: (opts) => getRealCost(costExplorer, opts),
+  ...(userAdmin ? { userAdmin } : {}),
 };
 
 const CORS_HEADERS: Record<string, string> = {

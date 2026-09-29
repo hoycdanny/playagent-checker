@@ -36,6 +36,7 @@ interface AuthContextValue {
   tokens: AuthTokens | null;
   email: string | null;
   tenantId: string | null;
+  isAdmin: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
@@ -72,8 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => setUnauthorizedHandler(null);
   }, []);
 
-  const { email, tenantId } = useMemo(
-    () => (tokens ? decodeIdToken(tokens.idToken) : { email: null, tenantId: null }),
+  const { email, tenantId, isAdmin } = useMemo(
+    () =>
+      tokens
+        ? decodeIdToken(tokens.idToken)
+        : { email: null, tenantId: null, isAdmin: false },
     [tokens],
   );
 
@@ -82,11 +86,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokens,
       email,
       tenantId,
+      isAdmin,
       isAuthenticated: tokens !== null,
       login,
       logout,
     }),
-    [tokens, email, tenantId, login, logout],
+    [tokens, email, tenantId, isAdmin, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

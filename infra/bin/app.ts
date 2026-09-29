@@ -16,7 +16,10 @@ const cfg = resolveConfig(app);
 const { env, stackPrefix } = cfg;
 
 // 有狀態基礎(Cognito / 資料桶 / 租戶角色)。
-const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, { env });
+const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, {
+  env,
+  ...(cfg.initialAdmin ? { initialAdmin: cfg.initialAdmin } : {}),
+});
 
 // 執行引擎(Web 後端 Lambda)—— 需資料桶與租戶角色。
 const execution = new ExecutionStack(app, `${stackPrefix}-Execution`, {

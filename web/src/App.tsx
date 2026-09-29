@@ -17,6 +17,7 @@ const DevicesPage = lazy(() => import('./pages/DevicesPage.tsx'));
 const MemoryPage = lazy(() => import('./pages/MemoryPage.tsx'));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage.tsx'));
 const CostPage = lazy(() => import('./pages/CostPage.tsx'));
+const MembersPage = lazy(() => import('./pages/MembersPage.tsx'));
 const GuidePage = lazy(() => import('./pages/GuidePage.tsx'));
 
 /**
@@ -48,6 +49,7 @@ export function App() {
               <Route path="/memory" element={<MemoryPage />} />
               <Route path="/knowledge" element={<KnowledgePage />} />
               <Route path="/cost" element={<CostPage />} />
+              <Route path="/members" element={<MembersPage />} />
               <Route path="*" element={<Navigate to="/guide" replace />} />
             </Routes>
           </Suspense>

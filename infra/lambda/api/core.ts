@@ -1,5 +1,12 @@
 import type { S3Client } from '@aws-sdk/client-s3';
-import { tenantFromClaims, UnauthorizedError, type TenantContext } from './tenant.js';
+import {
+  tenantFromClaims,
+  isAdmin,
+  UnauthorizedError,
+  ForbiddenError,
+  type TenantContext,
+} from './tenant.js';
+import type { UserAdmin, CreateMemberInput } from './users.js';
 import { tenantPrefix } from './tenantCredentials.js';
 import {
   ARTIFACT_KINDS,
@@ -141,6 +148,8 @@ export interface ApiDeps {
   listCloudDevices?: () => Promise<CloudDevice[]>;
   /** 取 AWS 真實成本(Cost Explorer)。選填;未注入或失敗時費用頁只顯示估算成本。 */
   getRealCost?: (opts: { start?: string; end?: string }) => Promise<RealCost>;
+  /** 成員管理(admin 專用)。選填;未注入時 /users 路由回 501。 */
+  userAdmin?: UserAdmin;
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示)。 */
@@ -178,7 +187,28 @@ export async function handleRequest(
   try {
     switch (route) {
       case 'GET /me':
-        return json(200, { tenantId: tenant.tenantId, email: tenant.email });
+        return json(200, {
+          tenantId: tenant.tenantId,
+          email: tenant.email,
+          isAdmin: isAdmin(req.claims),
+        });
+
+      case 'GET /users': {
+        // 成員管理(admin 專用):列出本 user pool 使用者。
+        requireAdmin(req.claims);
+        if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+        const items = await deps.userAdmin.listMembers();
+        return json(200, { items });
+      }
+
+      case 'POST /users': {
+        // 成員管理(admin 專用):新增使用者(email/密碼/租戶;可選設為 admin)。
+        requireAdmin(req.claims);
+        if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+        const input = validateCreateMember(req.body);
+        const member = await deps.userAdmin.createMember(input);
+        return json(201, member);
+      }
 
       case 'GET /apps': {
         const s3 = await deps.getTenantS3(tenant.tenantId);
@@ -684,6 +714,17 @@ export async function handleRequest(
         if (cancelMatch) {
           return await handleCancelTask(deps, tenant.tenantId, cancelMatch[1]!);
         }
+        // 動態路由:POST /users/{username}/(disable|enable)(admin 專用:停用/啟用成員)。
+        const memberToggle =
+          req.method === 'POST' && /^\/users\/([^/]+)\/(disable|enable)$/.exec(req.path);
+        if (memberToggle) {
+          requireAdmin(req.claims);
+          if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+          const username = decodeURIComponent(memberToggle[1]!);
+          const enable = memberToggle[2] === 'enable';
+          await deps.userAdmin.setEnabled(username, enable);
+          return json(200, { username, enabled: enable });
+        }
         // 動態路由:GET /tasks/{id}/live-frame(即時畫面最新幀的短效 presigned URL)。
         // runner 持續覆寫同一個 live key;前端在任務執行中以 ~3-5fps 輪詢此路由換 <img>。
         // 幀不存在(任務剛起/非即時後端)時簽出的 URL 會 404,前端自行回退顯示。
@@ -734,6 +775,7 @@ export async function handleRequest(
       }
     }
   } catch (err) {
+    if (err instanceof ForbiddenError) return json(403, { error: err.message });
     if (err instanceof AppNotFoundError) return json(404, { error: err.message });
     if (err instanceof CaseNotFoundError) return json(404, { error: err.message });
     if (err instanceof KbNotFoundError) return json(404, { error: err.message });
@@ -750,6 +792,23 @@ export async function handleRequest(
 }
 
 class BadRequestError extends Error {}
+
+/** 要求呼叫者為 admin(JWT cognito:groups 含 admins);否則丟 ForbiddenError → 403。 */
+function requireAdmin(claims: unknown): void {
+  if (!isAdmin(claims)) throw new ForbiddenError('需要管理員權限');
+}
+
+/** 驗證新增成員輸入。email/password/tenantId 必填;密碼長度 >= 8(對齊 pool 政策)。 */
+function validateCreateMember(body: unknown): CreateMemberInput {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const email = typeof b['email'] === 'string' ? b['email'].trim() : '';
+  const password = typeof b['password'] === 'string' ? b['password'] : '';
+  const tenantId = typeof b['tenantId'] === 'string' ? b['tenantId'].trim() : '';
+  if (!email || !/.+@.+\..+/.test(email)) throw new BadRequestError('email 格式不正確');
+  if (password.length < 8) throw new BadRequestError('密碼至少 8 碼');
+  if (!tenantId) throw new BadRequestError('tenantId 為必填');
+  return { email, password, tenantId, admin: b['admin'] === true };
+}
 
 /**
  * 為有圖示的 App 附上限時 presigned GET URL(前端小截圖直顯,位元組不經 Lambda)。

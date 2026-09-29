@@ -261,26 +261,45 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## 步驟 9 — 建立你的登入帳號(第一個使用者)
+## 步驟 9 — 建立你的第一個(管理員)帳號
 
-系統刻意關閉自助註冊,所以第一個使用者用指令建立。挑一個 email 與密碼(至少 8 字,含大小寫與數字)。`tenantId` 用來隔離各客戶的資料 —— 填任意短字串即可,例如公司名。
+系統刻意關閉自助註冊,所以使用者由你自己建立。挑一個 email 與密碼(至少 8 字,含大小寫與數字)。`tenantId` 用來隔離各客戶的資料 —— 填任意短字串即可,例如公司名。把第一個使用者設為**管理員**,之後就能在 App 內的「成員管理」頁管理其他人。
+
+擇一即可:
+
+**方案 A — 一鍵腳本(推薦)。** 建帳號、設永久密碼,加 `--admin` 則同時加入 `admins` 群組。會自動解析 User Pool。
+
+```bash
+cd agent/sagemaker && npm install
+AWS_REGION=us-east-2 node createUser.mjs \
+  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+```
+
+**方案 B — 部署時建立管理員。** 部署 Foundation stack(或任何部署)時用 `-c` 帶入,CDK 會自動建立並加入 `admins` 群組:
+
+```bash
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
+  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
+```
+
+有了一個管理員之後,其他人直接在 App 的「成員管理」頁建立即可(見步驟 10)—— 不必再用指令。非管理員看不到該頁。
+
+<details>
+<summary>方案 C — 純 AWS CLI(不用腳本)</summary>
 
 ```bash
 POOL_ID=貼上_UserPoolId    # 來自步驟 5
-
-# 建立帶租戶 id 的使用者
-aws cognito-idp admin-create-user --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
+aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
-
-# 設定永久密碼(免去「變更密碼」提示)
-aws cognito-idp admin-set-user-password --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --password 'ChangeMe123!' --permanent
+aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --password 'ChangeMe123!' --permanent
+# 設為管理員(才能用「成員管理」頁)
+aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --group-name admins
 ```
+</details>
 
 ## 步驟 10 — 登入
 

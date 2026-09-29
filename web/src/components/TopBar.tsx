@@ -5,7 +5,7 @@ import { useTheme } from '../theme/ThemeProvider.tsx';
 import { LanguageSelect } from './LanguageSelect.tsx';
 import './TopBar.css';
 
-const NAV_KEYS = [
+const BASE_NAV_KEYS = [
   { key: 'nav.guide' as const, path: '/guide' },
   { key: 'nav.apps' as const, path: '/apps' },
   { key: 'nav.cases' as const, path: '/cases' },
@@ -20,7 +20,11 @@ const NAV_KEYS = [
 export function TopBar() {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
-  const { email, tenantId, logout } = useAuth();
+  const { email, tenantId, isAdmin, logout } = useAuth();
+  // 成員管理僅 admin 可見(真正授權在後端 requireAdmin)。
+  const navKeys = isAdmin
+    ? [...BASE_NAV_KEYS, { key: 'nav.members' as const, path: '/members' }]
+    : BASE_NAV_KEYS;
   const [menuOpen, setMenuOpen] = useState(false);
 
   // 視窗放大回桌面寬度時自動關閉行動選單,避免狀態殘留。
@@ -46,7 +50,7 @@ export function TopBar() {
 
         {/* 桌面導覽 */}
         <nav className="topbar__nav" aria-label={t('app.name')}>
-          {NAV_KEYS.map((item) => (
+          {navKeys.map((item) => (
             <a
               key={item.path}
               className="topbar__nav-link"
@@ -111,7 +115,7 @@ export function TopBar() {
           className="topbar__mobile-nav"
           aria-label={t('nav.menu')}
         >
-          {NAV_KEYS.map((item) => (
+          {navKeys.map((item) => (
             <a
               key={item.path}
               className="topbar__mobile-link"

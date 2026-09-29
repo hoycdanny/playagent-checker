@@ -61,6 +61,8 @@ export class HttpApiLambda extends Construct {
         DATA_BUCKET: props.dataBucket.bucketName,
         TENANT_ROLE_ARN: props.tenantRole.roleArn,
         DISPATCH_QUEUE_URL: props.dispatchQueue.queueUrl,
+        // 成員管理(admin 專用):對本 user pool 做 Admin* 操作。
+        USER_POOL_ID: props.userPool.userPoolId,
         // Bedrock KB(Stage B):runtime 建 KB 用。
         KB_SERVICE_ROLE_ARN: props.kbServiceRoleArn,
         KB_VECTOR_BUCKET_PREFIX: props.kbVectorBucketPrefix,
@@ -179,6 +181,23 @@ export class HttpApiLambda extends Construct {
           'ce:GetTags',
         ],
         resources: ['*'],
+      }),
+    );
+
+    // 成員管理(admin 專用):對本 user pool 的使用者管理(列出/新增/設密碼/停用啟用/加群組)。
+    // 後端另有 requireAdmin(檢查 JWT cognito:groups 含 admins)才允許呼叫這些動作。scope 到本 pool。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'cognito-idp:ListUsers',
+          'cognito-idp:AdminCreateUser',
+          'cognito-idp:AdminSetUserPassword',
+          'cognito-idp:AdminDisableUser',
+          'cognito-idp:AdminEnableUser',
+          'cognito-idp:AdminAddUserToGroup',
+          'cognito-idp:AdminListGroupsForUser',
+        ],
+        resources: [props.userPool.userPoolArn],
       }),
     );
 

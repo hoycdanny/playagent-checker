@@ -34,9 +34,27 @@ export type MessageKey =
   | 'nav.memory'
   | 'nav.knowledge'
   | 'nav.cost'
+  | 'nav.members'
   | 'nav.guide'
   | 'shell.emptyContent'
   | 'page.cost.title'
+  | 'page.members.title'
+  | 'members.intro'
+  | 'members.adminOnly'
+  | 'members.email'
+  | 'members.tenant'
+  | 'members.password'
+  | 'members.passwordHint'
+  | 'members.makeAdmin'
+  | 'members.add'
+  | 'members.adding'
+  | 'members.status'
+  | 'members.createdAt'
+  | 'members.enabled'
+  | 'members.disabled'
+  | 'members.enable'
+  | 'members.disable'
+  | 'members.empty'
   | 'cost.intro'
   | 'cost.tabReal'
   | 'cost.tabEstimated'
@@ -486,6 +504,24 @@ const zhHant: Catalog = {
   'nav.memory': '記憶地圖',
   'nav.knowledge': '知識管理',
   'nav.cost': '費用分析',
+  'nav.members': '成員管理',
+  'page.members.title': '成員管理',
+  'members.intro': '管理可登入本平台的成員(僅管理員可見)。新增使用者需指定租戶與初始密碼;可停用/啟用帳號。',
+  'members.adminOnly': '僅管理員可存取成員管理。',
+  'members.email': '電子郵件',
+  'members.tenant': '租戶',
+  'members.password': '初始密碼',
+  'members.passwordHint': '至少 8 碼,含大小寫與數字',
+  'members.makeAdmin': '設為管理員',
+  'members.add': '新增成員',
+  'members.adding': '新增中…',
+  'members.status': '狀態',
+  'members.createdAt': '建立時間',
+  'members.enabled': '啟用中',
+  'members.disabled': '已停用',
+  'members.enable': '啟用',
+  'members.disable': '停用',
+  'members.empty': '尚無成員。',
   'page.cost.title': '費用分析',
   'cost.intro':
     'AWS 真實成本來自 Cost Explorer(帳號實際帳單,含全部基礎設施);任務估算成本為 token × 單價估算,兩者口徑不同,不應直接相減。',
@@ -940,6 +976,24 @@ const en: Catalog = {
   'nav.memory': 'Memory Map',
   'nav.knowledge': 'Knowledge',
   'nav.cost': 'Cost Analysis',
+  'nav.members': 'Members',
+  'page.members.title': 'Member management',
+  'members.intro': 'Manage who can sign in to this platform (admins only). New users need a tenant and an initial password; accounts can be disabled/enabled.',
+  'members.adminOnly': 'Member management is available to admins only.',
+  'members.email': 'Email',
+  'members.tenant': 'Tenant',
+  'members.password': 'Initial password',
+  'members.passwordHint': 'At least 8 chars, upper/lower + digit',
+  'members.makeAdmin': 'Make admin',
+  'members.add': 'Add member',
+  'members.adding': 'Adding…',
+  'members.status': 'Status',
+  'members.createdAt': 'Created',
+  'members.enabled': 'Enabled',
+  'members.disabled': 'Disabled',
+  'members.enable': 'Enable',
+  'members.disable': 'Disable',
+  'members.empty': 'No members yet.',
   'page.cost.title': 'Cost Analysis',
   'cost.intro':
     'Real AWS cost comes from Cost Explorer (actual account billing, including all infrastructure); task estimated cost is a token × price estimate. The two use different bases and should not be subtracted from each other.',
@@ -1399,6 +1453,24 @@ const zhHans: Catalog = {
   'nav.memory': '记忆地图',
   'nav.knowledge': '知识管理',
   'nav.cost': '费用分析',
+  'nav.members': '成员管理',
+  'page.members.title': '成员管理',
+  'members.intro': '管理可登录本平台的成员(仅管理员可见)。新增用户需指定租户与初始密码;可停用/启用账号。',
+  'members.adminOnly': '仅管理员可访问成员管理。',
+  'members.email': '电子邮件',
+  'members.tenant': '租户',
+  'members.password': '初始密码',
+  'members.passwordHint': '至少 8 位,含大小写与数字',
+  'members.makeAdmin': '设为管理员',
+  'members.add': '新增成员',
+  'members.adding': '新增中…',
+  'members.status': '状态',
+  'members.createdAt': '创建时间',
+  'members.enabled': '启用中',
+  'members.disabled': '已停用',
+  'members.enable': '启用',
+  'members.disable': '停用',
+  'members.empty': '尚无成员。',
   'page.cost.title': '费用分析',
   'cost.intro':
     'AWS 真实成本来自 Cost Explorer(账号实际账单,含全部基础设施);任务估算成本为 token × 单价估算,两者口径不同,不应直接相减。',
@@ -1853,6 +1925,24 @@ const ja: Catalog = {
   'nav.memory': '記憶マップ',
   'nav.knowledge': 'ナレッジ管理',
   'nav.cost': 'コスト分析',
+  'nav.members': 'メンバー管理',
+  'page.members.title': 'メンバー管理',
+  'members.intro': '本プラットフォームにサインインできるメンバーを管理します(管理者のみ)。新規ユーザーにはテナントと初期パスワードが必要;アカウントは無効化/有効化できます。',
+  'members.adminOnly': 'メンバー管理は管理者のみ利用できます。',
+  'members.email': 'メール',
+  'members.tenant': 'テナント',
+  'members.password': '初期パスワード',
+  'members.passwordHint': '8 文字以上、大小文字 + 数字',
+  'members.makeAdmin': '管理者にする',
+  'members.add': 'メンバー追加',
+  'members.adding': '追加中…',
+  'members.status': '状態',
+  'members.createdAt': '作成日',
+  'members.enabled': '有効',
+  'members.disabled': '無効',
+  'members.enable': '有効化',
+  'members.disable': '無効化',
+  'members.empty': 'メンバーがまだいません。',
   'page.cost.title': 'コスト分析',
   'cost.intro':
     'AWS 実コストは Cost Explorer(アカウントの実際の請求、全インフラ含む)から取得します。タスク推定コストは token × 単価の見積りで、基準が異なるため直接引き算しないでください。',
@@ -2308,6 +2398,24 @@ const ko: Catalog = {
   'nav.memory': '기억 지도',
   'nav.knowledge': '지식 관리',
   'nav.cost': '비용 분석',
+  'nav.members': '멤버 관리',
+  'page.members.title': '멤버 관리',
+  'members.intro': '이 플랫폼에 로그인할 수 있는 멤버를 관리합니다(관리자 전용). 새 사용자는 테넌트와 초기 비밀번호가 필요하며, 계정은 비활성화/활성화할 수 있습니다.',
+  'members.adminOnly': '멤버 관리는 관리자만 이용할 수 있습니다.',
+  'members.email': '이메일',
+  'members.tenant': '테넌트',
+  'members.password': '초기 비밀번호',
+  'members.passwordHint': '8자 이상, 대소문자 + 숫자',
+  'members.makeAdmin': '관리자로 지정',
+  'members.add': '멤버 추가',
+  'members.adding': '추가 중…',
+  'members.status': '상태',
+  'members.createdAt': '생성일',
+  'members.enabled': '활성',
+  'members.disabled': '비활성',
+  'members.enable': '활성화',
+  'members.disable': '비활성화',
+  'members.empty': '아직 멤버가 없습니다.',
   'page.cost.title': '비용 분석',
   'cost.intro':
     'AWS 실제 비용은 Cost Explorer(계정 실제 청구, 모든 인프라 포함)에서 가져옵니다. 작업 추정 비용은 token × 단가 추정이며 기준이 다르므로 직접 빼면 안 됩니다.',
