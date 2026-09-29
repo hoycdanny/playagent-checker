@@ -41,7 +41,7 @@ interface TaskItem {
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
 const PASS_STATES = new Set(['pass']);
 
-type Tab = 'overview' | 'cases' | 'tasks' | 'reports' | 'memory';
+type Tab = 'overview' | 'cases' | 'tasks' | 'reports' | 'memory' | 'credentials';
 
 const TABS: { key: Tab; labelKey: MessageKey }[] = [
   { key: 'overview', labelKey: 'workspace.tabOverview' },
@@ -49,6 +49,7 @@ const TABS: { key: Tab; labelKey: MessageKey }[] = [
   { key: 'tasks', labelKey: 'workspace.tabTasks' },
   { key: 'reports', labelKey: 'workspace.tabReports' },
   { key: 'memory', labelKey: 'workspace.tabMemory' },
+  { key: 'credentials', labelKey: 'workspace.tabCredentials' },
 ];
 
 const BACKENDS: { value: string; labelKey: MessageKey; supported: boolean }[] = [
@@ -142,6 +143,41 @@ export default function AppWorkspacePage() {
   const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
 
+  // App 測試憑證(key-value 存 Secrets Manager;前端只拿得到 key 名,拿不到值)。
+  const [credKeys, setCredKeys] = useState<string[]>([]);
+  const [credKey, setCredKey] = useState('');
+  const [credValue, setCredValue] = useState('');
+  const [credBusy, setCredBusy] = useState(false);
+  const [credError, setCredError] = useState<string | null>(null);
+
+  function loadCredentials() {
+    apiGet<{ keys: string[] }>(`/apps/${encodeURIComponent(appId)}/credentials`)
+      .then((r) => setCredKeys(r.keys ?? []))
+      .catch(() => setCredKeys([]));
+  }
+  async function onSaveCredential(e: FormEvent) {
+    e.preventDefault();
+    setCredError(null);
+    setCredBusy(true);
+    try {
+      await apiPut(`/apps/${encodeURIComponent(appId)}/credentials`, {
+        key: credKey.trim(),
+        value: credValue,
+      });
+      setCredKey('');
+      setCredValue('');
+      loadCredentials();
+    } catch (err) {
+      setCredError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCredBusy(false);
+    }
+  }
+  async function onDeleteCredential(key: string) {
+    await apiDelete(`/apps/${encodeURIComponent(appId)}/credentials?key=${encodeURIComponent(key)}`);
+    loadCredentials();
+  }
+
   function loadApp() {
     apiGet<AppRecord>(`/apps/${encodeURIComponent(appId)}`)
       .then((a) => {
@@ -169,6 +205,7 @@ export default function AppWorkspacePage() {
     loadApp();
     loadCases();
     loadTasks();
+    loadCredentials();
     apiGet<{ stats: { pages: number; edges: number } }>(
       `/memory?app=${encodeURIComponent(appId)}`,
     )
@@ -831,6 +868,59 @@ export default function AppWorkspacePage() {
             </>
           ) : (
             <div className="listpage__empty"><p>{t('page.memory.empty')}</p></div>
+          )}
+        </div>
+      )}
+
+      {/* 測試憑證(本 App;key-value 存 Secrets Manager,值不回顯) */}
+      {tab === 'credentials' && (
+        <div className="ws__panel">
+          <p className="ws__muted">{t('workspace.credDesc')}</p>
+          <form className="ws__form" onSubmit={onSaveCredential}>
+            <label className="ws__field">
+              <span className="ws__label">{t('workspace.credKey')}</span>
+              <span className="ws__muted">{t('workspace.credKeyHint')}</span>
+              <input
+                required
+                value={credKey}
+                placeholder="帳號"
+                onChange={(e) => setCredKey(e.target.value)}
+              />
+            </label>
+            <label className="ws__field">
+              <span className="ws__label">{t('workspace.credValue')}</span>
+              <input
+                required
+                type="password"
+                autoComplete="new-password"
+                value={credValue}
+                onChange={(e) => setCredValue(e.target.value)}
+              />
+            </label>
+            <button type="submit" className="ws__primary" disabled={credBusy}>
+              {credBusy ? t('workspace.credSaving') : t('workspace.credSave')}
+            </button>
+          </form>
+          <p className="ws__muted">{t('workspace.credSecurityNote')}</p>
+          {credError && <p className="listpage__error" role="alert">{credError}</p>}
+          {credKeys.length === 0 ? (
+            <div className="listpage__empty"><p>{t('workspace.credEmpty')}</p></div>
+          ) : (
+            <ul className="listpage__list">
+              {credKeys.map((k) => (
+                <li key={k} className="ws__cred-item">
+                  <code className="ws__cred-key">{k}</code>
+                  <span className="ws__cred-masked">••••••</span>
+                  <button
+                    type="button"
+                    className="ws__remove"
+                    onClick={() => void onDeleteCredential(k)}
+                  >
+                    {t('workspace.credRemove')}
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
       )}

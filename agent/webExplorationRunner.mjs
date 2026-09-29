@@ -22,7 +22,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
-import { resolveTaskSecrets } from './secretsResolver.mjs';
+import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 
 const START_URL = process.env.PA_URL || 'https://example.com';
 const JOB = process.env.PA_JOB;
@@ -31,8 +31,8 @@ const PREFIX = process.env.PA_PREFIX;
 const APP_ID = process.env.PA_APP || '';
 const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
 const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
-// 任務目標:可能含 ${NAME}/secretRef: 憑證佔位符,main() 啟動時先解析替換(見 secretsResolver)。
-let TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
+// 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。真值只在 type 到頁面那一刻替換,不改寫 TASK。
+const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 死循環 / 取消 / 連續失敗才停)。
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
@@ -179,11 +179,9 @@ function pageIdFromName(name, idx) {
 }
 
 async function main() {
-  // 測試憑證:把任務目標裡的 ${NAME}/secretRef: 換成真實值(從 Secrets Manager 讀,明文不落 S3)。
-  try {
-    const r = await resolveTaskSecrets(TASK);
-    TASK = r.text;
-  } catch (e) { console.warn('[secrets] 解析憑證時發生例外(略過):', e?.message || e); }
+  // 測試憑證:啟動時載入本 App 憑證表到記憶體(值不寫回任何地方);實際替換在 type 那一刻。
+  let appCredentials = {};
+  try { appCredentials = await loadAppCredentials(); } catch (e) { console.warn('[secrets] 載入憑證例外(略過):', e?.message || e); }
 
   await writeStatus('running', '瀏覽器啟動中', 0);
   const client = await PlaywrightClient.create({ width: VP_W || 1280, height: VP_H || 800, url: START_URL });
@@ -347,6 +345,11 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) deviceCmd.y = toDevY(cmd.y);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDevX(cmd.x2);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) deviceCmd.y2 = toDevY(cmd.y2);
+    // 憑證替換:僅在「輸入到頁面」時把 text 的 ${key}/secretRef 換成真值(step/trace 已存原佔位符)。
+    if (deviceCmd.action === 'type' && typeof deviceCmd.text === 'string' && deviceCmd.text.length > 0) {
+      try { deviceCmd.text = (await substituteText(deviceCmd.text, appCredentials)).text; }
+      catch (e) { console.warn('[secrets] type 替換例外(用原文):', e?.message || e); }
+    }
     try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
     prevPageId = pid; prevAction = cmd.action;
     await sleep(2500);

@@ -176,6 +176,16 @@ export type MessageKey =
   | 'workspace.tabTasks'
   | 'workspace.tabReports'
   | 'workspace.tabMemory'
+  | 'workspace.tabCredentials'
+  | 'workspace.credDesc'
+  | 'workspace.credKey'
+  | 'workspace.credKeyHint'
+  | 'workspace.credValue'
+  | 'workspace.credSave'
+  | 'workspace.credSaving'
+  | 'workspace.credSecurityNote'
+  | 'workspace.credEmpty'
+  | 'workspace.credRemove'
   | 'workspace.statCases'
   | 'workspace.statTasks'
   | 'workspace.statReports'
@@ -670,6 +680,16 @@ const zhHant: Catalog = {
   'workspace.tabTasks': '測試任務',
   'workspace.tabReports': '測試報告',
   'workspace.tabMemory': '記憶地圖',
+  'workspace.tabCredentials': '測試憑證',
+  'workspace.credDesc': '設定這個 App 的測試資料(帳號、密碼、伺服器名稱/IP 等)。執行任務時 AI 若需要輸入這些資訊,會自動使用這裡的值,你不必在測試案例裡明寫。',
+  'workspace.credKey': '欄位名稱',
+  'workspace.credKeyHint': '用你看得懂的名稱,如「帳號」「密碼」「伺服器名稱」;AI 會依語意對應到畫面欄位。',
+  'workspace.credValue': '值',
+  'workspace.credSave': '儲存',
+  'workspace.credSaving': '儲存中…',
+  'workspace.credSecurityNote': '值加密存於 AWS Secrets Manager,只在執行容器輸入到裝置的那一刻使用;不會顯示、不進 log、不進報告或執行軌跡。',
+  'workspace.credEmpty': '尚未設定任何測試憑證。',
+  'workspace.credRemove': '刪除',
   'workspace.statCases': '測試案例',
   'workspace.statTasks': '測試任務',
   'workspace.statReports': '測試報告',
@@ -1163,6 +1183,16 @@ const en: Catalog = {
   'workspace.tabTasks': 'Test Tasks',
   'workspace.tabReports': 'Test Reports',
   'workspace.tabMemory': 'Memory Map',
+  'workspace.tabCredentials': 'Test credentials',
+  'workspace.credDesc': 'Set test data for this app (account, password, server name/IP, etc.). When a run needs to type these, the AI uses the values here automatically — you do not need to spell them out in the test case.',
+  'workspace.credKey': 'Field name',
+  'workspace.credKeyHint': 'Use a name you recognize, e.g. "account", "password", "server name"; the AI maps it to the on-screen field by meaning.',
+  'workspace.credValue': 'Value',
+  'workspace.credSave': 'Save',
+  'workspace.credSaving': 'Saving…',
+  'workspace.credSecurityNote': 'Values are stored encrypted in AWS Secrets Manager and used only at the moment the run container types into the device — never shown, logged, or written to reports or the step trace.',
+  'workspace.credEmpty': 'No test credentials set yet.',
+  'workspace.credRemove': 'Delete',
   'workspace.statCases': 'Test cases',
   'workspace.statTasks': 'Test tasks',
   'workspace.statReports': 'Reports',
@@ -1661,6 +1691,16 @@ const zhHans: Catalog = {
   'workspace.tabTasks': '测试任务',
   'workspace.tabReports': '测试报告',
   'workspace.tabMemory': '记忆地图',
+  'workspace.tabCredentials': '测试凭证',
+  'workspace.credDesc': '设置这个 App 的测试数据(帐号、密码、服务器名称/IP 等)。执行任务时 AI 若需要输入这些信息,会自动使用这里的值,你不必在测试用例里明写。',
+  'workspace.credKey': '字段名称',
+  'workspace.credKeyHint': '用你看得懂的名称,如「帐号」「密码」「服务器名称」;AI 会依语意对应到画面字段。',
+  'workspace.credValue': '值',
+  'workspace.credSave': '保存',
+  'workspace.credSaving': '保存中…',
+  'workspace.credSecurityNote': '值加密存于 AWS Secrets Manager,只在执行容器输入到设备的那一刻使用;不会显示、不进 log、不进报告或执行轨迹。',
+  'workspace.credEmpty': '尚未设置任何测试凭证。',
+  'workspace.credRemove': '删除',
   'workspace.statCases': '测试用例',
   'workspace.statTasks': '测试任务',
   'workspace.statReports': '测试报告',
@@ -2154,6 +2194,16 @@ const ja: Catalog = {
   'workspace.tabTasks': 'テストタスク',
   'workspace.tabReports': 'テストレポート',
   'workspace.tabMemory': '記憶マップ',
+  'workspace.tabCredentials': 'テスト認証情報',
+  'workspace.credDesc': 'このアプリのテストデータ(アカウント、パスワード、サーバー名/IP など)を設定します。実行時に入力が必要になると、AI がここの値を自動的に使います。テストケースに明記する必要はありません。',
+  'workspace.credKey': '項目名',
+  'workspace.credKeyHint': '「アカウント」「パスワード」「サーバー名」など分かりやすい名前を。AI が意味で画面の項目に対応させます。',
+  'workspace.credValue': '値',
+  'workspace.credSave': '保存',
+  'workspace.credSaving': '保存中…',
+  'workspace.credSecurityNote': '値は AWS Secrets Manager に暗号化して保存され、実行コンテナが端末へ入力する瞬間だけ使われます。表示・ログ・レポート・実行トレースには残りません。',
+  'workspace.credEmpty': 'テスト認証情報はまだ設定されていません。',
+  'workspace.credRemove': '削除',
   'workspace.statCases': 'テストケース',
   'workspace.statTasks': 'テストタスク',
   'workspace.statReports': 'レポート',
@@ -2648,6 +2698,16 @@ const ko: Catalog = {
   'workspace.tabTasks': '테스트 작업',
   'workspace.tabReports': '테스트 리포트',
   'workspace.tabMemory': '메모리 맵',
+  'workspace.tabCredentials': '테스트 자격 증명',
+  'workspace.credDesc': '이 앱의 테스트 데이터(계정, 비밀번호, 서버 이름/IP 등)를 설정합니다. 실행 중 입력이 필요하면 AI가 여기 값을 자동으로 사용하므로 테스트 케이스에 직접 쓸 필요가 없습니다.',
+  'workspace.credKey': '항목 이름',
+  'workspace.credKeyHint': '"계정" "비밀번호" "서버 이름" 처럼 알아보기 쉬운 이름을 사용하세요. AI가 의미로 화면 항목에 매핑합니다.',
+  'workspace.credValue': '값',
+  'workspace.credSave': '저장',
+  'workspace.credSaving': '저장 중…',
+  'workspace.credSecurityNote': '값은 AWS Secrets Manager에 암호화되어 저장되며 실행 컨테이너가 기기에 입력하는 순간에만 사용됩니다. 표시·로그·리포트·실행 트레이스에 남지 않습니다.',
+  'workspace.credEmpty': '아직 설정된 테스트 자격 증명이 없습니다.',
+  'workspace.credRemove': '삭제',
   'workspace.statCases': '테스트 케이스',
   'workspace.statTasks': '테스트 작업',
   'workspace.statReports': '리포트',

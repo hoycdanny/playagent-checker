@@ -37,7 +37,7 @@ import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
 import { setupDeviceFarmSession } from './deviceFarmSetup.mjs';
 import { magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
-import { resolveTaskSecrets } from './secretsResolver.mjs';
+import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 
 let APPIUM_URL = process.env.PA_APPIUM_URL;
 let SESSION_ARN = process.env.PA_SESSION_ARN;
@@ -56,9 +56,9 @@ const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
 const DF_REGION = process.env.PA_DF_REGION || 'us-west-2';
 const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const PKG = process.env.PA_PKG || '';
-// 任務目標:可能含 ${NAME}/secretRef: 憑證佔位符,main() 啟動時會先解析替換成真實值(見 secretsResolver)。
-// 用 let 是因為替換後要就地更新(buildSystemPrompt/turnText/decideUitars 都讀這個綁定)。
-let TASK = process.env.PA_TASK || '啟動遊戲,通過開場動畫與任何彈窗,進入主畫面,並嘗試開始一場遊戲';
+// 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。憑證的真值「只在 type 到裝置那一刻」替換,
+// 不改寫 TASK,避免明文進入 prompt / trace / 報告 / log。
+const TASK = process.env.PA_TASK || '啟動遊戲,通過開場動畫與任何彈窗,進入主畫面,並嘗試開始一場遊戲';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 卡死偵測 / 取消 / 連續失敗才停)。
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
@@ -288,12 +288,9 @@ function pageIdFromName(name, idx) {
 }
 
 async function main() {
-  // 測試憑證:把任務目標裡的 ${NAME}/secretRef: 換成真實值(從 Secrets Manager 讀,明文不落 S3)。
-  // 缺值則保留原佔位符並警告,不中斷(讓 AI 至少能走到需要憑證的那一步再卡)。
-  try {
-    const r = await resolveTaskSecrets(TASK);
-    TASK = r.text;
-  } catch (e) { console.warn('[secrets] 解析憑證時發生例外(略過):', e?.message || e); }
+  // 測試憑證:啟動時把本 App 的憑證表載入記憶體(值不寫回任何地方)。實際替換在 type 到裝置那一刻。
+  let appCredentials = {};
+  try { appCredentials = await loadAppCredentials(); } catch (e) { console.warn('[secrets] 載入憑證例外(略過):', e?.message || e); }
 
   // 前置:若 engine 未預先建好 session,runner 自行讀 APK → 上傳 Device Farm → 開 session。
   // 重活在此(Fargate),不在 engine(512MB/5 分撐不住數百 MB APK)。
@@ -658,6 +655,11 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) deviceCmd.y = toDeviceY(cmd.y);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDeviceX(cmd.x2);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) deviceCmd.y2 = toDeviceY(cmd.y2);
+    // 憑證替換:僅在「輸入到裝置」時把 text 的 ${key}/secretRef 換成真值(step/trace 已存原佔位符)。
+    if (deviceCmd.action === 'type' && typeof deviceCmd.text === 'string' && deviceCmd.text.length > 0) {
+      try { deviceCmd.text = (await substituteText(deviceCmd.text, appCredentials)).text; }
+      catch (e) { console.warn('[secrets] type 替換例外(用原文):', e?.message || e); }
+    }
     try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
     prevPageId = pid; prevAction = cmd.action; prevOrient = isLandscape;
     await sleep(3000);

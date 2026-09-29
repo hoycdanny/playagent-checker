@@ -71,6 +71,12 @@ import {
 import { tenantSecretPrefix } from './secretRefs.js';
 import type { SecretWriter } from './secretValueStore.js';
 import {
+  listAppCredentialKeys,
+  putAppCredential,
+  deleteAppCredential,
+  isValidCredentialKey,
+} from './appCredentialsStore.js';
+import {
   registerDevice,
   listDevices,
   deleteDevice,
@@ -546,6 +552,40 @@ export async function handleRequest(
 
       default: {
         // 動態路由:GET /apps/{id}(單一 App 詳情,含圖示 URL)
+        // 動態路由:App 憑證表(key-value 存 Secrets Manager;值永不回傳,只回 key 名)。
+        //   GET    /apps/{id}/credentials        → { keys: [...] }
+        //   PUT    /apps/{id}/credentials        body { key, value } 設/更新一個 key
+        //   DELETE /apps/{id}/credentials?key=…  刪一個 key
+        const credMatch = /^\/apps\/([^/]+)\/credentials$/.exec(req.path);
+        if (credMatch) {
+          const appId = credMatch[1]!;
+          if (!deps.secretWriter) return json(501, { error: '未啟用機密值寫入' });
+          if (req.method === 'GET') {
+            const keys = await listAppCredentialKeys(deps.secretWriter, tenant.tenantId, appId);
+            return json(200, { keys });
+          }
+          if (req.method === 'PUT') {
+            const b = (req.body ?? {}) as { key?: string; value?: string };
+            const key = (b.key ?? '').trim();
+            if (!key || !isValidCredentialKey(key)) {
+              return json(400, { error: 'key 必填,且僅允許字母/數字/_./-(首字為字母或底線)' });
+            }
+            if (typeof b.value !== 'string' || b.value === '') {
+              return json(400, { error: 'value 為必填' });
+            }
+            const keys = await putAppCredential(deps.secretWriter, tenant.tenantId, appId, key, b.value);
+            // 只回 key 名清單,永不回值。
+            return json(200, { keys });
+          }
+          if (req.method === 'DELETE') {
+            const key = (req.query?.['key'] ?? '').trim();
+            if (!key) return json(400, { error: 'key 為必填' });
+            const keys = await deleteAppCredential(deps.secretWriter, tenant.tenantId, appId, key);
+            return json(200, { keys });
+          }
+          return json(405, { error: 'method not allowed' });
+        }
+
         const appGetMatch = req.method === 'GET' && /^\/apps\/([^/]+)$/.exec(req.path);
         if (appGetMatch) {
           const s3 = await deps.getTenantS3(tenant.tenantId);

@@ -42,7 +42,7 @@ describe('測試憑證寫入(PUT/DELETE /secret-refs)', () => {
   test('PUT 短鍵+值 → 寫 Secrets Manager 全名、登記只存名稱、回應不含值', async () => {
     const put = vi.fn(async () => {});
     const del = vi.fn(async () => {});
-    const deps = makeDeps({ putSecretValue: put, deleteSecret: del });
+    const deps = makeDeps({ putSecretValue: put, deleteSecret: del, getSecretJson: async () => ({}) });
 
     const res = await handleRequest(
       { method: 'PUT', path: '/secret-refs', claims, body: { key: 'TEST_USERNAME', value: 'qa2@x', label: '測試帳號' } },
@@ -61,7 +61,7 @@ describe('測試憑證寫入(PUT/DELETE /secret-refs)', () => {
 
   test('PUT 不合法鍵名 → 400,不呼叫寫入', async () => {
     const put = vi.fn(async () => {});
-    const deps = makeDeps({ putSecretValue: put, deleteSecret: vi.fn(async () => {}) });
+    const deps = makeDeps({ putSecretValue: put, deleteSecret: vi.fn(async () => {}), getSecretJson: async () => ({}) });
     const res = await handleRequest(
       { method: 'PUT', path: '/secret-refs', claims, body: { key: 'bad name', value: 'x' } },
       deps,
@@ -81,7 +81,7 @@ describe('測試憑證寫入(PUT/DELETE /secret-refs)', () => {
 
   test('DELETE 短鍵 → 刪 Secrets Manager 值 + 移除登記', async () => {
     const del = vi.fn(async () => {});
-    const deps = makeDeps({ putSecretValue: vi.fn(async () => {}), deleteSecret: del });
+    const deps = makeDeps({ putSecretValue: vi.fn(async () => {}), deleteSecret: del, getSecretJson: async () => ({}) });
     // 先登記一筆。
     await handleRequest(
       { method: 'PUT', path: '/secret-refs', claims, body: { key: 'TEST_PASSWORD', value: 'p' } },

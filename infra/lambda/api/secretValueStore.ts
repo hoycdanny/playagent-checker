@@ -13,6 +13,7 @@ import {
   CreateSecretCommand,
   PutSecretValueCommand,
   DeleteSecretCommand,
+  GetSecretValueCommand,
 } from '@aws-sdk/client-secrets-manager';
 
 /** 供注入以利測試的最小介面(真實為 Secrets Manager)。 */
@@ -21,6 +22,12 @@ export interface SecretWriter {
   putSecretValue(name: string, value: string): Promise<void>;
   /** 刪除某機密(含排程刪除;找不到視為成功)。 */
   deleteSecret(name: string): Promise<void>;
+  /**
+   * 讀某機密的 JSON 物件(App 憑證表用:一個 secret 存 {key:value})。
+   * 不存在或非 JSON 回 {}。注意:此方法會讀出明文值——僅供 API 內部做 merge/列 key,
+   * 呼叫端務必只回傳 key 名給前端,不得把值回傳。
+   */
+  getSecretJson(name: string): Promise<Record<string, string>>;
 }
 
 /** 用真實 Secrets Manager client 實作 SecretWriter。 */
@@ -55,6 +62,23 @@ export function makeSecretWriter(region: string): SecretWriter {
       } catch (err) {
         if (err instanceof Error && err.name === 'ResourceNotFoundException') return;
         throw err;
+      }
+    },
+    async getSecretJson(name: string): Promise<Record<string, string>> {
+      try {
+        const res = await client.send(new GetSecretValueCommand({ SecretId: name }));
+        if (typeof res.SecretString !== 'string' || res.SecretString === '') return {};
+        const parsed = JSON.parse(res.SecretString);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          const out: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed)) out[k] = String(v);
+          return out;
+        }
+        return {};
+      } catch (err) {
+        if (err instanceof Error && err.name === 'ResourceNotFoundException') return {};
+        // 非 JSON / 其他讀取錯誤:回空,不讓列 key 的動作整個失敗。
+        return {};
       }
     },
   };
