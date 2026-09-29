@@ -338,6 +338,7 @@ export type MessageKey =
   | 'detail.knowledgeBases'
   | 'detail.vlmModel'
   | 'detail.models'
+  | 'detail.ranOnDevice'
   | 'detail.roleAgent'
   | 'detail.roleAgentHint'
   | 'detail.roleVlm'
@@ -458,6 +459,10 @@ export type MessageKey =
   | 'tasks.modelVlm'
   | 'tasks.modelSubagent'
   | 'tasks.modelsIntro'
+  | 'tasks.device'
+  | 'tasks.deviceHint'
+  | 'tasks.deviceAuto'
+  | 'tasks.deviceSpecs'
   | 'report.gameplay'
   | 'report.trace'
   | 'report.navGraph'
@@ -811,6 +816,7 @@ const zhHant: Catalog = {
   'detail.knowledgeBases': '知識庫',
   'detail.vlmModel': 'VLM 模型',
   'detail.models': '使用模型',
+  'detail.ranOnDevice': '執行裝置',
   'detail.roleAgent': '控制遊戲',
   'detail.roleAgentHint': '主控大腦:看懂當前畫面後決定下一步、送出點擊/滑動等操作',
   'detail.roleVlm': '分析畫面',
@@ -931,6 +937,10 @@ const zhHant: Catalog = {
   'tasks.modelVlm': '分析畫面模型(VLM)',
   'tasks.modelSubagent': '子代理模型(Subagent)',
   'tasks.modelsIntro': '本次執行由三顆模型分工協作,可分別指定:',
+  'tasks.device': '裝置型號 / Android 版本',
+  'tasks.deviceHint': '指定要跑在哪一台實體真機;留「自動」則由系統挑第一台可用機。',
+  'tasks.deviceAuto': '自動(第一台可用)',
+  'tasks.deviceSpecs': '機型特性',
   'report.gameplay': '遊戲畫面',
   'report.trace': '執行軌跡',
   'report.navGraph': '導覽關係圖',
@@ -1283,6 +1293,7 @@ const en: Catalog = {
   'detail.knowledgeBases': 'Knowledge bases',
   'detail.vlmModel': 'VLM model',
   'detail.models': 'Models used',
+  'detail.ranOnDevice': 'Ran on device',
   'detail.roleAgent': 'Game control',
   'detail.roleAgentHint': 'The main brain: understands the current screen, decides the next move, and issues taps/swipes',
   'detail.roleVlm': 'Screen analysis',
@@ -1404,6 +1415,10 @@ const en: Catalog = {
   'tasks.modelVlm': 'Screen analysis model (VLM)',
   'tasks.modelSubagent': 'Subagent model',
   'tasks.modelsIntro': 'This run is handled by three models working together — set each one:',
+  'tasks.device': 'Device model / Android version',
+  'tasks.deviceHint': 'Pick which physical device to run on; leave on Auto to let the system take the first available one.',
+  'tasks.deviceAuto': 'Auto (first available)',
+  'tasks.deviceSpecs': 'Device specs',
   'report.gameplay': 'Gameplay screens',
   'report.trace': 'Execution trace',
   'report.navGraph': 'Navigation graph',
@@ -1760,6 +1775,7 @@ const zhHans: Catalog = {
   'detail.knowledgeBases': '知识库',
   'detail.vlmModel': 'VLM 模型',
   'detail.models': '使用模型',
+  'detail.ranOnDevice': '执行设备',
   'detail.roleAgent': '控制游戏',
   'detail.roleAgentHint': '主控大脑:看懂当前画面后决定下一步、发出点击/滑动等操作',
   'detail.roleVlm': '分析画面',
@@ -1880,6 +1896,10 @@ const zhHans: Catalog = {
   'tasks.modelVlm': '分析画面模型(VLM)',
   'tasks.modelSubagent': '子代理模型(Subagent)',
   'tasks.modelsIntro': '本次执行由三颗模型分工协作,可分别指定:',
+  'tasks.device': '设备型号 / Android 版本',
+  'tasks.deviceHint': '指定要跑在哪一台实体真机;留「自动」则由系统挑第一台可用机。',
+  'tasks.deviceAuto': '自动(第一台可用)',
+  'tasks.deviceSpecs': '机型特性',
   'report.gameplay': '游戏画面',
   'report.trace': '执行轨迹',
   'report.navGraph': '导览关系图',
@@ -2232,6 +2252,7 @@ const ja: Catalog = {
   'detail.knowledgeBases': 'ナレッジベース',
   'detail.vlmModel': 'VLM モデル',
   'detail.models': '使用モデル',
+  'detail.ranOnDevice': '実行デバイス',
   'detail.roleAgent': 'ゲーム操作',
   'detail.roleAgentHint': '主制御の頭脳:現在の画面を理解し次の一手を決め、タップ/スワイプなどの操作を実行',
   'detail.roleVlm': '画面解析',
@@ -2353,6 +2374,10 @@ const ja: Catalog = {
   'tasks.modelVlm': '画面解析モデル(VLM)',
   'tasks.modelSubagent': 'サブエージェントモデル(Subagent)',
   'tasks.modelsIntro': '今回の実行は 3 つのモデルが分担して協働します。それぞれ指定できます:',
+  'tasks.device': 'デバイス機種 / Android バージョン',
+  'tasks.deviceHint': 'どの実機で実行するかを指定します。「自動」のままなら最初に利用可能な端末を使います。',
+  'tasks.deviceAuto': '自動(最初に利用可能な端末)',
+  'tasks.deviceSpecs': '機種の特性',
   'report.gameplay': 'ゲーム画面',
   'report.trace': '実行トレース',
   'report.navGraph': 'ナビゲーション図',
@@ -2705,6 +2730,7 @@ const ko: Catalog = {
   'detail.knowledgeBases': '지식 베이스',
   'detail.vlmModel': 'VLM 모델',
   'detail.models': '사용 모델',
+  'detail.ranOnDevice': '실행 기기',
   'detail.roleAgent': '게임 제어',
   'detail.roleAgentHint': '메인 두뇌: 현재 화면을 이해해 다음 동작을 결정하고 탭/스와이프 등 조작을 실행',
   'detail.roleVlm': '화면 분석',
@@ -2826,6 +2852,10 @@ const ko: Catalog = {
   'tasks.modelVlm': '화면 분석 모델(VLM)',
   'tasks.modelSubagent': '서브에이전트 모델(Subagent)',
   'tasks.modelsIntro': '이번 실행은 세 개의 모델이 분담·협업합니다. 각각 지정할 수 있습니다:',
+  'tasks.device': '기기 모델 / Android 버전',
+  'tasks.deviceHint': '어느 실물 기기에서 실행할지 지정합니다. "자동"으로 두면 시스템이 첫 번째 사용 가능한 기기를 사용합니다.',
+  'tasks.deviceAuto': '자동(첫 번째 사용 가능 기기)',
+  'tasks.deviceSpecs': '기기 특성',
   'report.gameplay': '게임 화면',
   'report.trace': '실행 트레이스',
   'report.navGraph': '내비게이션 그래프',

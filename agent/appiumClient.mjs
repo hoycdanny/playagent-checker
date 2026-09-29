@@ -133,6 +133,19 @@ export class AppiumClient {
   }
 
   /**
+   * 從 Appium session 回傳的 capabilities 讀機型/製造商/OS(供顯示「執行裝置」)。
+   * UiAutomator2 通常回 deviceModel/deviceManufacturer/platformVersion。取不到就回 undefined。
+   */
+  deviceInfo() {
+    const caps = this.#driver?.capabilities || {};
+    const model = caps.deviceModel || caps.deviceName || caps['appium:deviceName'];
+    const maker = caps.deviceManufacturer || caps['appium:deviceManufacturer'];
+    const osVer = caps.platformVersion || caps['appium:platformVersion'];
+    const label = [maker, model].filter(Boolean).join(' ').trim() || undefined;
+    return { model: label, osVersion: osVer || undefined };
+  }
+
+  /**
    * 執行 VLM 決策動作。cmd 形態對齊 emulator runner:
    * { action:'tap|swipe|type|back|wait|launch|done', x,y,x2,y2,text,app }
    */
