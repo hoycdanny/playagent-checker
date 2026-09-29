@@ -105,6 +105,32 @@ export function detectApkAbis(apkPath) {
 }
 
 /**
+ * 從單一 APK 解析套件名(package name)。
+ * App 建立時若未填 identifier,job 就沒有 package,runner 無法自動啟動遊戲(會停在桌面)。
+ * 此處用 APKEditor 的 `info` 指令 dump manifest,從輸出擷取 package=...。取不到回 undefined
+ *(讓呼叫端保守略過,不阻斷任務)。
+ */
+export function detectApkPackage(apkPath) {
+  if (!apkMergeAvailable()) return undefined;
+  // APKEditor info -t manifest 會印出 AndroidManifest 摘要,含 package=... 屬性。
+  const attempts = [
+    ['-jar', APKEDITOR_JAR, 'info', '-i', apkPath, '-t', 'manifest'],
+    ['-jar', APKEDITOR_JAR, 'info', '-i', apkPath, '-v'],
+  ];
+  for (const args of attempts) {
+    try {
+      const out = execFileSync('java', args, { maxBuffer: 32 * 1024 * 1024 }).toString();
+      // 常見輸出樣式:package="com.foo.bar" 或 package=com.foo.bar 或 "package": "com.foo.bar"
+      const m =
+        out.match(/package\s*[:=]\s*["']?([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)/) ||
+        out.match(/["']package["']\s*[:=]\s*["']([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+)/);
+      if (m && m[1]) return m[1];
+    } catch { /* 試下一種 */ }
+  }
+  return undefined;
+}
+
+/**
  * 判斷「這個 APK 是否為 32-bit-only」——只有 armeabi-v7a(或其他 32bit ABI),沒有任何 64bit(arm64-v8a/x86_64)。
  * 純 Java(無 lib)不算 32-bit-only(回 false,因為任何裝置都能裝)。
  * 這種 app 在「64-bit-only」的新裝置上會 INSTALL_FAILED_NO_MATCHING_ABIS,需選支援 32bit 的裝置。
