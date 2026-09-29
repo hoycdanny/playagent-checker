@@ -67,6 +67,10 @@ function statusKeyFor(tenantId: string, jobId: string): string {
 export function cancelKey(tenantId: string, jobId: string): string {
   return `${jobsPrefix(tenantId)}${jobId}/cancel.json`;
 }
+/** 即時畫面幀 key(runner 持續覆寫的最新一幀;web=JPEG、真機=PNG,前端 <img> 皆可顯示)。 */
+export function liveFrameKey(tenantId: string, jobId: string): string {
+  return `${jobsPrefix(tenantId)}${jobId}/live`;
+}
 function configKey(tenantId: string, jobId: string): string {
   return `${jobsPrefix(tenantId)}${jobId}/config.json`;
 }

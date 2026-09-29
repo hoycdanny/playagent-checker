@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
 import { apiGet, type ListResponse } from '../api/client.ts';
@@ -45,6 +45,38 @@ export default function TaskDetailPage() {
       .then((r) => setKbNames(new Map(r.items.map((k) => [k.id, k.name]))))
       .catch(() => {});
   }, []);
+
+  // 即時畫面串流:任務執行中(非終局)以 ~4fps 輪詢 live-frame,拿短效 presigned URL 換 <img>。
+  // runner 持續覆寫同一 live 幀;URL 每次不同以繞過快取。任務終局即停止輪詢。
+  const TERMINAL_STATES = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
+  const isLive = !TERMINAL_STATES.has(state) && state !== 'queued';
+  const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
+  const liveInFlight = useRef(false);
+  useEffect(() => {
+    if (!jobId || !isLive) {
+      setLiveFrameUrl(null);
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      if (liveInFlight.current) return;
+      liveInFlight.current = true;
+      try {
+        const { url } = await apiGet<{ url: string }>(`/tasks/${jobId}/live-frame`);
+        if (!cancelled && url) setLiveFrameUrl(url);
+      } catch {
+        /* 幀尚未產生/暫時失敗:保留上一幀,不清空 */
+      } finally {
+        liveInFlight.current = false;
+      }
+    };
+    void tick();
+    const timer = setInterval(() => void tick(), 250); // ~4fps
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [jobId, isLive]);
 
   // 模型互動 Log:點「Log」按鈕才抓(traces/*.json),含每步模型/請求摘要/原始回應/錯誤。
   const [showLogs, setShowLogs] = useState(false);
@@ -298,10 +330,19 @@ export default function TaskDetailPage() {
       )}
 
       <div className="detail__panels">
-        {/* 左:即時畫面(最新截圖)。無截圖的後端(Web)顯示說明。 */}
+        {/* 左:即時畫面。執行中優先顯示即時串流幀(~4fps 輪詢);否則回退最新步驟截圖。 */}
         <div className="detail__panel">
-          <h2 className="detail__panel-title">{t('detail.liveView')}</h2>
-          {liveUrl ? (
+          <h2 className="detail__panel-title">
+            {t('detail.liveView')}
+            {isLive && liveFrameUrl && <span className="detail__live-badge">{t('detail.liveBadge')}</span>}
+          </h2>
+          {isLive && liveFrameUrl ? (
+            <figure className="detail__live-shot">
+              {/* 即時串流幀:每次 URL 不同以更新畫面 */}
+              <img src={liveFrameUrl} alt={t('detail.liveView')} />
+              <figcaption className="detail__live-cap">{t('detail.liveStreaming')}</figcaption>
+            </figure>
+          ) : liveUrl ? (
             <figure className="detail__live-shot">
               <img src={liveUrl} alt={latestShot?.screen ?? t('detail.liveView')} />
               {latestShot?.screen && (

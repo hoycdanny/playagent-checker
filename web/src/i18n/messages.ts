@@ -307,6 +307,8 @@ export type MessageKey =
   | 'detail.title'
   | 'detail.liveView'
   | 'detail.noLiveView'
+  | 'detail.liveBadge'
+  | 'detail.liveStreaming'
   | 'detail.trace'
   | 'detail.noSteps'
   | 'detail.connected'
@@ -760,6 +762,8 @@ const zhHant: Catalog = {
   'detail.title': '任務詳情',
   'detail.liveView': '即時畫面',
   'detail.noLiveView': '此後端不提供即時畫面,僅顯示執行軌跡。',
+  'detail.liveBadge': 'LIVE',
+  'detail.liveStreaming': '即時串流中(約 每秒數幀,無聲音)',
   'detail.trace': '執行軌跡',
   'detail.noSteps': '尚無步驟。',
   'detail.connected': '即時連線中',
@@ -1212,6 +1216,8 @@ const en: Catalog = {
   'detail.title': 'Task detail',
   'detail.liveView': 'Live view',
   'detail.noLiveView': 'This backend has no live view; showing the trace only.',
+  'detail.liveBadge': 'LIVE',
+  'detail.liveStreaming': 'Live streaming (a few frames per second, no audio)',
   'detail.trace': 'Trace',
   'detail.noSteps': 'No steps yet.',
   'detail.connected': 'Live',
@@ -1669,6 +1675,8 @@ const zhHans: Catalog = {
   'detail.title': '任务详情',
   'detail.liveView': '实时画面',
   'detail.noLiveView': '此后端不提供实时画面,仅显示执行轨迹。',
+  'detail.liveBadge': 'LIVE',
+  'detail.liveStreaming': '实时串流中(约 每秒数帧,无声音)',
   'detail.trace': '执行轨迹',
   'detail.noSteps': '尚无步骤。',
   'detail.connected': '实时连接中',
@@ -2121,6 +2129,8 @@ const ja: Catalog = {
   'detail.title': 'タスク詳細',
   'detail.liveView': 'ライブ画面',
   'detail.noLiveView': 'このバックエンドはライブ画面に対応していません。トレースのみ表示します。',
+  'detail.liveBadge': 'LIVE',
+  'detail.liveStreaming': 'ライブ配信中(毎秒数フレーム、音声なし)',
   'detail.trace': 'トレース',
   'detail.noSteps': 'ステップがまだありません。',
   'detail.connected': 'ライブ接続中',
@@ -2574,6 +2584,8 @@ const ko: Catalog = {
   'detail.title': '작업 상세',
   'detail.liveView': '실시간 화면',
   'detail.noLiveView': '이 백엔드는 실시간 화면을 제공하지 않습니다. 트레이스만 표시합니다.',
+  'detail.liveBadge': 'LIVE',
+  'detail.liveStreaming': '실시간 스트리밍 중(초당 몇 프레임, 소리 없음)',
   'detail.trace': '트레이스',
   'detail.noSteps': '아직 단계가 없습니다.',
   'detail.connected': '실시간 연결됨',

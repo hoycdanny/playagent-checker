@@ -198,6 +198,25 @@ async function main() {
 
   await writeStatus('running', 'AI 網頁探索執行中', 0);
 
+  // ── 即時畫面串流:CDP screencast 連續 JPEG 幀 → 覆寫 live.jpg(節流 ~8fps)。
+  // 只保留最新幀、以 in-flight 旗標避免上傳堆積;與逐步截圖/決策互不干擾。
+  const LIVE_KEY = `${PREFIX}/live`;
+  const LIVE_MIN_INTERVAL_MS = 120; // ~8fps 上限
+  let liveLatest = null; // 最新一幀 base64(尚未上傳)
+  let liveUploading = false;
+  let liveLastAt = 0;
+  const pumpLive = async () => {
+    if (liveUploading || !liveLatest) return;
+    const now = Date.now();
+    if (now - liveLastAt < LIVE_MIN_INTERVAL_MS) return;
+    const b64 = liveLatest; liveLatest = null; liveUploading = true; liveLastAt = now;
+    try { await s3put(LIVE_KEY, Buffer.from(b64, 'base64'), 'image/jpeg'); } catch { /* 幀丟失不影響 */ }
+    finally { liveUploading = false; }
+  };
+  const liveTimer = setInterval(() => { void pumpLive(); }, LIVE_MIN_INTERVAL_MS);
+  if (liveTimer.unref) liveTimer.unref();
+  const stopScreencast = await client.startScreencast((b64) => { liveLatest = b64; }, { quality: 55, maxWidth: 1280, maxHeight: 800 }).catch(() => async () => {});
+
   for (let i = 0; i < MAX_STEPS; i++) {
     try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); finalState = 'cancelled'; finalMsg = '使用者取消'; break; } catch { /* 無取消 */ }
     const t0 = Date.now();
@@ -302,6 +321,10 @@ async function main() {
     prevPageId = pid; prevAction = cmd.action;
     await sleep(2500);
   }
+
+  // 停止即時串流(先停,避免 quit 後仍嘗試上傳)。
+  clearInterval(liveTimer);
+  await stopScreencast().catch(() => {});
 
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };

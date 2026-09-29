@@ -362,6 +362,22 @@ async function main() {
 
   await writeStatus('running', 'AI 探索執行中', 0);
 
+  // ── 即時畫面串流(真機):背景以 ~2.5fps 額外截圖覆寫 live 幀。
+  // Appium 單一 session 不可並發:用 in-flight 旗標,若主迴圈或上一張仍在截圖就跳過這輪。
+  // 真機 takeScreenshot 是 WebDriver 往返(較慢),故頻率保守(每 400ms 嘗試一次)。
+  const LIVE_KEY = `${PREFIX}/live`;
+  let liveBusy = false;
+  const liveTimer = setInterval(async () => {
+    if (liveBusy) return;
+    liveBusy = true;
+    try {
+      const b64 = await client.takeScreenshot();
+      await s3put(LIVE_KEY, Buffer.from(b64, 'base64'), 'image/png');
+    } catch { /* 幀丟失不影響 */ }
+    finally { liveBusy = false; }
+  }, 400);
+  if (liveTimer.unref) liveTimer.unref();
+
   for (let i = 0; i < MAX_STEPS; i++) {
     // 取消旗標檢查。
     try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); finalState = 'cancelled'; finalMsg = '使用者取消'; break; } catch { /* 無取消 */ }
@@ -585,6 +601,11 @@ async function main() {
     prevPageId = pid; prevAction = cmd.action; prevOrient = isLandscape;
     await sleep(3000);
   }
+
+  // 停止即時串流(先停,避免 quit session 後仍嘗試截圖)。
+  clearInterval(liveTimer);
+  // 等待可能仍在飛行中的最後一張 live 截圖結束,避免對已關閉 session 發請求。
+  for (let w2 = 0; liveBusy && w2 < 20; w2++) await sleep(50);
 
   // 報告 + 終態。
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
