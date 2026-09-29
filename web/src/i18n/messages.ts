@@ -463,6 +463,20 @@ export type MessageKey =
   | 'tasks.deviceHint'
   | 'tasks.deviceAuto'
   | 'tasks.deviceSpecs'
+  | 'tasks.deviceChange'
+  | 'tasks.deviceSelect'
+  | 'device.pickTitle'
+  | 'device.searchPlaceholder'
+  | 'device.filterOs'
+  | 'device.allOs'
+  | 'device.count'
+  | 'device.autoTitle'
+  | 'device.autoDesc'
+  | 'device.highlyAvailable'
+  | 'device.noResults'
+  | 'device.confirm'
+  | 'device.cancel'
+  | 'device.close'
   | 'report.gameplay'
   | 'report.trace'
   | 'report.navGraph'
@@ -941,6 +955,20 @@ const zhHant: Catalog = {
   'tasks.deviceHint': '指定要跑在哪一台實體真機;留「自動」則由系統挑第一台可用機。',
   'tasks.deviceAuto': '自動(第一台可用)',
   'tasks.deviceSpecs': '機型特性',
+  'tasks.deviceChange': '變更裝置',
+  'tasks.deviceSelect': '選擇裝置',
+  'device.pickTitle': '選擇執行裝置',
+  'device.searchPlaceholder': '搜尋機型或製造商…',
+  'device.filterOs': '篩選 Android 版本',
+  'device.allOs': '全部版本',
+  'device.count': '共 {n} 台可用裝置',
+  'device.autoTitle': '自動(第一台可用)',
+  'device.autoDesc': '交給系統挑選第一台可用真機',
+  'device.highlyAvailable': '充足',
+  'device.noResults': '找不到符合條件的裝置',
+  'device.confirm': '選定',
+  'device.cancel': '取消',
+  'device.close': '關閉',
   'report.gameplay': '遊戲畫面',
   'report.trace': '執行軌跡',
   'report.navGraph': '導覽關係圖',
@@ -1419,6 +1447,20 @@ const en: Catalog = {
   'tasks.deviceHint': 'Pick which physical device to run on; leave on Auto to let the system take the first available one.',
   'tasks.deviceAuto': 'Auto (first available)',
   'tasks.deviceSpecs': 'Device specs',
+  'tasks.deviceChange': 'Change device',
+  'tasks.deviceSelect': 'Select device',
+  'device.pickTitle': 'Choose a device',
+  'device.searchPlaceholder': 'Search model or manufacturer…',
+  'device.filterOs': 'Filter Android version',
+  'device.allOs': 'All versions',
+  'device.count': '{n} devices available',
+  'device.autoTitle': 'Auto (first available)',
+  'device.autoDesc': 'Let the system pick the first available device',
+  'device.highlyAvailable': 'Plenty',
+  'device.noResults': 'No devices match your filters',
+  'device.confirm': 'Select',
+  'device.cancel': 'Cancel',
+  'device.close': 'Close',
   'report.gameplay': 'Gameplay screens',
   'report.trace': 'Execution trace',
   'report.navGraph': 'Navigation graph',
@@ -1900,6 +1942,20 @@ const zhHans: Catalog = {
   'tasks.deviceHint': '指定要跑在哪一台实体真机;留「自动」则由系统挑第一台可用机。',
   'tasks.deviceAuto': '自动(第一台可用)',
   'tasks.deviceSpecs': '机型特性',
+  'tasks.deviceChange': '更改设备',
+  'tasks.deviceSelect': '选择设备',
+  'device.pickTitle': '选择执行设备',
+  'device.searchPlaceholder': '搜索机型或制造商…',
+  'device.filterOs': '筛选 Android 版本',
+  'device.allOs': '全部版本',
+  'device.count': '共 {n} 台可用设备',
+  'device.autoTitle': '自动(第一台可用)',
+  'device.autoDesc': '交给系统挑选第一台可用真机',
+  'device.highlyAvailable': '充足',
+  'device.noResults': '找不到符合条件的设备',
+  'device.confirm': '选定',
+  'device.cancel': '取消',
+  'device.close': '关闭',
   'report.gameplay': '游戏画面',
   'report.trace': '执行轨迹',
   'report.navGraph': '导览关系图',
@@ -2378,6 +2434,20 @@ const ja: Catalog = {
   'tasks.deviceHint': 'どの実機で実行するかを指定します。「自動」のままなら最初に利用可能な端末を使います。',
   'tasks.deviceAuto': '自動(最初に利用可能な端末)',
   'tasks.deviceSpecs': '機種の特性',
+  'tasks.deviceChange': 'デバイスを変更',
+  'tasks.deviceSelect': 'デバイスを選択',
+  'device.pickTitle': '実行デバイスを選択',
+  'device.searchPlaceholder': '機種またはメーカーを検索…',
+  'device.filterOs': 'Android バージョンで絞り込み',
+  'device.allOs': 'すべてのバージョン',
+  'device.count': '利用可能な端末 {n} 台',
+  'device.autoTitle': '自動(最初に利用可能な端末)',
+  'device.autoDesc': '最初に利用可能な実機をシステムに選ばせる',
+  'device.highlyAvailable': '在庫十分',
+  'device.noResults': '条件に一致する端末が見つかりません',
+  'device.confirm': '選択',
+  'device.cancel': 'キャンセル',
+  'device.close': '閉じる',
   'report.gameplay': 'ゲーム画面',
   'report.trace': '実行トレース',
   'report.navGraph': 'ナビゲーション図',
@@ -2856,6 +2926,20 @@ const ko: Catalog = {
   'tasks.deviceHint': '어느 실물 기기에서 실행할지 지정합니다. "자동"으로 두면 시스템이 첫 번째 사용 가능한 기기를 사용합니다.',
   'tasks.deviceAuto': '자동(첫 번째 사용 가능 기기)',
   'tasks.deviceSpecs': '기기 특성',
+  'tasks.deviceChange': '기기 변경',
+  'tasks.deviceSelect': '기기 선택',
+  'device.pickTitle': '실행 기기 선택',
+  'device.searchPlaceholder': '모델 또는 제조사 검색…',
+  'device.filterOs': 'Android 버전 필터',
+  'device.allOs': '모든 버전',
+  'device.count': '사용 가능 기기 {n}대',
+  'device.autoTitle': '자동(첫 번째 사용 가능 기기)',
+  'device.autoDesc': '시스템이 첫 번째 사용 가능 기기를 선택하도록 맡깁니다',
+  'device.highlyAvailable': '충분',
+  'device.noResults': '조건에 맞는 기기가 없습니다',
+  'device.confirm': '선택',
+  'device.cancel': '취소',
+  'device.close': '닫기',
   'report.gameplay': '게임 화면',
   'report.trace': '실행 트레이스',
   'report.navGraph': '내비게이션 그래프',
