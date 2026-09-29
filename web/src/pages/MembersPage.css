@@ -1,0 +1,129 @@
+.members__intro {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
+.members__form {
+  margin-bottom: var(--space-5);
+  padding: var(--space-4);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.members__form-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3) var(--space-4);
+}
+
+.members__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 180px;
+  flex: 1 1 auto;
+}
+
+.members__label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.members__field input {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.members__admin-check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.members__add-btn {
+  padding: var(--space-2) var(--space-5);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent, #2f6df6);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.members__add-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.members__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.members__table th,
+.members__table td {
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.members__table th {
+  color: var(--text-tertiary);
+  font-weight: 500;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.members__row--disabled td {
+  opacity: 0.55;
+}
+
+.members__muted {
+  color: var(--text-tertiary);
+}
+
+.members__badge {
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.members__badge--on {
+  background: color-mix(in srgb, var(--status-pass, #16a34a) 16%, transparent);
+  color: var(--status-pass, #16a34a);
+}
+.members__badge--off {
+  background: color-mix(in srgb, var(--text-tertiary) 18%, transparent);
+  color: var(--text-tertiary);
+}
+
+.members__toggle-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.members__toggle-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.members__toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -261,26 +261,45 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## 9단계 — 로그인 만들기(첫 사용자)
+## 9단계 — 첫 번째(관리자) 로그인 만들기
 
-셀프 가입은 의도적으로 비활성화되어 있어 첫 사용자는 명령줄로 만듭니다. 이메일과 비밀번호(8자 이상, 대소문자와 숫자 포함)를 정하세요. `tenantId` 는 고객별 데이터를 격리합니다 — 회사명 등 짧은 문자열이면 됩니다.
+셀프 가입은 의도적으로 비활성화되어 있어 사용자는 직접 만듭니다. 이메일과 비밀번호(8자 이상, 대소문자와 숫자 포함)를 정하세요. `tenantId` 는 고객별 데이터를 격리합니다 — 회사명 등 짧은 문자열이면 됩니다. 첫 사용자를 **관리자**로 만들면 이후에는 앱 내 「멤버 관리」 페이지에서 다른 사용자를 관리할 수 있습니다.
+
+하나를 선택하세요:
+
+**옵션 A — 원커맨드 스크립트(권장).** 사용자 생성, 영구 비밀번호 설정을 하고 `--admin` 이면 `admins` 그룹에도 추가합니다. User Pool 은 자동 해석됩니다.
+
+```bash
+cd agent/sagemaker && npm install
+AWS_REGION=us-east-2 node createUser.mjs \
+  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+```
+
+**옵션 B — 배포 시 관리자 생성.** Foundation 스택(또는 임의의 배포)에 `-c` 로 전달하면 CDK 가 생성하고 `admins` 그룹에 추가합니다:
+
+```bash
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
+  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
+```
+
+관리자가 한 명 있으면 나머지는 앱의 「멤버 관리」 페이지에서 만들 수 있습니다(10단계 참조) — 명령줄이 필요 없습니다. 관리자가 아닌 사용자에게는 해당 페이지가 보이지 않습니다.
+
+<details>
+<summary>옵션 C — 순수 AWS CLI(스크립트 미사용)</summary>
 
 ```bash
 POOL_ID=붙여넣기_UserPoolId    # 5단계에서
-
-# 테넌트 id 를 가진 사용자 생성
-aws cognito-idp admin-create-user --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
+aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
-
-# 영구 비밀번호 설정("비밀번호 변경" 프롬프트 회피)
-aws cognito-idp admin-set-user-password --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --password 'ChangeMe123!' --permanent
+aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --password 'ChangeMe123!' --permanent
+# 관리자로 지정(「멤버 관리」 페이지 사용을 위해)
+aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --group-name admins
 ```
+</details>
 
 ## 10단계 — 로그인
 

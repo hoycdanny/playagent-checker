@@ -261,26 +261,45 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## 步骤 9 — 创建你的登录账号(第一个用户)
+## 步骤 9 — 创建你的第一个(管理员)账号
 
-系统刻意关闭自助注册,所以第一个用户用命令创建。挑一个 email 与密码(至少 8 字,含大小写与数字)。`tenantId` 用来隔离各客户的数据 —— 填任意短字符串即可,例如公司名。
+系统刻意关闭自助注册,所以用户由你自己创建。挑一个 email 与密码(至少 8 字,含大小写与数字)。`tenantId` 用来隔离各客户的数据 —— 填任意短字符串即可,例如公司名。把第一个用户设为**管理员**,之后就能在 App 内的「成员管理」页管理其他人。
+
+择一即可:
+
+**方案 A — 一键脚本(推荐)。** 创建账号、设永久密码,加 `--admin` 则同时加入 `admins` 群组。会自动解析 User Pool。
+
+```bash
+cd agent/sagemaker && npm install
+AWS_REGION=us-east-2 node createUser.mjs \
+  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+```
+
+**方案 B — 部署时创建管理员。** 部署 Foundation stack(或任何部署)时用 `-c` 带入,CDK 会自动创建并加入 `admins` 群组:
+
+```bash
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
+  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
+```
+
+有了一个管理员之后,其他人直接在 App 的「成员管理」页创建即可(见步骤 10)—— 不必再用命令。非管理员看不到该页。
+
+<details>
+<summary>方案 C — 纯 AWS CLI(不用脚本)</summary>
 
 ```bash
 POOL_ID=粘贴_UserPoolId    # 来自步骤 5
-
-# 创建带租户 id 的用户
-aws cognito-idp admin-create-user --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
+aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
-
-# 设置永久密码(免去「修改密码」提示)
-aws cognito-idp admin-set-user-password --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --password 'ChangeMe123!' --permanent
+aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --password 'ChangeMe123!' --permanent
+# 设为管理员(才能用「成员管理」页)
+aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --group-name admins
 ```
+</details>
 
 ## 步骤 10 — 登录
 

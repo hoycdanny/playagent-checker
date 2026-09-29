@@ -108,7 +108,7 @@ describe('API 核心 — 身分', () => {
       { method: 'GET', path: '/me', claims },
       fakeDeps(),
     );
-    expect(res.body).toEqual({ tenantId: 't-001', email: 'a@example.com' });
+    expect(res.body).toEqual({ tenantId: 't-001', email: 'a@example.com', isAdmin: false });
   });
 
   test('未知路由 → 404', async () => {

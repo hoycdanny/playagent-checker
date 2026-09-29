@@ -49,21 +49,26 @@ interface IdTokenClaims {
 export function decodeIdToken(idToken: string): {
   email: string | null;
   tenantId: string | null;
+  isAdmin: boolean;
 } {
   try {
     const payload = idToken.split('.')[1];
-    if (!payload) return { email: null, tenantId: null };
+    if (!payload) return { email: null, tenantId: null, isAdmin: false };
     const json = JSON.parse(
       atob(payload.replace(/-/g, '+').replace(/_/g, '/')),
     ) as IdTokenClaims;
+    // cognito:groups 可能是陣列;含 "admins" 即為管理員(僅供 UI 顯示,真正授權在後端)。
+    const groups = json['cognito:groups'];
+    const isAdmin = Array.isArray(groups) && groups.includes('admins');
     return {
       email: typeof json.email === 'string' ? json.email : null,
       tenantId:
         typeof json['custom:tenantId'] === 'string'
           ? json['custom:tenantId']
           : null,
+      isAdmin,
     };
   } catch {
-    return { email: null, tenantId: null };
+    return { email: null, tenantId: null, isAdmin: false };
   }
 }

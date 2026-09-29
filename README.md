@@ -262,26 +262,45 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## Step 9 — Create your login (first user)
+## Step 9 — Create your first (admin) login
 
-Sign-up is disabled on purpose, so you create the first user from the command line. Pick an email and a password (min 8 chars, upper + lower + number). The `tenantId` isolates each customer's data — use anything short, e.g. the company name.
+Sign-up is disabled on purpose, so you create users yourself. Pick an email and a password (min 8 chars, upper + lower + number). The `tenantId` isolates each customer's data — use anything short, e.g. the company name. Make the first user an **admin** so you can manage the rest from the in-app **Members** page.
+
+Pick whichever option you like:
+
+**Option A — one-command script (recommended).** Creates the user, sets a permanent password, and (with `--admin`) adds them to the `admins` group. It resolves the User Pool automatically.
+
+```bash
+cd agent/sagemaker && npm install
+AWS_REGION=us-east-2 node createUser.mjs \
+  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+```
+
+**Option B — create the admin at deploy time.** Pass `-c` context when deploying the Foundation stack (or any deploy) and CDK creates the admin and adds it to the `admins` group automatically:
+
+```bash
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
+  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
+```
+
+Once you have one admin, create everyone else from the **Members** page in the app (see Step 10) — no CLI needed. Non-admins never see that page.
+
+<details>
+<summary>Option C — raw AWS CLI (no script)</summary>
 
 ```bash
 POOL_ID=PASTE_UserPoolId    # from Step 5
-
-# Create the user with a tenant id
-aws cognito-idp admin-create-user --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
+aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
-
-# Set a permanent password (so there is no "change password" prompt)
-aws cognito-idp admin-set-user-password --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --password 'ChangeMe123!' --permanent
+aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --password 'ChangeMe123!' --permanent
+# make them an admin (so the Members page is available)
+aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --group-name admins
 ```
+</details>
 
 ## Step 10 — Log in
 

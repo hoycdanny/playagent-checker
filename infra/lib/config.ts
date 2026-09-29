@@ -14,6 +14,8 @@ export interface AppConfig {
   readonly env: Environment;
   /** 由部署者帶入的成本分攤標籤(cost allocation tags),套用到所有資源。 */
   readonly costTags: Record<string, string>;
+  /** 初始 admin(部署時經 context 帶入;省略則不建)。 */
+  readonly initialAdmin?: { email: string; password: string; tenantId: string };
 }
 
 /**
@@ -64,5 +66,27 @@ export function resolveConfig(app: {
       region: process.env.CDK_DEFAULT_REGION,
     },
     costTags: resolveCostTags(app),
+    initialAdmin: resolveInitialAdmin(app),
   };
+}
+
+/**
+ * 初始 admin(方案 B):部署時以 context 帶入即在 Foundation 建立並加入 admins 群組。
+ * 用法:`cdk deploy -c adminEmail=you@example.com -c adminPassword='Str0ng!Pass' -c adminTenant=globex-us`
+ * 三者需同時提供才生效(缺任一則不建,改用一鍵腳本 createUser.mjs)。
+ */
+function resolveInitialAdmin(app: {
+  node: { tryGetContext(key: string): unknown };
+}): { email: string; password: string; tenantId: string } | undefined {
+  const email = app.node.tryGetContext('adminEmail');
+  const password = app.node.tryGetContext('adminPassword');
+  const tenantId = app.node.tryGetContext('adminTenant');
+  if (
+    typeof email === 'string' && email.trim() &&
+    typeof password === 'string' && password.trim() &&
+    typeof tenantId === 'string' && tenantId.trim()
+  ) {
+    return { email: email.trim(), password, tenantId: tenantId.trim() };
+  }
+  return undefined;
 }

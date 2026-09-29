@@ -261,26 +261,45 @@ aws cloudformation describe-stacks --region us-east-2 \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## ステップ 9 — ログインを作成(最初のユーザー)
+## ステップ 9 — 最初の(管理者)ログインを作成
 
-サインアップは意図的に無効です。最初のユーザーはコマンドラインで作成します。メールとパスワード(8 文字以上、大小英字と数字を含む)を決めます。`tenantId` は顧客ごとのデータを分離します — 会社名など短い文字列で構いません。
+サインアップは意図的に無効です。ユーザーはご自身で作成します。メールとパスワード(8 文字以上、大小英字と数字を含む)を決めます。`tenantId` は顧客ごとのデータを分離します — 会社名など短い文字列で構いません。最初のユーザーを**管理者**にすると、以降はアプリ内の「メンバー管理」ページで他のユーザーを管理できます。
+
+いずれか一つを選びます:
+
+**方法 A — ワンコマンドスクリプト(推奨)。** ユーザー作成・恒久パスワード設定を行い、`--admin` で `admins` グループにも追加します。User Pool は自動解決されます。
+
+```bash
+cd agent/sagemaker && npm install
+AWS_REGION=us-east-2 node createUser.mjs \
+  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+```
+
+**方法 B — デプロイ時に管理者を作成。** Foundation スタック(または任意のデプロイ)で `-c` を渡すと、CDK が作成し `admins` グループに追加します:
+
+```bash
+AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
+  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
+```
+
+管理者が一人いれば、他のユーザーはアプリの「メンバー管理」ページで作成できます(ステップ 10 参照)— コマンド不要です。管理者以外にはそのページは表示されません。
+
+<details>
+<summary>方法 C — 生の AWS CLI(スクリプト不使用)</summary>
 
 ```bash
 POOL_ID=貼り付け_UserPoolId    # ステップ 5 より
-
-# テナント id 付きでユーザー作成
-aws cognito-idp admin-create-user --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
+aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
-
-# 恒久パスワードを設定(「パスワード変更」プロンプトを回避)
-aws cognito-idp admin-set-user-password --region us-east-2 \
-  --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --password 'ChangeMe123!' --permanent
+aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --password 'ChangeMe123!' --permanent
+# 管理者にする(「メンバー管理」ページを使うため)
+aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
+  --username you@example.com --group-name admins
 ```
+</details>
 
 ## ステップ 10 — ログイン
 

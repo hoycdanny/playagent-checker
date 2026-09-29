@@ -3,6 +3,11 @@ import type { Construct } from 'constructs';
 import type * as cognito from 'aws-cdk-lib/aws-cognito';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
 import { CognitoTenantPool } from './constructs/cognito-tenant-pool.js';
+
+export interface FoundationStackProps extends StackProps {
+  /** 初始 admin(部署時經 context 帶入;省略則不建)。 */
+  initialAdmin?: { email: string; password: string; tenantId: string };
+}
 import { TenantDataBucket } from './constructs/tenant-data-bucket.js';
 import { TenantDataRole } from './constructs/tenant-data-role.js';
 import { KnowledgeBaseFoundation } from './constructs/knowledge-base-foundation.js';
@@ -24,10 +29,12 @@ export class FoundationStack extends Stack {
   readonly tenantDataRole: TenantDataRole;
   readonly kbFoundation: KnowledgeBaseFoundation;
 
-  constructor(scope: Construct, id: string, props?: StackProps) {
+  constructor(scope: Construct, id: string, props?: FoundationStackProps) {
     super(scope, id, props);
 
-    const auth = new CognitoTenantPool(this, 'Auth');
+    const auth = new CognitoTenantPool(this, 'Auth', {
+      ...(props?.initialAdmin ? { initialAdmin: props.initialAdmin } : {}),
+    });
     this.userPool = auth.userPool;
     this.userPoolClient = auth.userPoolClient;
 
