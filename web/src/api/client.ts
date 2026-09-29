@@ -51,6 +51,24 @@ export async function apiGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Device Farm 真機池的一台裝置(對齊後端 CloudDevice)。 */
+export interface CloudDevice {
+  /** 裝置 ARN(提交任務時明確指定要跑哪台真機)。 */
+  arn?: string;
+  name: string;
+  os: string;
+  arch: string;
+  manufacturer: string;
+  formFactor: string;
+  availability?: string;
+  /** 螢幕解析度(如 "1080x2340")。 */
+  resolution?: string;
+  /** 記憶體(位元組)。 */
+  memoryBytes?: number;
+  /** CPU 描述(架構 + 時脈)。 */
+  cpu?: string;
+}
+
 export interface ListResponse<T = { key: string }> {
   items: T[];
 }

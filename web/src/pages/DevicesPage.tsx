@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete, type ListResponse } from '../api/client.ts';
+import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
 import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
@@ -20,16 +20,6 @@ interface SecretRefEntry {
   name: string;
   label: string;
   createdAt: string;
-}
-
-/** Device Farm 真機池的一台裝置(對齊後端 CloudDevice)。 */
-interface CloudDevice {
-  name: string;
-  os: string;
-  arch: string;
-  manufacturer: string;
-  formFactor: string;
-  availability?: string;
 }
 
 export default function DevicesPage() {
@@ -144,6 +134,11 @@ export default function DevicesPage() {
                   <span className="devices__cloud-name">{d.name}</span>
                   <span className="devices__cloud-meta">
                     Android {d.os} · {d.arch}
+                    {d.resolution ? ` · ${d.resolution}` : ''}
+                    {typeof d.memoryBytes === 'number'
+                      ? ` · ${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
+                      : ''}
+                    {d.cpu ? ` · ${d.cpu}` : ''}
                   </span>
                   <span className="devices__badge devices__badge--auto">
                     {t('devices.sourceLabel')}: {t('devices.sourceProvisioned')}

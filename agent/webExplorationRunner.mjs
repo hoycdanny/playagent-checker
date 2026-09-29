@@ -309,6 +309,24 @@ async function main() {
 
     await writeStatus('running', `第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
 
+    // 凍結畫面中止:畫面連續多步完全沒變(phash 不變)→ 可能載入卡死/被外部驗證阻擋/需人工。
+    // 前 STUCK_WAIT_STEPS 步只耐心等待(可能仍在載入),超過硬上限仍全無變化 → 判定 error 結束,
+    // 避免步數無上限的任務在雲端無止盡空轉計費。(對齊真機 runner 的耐心+中止策略。)
+    if (stuckCount >= 3) {
+      const STUCK_WAIT_STEPS = 12;   // 前 12 步只耐心等待,不判死
+      const STUCK_ABORT_STEPS = 24;  // 連續 24 步畫面全無變化 → 判定卡死中止
+      const loadingHint = /loading|載入|载入|請稍候|请稍候|connecting|連線中|连接中|加载|驗證|验证|captcha|recaptcha/i;
+      const looksLoading = loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(screenName || ''));
+      if (stuckCount >= STUCK_ABORT_STEPS) {
+        finalState = 'error';
+        finalMsg = looksLoading
+          ? `畫面連續 ${stuckCount} 步無變化且停在載入/驗證畫面 —— 可能頁面載入失敗/逾時或被外部驗證(如 reCAPTCHA)阻擋。已中止,避免空轉。`
+          : `畫面連續 ${stuckCount} 步無變化,無法前進 —— 可能當機/卡死或需人工介入。已中止,避免空轉。`;
+        await writeStatus('error', finalMsg, steps.length);
+        break;
+      }
+    }
+
     // 死循環偵測:同畫面名反覆出現 → 提早收斂。
     const seen = (screenSeen.get(screenName) || 0) + 1;
     screenSeen.set(screenName, seen);

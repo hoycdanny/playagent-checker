@@ -53,12 +53,32 @@ async function listCloudDevices(): Promise<CloudDevice[]> {
   );
   const items: CloudDevice[] = (res.devices ?? [])
     .map((d) => ({
+      ...(d.arn ? { arn: d.arn } : {}),
       name: d.name ?? d.model ?? '未知裝置',
       os: d.os ?? '',
       arch: d.cpu?.architecture ?? '',
       manufacturer: d.manufacturer ?? '',
       formFactor: d.formFactor ?? 'PHONE',
       ...(d.availability ? { availability: d.availability } : {}),
+      // 機型特性:讓使用者挑機時看得到解析度/記憶體/CPU。
+      ...(d.resolution?.width && d.resolution?.height
+        ? { resolution: `${d.resolution.width}x${d.resolution.height}` }
+        : {}),
+      ...(typeof d.memory === 'number' ? { memoryBytes: d.memory } : {}),
+      // clock 的單位由 cpu.frequency 決定(Device Farm 實測回 "MHz",如 2649=2.649GHz);
+      // 依單位換算成 GHz 顯示;缺值或 0 則只留架構。
+      ...(d.cpu?.architecture || (typeof d.cpu?.clock === 'number' && d.cpu.clock > 0)
+        ? {
+            cpu: [
+              d.cpu?.architecture,
+              typeof d.cpu?.clock === 'number' && d.cpu.clock > 0
+                ? `${(d.cpu.clock / (String(d.cpu.frequency).toUpperCase() === 'MHZ' ? 1000 : 1e9)).toFixed(2)} GHz`
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(' '),
+          }
+        : {}),
     }))
     // 新到舊排序(OS 主版本);同版無所謂。
     .sort((a, b) => (parseInt(b.os) || 0) - (parseInt(a.os) || 0));

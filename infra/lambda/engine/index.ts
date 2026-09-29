@@ -89,6 +89,9 @@ async function readJobMeta(
   artifactKey?: string;
   package?: string;
   platform?: string;
+  deviceArn?: string;
+  deviceModel?: string;
+  osVersion?: string;
 } | null> {
   try {
     const res = await s3.send(
@@ -105,6 +108,9 @@ async function readJobMeta(
       artifactKey?: string;
       package?: string;
       platform?: string;
+      deviceArn?: string;
+      deviceModel?: string;
+      osVersion?: string;
     };
     return {
       appId: job.appId ?? '',
@@ -115,6 +121,9 @@ async function readJobMeta(
       ...(job.artifactKey ? { artifactKey: job.artifactKey } : {}),
       ...(job.package ? { package: job.package } : {}),
       ...(job.platform ? { platform: job.platform } : {}),
+      ...(job.deviceArn ? { deviceArn: job.deviceArn } : {}),
+      ...(job.deviceModel ? { deviceModel: job.deviceModel } : {}),
+      ...(job.osVersion ? { osVersion: job.osVersion } : {}),
     };
   } catch {
     return null;
@@ -336,6 +345,15 @@ export async function handler(event: EngineEvent): Promise<void> {
           ...(event.vlmModel ? { vlmModel: event.vlmModel } : {}),
           ...(meta.caseTask ? { caseTask: meta.caseTask } : {}),
           ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
+          // 使用者提交時明選的裝置:deviceArn 直接指定實體真機(runner 短路挑此台);
+          // deviceModel 僅顯示用;osVersion(若無明選 ARN)收斂 OS 區間讓挑機更貼近所選版本。
+          ...(meta.deviceArn ? { deviceArn: meta.deviceArn } : {}),
+          ...(meta.deviceModel ? { deviceModel: meta.deviceModel } : {}),
+          ...(() => {
+            if (meta.deviceArn) return {}; // 已指定裝置就不必再靠 OS 區間挑
+            const v = meta.osVersion ? parseFloat(meta.osVersion) : NaN;
+            return Number.isFinite(v) ? { maxOsVersion: v, minOsVersion: v } : {};
+          })(),
         });
         await writeStatus(s3, BUCKET, event.tenantId, {
           jobId: event.jobId,

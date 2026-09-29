@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { apiGet, apiPost, apiDelete, type ListResponse } from '../api/client.ts';
+import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
@@ -110,6 +110,9 @@ export default function TasksPage() {
   // 步數/預算上限:空字串 = 無上限(不帶入提交,引擎/ runner 端不設閘口)。
   const [maxSteps, setMaxSteps] = useState('');
   const [budgetUsd, setBudgetUsd] = useState('');
+  // Device Farm 裝置選擇:真機池清單 + 使用者所選裝置 ARN(空 = 讓引擎自動挑第一台可用)。
+  const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
+  const [deviceArn, setDeviceArn] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 多欄位篩選:狀態 / 環境 / 位置 / 應用 / 三個模型欄(空字串 = 全部)。
@@ -159,6 +162,10 @@ export default function TasksPage() {
         setSubagentModels(sortByRecommend('subagent', r.items));
         setSubagentModel(recommendedDefault('subagent', r.items));
       })
+      .catch(() => {});
+    // Device Farm 真機池(供 devicefarm 後端挑機型/版本);唯讀清單。
+    apiGet<ListResponse<CloudDevice>>('/devices/cloud')
+      .then((r) => setCloudDevices(r.items))
       .catch(() => {});
   }, []);
 
@@ -271,6 +278,17 @@ export default function TasksPage() {
         // 空 = 無上限:僅在填了正數時帶入。
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
         ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
+        // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
+        ...(backend === 'devicefarm' && deviceArn
+          ? (() => {
+              const d = cloudDevices.find((x) => x.arn === deviceArn);
+              return {
+                deviceArn,
+                ...(d?.name ? { deviceModel: d.name } : {}),
+                ...(d?.os ? { osVersion: d.os } : {}),
+              };
+            })()
+          : {}),
       });
       setShowForm(false);
       setCaseId('');
@@ -415,6 +433,40 @@ export default function TasksPage() {
               })}
             </select>
           </label>
+          {backend === 'devicefarm' && (
+            <label className="tasks__field">
+              <span className="tasks__label">{t('tasks.device')}</span>
+              <span className="tasks__field-hint">{t('tasks.deviceHint')}</span>
+              <select value={deviceArn} onChange={(e) => setDeviceArn(e.target.value)}>
+                <option value="">{t('tasks.deviceAuto')}</option>
+                {cloudDevices
+                  .filter((d) => d.arn)
+                  .map((d) => (
+                    <option key={d.arn} value={d.arn}>
+                      {d.name} · Android {d.os}
+                    </option>
+                  ))}
+              </select>
+              {(() => {
+                const d = cloudDevices.find((x) => x.arn === deviceArn);
+                if (!d) return null;
+                const chips = [
+                  `Android ${d.os}`,
+                  d.arch,
+                  d.resolution,
+                  typeof d.memoryBytes === 'number'
+                    ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
+                    : undefined,
+                  d.cpu,
+                ].filter(Boolean);
+                return (
+                  <span className="tasks__field-hint">
+                    {t('tasks.deviceSpecs')}: {chips.join(' · ')}
+                  </span>
+                );
+              })()}
+            </label>
+          )}
           {VLM_BACKENDS.has(backend) && (
             <>
               <p className="tasks__models-intro">{t('tasks.modelsIntro')}</p>

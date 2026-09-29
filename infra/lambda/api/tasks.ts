@@ -50,6 +50,12 @@ export interface JobRecord {
   package?: string;
   /** 被測平台(android/ios;Device Farm 據此選裝置與 Appium automationName)。 */
   platform?: string;
+  /** 提交時使用者選的 Device Farm 實體裝置 ARN(engine 依此挑真機而非取第一台)。 */
+  deviceArn?: string;
+  /** 提交時選的裝置機型名稱(顯示用;實際挑機以 deviceArn 為準)。 */
+  deviceModel?: string;
+  /** 提交時選的 Android 版本(顯示用;deviceArn 已隱含版本)。 */
+  osVersion?: string;
   /** 提交時選的共用知識庫 id 快照(執行時據此讀取並注入 Markdown)。 */
   knowledgeBaseIds?: string[];
   createdAt: string;
@@ -95,6 +101,12 @@ interface SubmitInput {
   maxSteps?: number;
   /** 預算上限(美元);未指定或 <=0 代表「無上限」。 */
   budgetUsd?: number;
+  /** Device Farm:使用者明選的實體裝置 ARN(engine 依此挑真機而非取第一台)。 */
+  deviceArn?: string;
+  /** Device Farm:所選機型名稱(顯示用)。 */
+  deviceModel?: string;
+  /** Device Farm:所選 Android 版本(顯示用;deviceArn 已隱含版本)。 */
+  osVersion?: string;
 }
 
 /** 提交前校驗請求形狀(存在性校驗於 core 內另做,需 S3)。 */
@@ -125,6 +137,25 @@ export function validateSubmit(body: unknown): SubmitInput {
   const maxSteps = Number.isFinite(rawMaxSteps) && rawMaxSteps > 0 ? Math.floor(rawMaxSteps) : undefined;
   const rawBudget = Number(b['budgetUsd']);
   const budgetUsd = Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : undefined;
+  // Device Farm 裝置選擇(僅 devicefarm 後端有意義;其他後端即使帶了也不落 job)。
+  // deviceArn 需符合 Device Farm ARN 形狀,避免注入任意值。
+  const rawDeviceArn = b['deviceArn'];
+  // Device Farm 公有裝置 ARN 的 account 欄位為空(如 arn:aws:devicefarm:us-west-2::device:XXXX),
+  // 故 account 段允許空或數字。
+  const deviceArn =
+    backend === 'devicefarm' &&
+    typeof rawDeviceArn === 'string' &&
+    /^arn:aws:devicefarm:[a-z0-9-]+:\d*:device:[A-Za-z0-9-]+$/.test(rawDeviceArn)
+      ? rawDeviceArn
+      : undefined;
+  const deviceModel =
+    backend === 'devicefarm' && typeof b['deviceModel'] === 'string' && b['deviceModel'] !== ''
+      ? (b['deviceModel'] as string)
+      : undefined;
+  const osVersion =
+    backend === 'devicefarm' && typeof b['osVersion'] === 'string' && b['osVersion'] !== ''
+      ? (b['osVersion'] as string)
+      : undefined;
   return {
     backend: backend as Backend,
     appId,
@@ -136,6 +167,9 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(knowledgeBaseIds && knowledgeBaseIds.length > 0 ? { knowledgeBaseIds } : {}),
     ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
+    ...(deviceArn ? { deviceArn } : {}),
+    ...(deviceModel ? { deviceModel } : {}),
+    ...(osVersion ? { osVersion } : {}),
   };
 }
 
@@ -173,6 +207,9 @@ export async function createJob(
     ...(input.subagentModel ? { subagentModel: input.subagentModel } : {}),
     ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
     ...(input.budgetUsd !== undefined ? { budgetUsd: input.budgetUsd } : {}),
+    ...(input.deviceArn ? { deviceArn: input.deviceArn } : {}),
+    ...(input.deviceModel ? { deviceModel: input.deviceModel } : {}),
+    ...(input.osVersion ? { osVersion: input.osVersion } : {}),
     ...(extra?.artifactKey ? { artifactKey: extra.artifactKey } : {}),
     ...(extra?.caseTask ? { caseTask: extra.caseTask } : {}),
     ...(extra?.abi ? { abi: extra.abi } : {}),
@@ -417,6 +454,8 @@ interface ReportShape {
   budgetUsd?: number | null;
   /** runner 寫入的 VLM 模型 id(report.json 有帶;供詳情頁在無 seat 快照時回退顯示)。 */
   vlmModel?: string;
+  /** runner 寫入的實際執行真機機型(Device Farm;供詳情頁顯示「執行裝置」)。 */
+  deviceModel?: string;
 }
 
 /** 任務詳情頁需要的彙整 metadata:套用情境、使用模型、花費。 */
@@ -427,6 +466,8 @@ export interface TaskMeta {
   knowledgeBaseIds: string[];
   /** 使用者明選的 VLM 模型 id。 */
   vlmModel?: string;
+  /** 實際執行的真機機型(Device Farm)。優先取 report.deviceModel,無則回退 job.deviceModel。 */
+  deviceModel?: string;
   /** 執行實際生效的各 seat 模型 + 單價(來自 config.json)。 */
   seats: ConfigSnapshotSeat[];
   /** token 用量(來自 report.tokens)。 */
@@ -491,10 +532,14 @@ async function buildTaskMeta(
     }
   }
 
+  // 執行裝置:優先採 runner 實際寫入的機型(report.deviceModel),無則回退提交時所選(job.deviceModel)。
+  const deviceModel = report?.deviceModel ?? job.deviceModel;
+
   return {
     ...(report?.task ? { task: report.task } : {}),
     knowledgeBaseIds: job.knowledgeBaseIds ?? [],
     ...(job.vlmModel ? { vlmModel: job.vlmModel } : {}),
+    ...(deviceModel ? { deviceModel } : {}),
     seats,
     ...(tokens ? { tokens } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),

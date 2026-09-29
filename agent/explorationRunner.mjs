@@ -45,6 +45,8 @@ const APP_ID = process.env.PA_APP || '';
 const DF_PROJECT = process.env.PA_DF_PROJECT || 'playagent-checker';
 const MAX_OS = process.env.PA_MAX_OS ? Number(process.env.PA_MAX_OS) : undefined;
 const MIN_OS = process.env.PA_MIN_OS ? Number(process.env.PA_MIN_OS) : undefined;
+// 使用者提交時明選的實體裝置 ARN(有帶就用這台;沒帶才由 OS 區間挑第一台可用真機)。
+const DEVICE_ARN = process.env.PA_DEVICE_ARN || undefined;
 const PLATFORM = process.env.PA_PLATFORM === 'ios' ? 'ios' : 'android';
 const JOB = process.env.PA_JOB;
 const BUCKET = process.env.PA_BUCKET;
@@ -286,6 +288,7 @@ async function main() {
   // 前置:若 engine 未預先建好 session,runner 自行讀 APK → 上傳 Device Farm → 開 session。
   // 重活在此(Fargate),不在 engine(512MB/5 分撐不住數百 MB APK)。
   let ownsSession = false;
+  let deviceModel; // 執行此任務的實體真機機型(寫進 report 供前端顯示)
   if (!APPIUM_URL) {
     if (!ARTIFACT_KEY) throw new Error('缺少 PA_ARTIFACT_KEY,無法建立 Device Farm session');
     await writeStatus('running', 'Device Farm:上傳 APK 並開真機 session 中', 0);
@@ -298,6 +301,7 @@ async function main() {
         jobId: JOB,
         platform: PLATFORM,
         projectName: DF_PROJECT,
+        ...(DEVICE_ARN ? { deviceArn: DEVICE_ARN } : {}),
         ...(MAX_OS !== undefined ? { maxOsVersion: MAX_OS } : {}),
         ...(MIN_OS !== undefined ? { minOsVersion: MIN_OS } : {}),
       },
@@ -306,7 +310,8 @@ async function main() {
     SESSION_ARN = session.sessionArn;
     ownsSession = true;
     selfOwnedSessionArn = session.sessionArn;
-    await writeStatus('running', `Device Farm 真機就緒(${session.deviceModel ?? '真機'}),Appium 連線中`, 0);
+    deviceModel = session.deviceModel;
+    await writeStatus('running', `Device Farm 真機就緒(${deviceModel ?? '真機'}),Appium 連線中`, 0);
   } else {
     await writeStatus('running', 'Appium 連線中', 0);
   }
@@ -315,6 +320,14 @@ async function main() {
     ? () => refreshRemoteDriverEndpoint(dfClient, SESSION_ARN)
     : undefined;
   const client = await AppiumClient.create(APPIUM_URL, { platform: PLATFORM, autoLaunch: false, refreshEndpoint });
+
+  // 機型後備:engine 若已預建 session,runner 這邊沒有 session.deviceModel,
+  // 改從 Appium 連上後的 capabilities 讀(UiAutomator2 通常帶 deviceModel/deviceManufacturer)。
+  // 都取不到才用使用者提交時所選機型(PA_DEVICE_MODEL)當顯示後備。
+  if (!deviceModel) {
+    try { const di = client.deviceInfo?.(); if (di?.model) deviceModel = di.model; } catch { /* 取不到就算了 */ }
+  }
+  if (!deviceModel && process.env.PA_DEVICE_MODEL) deviceModel = process.env.PA_DEVICE_MODEL;
 
   // 讀注入知識(engine 已組 context.json)。
   let knowledge = '';
@@ -486,26 +499,56 @@ async function main() {
     const toDeviceX = (x) => Math.max(0, Math.min(origW, Math.round(x * devScaleX)));
     const toDeviceY = (y) => Math.max(0, Math.min(origH, Math.round(y * devScaleY)));
 
-    // 卡住脫困:連續 ≥3 步畫面沒變 → VLM 顯然瞄不準或選錯。介入輪換:
-    //   遊戲主按鈕/CTA 常在畫面中下段(此遊戲三顆登入鈕堆疊於此)。掃過中下段多個 Y 值 + back + 右上角。
+    // 卡住脫困:連續 ≥3 步畫面沒變 → VLM 顯然瞄不準或選錯。介入輪換。
+    // 但先分辨「安裝/載入畫面」:此時亂點無意義,應「耐心等待」而非脫困(APK 尤其數百 MB 首裝很慢)。
+    // 且脫困若試了很多輪畫面仍全無變化,代表真的卡死(安裝失敗/當機/需人工)—— 判定 error 結束,
+    // 不再無止盡空轉(尤其步數無上限的任務,避免在真機上一直計費)。
     let escapeOverride = false;
+    // 安裝/載入偵測:VLM 的 thinking 或畫面名提到 install/loading/安裝/載入 → 視為載入中。
+    const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中/i;
+    const looksLoading =
+      loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || screenName || ''));
+
     if (stuckCount >= 3) {
-      // 中下段掃描,優先較低位置:遊戲登入頁常把「訪客/Play now/開始」放在按鈕堆疊的最下面,
-      // 那是免帳號進入的入口(較高的常是 SMS/帳號/第三方登入,會卡在需要帳號)。
-      const yBand = [0.70, 0.78, 0.64, 0.86, 0.57];
-      const mode = (stuckCount - 3) % (yBand.length + 2);
-      if (mode < yBand.length) {
-        cmd.action = 'tap'; cmd.x = Math.round(cw * 0.5); cmd.y = Math.round(ch * yBand[mode]);
-        cmd.thinking = `連續 ${stuckCount} 步畫面沒變,掃描中下段主按鈕帶 y=${(yBand[mode] * 100).toFixed(0)}% 脫困`;
-        escapeOverride = true;
-      } else if (mode === yBand.length) {
-        cmd.action = 'back'; cmd.x = undefined; cmd.y = undefined;
-        cmd.thinking = `連續 ${stuckCount} 步畫面沒變,用 back 脫困`;
+      // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
+      //     配合此處額外 wait 動作,等於給數十秒到 1-2 分鐘讓安裝/載入完成),不亂點。
+      const STUCK_WAIT_STEPS = 20; // 卡住的前 20 輪(約 60-100s)只等待,不亂點
+      // (B) 硬上限:脫困(含等待)累計超過 STUCK_ABORT_STEPS 步畫面仍完全沒變 → 判定卡死結束。
+      const STUCK_ABORT_STEPS = 30;
+
+      if (stuckCount >= STUCK_ABORT_STEPS) {
+        finalState = 'error';
+        finalMsg = looksLoading
+          ? `畫面連續 ${stuckCount} 步無變化且停在安裝/載入畫面 —— 可能 APK 安裝或首次啟動失敗/逾時(此 APK 可能過大或需額外下載資源)。已中止,避免空轉。`
+          : `畫面連續 ${stuckCount} 步無變化,各種脫困嘗試均無效 —— 可能當機/卡死或需人工介入。已中止,避免空轉。`;
+        await writeStatus('error', finalMsg, steps.length);
+        break;
+      }
+
+      if (looksLoading || stuckCount < STUCK_WAIT_STEPS) {
+        // 載入中或仍在耐心期:等待,不亂點。
+        cmd.action = 'wait'; cmd.x = undefined; cmd.y = undefined; cmd.duration = 4;
+        cmd.thinking = looksLoading
+          ? `偵測到安裝/載入畫面(第 ${stuckCount + 1} 次未變),耐心等待安裝/載入完成`
+          : `連續 ${stuckCount} 步畫面沒變,先等待(可能仍在載入)`;
         escapeOverride = true;
       } else {
-        cmd.action = 'tap'; cmd.x = Math.round(cw * 0.93); cmd.y = Math.round(ch * 0.06);
-        cmd.thinking = `連續 ${stuckCount} 步畫面沒變,點右上角(關閉鈕常在此)脫困`;
-        escapeOverride = true;
+        // 耐心期過後仍未變 → 才進入主動脫困輪換(中下段掃描 + back + 右上角)。
+        const yBand = [0.70, 0.78, 0.64, 0.86, 0.57];
+        const mode = (stuckCount - STUCK_WAIT_STEPS) % (yBand.length + 2);
+        if (mode < yBand.length) {
+          cmd.action = 'tap'; cmd.x = Math.round(cw * 0.5); cmd.y = Math.round(ch * yBand[mode]);
+          cmd.thinking = `連續 ${stuckCount} 步畫面沒變,掃描中下段主按鈕帶 y=${(yBand[mode] * 100).toFixed(0)}% 脫困`;
+          escapeOverride = true;
+        } else if (mode === yBand.length) {
+          cmd.action = 'back'; cmd.x = undefined; cmd.y = undefined;
+          cmd.thinking = `連續 ${stuckCount} 步畫面沒變,用 back 脫困`;
+          escapeOverride = true;
+        } else {
+          cmd.action = 'tap'; cmd.x = Math.round(cw * 0.93); cmd.y = Math.round(ch * 0.06);
+          cmd.thinking = `連續 ${stuckCount} 步畫面沒變,點右上角(關閉鈕常在此)脫困`;
+          escapeOverride = true;
+        }
       }
     }
 
@@ -610,6 +653,7 @@ async function main() {
   // 報告 + 終態。
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w, h }, vlmModel: VLM,
+    ...(deviceModel ? { deviceModel } : {}),
     stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);

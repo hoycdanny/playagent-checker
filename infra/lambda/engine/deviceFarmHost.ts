@@ -46,6 +46,10 @@ export interface DeviceFarmRunParams {
   maxSteps?: number;
   maxOsVersion?: number;
   minOsVersion?: number;
+  /** 使用者提交時明選的實體裝置 ARN(runner 短路直接用此台真機)。 */
+  deviceArn?: string;
+  /** 使用者提交時所選機型名稱(顯示用,runner 取不到 session model 時的後備)。 */
+  deviceModel?: string;
 }
 
 export interface DeviceFarmRunResult {
@@ -95,6 +99,9 @@ export async function startDeviceFarmRun(
     ...(params.minOsVersion !== undefined
       ? [{ name: 'PA_MIN_OS', value: String(params.minOsVersion) }]
       : []),
+    // 使用者明選的裝置:ARN 讓 runner 短路挑此台真機;model 供 runner 取不到 session 機型時後備顯示。
+    ...(params.deviceArn ? [{ name: 'PA_DEVICE_ARN', value: params.deviceArn }] : []),
+    ...(params.deviceModel ? [{ name: 'PA_DEVICE_MODEL', value: params.deviceModel }] : []),
   ];
 
   const runResp = await ecs.send(

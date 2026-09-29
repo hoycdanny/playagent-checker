@@ -345,6 +345,8 @@ export async function setupDeviceFarmSession(deps, params) {
       platform,
       namePrefix: `pa-${params.jobId}`,
       ...(prefer32bit ? { prefer32bit: true } : {}),
+      // 使用者明選的裝置優先(resolveDeviceArn 會短路直接用此 ARN);沒帶才靠 OS 區間挑。
+      ...(params.deviceArn ? { deviceArn: params.deviceArn } : {}),
       ...(params.maxOsVersion !== undefined ? { maxOsVersion: params.maxOsVersion } : {}),
       ...(params.minOsVersion !== undefined ? { minOsVersion: params.minOsVersion } : {}),
     });

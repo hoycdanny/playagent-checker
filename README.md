@@ -341,6 +341,10 @@ Notes:
 
 The Web backend works with no extra setup. Real-device testing uses **AWS Device Farm**, whose projects live in **us-west-2** and are created automatically by the runner. The deploy credentials already include Device Farm permissions; no manual setup is needed — just pick "Device Farm" when submitting a task.
 
+**Pick a device model:** when you choose the Device Farm backend, a device dropdown appears listing the real phones available right now (model + Android version), each with its characteristics (resolution, memory, CPU). Leave it on "Auto" to take the first available device, or pick an exact model — the run will use that specific phone. The device that actually ran a task is shown on the task detail page ("執行裝置 / Ran on device").
+
+**No runaway runs:** if a screen stops changing — a huge APK stuck installing, a frozen app, or a login/reCAPTCHA wall — the runner waits patiently first (installs can take minutes), and if the screen is still completely unchanged past a hard limit it ends the run as `error` instead of spinning. This matters on metered real devices, where an infinite loop would keep billing.
+
 ---
 
 ## Costs, cleanup, and troubleshooting

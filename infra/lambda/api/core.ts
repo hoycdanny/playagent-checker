@@ -152,14 +152,22 @@ export interface ApiDeps {
   userAdmin?: UserAdmin;
 }
 
-/** Device Farm 真機池的精簡呈現(供裝置管理頁顯示)。 */
+/** Device Farm 真機池的精簡呈現(供裝置管理頁顯示 + 提交任務時挑機)。 */
 export interface CloudDevice {
+  /** 裝置 ARN(提交任務時當 deviceArn 明確指定要跑哪台)。 */
+  arn?: string;
   name: string;
   os: string;
   arch: string;
   manufacturer: string;
   formFactor: string;
   availability?: string;
+  /** 螢幕解析度(如 "1080x2340")。 */
+  resolution?: string;
+  /** 記憶體(位元組)。 */
+  memoryBytes?: number;
+  /** CPU 描述(如 "Qualcomm Snapdragon ... 2.84 GHz")。 */
+  cpu?: string;
 }
 
 function json(status: number, body: unknown): ApiResponse {

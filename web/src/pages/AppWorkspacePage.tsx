@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { apiGet, apiPost, apiPut, apiDelete, type ListResponse } from '../api/client.ts';
+import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
@@ -132,6 +132,9 @@ export default function AppWorkspacePage() {
   // 步數/預算上限:空 = 無上限。
   const [maxSteps, setMaxSteps] = useState('');
   const [budgetUsd, setBudgetUsd] = useState('');
+  // Device Farm 裝置選擇:真機池 + 所選裝置 ARN(空 = 引擎自動挑第一台可用)。
+  const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
+  const [deviceArn, setDeviceArn] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
   const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
@@ -191,6 +194,10 @@ export default function AppWorkspacePage() {
         setSubagentModels(sortByRecommend('subagent', r.items));
         setSubagentModel(recommendedDefault('subagent', r.items));
       })
+      .catch(() => {});
+    // Device Farm 真機池(供 devicefarm 後端挑機型/版本);唯讀清單。
+    apiGet<ListResponse<CloudDevice>>('/devices/cloud')
+      .then((r) => setCloudDevices(r.items))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId]);
@@ -329,6 +336,17 @@ export default function AppWorkspacePage() {
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
         ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
+        // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
+        ...(backend === 'devicefarm' && deviceArn
+          ? (() => {
+              const d = cloudDevices.find((x) => x.arn === deviceArn);
+              return {
+                deviceArn,
+                ...(d?.name ? { deviceModel: d.name } : {}),
+                ...(d?.os ? { osVersion: d.os } : {}),
+              };
+            })()
+          : {}),
       });
       setShowTaskForm(false);
       setTaskCaseId('');
@@ -606,6 +624,40 @@ export default function AppWorkspacePage() {
                   ))}
                 </select>
               </label>
+              {backend === 'devicefarm' && (
+                <label className="ws__field">
+                  <span className="ws__label">{t('tasks.device')}</span>
+                  <span className="ws__muted">{t('tasks.deviceHint')}</span>
+                  <select value={deviceArn} onChange={(e) => setDeviceArn(e.target.value)}>
+                    <option value="">{t('tasks.deviceAuto')}</option>
+                    {cloudDevices
+                      .filter((d) => d.arn)
+                      .map((d) => (
+                        <option key={d.arn} value={d.arn}>
+                          {d.name} · Android {d.os}
+                        </option>
+                      ))}
+                  </select>
+                  {(() => {
+                    const d = cloudDevices.find((x) => x.arn === deviceArn);
+                    if (!d) return null;
+                    const chips = [
+                      `Android ${d.os}`,
+                      d.arch,
+                      d.resolution,
+                      typeof d.memoryBytes === 'number'
+                        ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
+                        : undefined,
+                      d.cpu,
+                    ].filter(Boolean);
+                    return (
+                      <span className="ws__muted">
+                        {t('tasks.deviceSpecs')}: {chips.join(' · ')}
+                      </span>
+                    );
+                  })()}
+                </label>
+              )}
               {/* 三個 Seat 模型選擇(與獨立「測試任務」頁一致):控制遊戲 / 分析畫面 / 子代理。 */}
               {VLM_BACKENDS.has(backend) && (
                 <>

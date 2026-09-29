@@ -185,6 +185,13 @@ export default function TaskDetailPage() {
                   </dd>
                 </div>
               )}
+              {/* 執行裝置:Device Farm 真機任務才會有機型;顯示實際跑在哪台實體裝置上 */}
+              {meta!.deviceModel && (
+                <div className="detail__info-row">
+                  <dt>{t('detail.ranOnDevice')}</dt>
+                  <dd>{meta!.deviceModel}</dd>
+                </div>
+              )}
               {/* 使用模型:依三個角色分行,各標明分工說明,讓人一看就懂哪顆做什麼 */}
               {(() => {
                 const seatModel = (seat: string): string | undefined =>

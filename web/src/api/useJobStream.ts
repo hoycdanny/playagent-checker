@@ -35,6 +35,8 @@ export interface TaskMeta {
   task?: string;
   knowledgeBaseIds: string[];
   vlmModel?: string;
+  /** 實際執行的真機機型(Device Farm)。 */
+  deviceModel?: string;
   seats: MetaSeat[];
   tokens?: { input: number; output: number };
   budgetUsd?: number;
