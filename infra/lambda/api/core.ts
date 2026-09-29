@@ -68,6 +68,8 @@ import {
   deleteSecretRef,
   SecretRefError,
 } from './secretRefStore.js';
+import { tenantSecretPrefix } from './secretRefs.js';
+import type { SecretWriter } from './secretValueStore.js';
 import {
   registerDevice,
   listDevices,
@@ -150,6 +152,8 @@ export interface ApiDeps {
   getRealCost?: (opts: { start?: string; end?: string }) => Promise<RealCost>;
   /** 成員管理(admin 專用)。選填;未注入時 /users 路由回 501。 */
   userAdmin?: UserAdmin;
+  /** 測試憑證值寫入(Secrets Manager)。選填;未注入時 /secret-refs 僅登記名稱不存值。 */
+  secretWriter?: SecretWriter;
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示 + 提交任務時挑機)。 */
@@ -352,22 +356,47 @@ export async function handleRequest(
       }
 
       case 'PUT /secret-refs': {
-        const b = (req.body ?? {}) as { name?: string; label?: string };
-        if (!b.name) return json(400, { error: 'name 為必填' });
+        // 前端傳短鍵(如 TEST_USERNAME)+ 值 + 標籤;後端組出完整機密名(含租戶前綴),
+        // 值寫進 Secrets Manager(不落 S3、不回傳),名稱登記進 secret-refs.json。
+        // 相容既有用法:也接受已含前綴的完整 name。
+        const b = (req.body ?? {}) as { name?: string; key?: string; value?: string; label?: string };
+        const prefix = tenantSecretPrefix(tenant.tenantId);
+        const rawKey = (b.key ?? b.name ?? '').trim();
+        if (!rawKey) return json(400, { error: 'key(或 name)為必填' });
+        // 短鍵只允許安全字元(避免注入到機密名);已含前綴則原樣沿用。
+        const fullName = rawKey.startsWith(prefix) ? rawKey : `${prefix}${rawKey}`;
+        const shortKey = fullName.slice(prefix.length);
+        if (!/^[A-Za-z0-9_.-]+$/.test(shortKey)) {
+          return json(400, { error: 'key 僅允許英數與 _ . -' });
+        }
+        // 有帶 value 才寫值(需 secretWriter);沒帶 value 則只更新登記(相容舊行為)。
+        if (b.value !== undefined && b.value !== '') {
+          if (!deps.secretWriter) return json(501, { error: '未啟用機密值寫入' });
+          await deps.secretWriter.putSecretValue(fullName, b.value);
+        }
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const entry = await putSecretRef(s3, deps.bucket, tenant.tenantId, {
-          name: b.name,
+          name: fullName,
           ...(b.label ? { label: b.label } : {}),
         });
+        // 只回名稱/標籤,永不回值(Req 14.4)。
         return json(200, entry);
       }
 
       case 'DELETE /secret-refs': {
-        const name = req.query?.['name'];
-        if (!name) return json(400, { error: 'name 為必填' });
+        // 支援短鍵或完整 name;同時刪 Secrets Manager 值與登記。
+        const prefix = tenantSecretPrefix(tenant.tenantId);
+        const raw = req.query?.['name'] ?? req.query?.['key'];
+        if (!raw) return json(400, { error: 'name(或 key)為必填' });
+        const fullName = raw.startsWith(prefix) ? raw : `${prefix}${raw}`;
+        if (deps.secretWriter) {
+          await deps.secretWriter.deleteSecret(fullName).catch(() => {
+            /* 刪值失敗不擋登記移除;runner 端缺值會保留佔位並警告 */
+          });
+        }
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        await deleteSecretRef(s3, deps.bucket, tenant.tenantId, name);
-        return json(200, { name });
+        await deleteSecretRef(s3, deps.bucket, tenant.tenantId, fullName);
+        return json(200, { name: fullName });
       }
 
       case 'GET /devices': {

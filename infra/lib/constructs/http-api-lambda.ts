@@ -171,6 +171,27 @@ export class HttpApiLambda extends Construct {
       }),
     );
 
+    // 測試憑證:API 建立/更新/刪除使用者的測試帳密(存 Secrets Manager,值永不回傳)。
+    // scope 到本平台命名前綴 playagent/tenant/*;租戶隔離由後端以 tenantSecretPrefix 強制。
+    // CreateSecret 不支援資源級 ARN(建立時資源尚不存在),故拆成兩條:建立用 *,其餘 scope 到前綴。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['secretsmanager:CreateSecret'],
+        resources: ['*'],
+      }),
+    );
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'secretsmanager:PutSecretValue',
+          'secretsmanager:DescribeSecret',
+          'secretsmanager:DeleteSecret',
+          'secretsmanager:TagResource',
+        ],
+        resources: [`arn:aws:secretsmanager:*:${acct}:secret:playagent/tenant/*`],
+      }),
+    );
+
     // 費用分析頁取 AWS 真實成本:Cost Explorer 唯讀(CE 不支援資源級條件,故 *)。
     this.apiFn.addToRolePolicy(
       new iam.PolicyStatement({

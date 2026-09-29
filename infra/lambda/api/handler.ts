@@ -12,6 +12,7 @@ import { assumeTenantS3 } from './tenantCredentials.js';
 import { draftCaseYaml, makeBedrockClient } from './draft.js';
 import { getRealCost, makeCostExplorerClient } from './cost.js';
 import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
+import { makeSecretWriter } from './secretValueStore.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-east-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
@@ -33,6 +34,8 @@ const USER_POOL_ID = process.env.USER_POOL_ID ?? '';
 const userAdmin = USER_POOL_ID
   ? makeUserAdmin(makeCognitoAdminClient(REGION), USER_POOL_ID)
   : undefined;
+// 測試憑證值寫入(Secrets Manager,與資料同區 us-east-2);runner 執行時才讀值替換 PA_TASK。
+const secretWriter = makeSecretWriter(REGION);
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
 let cloudDeviceCache: { at: number; items: CloudDevice[] } | null = null;
@@ -117,6 +120,7 @@ const deps: ApiDeps = {
   listCloudDevices,
   getRealCost: (opts) => getRealCost(costExplorer, opts),
   ...(userAdmin ? { userAdmin } : {}),
+  secretWriter,
 };
 
 const CORS_HEADERS: Record<string, string> = {
