@@ -22,6 +22,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
+import { resolveTaskSecrets } from './secretsResolver.mjs';
 
 const START_URL = process.env.PA_URL || 'https://example.com';
 const JOB = process.env.PA_JOB;
@@ -30,7 +31,8 @@ const PREFIX = process.env.PA_PREFIX;
 const APP_ID = process.env.PA_APP || '';
 const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
 const VLM = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
-const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
+// 任務目標:可能含 ${NAME}/secretRef: 憑證佔位符,main() 啟動時先解析替換(見 secretsResolver)。
+let TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 死循環 / 取消 / 連續失敗才停)。
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
@@ -177,6 +179,12 @@ function pageIdFromName(name, idx) {
 }
 
 async function main() {
+  // 測試憑證:把任務目標裡的 ${NAME}/secretRef: 換成真實值(從 Secrets Manager 讀,明文不落 S3)。
+  try {
+    const r = await resolveTaskSecrets(TASK);
+    TASK = r.text;
+  } catch (e) { console.warn('[secrets] 解析憑證時發生例外(略過):', e?.message || e); }
+
   await writeStatus('running', '瀏覽器啟動中', 0);
   const client = await PlaywrightClient.create({ width: VP_W || 1280, height: VP_H || 800, url: START_URL });
 

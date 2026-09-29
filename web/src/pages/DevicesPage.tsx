@@ -1,7 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
-import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import './ListPage.css';
@@ -24,8 +23,6 @@ interface SecretRefEntry {
 
 export default function DevicesPage() {
   const { t } = useI18n();
-  const { tenantId } = useAuth();
-  const secretPrefix = `playagent/tenant/${tenantId ?? ''}/`;
 
   const devices = useQuery<ListResponse<DeviceView>>('devices', () =>
     apiGet<ListResponse<DeviceView>>('/devices'),
@@ -67,7 +64,10 @@ export default function DevicesPage() {
   }
 
   // 機密引用
-  const [secretName, setSecretName] = useState(secretPrefix);
+  // 測試憑證:使用者填「短鍵(如 TEST_USERNAME)+ 值 + 標籤」;後端組出完整機密名並把值寫進
+  // Secrets Manager(值永不回傳)。任務目標裡寫 ${TEST_USERNAME} 或 secretRef:<全名> 即會被替換。
+  const [secretKey, setSecretKey] = useState('');
+  const [secretValue, setSecretValue] = useState('');
   const [secretLabel, setSecretLabel] = useState('');
   const [addingSecret, setAddingSecret] = useState(false);
   const [secretError, setSecretError] = useState<string | null>(null);
@@ -77,8 +77,13 @@ export default function DevicesPage() {
     setSecretError(null);
     setAddingSecret(true);
     try {
-      await apiPut('/secret-refs', { name: secretName, label: secretLabel || undefined });
-      setSecretName(secretPrefix);
+      await apiPut('/secret-refs', {
+        key: secretKey.trim(),
+        value: secretValue,
+        label: secretLabel || undefined,
+      });
+      setSecretKey('');
+      setSecretValue('');
       setSecretLabel('');
       secrets.refetch();
     } catch (err) {
@@ -228,11 +233,22 @@ export default function DevicesPage() {
 
         <form className="devices__form devices__form--secret" onSubmit={onAddSecret}>
           <label className="devices__field">
-            <span className="devices__label">{t('devices.secretName')}</span>
+            <span className="devices__label">{t('devices.secretKey')}</span>
             <input
               required
-              value={secretName}
-              onChange={(e) => setSecretName(e.target.value)}
+              value={secretKey}
+              placeholder="TEST_USERNAME"
+              onChange={(e) => setSecretKey(e.target.value)}
+            />
+          </label>
+          <label className="devices__field">
+            <span className="devices__label">{t('devices.secretValue')}</span>
+            <input
+              required
+              type="password"
+              autoComplete="new-password"
+              value={secretValue}
+              onChange={(e) => setSecretValue(e.target.value)}
             />
           </label>
           <label className="devices__field">

@@ -354,6 +354,14 @@ export class ExecutionStack extends Stack {
         resources: [`arn:aws:sagemaker:*:${account}:endpoint/ui-tars-*`],
       }),
     );
+    // 測試憑證注入:runner 在容器內把 PA_TASK 的 ${NAME}/secretRef: 換成真實值(明文不落 S3、
+    // 不進 ECS env override)。只讀本平台命名前綴下的機密,租戶隔離在 runner 端以名稱前綴強制。
+    taskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [`arn:aws:secretsmanager:*:${account}:secret:playagent/tenant/*`],
+      }),
+    );
 
     const taskDef = new ecs.FargateTaskDefinition(this, 'ExplorationTaskDef', {
       cpu: 1024,
@@ -443,6 +451,13 @@ export class ExecutionStack extends Stack {
           'arn:aws:bedrock:*::foundation-model/*',
           `arn:aws:bedrock:*:${account}:inference-profile/*`,
         ],
+      }),
+    );
+    // 測試憑證注入(同 Device Farm runner):web runner 也可能需要在任務目標填入測試帳密。
+    webTaskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [`arn:aws:secretsmanager:*:${account}:secret:playagent/tenant/*`],
       }),
     );
 
