@@ -24,7 +24,7 @@ import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { stat, unlink } from 'node:fs/promises';
-import { detectXapk, mergeXapkToApk, isThirtyTwoBitOnly, isStandaloneApk } from './apkMerge.mjs';
+import { detectXapk, mergeXapkToApk, isThirtyTwoBitOnly, isStandaloneApk, detectApkPackage } from './apkMerge.mjs';
 import { pipeline } from 'node:stream/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -336,6 +336,15 @@ export async function setupDeviceFarmSession(deps, params) {
   // 避免被分到「64-bit-only」的新機而 INSTALL_FAILED_NO_MATCHING_ABIS(如 Brotato 只帶 v7a split)。
   const prefer32bit = platform !== 'ios' && isThirtyTwoBitOnly(uploadArtifact.path);
   if (prefer32bit) console.log('偵測到被測 app 為 32-bit-only(僅 armeabi-v7a),將挑選支援 32bit 的裝置。');
+  // 從 APK 解析套件名:App 建立時若未填 identifier,job 沒有 package,runner 就無法自動啟動遊戲
+  // (會停在桌面對著 "Installing" 圖示空轉)。這裡自動補上,回給 runner 當 launch 依據。
+  let detectedPackage;
+  if (platform !== 'ios') {
+    try {
+      detectedPackage = detectApkPackage(uploadArtifact.path);
+      if (detectedPackage) console.log(`從 APK 解析到套件名:${detectedPackage}`);
+    } catch { /* 取不到就算了,交給 runner 視覺找入口 */ }
+  }
   try {
     const projectArn = await getOrCreateProject(projectName, dfClient);
     const appArn = await uploadAppFromFile(projectArn, uploadArtifact, params.appId, platform, dfClient);
@@ -350,7 +359,8 @@ export async function setupDeviceFarmSession(deps, params) {
       ...(params.maxOsVersion !== undefined ? { maxOsVersion: params.maxOsVersion } : {}),
       ...(params.minOsVersion !== undefined ? { minOsVersion: params.minOsVersion } : {}),
     });
-    return session; // { appiumUrl, sessionArn, deviceModel }
+    // 附上偵測到的套件名(runner 在 PA_PKG 為空時據此自動啟動遊戲)。
+    return { ...session, ...(detectedPackage ? { detectedPackage } : {}) }; // { appiumUrl, sessionArn, deviceModel, detectedPackage? }
   } finally {
     await unlink(artifact.path).catch(() => {});
     if (mergedPath) await unlink(mergedPath).catch(() => {});

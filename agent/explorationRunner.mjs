@@ -289,6 +289,9 @@ async function main() {
   // 重活在此(Fargate),不在 engine(512MB/5 分撐不住數百 MB APK)。
   let ownsSession = false;
   let deviceModel; // 執行此任務的實體真機機型(寫進 report 供前端顯示)
+  // 有效套件名:優先用 job 帶來的 PA_PKG(App identifier);若為空,改用 runner 從 APK 解析到的套件名。
+  // 這攸關「能不能自動啟動遊戲」——沒有套件名時 runner 只會停在桌面對著安裝中圖示空轉。
+  let effectivePkg = PKG;
   if (!APPIUM_URL) {
     if (!ARTIFACT_KEY) throw new Error('缺少 PA_ARTIFACT_KEY,無法建立 Device Farm session');
     await writeStatus('running', 'Device Farm:上傳 APK 並開真機 session 中', 0);
@@ -311,6 +314,10 @@ async function main() {
     ownsSession = true;
     selfOwnedSessionArn = session.sessionArn;
     deviceModel = session.deviceModel;
+    if (!effectivePkg && session.detectedPackage) {
+      effectivePkg = session.detectedPackage;
+      console.log(`PA_PKG 未提供,改用從 APK 解析的套件名啟動:${effectivePkg}`);
+    }
     await writeStatus('running', `Device Farm 真機就緒(${deviceModel ?? '真機'}),Appium 連線中`, 0);
   } else {
     await writeStatus('running', 'Appium 連線中', 0);
@@ -337,7 +344,7 @@ async function main() {
   } catch { /* 無則略過 */ }
 
   // 啟動 app。
-  if (PKG) { try { await client.launchPackage(PKG); await sleep(8000); } catch { /* 交給 agent 視覺找入口 */ } }
+  if (effectivePkg) { try { await client.launchPackage(effectivePkg); await sleep(8000); } catch { /* 交給 agent 視覺找入口 */ } }
 
   // 座標空間以「實際截圖像素尺寸」為準(Appium 截圖空間 == 點擊空間)。
   // 不用 getWindowSize:Device Farm/UiAutomator2 有時回傳直向預設,與橫向遊戲畫面不符,
@@ -398,9 +405,9 @@ async function main() {
     const t0 = Date.now();
     // 前景守衛:AI 可能誤按 back 把遊戲退到背景/桌面。已知包名時,每步先確保遊戲在前景,
     // 若被拉回前景則多等一下載入,避免整段在 Android 桌面/Play Games 空轉。
-    if (PKG) {
+    if (effectivePkg) {
       try {
-        const wasForeground = await client.ensureForeground(PKG);
+        const wasForeground = await client.ensureForeground(effectivePkg);
         if (!wasForeground) await sleep(4000);
       } catch { /* 盡力,不擋主流程 */ }
     }
