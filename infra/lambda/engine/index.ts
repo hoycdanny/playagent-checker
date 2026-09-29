@@ -34,23 +34,40 @@ const sharedS3 = new S3Client({ region: REGION });
 const secretsClient = new SecretsManagerClient({ region: REGION });
 
 /**
- * 讀某 App 憑證表的「key 名清單」(僅名稱,不把值放進回傳/context/log)。
- * 雖然 GetSecretValue 會拿到值,但此處只取 Object.keys —— 值不外流。取不到回空陣列。
+ * 讀某 App 憑證表,分成兩類供 context 注入:
+ *   - maskedKeys:visible=false 的 key 名(只給名稱,值不外流;AI 在 type 用 ${key},runner 才替換)。
+ *   - visible:visible=true 的 {key,value}(值會注入 context,讓 AI 在下拉/清單「點對」正確項目,
+ *     例如伺服器名稱=daily-aws;這類點選操作無法用遮蔽佔位完成)。
+ * 相容舊式純字串 entry → 視為遮蔽。取不到回空。
  */
-async function readAppCredentialKeys(tenantId: string, appId: string): Promise<string[]> {
-  if (!appId) return [];
+async function readAppCredentialInfo(
+  tenantId: string,
+  appId: string,
+): Promise<{ maskedKeys: string[]; visible: Array<{ key: string; value: string }> }> {
+  const empty = { maskedKeys: [] as string[], visible: [] as Array<{ key: string; value: string }> };
+  if (!appId) return empty;
   try {
     const res = await secretsClient.send(
       new GetSecretValueCommand({ SecretId: appCredentialsSecretName(tenantId, appId) }),
     );
-    if (typeof res.SecretString !== 'string' || res.SecretString === '') return [];
+    if (typeof res.SecretString !== 'string' || res.SecretString === '') return empty;
     const parsed = JSON.parse(res.SecretString);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return Object.keys(parsed).sort();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return empty;
+    const maskedKeys: string[] = [];
+    const visible: Array<{ key: string; value: string }> = [];
+    for (const [k, raw] of Object.entries(parsed)) {
+      if (raw && typeof raw === 'object' && (raw as { visible?: unknown }).visible === true) {
+        const v = (raw as { value?: unknown }).value;
+        visible.push({ key: k, value: typeof v === 'string' ? v : String(v ?? '') });
+      } else {
+        maskedKeys.push(k); // 純字串或 visible!==true 一律遮蔽
+      }
     }
-    return [];
+    maskedKeys.sort();
+    visible.sort((a, b) => a.key.localeCompare(b.key));
+    return { maskedKeys, visible };
   } catch {
-    return [];
+    return empty;
   }
 }
 
@@ -171,15 +188,15 @@ async function assembleAgentContext(
   caseTask: string,
 ): Promise<void> {
   if (!appId) return;
-  const [knowledge, memory, kbMarkdown, kbReference, credentialKeys] = await Promise.all([
+  const [knowledge, memory, kbMarkdown, kbReference, credInfo] = await Promise.all([
     readKnowledge(s3, bucket, tenantId, appId),
     readMemory(s3, bucket, tenantId, appId, locality),
     // 共用知識庫 Markdown(提交時選的,可多選)—— 走 sharedS3(跨租戶),失敗不擋執行。
     composeKnowledgeBases(sharedS3, bucket, knowledgeBaseIds).catch(() => ''),
     // Bedrock KB 檢索(Stage B):以任務目標為 query,對每座已接文件的 KB 撈 top-K 片段。
     retrieveReference(bucket, knowledgeBaseIds, caseTask).catch(() => ''),
-    // App 憑證:只取 key 名清單(值不進 context/log)。
-    readAppCredentialKeys(tenantId, appId).catch(() => []),
+    // App 憑證:遮蔽 key(只名稱)+ 可見憑證(連值,供 AI 在下拉/清單點對)。
+    readAppCredentialInfo(tenantId, appId).catch(() => ({ maskedKeys: [], visible: [] })),
   ]);
   let context = composeContext(knowledge, memory);
   // 注入順序/優先序:手寫 App 知識 > 知識庫 Markdown > KB 檢索片段 > 記憶。
@@ -191,15 +208,26 @@ async function assembleAgentContext(
     const refBlock = `# KNOWLEDGE BASE REFERENCES (retrieved for this task — lower priority than authored knowledge)\n${kbReference.trim()}`;
     context = context.trim() ? `${context}\n\n${refBlock}` : refBlock;
   }
-  // 可用測試資料:只列 key 名,不含值。指示 AI 需要帳密/伺服器資訊時,在 type 的 text 用 ${key}
-  // 代入(系統會在輸入到裝置那一刻填入真值);切勿自行猜測或明寫。
-  if (credentialKeys.length > 0) {
-    const credBlock =
-      `# 可用測試資料 / AVAILABLE TEST CREDENTIALS\n` +
-      `這個 App 已設定下列測試資料(僅列名稱,實際值受保護):${credentialKeys.map((k) => `\${${k}}`).join('、')}。\n` +
-      `當畫面需要輸入帳號、密碼、伺服器名稱/IP 等資訊時,請在 type 動作的 text 欄位直接寫對應的 \${key}` +
-      `(例如需要帳號就填 \${${credentialKeys[0]}});系統會在真正輸入到裝置的那一刻替換成真實值。` +
-      `切勿自行猜測或明寫帳密,也不要把 \${key} 當成畫面上的字面文字。`;
+  // 可用測試資料:兩類。
+  //   (A) 遮蔽:只列 key 名,值受保護。AI 在 type 的 text 用 ${key},runner 在輸入到裝置那一刻替換。
+  //   (B) 可見:連值列出(如伺服器名稱=daily-aws),供 AI 在下拉/清單「點對」正確項目;若要打字仍可用 ${key}。
+  if (credInfo.maskedKeys.length > 0 || credInfo.visible.length > 0) {
+    const lines: string[] = ['# 可用測試資料 / AVAILABLE TEST CREDENTIALS'];
+    if (credInfo.visible.length > 0) {
+      lines.push(
+        `可直接使用的資料(用來在畫面/下拉清單中「選對」正確項目):` +
+          credInfo.visible.map((c) => `${c.key}=${c.value}`).join('、') +
+          `。遇到需要選擇伺服器/區域等選單時,依這些值挑選對應項目;若某欄位是用打字輸入,可在 type 的 text 用 \${key}(如 \${${credInfo.visible[0]!.key}})。`,
+      );
+    }
+    if (credInfo.maskedKeys.length > 0) {
+      lines.push(
+        `受保護的資料(僅列名稱,值不顯示):${credInfo.maskedKeys.map((k) => `\${${k}}`).join('、')}。` +
+          `當畫面需要輸入帳號、密碼等資訊時,請在 type 動作的 text 直接寫對應的 \${key}(如 \${${credInfo.maskedKeys[0]}});` +
+          `系統會在真正輸入到裝置的那一刻替換成真實值。切勿自行猜測或明寫帳密,也不要把 \${key} 當成畫面上的字面文字。`,
+      );
+    }
+    const credBlock = lines.join('\n');
     context = context.trim() ? `${context}\n\n${credBlock}` : credBlock;
   }
   if (!context.trim()) return;
@@ -214,8 +242,9 @@ async function assembleAgentContext(
         hasMemory: memory.trim().length > 0,
         hasKnowledgeBases: kbMarkdown.trim().length > 0,
         hasKbReferences: kbReference.trim().length > 0,
-        // 只記 key 名(不含值),供審計「本次告訴 AI 有哪些可用憑證」。
-        credentialKeys,
+        // 只記 key 名(不含遮蔽值),供審計「本次告訴 AI 有哪些可用憑證」。
+        // 可見憑證只記 key 名(值雖進了 context 供點對,但審計檔不另存值)。
+        credentialKeys: [...credInfo.maskedKeys, ...credInfo.visible.map((c) => c.key)].sort(),
         knowledgeBaseIds,
         context,
         assembledAt: new Date().toISOString(),

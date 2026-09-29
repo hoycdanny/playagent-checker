@@ -44,8 +44,13 @@ export async function loadAppCredentials() {
     if (typeof res.SecretString !== 'string' || res.SecretString === '') return {};
     const parsed = JSON.parse(res.SecretString);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      // entry 可能是舊式純字串,或新式 {value,visible}。runner 只要「值」——不分可見/遮蔽,
+      // type 時兩類都能用 ${key} 替換成真值。
       const out = {};
-      for (const [k, v] of Object.entries(parsed)) out[k] = String(v);
+      for (const [k, v] of Object.entries(parsed)) {
+        if (v && typeof v === 'object' && 'value' in v) out[k] = String(v.value ?? '');
+        else out[k] = String(v ?? '');
+      }
       return out;
     }
     return {};
