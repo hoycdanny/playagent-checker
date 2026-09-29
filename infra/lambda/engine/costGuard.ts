@@ -57,11 +57,14 @@ export interface ExecutionConfigSnapshot {
  */
 const PREFERRED_DEFAULTS: Record<Seat, string> = {
   // 性價比最佳組(2026,以「能力 vs 混合單價」評選):
-  // - vlm(分析畫面):Qwen3-VL 235B —— GUI grounding SOTA 基準,能力頂尖且比 Claude 便宜約 5.6x。
+  // - vlm(分析畫面/定位):UI-TARS-1.5-7B —— 專為 GUI grounding 微調,座標準度遠勝通用 VLM
+  //   (實測通用 Qwen3-VL 在遊戲畫面誤差可達數百像素,會點空/點錯;UI-TARS 精準命中目標)。
+  //   Device Farm runner 於 endpoint 存在時走 SageMaker UI-TARS;endpoint 缺席或 web runner(無 UI-TARS
+  //   路徑)則由 runner 安全回退到通用 Bedrock VLM(Qwen3-VL 235B),故此預設在各後端皆可執行。
   // - agent(控制遊戲):MiniMax M2.1 —— 2026 開源 agentic 頂尖,決策/工具呼叫強,單價低。
   // - subagent(子代理):Nova Micro —— 子任務不需重推理,取最省(混合單價 ~$0.06,較 V3.2 省逾 9 成)。
-  // id 為可直接呼叫的最終形式:Qwen/MiniMax 走原始 id(無前綴),Amazon 走 us. 前綴設定檔。
-  vlm: 'qwen.qwen3-vl-235b-a22b',
+  // id 為可直接呼叫的最終形式:UI-TARS 走 SageMaker(id 'uitars'),MiniMax 走原始 id,Amazon 走 us. 前綴。
+  vlm: 'uitars',
   agent: 'minimax.minimax-m2.1',
   subagent: 'us.amazon.nova-micro-v1:0',
 };
