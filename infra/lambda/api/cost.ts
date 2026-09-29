@@ -39,6 +39,8 @@ export interface RealCost {
   byService: CostBucket[];
   byComponent: CostBucket[];
   byMonth: MonthlyCost[];
+  /** 已套用的專案篩選標籤(前端可顯示「僅本專案:project=playagent-checker」)。 */
+  projectFilter?: { key: string; value: string };
   /** 取數時的說明/警告(前端顯示)。 */
   note?: string;
 }
@@ -116,11 +118,19 @@ export interface RealCostOptions {
   end?: string;
   /** 依此 cost allocation tag 分組(預設 component)。 */
   componentTagKey?: string;
+  /** 只算本專案:用此 tag 篩選成本(預設 project=playagent-checker)。 */
+  projectTagKey?: string;
+  projectTagValue?: string;
   now?: Date;
 }
 
 /**
  * 取 AWS 真實成本(Cost Explorer)。三次查詢:依服務、依 component 標籤、月趨勢總額。
+ *
+ * 重要:一律用 project 標籤(預設 project=playagent-checker)Filter,只回「本專案 CDK 部署的資源」
+ * 成本,不是整個帳號。前提是該 tag 已在 Billing 主控台啟用為 cost allocation tag,且成本產生在
+ * 啟用之後——否則回傳會接近 0 / 空(過去成本不貼標),前端會提示啟用步驟。
+ *
  * Cost Explorer 未啟用或無權限時,拋錯由呼叫端捕捉並回 available:false。
  */
 export async function getRealCost(
@@ -132,7 +142,11 @@ export async function getRealCost(
     end: opts.end ?? defaultRange(opts.now).end,
   };
   const tagKey = opts.componentTagKey ?? 'component';
+  const projectKey = opts.projectTagKey ?? 'project';
+  const projectValue = opts.projectTagValue ?? 'playagent-checker';
   const TimePeriod = { Start: start, End: end };
+  // 只算本專案:以 project 標籤 Filter(全帳號 → 本專案)。三個查詢共用。
+  const Filter = { Tags: { Key: projectKey, Values: [projectValue] } };
 
   const [byServiceResp, byComponentResp, byMonthResp] = await Promise.all([
     client.send(
@@ -140,6 +154,7 @@ export async function getRealCost(
         TimePeriod,
         Granularity: 'MONTHLY',
         Metrics: ['UnblendedCost'],
+        Filter,
         GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
       }),
     ),
@@ -148,6 +163,7 @@ export async function getRealCost(
         TimePeriod,
         Granularity: 'MONTHLY',
         Metrics: ['UnblendedCost'],
+        Filter,
         GroupBy: [{ Type: 'TAG', Key: tagKey }],
       }),
     ),
@@ -156,6 +172,7 @@ export async function getRealCost(
         TimePeriod,
         Granularity: 'MONTHLY',
         Metrics: ['UnblendedCost'],
+        Filter,
       }),
     ),
   ]);
@@ -202,6 +219,7 @@ export async function getRealCost(
     byService: toBuckets(svc),
     byComponent: toBuckets(comp),
     byMonth,
+    projectFilter: { key: projectKey, value: projectValue },
   };
 }
 

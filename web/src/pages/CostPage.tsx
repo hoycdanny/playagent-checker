@@ -23,6 +23,7 @@ interface RealCost {
   byService: CostBucket[];
   byComponent: CostBucket[];
   byMonth: MonthlyCost[];
+  projectFilter?: { key: string; value: string };
   note?: string;
 }
 interface EstimatedCost {
@@ -163,6 +164,11 @@ export default function CostPage() {
                   <span className="cost__range">
                     {real.start} ~ {real.end}
                   </span>
+                  {real.projectFilter && (
+                    <span className="cost__scope" title={`${real.projectFilter.key}=${real.projectFilter.value}`}>
+                      {t('cost.scopeProject').replace('{value}', real.projectFilter.value)}
+                    </span>
+                  )}
                 </div>
                 <p className="cost__note">{t('cost.realNote')}</p>
 
