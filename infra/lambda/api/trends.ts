@@ -155,10 +155,25 @@ export async function readCaseTrend(
   recentN = 10,
 ): Promise<CaseTrend> {
   const prefix = `${tenantPrefix(tenantId)}jobs/`;
-  const list = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
-  const jobKeys = (list.Contents ?? [])
-    .map((o) => o.Key)
-    .filter((k): k is string => typeof k === 'string' && k.endsWith('/job.json'));
+  // 用 Delimiter='/' 只列「job 資料夾」(CommonPrefixes),不把每個 job 底下上千張
+  // screenshots/steps/traces 都列出來——否則 1000 個 key 的單頁上限會被截圖塞爆,
+  // 較新的 job.json 排在後面就掃不到,導致趨勢誤判為「尚無歷史」。仍需分頁抓完所有資料夾。
+  const jobKeys: string[] = [];
+  let token: string | undefined;
+  do {
+    const list = await s3.send(
+      new ListObjectsV2Command({
+        Bucket: bucket,
+        Prefix: prefix,
+        Delimiter: '/',
+        ...(token ? { ContinuationToken: token } : {}),
+      }),
+    );
+    for (const cp of list.CommonPrefixes ?? []) {
+      if (cp.Prefix) jobKeys.push(`${cp.Prefix}job.json`);
+    }
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (token);
 
   const points: RunPoint[] = [];
   await Promise.all(
