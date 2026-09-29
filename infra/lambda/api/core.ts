@@ -793,6 +793,47 @@ export async function handleRequest(
 
 class BadRequestError extends Error {}
 
+/**
+ * 從案例 YAML 取出 task 內容,支援兩種寫法:
+ *  1) 行內:`task: 走到大廳並點開始`
+ *  2) YAML 區塊純量:`task: |`(或 `>`) 後接縮排多行 —— 取到縮排結束為止,還原多行文字。
+ *
+ * 舊版用 /task:\s*(.+)/ 只抓第一行,對 `task: |` 只會抓到 "|",導致多行任務(含登入帳密/步驟)
+ * 整段遺失。此函式正確處理區塊純量。回傳去除共同縮排後的多行字串;無 task 則回 undefined。
+ */
+export function extractCaseTask(yaml: string): string | undefined {
+  const lines = yaml.split(/\r?\n/);
+  const headIdx = lines.findIndex((l) => /^task:\s*/.test(l));
+  if (headIdx < 0) return undefined;
+  const head = lines[headIdx]!;
+  const afterColon = head.replace(/^task:\s*/, '');
+  const trimmed = afterColon.trim();
+
+  // 行內寫法(非區塊指示符):直接用該行內容。
+  if (trimmed && trimmed !== '|' && trimmed !== '>' && !/^[|>][+-]?\d*$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  // 區塊純量:收集後續「比 task: 更深縮排」的行,直到縮排回到同層或更淺(遇到下一個 key)。
+  const body: string[] = [];
+  for (let i = headIdx + 1; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (line.trim() === '') { body.push(''); continue; } // 保留空行
+    const indent = line.length - line.trimStart().length;
+    if (indent === 0) break; // 回到頂層 key,區塊結束
+    body.push(line);
+  }
+  // 去尾端空行
+  while (body.length && body[body.length - 1] === '') body.pop();
+  if (body.length === 0) return undefined;
+  // 去共同縮排(以第一行非空的縮排為基準)。
+  const first = body.find((l) => l.trim() !== '') ?? '';
+  const baseIndent = first.length - first.trimStart().length;
+  const dedented = body.map((l) => (l.length >= baseIndent ? l.slice(baseIndent) : l.trimStart()));
+  const text = dedented.join('\n').trim();
+  return text || undefined;
+}
+
 /** 要求呼叫者為 admin(JWT cognito:groups 含 admins);否則丟 ForbiddenError → 403。 */
 function requireAdmin(claims: unknown): void {
   if (!isAdmin(claims)) throw new ForbiddenError('需要管理員權限');
@@ -996,8 +1037,7 @@ async function handleSubmitTask(
       }),
     );
     const yaml = (await caseObj.Body?.transformToString()) ?? '';
-    const m = /task:\s*(.+)/i.exec(yaml);
-    if (m) caseTask = m[1]!.trim();
+    caseTask = extractCaseTask(yaml);
   } catch {
     /* 無 task 欄位則由下方 fallback 或 runner 預設探索目標 */
   }
