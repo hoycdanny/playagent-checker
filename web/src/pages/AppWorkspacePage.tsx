@@ -61,8 +61,13 @@ const BACKENDS: { value: string; labelKey: MessageKey; supported: boolean }[] = 
   { value: 'attached', labelKey: 'backend.attached', supported: false },
 ];
 
-/** 需要選 VLM 模型(判畫面座標)的後端。 */
+/** 需要選 VLM 模型(判畫面座標)的後端。web 用固定預設模型,不讓使用者選。 */
 const VLM_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
+
+/** App 平台決定執行後端:web→web 瀏覽器;原生(android/ios)→ Device Farm 真機。 */
+function backendForPlatform(platform: string | undefined): string {
+  return platform === 'web' ? 'web' : 'devicefarm';
+}
 
 interface ModelEntry {
   modelId: string;
@@ -182,6 +187,8 @@ export default function AppWorkspacePage() {
     apiGet<AppRecord>(`/apps/${encodeURIComponent(appId)}`)
       .then((a) => {
         setApp(a);
+        // 執行後端由 App 平台決定(web→瀏覽器;原生→Device Farm),不讓使用者亂選。
+        setBackend(backendForPlatform(a.platform));
         // 預選該 App 的預設知識庫。
         const defaults = (a as AppRecord & { defaultKnowledgeBaseIds?: string[] })
           .defaultKnowledgeBaseIds;
@@ -648,20 +655,16 @@ export default function AppWorkspacePage() {
                   ))}
                 </select>
               </label>
+              {/* 執行環境由 App 平台決定並鎖定(web→瀏覽器;原生→Device Farm),不讓使用者亂選。 */}
               <label className="ws__field">
                 <span className="ws__label">{t('tasks.backend')}</span>
-                <select value={backend} onChange={(e) => setBackend(e.target.value)}>
-                  {BACKENDS.map((b) => (
-                    <option key={b.value} value={b.value} disabled={!b.supported}>
-                      {t(b.labelKey)}
-                      {!b.supported
-                        ? ` (${t('backend.unsupported')})`
-                        : b.value === 'web'
-                          ? ` — ${t('backend.webPreview')}`
-                          : ''}
-                    </option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  readOnly
+                  className="ws__readonly"
+                  value={t((BACKENDS.find((b) => b.value === backend)?.labelKey) ?? 'backend.web')}
+                />
+                <span className="ws__muted">{t('tasks.backendLocked')}</span>
               </label>
               {backend === 'devicefarm' && (
                 <div className="ws__field">

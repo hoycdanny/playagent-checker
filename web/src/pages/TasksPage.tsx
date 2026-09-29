@@ -45,8 +45,13 @@ const BACKENDS: { value: string; labelKey: MessageKey }[] = [
 /** 目前可端到端執行的後端(其餘標「尚未支援」並停用,避免誤選後才失敗)。
  *  devicefarm=iOS/Android 真機(取代模擬器,可過遊戲伺服器對模擬器的檢查);web=Lambda 瀏覽器。 */
 const SUPPORTED_BACKENDS = new Set(['web', 'devicefarm']);
-/** 需要選 VLM 模型(判畫面座標)的後端。 */
+/** 需要選 VLM 模型(判畫面座標)的後端。web 用固定預設模型,不讓使用者選。 */
 const VLM_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
+
+/** App 平台決定可用的執行後端:web 應用只能用 Web 瀏覽器;原生(android/ios)只能用 Device Farm 真機。 */
+function backendForPlatform(platform: string | undefined): string {
+  return platform === 'web' ? 'web' : 'devicefarm';
+}
 
 interface ModelEntry {
   modelId: string;
@@ -395,6 +400,8 @@ export default function TasksPage() {
                 // 預選該 App 的預設知識庫(可再增減)。
                 const app = apps.find((a) => a.id === nextAppId);
                 setSelectedKbIds(app?.defaultKnowledgeBaseIds ?? []);
+                // 執行後端由 App 平台決定(web→web 瀏覽器;原生→Device Farm 真機),不讓使用者亂選。
+                if (app) setBackend(backendForPlatform(app.platform));
               }}
             >
               <option value="">—</option>
@@ -418,22 +425,44 @@ export default function TasksPage() {
           </label>
           <label className="tasks__field">
             <span className="tasks__label">{t('tasks.backend')}</span>
-            <select value={backend} onChange={(e) => setBackend(e.target.value)}>
-              {BACKENDS.map((b) => {
-                const supported = SUPPORTED_BACKENDS.has(b.value);
-                const suffix = !supported
-                  ? ` (${t('backend.unsupported')})`
-                  : b.value === 'web'
-                    ? ` — ${t('backend.webPreview')}`
-                    : '';
+            {/* 執行環境由 App 平台決定:選了 App 後鎖定(web→Web 瀏覽器;原生→Device Farm),
+                避免 web 應用誤選真機、或原生應用誤選瀏覽器。未選 App 前才可自由選。 */}
+            {(() => {
+              const selApp = apps.find((a) => a.id === appId);
+              if (selApp) {
+                const locked = backendForPlatform(selApp.platform);
+                const label = BACKENDS.find((b) => b.value === locked);
                 return (
-                  <option key={b.value} value={b.value} disabled={!supported}>
-                    {t(b.labelKey)}
-                    {suffix}
-                  </option>
+                  <>
+                    <input
+                      type="text"
+                      readOnly
+                      className="tasks__readonly"
+                      value={label ? t(label.labelKey) : locked}
+                    />
+                    <span className="tasks__field-hint">{t('tasks.backendLocked')}</span>
+                  </>
                 );
-              })}
-            </select>
+              }
+              return (
+                <select value={backend} onChange={(e) => setBackend(e.target.value)}>
+                  {BACKENDS.map((b) => {
+                    const supported = SUPPORTED_BACKENDS.has(b.value);
+                    const suffix = !supported
+                      ? ` (${t('backend.unsupported')})`
+                      : b.value === 'web'
+                        ? ` — ${t('backend.webPreview')}`
+                        : '';
+                    return (
+                      <option key={b.value} value={b.value} disabled={!supported}>
+                        {t(b.labelKey)}
+                        {suffix}
+                      </option>
+                    );
+                  })}
+                </select>
+              );
+            })()}
           </label>
           {backend === 'devicefarm' && (
             <div className="tasks__field">

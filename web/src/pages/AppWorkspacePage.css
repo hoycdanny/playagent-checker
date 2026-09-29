@@ -390,3 +390,13 @@ button.ws__stat:hover {
   color: var(--text-tertiary);
   letter-spacing: 2px;
 }
+
+/* 執行環境鎖定(依 App 平台自動決定)時的唯讀顯示 */
+.ws__readonly {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 14px;
+}
