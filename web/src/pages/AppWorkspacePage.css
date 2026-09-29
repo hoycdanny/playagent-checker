@@ -330,3 +330,44 @@ button.ws__stat:hover {
   color: var(--text-primary);
   margin-left: auto;
 }
+
+/* Device Farm 裝置挑選:已選摘要 + 變更按鈕(開啟 DevicePicker modal) */
+.ws__device-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.ws__device-current {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.ws__device-specs {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.ws__device-btn {
+  flex-shrink: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.ws__device-btn:hover {
+  border-color: var(--border-strong);
+}

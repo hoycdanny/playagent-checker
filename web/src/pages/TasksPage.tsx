@@ -8,6 +8,7 @@ import { modelLabel } from '../components/modelProvider.ts';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import RangeSlider from '../components/RangeSlider.tsx';
 import TasksTable from '../components/TasksTable.tsx';
+import DevicePicker from '../components/DevicePicker.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 
@@ -113,6 +114,7 @@ export default function TasksPage() {
   // Device Farm 裝置選擇:真機池清單 + 使用者所選裝置 ARN(空 = 讓引擎自動挑第一台可用)。
   const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
   const [deviceArn, setDeviceArn] = useState('');
+  const [devicePickerOpen, setDevicePickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 多欄位篩選:狀態 / 環境 / 位置 / 應用 / 三個模型欄(空字串 = 全部)。
@@ -434,38 +436,52 @@ export default function TasksPage() {
             </select>
           </label>
           {backend === 'devicefarm' && (
-            <label className="tasks__field">
+            <div className="tasks__field">
               <span className="tasks__label">{t('tasks.device')}</span>
               <span className="tasks__field-hint">{t('tasks.deviceHint')}</span>
-              <select value={deviceArn} onChange={(e) => setDeviceArn(e.target.value)}>
-                <option value="">{t('tasks.deviceAuto')}</option>
-                {cloudDevices
-                  .filter((d) => d.arn)
-                  .map((d) => (
-                    <option key={d.arn} value={d.arn}>
-                      {d.name} · Android {d.os}
-                    </option>
-                  ))}
-              </select>
               {(() => {
                 const d = cloudDevices.find((x) => x.arn === deviceArn);
-                if (!d) return null;
-                const chips = [
-                  `Android ${d.os}`,
-                  d.arch,
-                  d.resolution,
-                  typeof d.memoryBytes === 'number'
-                    ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
-                    : undefined,
-                  d.cpu,
-                ].filter(Boolean);
+                const specs = d
+                  ? [
+                      `Android ${d.os}`,
+                      d.arch,
+                      d.resolution,
+                      typeof d.memoryBytes === 'number'
+                        ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
+                        : undefined,
+                      d.cpu,
+                    ].filter(Boolean)
+                  : [];
                 return (
-                  <span className="tasks__field-hint">
-                    {t('tasks.deviceSpecs')}: {chips.join(' · ')}
-                  </span>
+                  <div className="tasks__device-pick">
+                    <span className="tasks__device-current">
+                      {d ? d.name : t('tasks.deviceAuto')}
+                      {specs.length > 0 && (
+                        <span className="tasks__device-specs">{specs.join(' · ')}</span>
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      className="tasks__device-btn"
+                      onClick={() => setDevicePickerOpen(true)}
+                    >
+                      {t('tasks.deviceChange')}
+                    </button>
+                  </div>
                 );
               })()}
-            </label>
+            </div>
+          )}
+          {devicePickerOpen && (
+            <DevicePicker
+              devices={cloudDevices}
+              value={deviceArn}
+              onSelect={(d) => {
+                setDeviceArn(d?.arn ?? '');
+                setDevicePickerOpen(false);
+              }}
+              onClose={() => setDevicePickerOpen(false)}
+            />
           )}
           {VLM_BACKENDS.has(backend) && (
             <>
