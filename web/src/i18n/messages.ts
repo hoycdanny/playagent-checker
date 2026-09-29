@@ -156,6 +156,7 @@ export type MessageKey =
   | 'genre.board'
   | 'genre.rhythm'
   | 'genre.survival'
+  | 'genre.survivor'
   | 'genre.roguelike'
   | 'genre.battle_royale'
   | 'genre.sandbox'
@@ -664,6 +665,7 @@ const zhHant: Catalog = {
   'genre.board': '桌遊',
   'genre.rhythm': '節奏音樂',
   'genre.survival': '生存',
+  'genre.survivor': '倖存者/割草',
   'genre.roguelike': 'Roguelike',
   'genre.battle_royale': '大逃殺',
   'genre.sandbox': '沙盒開放世界',
@@ -1171,6 +1173,7 @@ const en: Catalog = {
   'genre.board': 'Board / Tabletop',
   'genre.rhythm': 'Rhythm / Music',
   'genre.survival': 'Survival',
+  'genre.survivor': 'Survivor / Hack-and-slash',
   'genre.roguelike': 'Roguelike',
   'genre.battle_royale': 'Battle Royale',
   'genre.sandbox': 'Sandbox / Open-world',
@@ -1683,6 +1686,7 @@ const zhHans: Catalog = {
   'genre.board': '桌游',
   'genre.rhythm': '节奏音乐',
   'genre.survival': '生存',
+  'genre.survivor': '倖存者/割草',
   'genre.roguelike': 'Roguelike',
   'genre.battle_royale': '大逃杀',
   'genre.sandbox': '沙盒开放世界',
@@ -2190,6 +2194,7 @@ const ja: Catalog = {
   'genre.board': 'ボード / テーブル',
   'genre.rhythm': 'リズム / 音楽',
   'genre.survival': 'サバイバル',
+  'genre.survivor': 'サバイバー/草刈り',
   'genre.roguelike': 'ローグライク',
   'genre.battle_royale': 'バトルロイヤル',
   'genre.sandbox': 'サンドボックス / オープンワールド',
@@ -2698,6 +2703,7 @@ const ko: Catalog = {
   'genre.board': '보드 / 테이블',
   'genre.rhythm': '리듬 / 음악',
   'genre.survival': '생존',
+  'genre.survivor': '서바이버/뱀서라이크',
   'genre.roguelike': '로그라이크',
   'genre.battle_royale': '배틀로얄',
   'genre.sandbox': '샌드박스 / 오픈월드',
