@@ -66,6 +66,7 @@ const CATALOG_SPECS: CatalogSpec[] = [
   { modelId: 'google.gemma-3-12b-it', displayName: 'Gemma 3 12B', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'google.gemma-3-4b-it', displayName: 'Gemma 3 4B', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['vlm', 'subagent'] },
   { modelId: 'moonshotai.kimi-k2.5', displayName: 'Kimi K2.5', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
+  { modelId: 'moonshotai.kimi-k3', displayName: 'Kimi K3', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'mistral.mistral-large-3-675b-instruct', displayName: 'Mistral Large 3', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'mistral.ministral-3-14b-instruct', displayName: 'Ministral 14B 3.0', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'mistral.ministral-3-3b-instruct', displayName: 'Ministral 3B', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['vlm', 'subagent'] },
