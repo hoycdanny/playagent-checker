@@ -400,6 +400,9 @@ async function main() {
   let lastPhash = null;
   let stuckCount = 0;
   let battleMoveTick = 0; // 割草戰鬥強制走位的方向輪換計數
+  let everInBattle = false; // 是否曾進入戰鬥畫面
+  let seenLevel5 = false; // 是否曾在畫面看到第5關/第5波證據
+  let prematureDoneCount = 0; // agent 提前 done 被 runner 攔截的次數
   // App 死循環偵測:某個「畫面名」(如登入失敗彈窗)反覆出現超過此門檻,代表 App 端阻斷
   // (常見:此裝置無 Google/Facebook 登入環境,關掉彈窗又立刻重跳),提早收斂不空轉到步數上限。
   const screenSeen = new Map();
@@ -667,7 +670,24 @@ async function main() {
       break;
     }
 
-    if (cmd.action === 'done') { finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break; }
+    // 偵測第5關證據(畫面或 thinking 出現 stage/wave/level 5 或 第5關/5. Zone)。
+    const lvl5Hint = /stage\s*5|wave\s*5|level\s*5|lv\.?\s*5|第\s*5\s*[關关波]|\b5\.\s|5\s*[關关波]/i;
+    if (lvl5Hint.test(String(cmd.thinking || '')) || lvl5Hint.test(String(cmd.screen || ''))) seenLevel5 = true;
+    // 【拒絕假完成】agent 下 done,但這是割草通關任務(TASK 含 5/第五/level/stage/survivor 等),
+    // 且從未看到第5關證據 → 這多半是「載入中/過場誤判完成」。runner 攔截,改成 wait 逼它繼續,不讓假 pass 收尾。
+    if (cmd.action === 'done') {
+      const isSurvivorGoal = /survivor|倖存|割草|level|stage|wave|第.?五|第.?5|clear/i.test(String(TASK || ''));
+      if (isSurvivorGoal && !seenLevel5 && prematureDoneCount < 8) {
+        prematureDoneCount++;
+        cmd.action = everInBattle ? 'move' : 'wait';
+        if (cmd.action === 'move') { cmd.dir = ['up','right','down','left'][prematureDoneCount % 4]; cmd.holdMs = 2200; }
+        cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 4;
+        cmd.thinking = `[拒絕假完成] agent 想 done 但尚未看到第5關證據(載入/過場不算完成),第 ${prematureDoneCount} 次攔截,改為 ${cmd.action} 繼續推進。` + String(cmd.thinking || '');
+        stuckCount = 0;
+      } else {
+        finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break;
+      }
+    }
 
     // 【割草戰鬥強制走位】倖存者類遊戲:進入戰鬥後角色必須「持續移動走位」才能存活,
     // 但 VLM/agent 常回退用 tap(站著不動→被包圍→Fail)。這裡在 runner 層強制:
@@ -677,6 +697,7 @@ async function main() {
     const battleHint = /存活|倒數|倒计时|波次|wave|stage|comfort zone|關卡|关卡|敵人|敌人|survive|survival|遛怪|走位|hp|血條|血条/i;
     const popupHint = /select\s*skill|選.{0,3}技能|选.{0,3}技能|level\s*up|升級|升级|fail|win|clear|confirm|確認|确认|continue|繼續|继续|tap to|結算|结算|寶箱|宝箱|revive|新功能|new feature|growth/i;
     const inBattle = battleHint.test(String(cmd.thinking || '')) || battleHint.test(String(cmd.screen || ''));
+    if (inBattle) everInBattle = true;
     const isPopup = popupHint.test(String(cmd.thinking || '')) || popupHint.test(String(cmd.screen || ''));
     if (inBattle && !isPopup && (cmd.action === 'tap' || cmd.action === 'swipe' || cmd.action === 'wait')) {
       const dirs = ['up', 'right', 'down', 'left', 'upright', 'downleft', 'upleft', 'downright'];
