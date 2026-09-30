@@ -138,7 +138,9 @@ export default function TasksPage() {
   const [batchDeleting, setBatchDeleting] = useState(false);
 
   async function refetch() {
-    const res = await apiGet<ListResponse<TaskItem>>('/tasks');
+    // 只取最新 100 筆:後端據此只讀該 N 筆的物件(避免對全部任務 N+1 展開),
+    // 列表載入從十幾秒降到 1~2 秒。前端仍以 usePagedList 於此範圍內漸進顯示。
+    const res = await apiGet<ListResponse<TaskItem>>('/tasks?limit=100');
     setTasks(res.items);
     setLoading(false);
   }

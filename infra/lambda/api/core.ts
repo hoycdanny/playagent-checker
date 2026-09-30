@@ -302,7 +302,7 @@ export async function handleRequest(
       case 'GET /reports': {
         // 報告清單 = 任務清單(前端只顯示已終局者)。
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const items = await listJobs(s3, deps.bucket, tenant.tenantId);
+        const { items } = await listJobs(s3, deps.bucket, tenant.tenantId);
         return json(200, { items });
       }
 
@@ -461,7 +461,7 @@ export async function handleRequest(
         // 費用分析(方案 C):AWS 真實成本(Cost Explorer)+ 系統內任務估算成本對照。
         // 估算成本:由本租戶任務清單彙整(依應用/模型/月)。
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const tasks = await listJobs(s3, deps.bucket, tenant.tenantId);
+        const { items: tasks } = await listJobs(s3, deps.bucket, tenant.tenantId);
         const estimated = aggregateEstimatedCost(tasks);
 
         // 真實成本:呼叫 Cost Explorer(可能未啟用/無權限/未注入)——失敗時回 available:false,
@@ -542,8 +542,16 @@ export async function handleRequest(
 
       case 'GET /tasks': {
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const items = await listJobs(s3, deps.bucket, tenant.tenantId);
-        return json(200, { items });
+        // 分頁:預設只回最新 30 筆(前端漸進載更多),避免對全部任務各讀 4 個 S3 檔的 N+1 展開。
+        // ?limit=<n> 覆寫(上限 200);limit 非正數/非法 → 回全部(相容既有全量需求)。
+        const limitRaw = req.query?.['limit'];
+        const parsed = limitRaw === undefined ? 30 : Number(limitRaw);
+        const limit =
+          Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 200) : undefined;
+        const { items, total } = await listJobs(s3, deps.bucket, tenant.tenantId, {
+          ...(limit ? { limit } : {}),
+        });
+        return json(200, { items, total });
       }
 
       case 'POST /tasks': {
