@@ -149,6 +149,9 @@ export class ExecutionStack extends Stack {
       environment: {
         DATA_BUCKET: props.dataBucket.bucketName,
         TENANT_ROLE_ARN: props.tenantRole.roleArn,
+        // UI-TARS(SageMaker)VLM grounding endpoint。值由 CDK context 提供(cdk.json 或 --context uitarsEndpoint=...),
+        // 空字串代表未接 UI-TARS(VLM 會 fallback 到所選 Bedrock 模型)。寫進 code 才不會每次 deploy 被清空。
+        UITARS_ENDPOINT: (this.node.tryGetContext('uitarsEndpoint') as string | undefined) ?? '',
         // 成本分攤標籤(JSON):執行期動態起的 EC2 / Fargate 用它貼標(見 lambda/engine/costTags.ts)。
         COST_TAGS: JSON.stringify({
           project: 'playagent-checker',
