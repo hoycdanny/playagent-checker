@@ -130,6 +130,9 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `判斷是否在戰鬥畫面:畫面有角色在場景中、有敵人、有血條/HP、有存活倒數時間或波次進度條——這時每一步都應該是 move,不是 tap。` +
     `move 語意=「按住畫面朝某方向壓住並持續行走一段時間(虛擬搖桿)」。用 dir 指定方向(up/down/left/right,` +
     `或斜向 upleft/upright/downleft/downright),holdMs 指定按住毫秒數(建議 1500~3000,持續移動才躲得掉怪)。` +
+    `【搖桿位置】這類遊戲的虛擬搖桿在【畫面下方中央】(一個半透明大圓圈/白圈,中心約在畫面寬度中央、高度約 84% 處),` +
+    `操作是「按住那個白圈中心 → 朝上下左右滑動並持續按住」來控制角色方向。move 動作 runner 會自動從下方中央的搖桿中心朝 dir 拖曳,` +
+    `你只要給對 dir 即可;若截圖看得到搖桿白圈,也可用 x,y 指定它的中心更精準。注意搖桿在下方,不是畫面正中心。` +
     `這類遊戲「移動即戰鬥」(邊走位邊自動攻擊),你的任務是【不停走位】:朝敵人少/空曠處移動來躲怪、遛怪、撿經驗,活得越久越好。` +
     `站著不動(或用 tap)=被怪包圍=失敗。所以戰鬥中若你正想 tap,先自問「這是移動嗎?」是的話一律改用 move。` +
     `觀察 HP/血條、存活時間、波次/關卡進度(如 Stage/Wave/第N關/Comfort Zone)、敵人聚集處來決定往哪走。` +
@@ -148,7 +151,7 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `立刻改點手指所指的發光圖示,完成引導後再回來點 Start。反覆點 Start/房子/✕ 卻沒反應是最常見的卡死原因,務必避免。` +
     `先簡短思考(thinking),再給動作。只輸出 JSON:` +
     `{"thinking":"...","action":"tap|swipe|move|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>,"text":"...","screen":"畫面名稱"}。` +
-    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500),x,y 省略時以畫面中心為搖桿中心;type 需 text;done 只在真正完成或完全無法進行時用。` +
+    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;type 需 text;done 只在真正完成或完全無法進行時用。` +
     `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
     `對割草通關任務:只有當你在畫面上「親眼看到關卡指示已達第 5 關/第 5 波(如 Stage 5 / Wave 5 / 第5關 / 5. XXX Zone)」時,才可以 done 並在 thinking 寫出你看到的關卡文字為證。` +
     `在那之前,即使遊戲載入很久、或你覺得流程走完了,都不可 done —— 繼續 wait 或 move 走位推進關卡。誤把載入畫面當完成而 done 是嚴重錯誤。` +

@@ -18,13 +18,13 @@ export const RECOMMENDED: Record<SeatKind, string[]> = {
     'us.anthropic.claude-opus-5-5',
     'us.anthropic.claude-sonnet-5',
     'us.anthropic.claude-fable-5-1',
-    'moonshotai.kimi-k3',
+    'us.moonshotai.kimi-k3',
     'deepseek.v3.2',
   ],
   // 分析畫面(判座標):依離線定位基準實測(像素誤差,越小越準)排名。
   // Kimi K3 25px → Opus5.5 26px → Sonnet5 28px(性價比最佳/真機唯一玩進戰鬥)→ Opus5 32px → Opus4.8 34px。
   vlm: [
-    'moonshotai.kimi-k3',
+    'us.moonshotai.kimi-k3',
     'us.anthropic.claude-opus-5-5',
     'us.anthropic.claude-sonnet-5',
     'us.anthropic.claude-opus-5',

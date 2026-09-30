@@ -108,6 +108,12 @@ const CATALOG_SPECS: CatalogSpec[] = [
  * 加錯前綴會導致 ValidationException: invalid model identifier。
  */
 const PREFIXED_PROVIDERS = new Set(['anthropic', 'amazon', 'meta', 'mistral', 'writer']);
+/**
+ * 個別需要 `us.` 前綴的模型(同一 provider 內只有特定 model 需要 inference profile)。
+ * moonshotai.kimi-k3 實測:on-demand 直呼被拒(需 inference profile),但同 provider 的
+ * kimi-k2.5 無 profile、走 on-demand 直呼 —— 故只對 k3 特例加前綴,不動整個 moonshotai。
+ */
+const PREFIXED_MODELS = new Set(['moonshotai.kimi-k3']);
 const REGION_PREFIX = 'us.';
 
 /** 去掉任何 geo/global 前綴,回傳基礎 id(供推供應商/單價鍵)。 */
@@ -115,10 +121,13 @@ function stripRegionPrefix(modelId: string): string {
   return modelId.replace(/^(us|eu|apac|jp|au|global)\./, '');
 }
 
-/** 依供應商套用正確前綴(實測規則):該加的加 us.,不該加的維持原始 id。 */
+/** 依供應商/模型套用正確前綴(實測規則):該加的加 us.,不該加的維持原始 id。 */
 function applyRegionPrefix(baseId: string): string {
   const provider = baseId.split('.')[0] ?? '';
-  return PREFIXED_PROVIDERS.has(provider) ? `${REGION_PREFIX}${baseId}` : baseId;
+  if (PREFIXED_PROVIDERS.has(provider) || PREFIXED_MODELS.has(baseId)) {
+    return `${REGION_PREFIX}${baseId}`;
+  }
+  return baseId;
 }
 
 // CATALOG_SPECS 的 modelId 一律以「基礎 id(無前綴)」撰寫;此處集中套用正確前綴,
