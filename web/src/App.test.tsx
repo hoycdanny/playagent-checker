@@ -54,11 +54,11 @@ describe('App 路由守衛', () => {
     expect(screen.getByLabelText(/電子郵件|Email/)).toBeInTheDocument();
   });
 
-  test('已登入顯示 shell 與八個導覽連結', async () => {
+  test('已登入顯示 shell 與九個導覽連結', async () => {
     seedAuth();
     renderApp();
     const navs = screen.getAllByRole('navigation');
-    expect(within(navs[0]!).getAllByRole('link')).toHaveLength(8);
+    expect(within(navs[0]!).getAllByRole('link')).toHaveLength(9);
     // 頂欄顯示租戶
     expect(screen.getByText(/acme/)).toBeInTheDocument();
   });
