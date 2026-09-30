@@ -22,8 +22,29 @@ function makePagingS3(keys: string[], bodies: Map<string, string>, pageSize: num
       const name = cmd.constructor.name;
       if (name === 'ListObjectsV2Command') {
         const prefix = (cmd.input.Prefix as string) ?? '';
+        const delimiter = cmd.input.Delimiter as string | undefined;
         const token = cmd.input.ContinuationToken as string | undefined;
         const matched = keys.filter((k) => k.startsWith(prefix));
+        if (delimiter === '/') {
+          // 模擬 S3 delimiter 行為:回 prefix 之後、下一個 '/' 為止的共同前綴(去重)。
+          // 對 tenants/<t>/jobs/ 而言即「每個 job 一個資料夾前綴」。
+          const prefixes = new Set<string>();
+          for (const k of matched) {
+            const rest = k.slice(prefix.length);
+            const idx = rest.indexOf('/');
+            if (idx >= 0) prefixes.add(prefix + rest.slice(0, idx + 1));
+          }
+          const all = [...prefixes];
+          const start = token ? Number(token) : 0;
+          const slice = all.slice(start, start + pageSize);
+          const next = start + pageSize;
+          const truncated = next < all.length;
+          return {
+            CommonPrefixes: slice.map((Prefix) => ({ Prefix })),
+            IsTruncated: truncated,
+            ...(truncated ? { NextContinuationToken: String(next) } : {}),
+          };
+        }
         const start = token ? Number(token) : 0;
         const slice = matched.slice(start, start + pageSize);
         const next = start + pageSize;
@@ -79,8 +100,8 @@ describe('listJobs 分頁', () => {
       }
     });
 
-    // 每頁 40 個物件 → 需要多頁才撈得完;舊版單次呼叫只會看到第一頁。
-    const s3 = makePagingS3(keys, bodies, 40);
+    // 每頁 2 個資料夾前綴 → 3 個 job 需要多頁,仍驗證 ContinuationToken 迴圈。
+    const s3 = makePagingS3(keys, bodies, 2);
     const items = await listJobs(s3, 'test-bucket', tenantId);
 
     expect(items.map((i) => i.jobId).sort()).toEqual(['job-aaa', 'job-bbb', 'job-ccc']);

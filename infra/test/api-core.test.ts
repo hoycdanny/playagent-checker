@@ -43,8 +43,18 @@ function fakeDeps(): ApiDeps & {
       }
       if (name === 'ListObjectsV2Command') {
         const prefix = (cmd.input.Prefix as string) ?? '';
+        const delimiter = cmd.input.Delimiter as string | undefined;
         seenPrefixes.push(prefix);
         const keys = [...store.keys()].filter((k) => k.startsWith(prefix));
+        if (delimiter === '/') {
+          const prefixes = new Set<string>();
+          for (const k of keys) {
+            const rest = k.slice(prefix.length);
+            const idx = rest.indexOf('/');
+            if (idx >= 0) prefixes.add(prefix + rest.slice(0, idx + 1));
+          }
+          return { CommonPrefixes: [...prefixes].map((Prefix) => ({ Prefix })) };
+        }
         return { Contents: keys.map((Key) => ({ Key })) };
       }
       if (name === 'DeleteObjectCommand') {

@@ -277,10 +277,10 @@ export async function listJobs(
   bucket: string,
   tenantId: string,
 ): Promise<TaskListItem[]> {
-  // S3 ListObjectsV2 單次最多回 1000 個 key。每個 job 前綴下有數十個
-  // steps/screenshots/annotated 物件,任務一多,單頁就會被非 job.json 的物件塞爆,
-  // 導致較新的 job.json 落在後續分頁而從未被撈到(症狀:新提交的任務不出現在列表)。
-  // 因此必須用 ContinuationToken 迴圈撈完所有物件,再過濾出 job.json。
+  // 只列「任務資料夾」而非資料夾內所有物件:用 Delimiter:'/' 讓 S3 回 CommonPrefixes
+  // (每個 job 一個前綴),而不是把 steps/screenshots/annotated 數千個物件全撈回來再過濾。
+  // 舊做法會分頁掃遍每個 job 的數十個 step 物件 → 任務一多,ListObjectsV2 往返暴增,
+  // 是 /tasks 端點慢到十幾秒的主因。改用 delimiter 後,列表成本只與「任務數」成正比。
   const jobKeys: string[] = [];
   let continuationToken: string | undefined;
   do {
@@ -288,12 +288,14 @@ export async function listJobs(
       new ListObjectsV2Command({
         Bucket: bucket,
         Prefix: jobsPrefix(tenantId),
+        Delimiter: '/',
         ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
       }),
     );
-    for (const o of list.Contents ?? []) {
-      if (typeof o.Key === 'string' && o.Key.endsWith('/job.json')) {
-        jobKeys.push(o.Key);
+    for (const p of list.CommonPrefixes ?? []) {
+      // p.Prefix 形如 "tenants/<tid>/jobs/<jobId>/";各任務的 job.json 即在其下。
+      if (typeof p.Prefix === 'string') {
+        jobKeys.push(`${p.Prefix}job.json`);
       }
     }
     continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
