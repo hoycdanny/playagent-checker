@@ -288,6 +288,12 @@ export class AppiumClient {
   }
 
   async #typeText(text) {
+    // 優先用 UiAutomator2 的 `mobile: type`(底層文字注入,不觸發畫面輸入法互動,避免軟鍵盤遮住按鈕致卡死)。
+    try {
+      await this.#driver.execute('mobile: type', { text });
+      await this.#hideKeyboard();
+      return;
+    } catch { /* fall through to element setValue */ }
     try {
       const active = await this.#driver.getActiveElement();
       if (active && typeof active.setValue === 'function') {
@@ -301,9 +307,10 @@ export class AppiumClient {
   }
 
   /** 收起軟鍵盤:輸入後鍵盤常遮住畫面下半的按鈕(Log in/Register/Create/OK),不收起會卡死。
-   *  先試 Appium hideKeyboard,失敗再送 Android 返回鍵(收鍵盤不離開頁面)。 */
+   *  用 UiAutomator2 的 mobile: pressKey 送 Android BACK(實測比 webdriverio hideKeyboard 可靠),多重 fallback。 */
   async #hideKeyboard() {
-    try { await this.#driver.hideKeyboard(); return; } catch { /* try back */ }
+    try { await this.#driver.execute('mobile: pressKey', { keycode: 4 }); return; } catch { /* try next */ }
+    try { await this.#driver.hideKeyboard(); return; } catch { /* try next */ }
     try { await this.#driver.pressKeyCode(4); } catch { /* ignore */ } // 4 = Android BACK
   }
 
