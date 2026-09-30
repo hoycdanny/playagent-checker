@@ -292,10 +292,19 @@ export class AppiumClient {
       const active = await this.#driver.getActiveElement();
       if (active && typeof active.setValue === 'function') {
         await active.setValue(text);
+        await this.#hideKeyboard();
         return;
       }
     } catch { /* fall through */ }
     await this.#driver.keys(text.split(''));
+    await this.#hideKeyboard();
+  }
+
+  /** 收起軟鍵盤:輸入後鍵盤常遮住畫面下半的按鈕(Log in/Register/Create/OK),不收起會卡死。
+   *  先試 Appium hideKeyboard,失敗再送 Android 返回鍵(收鍵盤不離開頁面)。 */
+  async #hideKeyboard() {
+    try { await this.#driver.hideKeyboard(); return; } catch { /* try back */ }
+    try { await this.#driver.pressKeyCode(4); } catch { /* ignore */ } // 4 = Android BACK
   }
 
   /** Device Farm endpoint 失效時重新取得 URL 並 attach 回原 session(每次最多重試一次)。 */
