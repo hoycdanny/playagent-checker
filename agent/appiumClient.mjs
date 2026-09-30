@@ -171,8 +171,10 @@ export class AppiumClient {
       // 語意:從起點(x,y;預設畫面中心=搖桿中心)按住 → 朝 dir/角度方向壓到偏移點 → 保持 holdMs → 放開。
       // dir 支援 up/down/left/right/upleft/upright/downleft/downright,或用 x2,y2 指定終點方向。
       case 'move': {
+        // 虛擬搖桿通常在畫面「下方中央」,不是正中心(實測倖存者類遊戲搖桿在寬度中央、高度約 84% 處)。
+        // 模型可用 x,y 明確指定搖桿中心;省略時預設用下方中央,以免在正中心空拖(那裡沒有搖桿)。
         const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) / 2);
-        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) / 2);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.84);
         // 位移量:預設為畫面較短邊的 22%(搖桿壓到底約略距離);可用 magnitude 覆寫(截圖像素)。
         const shortSide = Math.min(this.#shotW || 1080, this.#shotH || 2340);
         const mag = Number.isFinite(cmd.magnitude) ? Math.round(cmd.magnitude) : Math.round(shortSide * 0.22);
