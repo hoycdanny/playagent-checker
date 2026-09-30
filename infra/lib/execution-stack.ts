@@ -162,9 +162,14 @@ export class ExecutionStack extends Stack {
         commandHooks: {
           beforeBundling: () => [],
           beforeInstall: () => [],
-          afterBundling: (inputDir: string, outputDir: string) => [
-            `cp ${path.join(inputDir, 'infra', 'lambda', 'engine', 'emulator-userdata.sh')} ${outputDir}/emulator-userdata.sh`,
-          ],
+          afterBundling: (inputDir: string, outputDir: string) => {
+            // 跨平台複製:bundling 命令交給本機 shell 執行,Windows 的 cmd.exe 無 `cp`,改用 `copy`。
+            const src = path.join(inputDir, 'infra', 'lambda', 'engine', 'emulator-userdata.sh');
+            const dest = path.join(outputDir, 'emulator-userdata.sh');
+            return process.platform === 'win32'
+              ? [`copy /Y "${src}" "${dest}"`]
+              : [`cp "${src}" "${dest}"`];
+          },
         },
       },
     });
