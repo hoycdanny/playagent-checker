@@ -24,6 +24,7 @@
       "dev": {
         "stackPrefix": "PlayAgentDev"
       }
-    }
+    },
+    "uitarsEndpoint": "ui-tars-20260928-164047"
   }
 }
