@@ -56,7 +56,10 @@ export class HttpApiLambda extends Construct {
       // 建 Bedrock KB / 向量桶 + 索引 + KB + DataSource 為同步序列,15s 常不夠(會 timeout,
       // 留下已建的向量桶但沒寫回座標的殘僵狀態)。放寬到 60s 讓 provision 能一次完成。
       timeout: Duration.seconds(60),
-      memorySize: 256,
+      // 記憶體同時決定 CPU 配額。256MB 只有 ~0.15 vCPU,列表端點要並發讀數十~上百個 S3 物件
+      // 並解析 JSON 時被 CPU 卡住(實測單次 5~8s)。提到 1024MB(~0.6 vCPU)大幅加快並發 I/O
+      // 與解析;Lambda 按 ms 計費,跑得快通常淨成本持平甚至更低。
+      memorySize: 1024,
       environment: {
         DATA_BUCKET: props.dataBucket.bucketName,
         TENANT_ROLE_ARN: props.tenantRole.roleArn,

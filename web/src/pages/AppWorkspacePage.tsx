@@ -205,7 +205,7 @@ export default function AppWorkspacePage() {
       .catch(() => {});
   }
   function loadTasks() {
-    apiGet<ListResponse<TaskItem>>('/tasks')
+    apiGet<ListResponse<TaskItem>>('/tasks?limit=100')
       .then((r) => setTasks(r.items.filter((x) => x.appId === appId)))
       .catch(() => {});
   }

@@ -102,7 +102,7 @@ describe('listJobs 分頁', () => {
 
     // 每頁 2 個資料夾前綴 → 3 個 job 需要多頁,仍驗證 ContinuationToken 迴圈。
     const s3 = makePagingS3(keys, bodies, 2);
-    const items = await listJobs(s3, 'test-bucket', tenantId);
+    const { items } = await listJobs(s3, 'test-bucket', tenantId);
 
     expect(items.map((i) => i.jobId).sort()).toEqual(['job-aaa', 'job-bbb', 'job-ccc']);
   });
