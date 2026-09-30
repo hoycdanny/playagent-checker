@@ -278,14 +278,32 @@ export class AppiumClient {
   /**
    * 虛擬搖桿「持續移動」:按住起點 → 快速壓到方向偏移點(當作把搖桿推到底)→ 保持 holdMs
    * 讓角色持續朝該方向行走 → 放開。與 #swipe 的差別是「到位後停住不放」,對應割草/動作遊戲
-   * 的持續走位。用 W3C pointer 的多段 move + pause,pause 期間手指維持按下、座標不動。
+   * 的持續走位。
+   *
+   * 實測發現:單次 move+pause(手指到位後完全靜止 holdMs 才放開)在部分 Unity/Cocos2d 虛擬
+   * 搖桿實作上會被判定成「已放開」——這類搖桿多半是逐帧讀「目前觸點」算方向向量,若底層
+   * (UiAutomator2)在 pause 期間真的不送任何觸控事件,遊戲收不到觸點更新,可能在數十~數百 ms
+   * 後把搖桿判定回中或無效,導致角色原地不動(角色仍會自動攻擊,但不會走位)。
+   * 修法:把單次 pause 換成「多段極小抖動 move」——在 holdMs 期間持續對同一點附近(±1px 內)
+   * 送出 move,讓觸控事件流不中斷,同時視覺上與手指真的按住不放無異。
    */
   async #holdMove(x1, y1, x2, y2, holdMs) {
-    await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+    const chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
-      .move({ x: x2, y: y2, duration: 180 })  // 180ms 把搖桿推到方向底
-      .pause(holdMs)                            // 維持按住,角色持續行走
-      .up({ button: 0 }).perform();
+      .move({ x: x2, y: y2, duration: 180 }); // 180ms 把搖桿推到方向底
+    // 每 150ms 補一次幾乎原地的 move(交替 ±1px)維持觸控事件流,直到湊滿 holdMs。
+    const TICK_MS = 150;
+    let remaining = holdMs;
+    let toggle = false;
+    while (remaining > 0) {
+      const step = Math.min(TICK_MS, remaining);
+      const jx = ex => ex + (toggle ? 1 : -1);
+      chain.move({ x: jx(x2), y: y2, duration: step });
+      toggle = !toggle;
+      remaining -= step;
+    }
+    chain.move({ x: x2, y: y2, duration: 0 }).up({ button: 0 });
+    await chain.perform();
     await this.#driver.releaseActions().catch(() => {});
   }
 
