@@ -140,6 +140,9 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `先簡短思考(thinking),再給動作。只輸出 JSON:` +
     `{"thinking":"...","action":"tap|swipe|move|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>,"text":"...","screen":"畫面名稱"}。` +
     `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500),x,y 省略時以畫面中心為搖桿中心;type 需 text;done 只在真正完成或完全無法進行時用。` +
+    `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
+    `對割草通關任務:只有當你在畫面上「親眼看到關卡指示已達第 5 關/第 5 波(如 Stage 5 / Wave 5 / 第5關 / 5. XXX Zone)」時,才可以 done 並在 thinking 寫出你看到的關卡文字為證。` +
+    `在那之前,即使遊戲載入很久、或你覺得流程走完了,都不可 done —— 繼續 wait 或 move 走位推進關卡。誤把載入畫面當完成而 done 是嚴重錯誤。` +
     `screen 用精確畫面名(如「主選單」「大廳」「轉軸畫面」「載入中」)描述當前畫面,不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
   if (!k) return base;
