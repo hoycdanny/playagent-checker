@@ -396,6 +396,7 @@ async function main() {
   // 卡住偵測:連續多步畫面沒變(pHash 幾乎相同)就介入,輪換嘗試中央偏下主按鈕/back/右上角。
   let lastPhash = null;
   let stuckCount = 0;
+  let battleMoveTick = 0; // 割草戰鬥強制走位的方向輪換計數
   // App 死循環偵測:某個「畫面名」(如登入失敗彈窗)反覆出現超過此門檻,代表 App 端阻斷
   // (常見:此裝置無 Google/Facebook 登入環境,關掉彈窗又立刻重跳),提早收斂不空轉到步數上限。
   const screenSeen = new Map();
@@ -664,6 +665,27 @@ async function main() {
     }
 
     if (cmd.action === 'done') { finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break; }
+
+    // 【割草戰鬥強制走位】倖存者類遊戲:進入戰鬥後角色必須「持續移動走位」才能存活,
+    // 但 VLM/agent 常回退用 tap(站著不動→被包圍→Fail)。這裡在 runner 層強制:
+    // 偵測「戰鬥畫面」(thinking/screen 提到存活倒數、波次、關卡、Comfort Zone、Stage/Wave,
+    // 或畫面名含戰鬥字樣),且 agent 下的是 tap/swipe/wait(非升級選技能彈窗)→ 改寫成一個輪換方向的 move。
+    // 升級/選技能/結算彈窗(Select Skill / Level Up / Fail / Win / Confirm / Tap to Continue)則放行 tap。
+    const battleHint = /存活|倒數|倒计时|波次|wave|stage|comfort zone|關卡|关卡|敵人|敌人|survive|survival|遛怪|走位|hp|血條|血条/i;
+    const popupHint = /select\s*skill|選.{0,3}技能|选.{0,3}技能|level\s*up|升級|升级|fail|win|clear|confirm|確認|确认|continue|繼續|继续|tap to|結算|结算|寶箱|宝箱|revive|新功能|new feature|growth/i;
+    const inBattle = battleHint.test(String(cmd.thinking || '')) || battleHint.test(String(cmd.screen || ''));
+    const isPopup = popupHint.test(String(cmd.thinking || '')) || popupHint.test(String(cmd.screen || ''));
+    if (inBattle && !isPopup && (cmd.action === 'tap' || cmd.action === 'swipe' || cmd.action === 'wait')) {
+      const dirs = ['up', 'right', 'down', 'left', 'upright', 'downleft', 'upleft', 'downright'];
+      const forcedDir = dirs[battleMoveTick % dirs.length];
+      battleMoveTick++;
+      cmd.action = 'move'; cmd.dir = forcedDir; cmd.holdMs = 2200;
+      cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined;
+      cmd.thinking = `[戰鬥強制走位] 偵測到戰鬥畫面,角色必須持續移動躲怪。原動作(${cmd.action})改為 move dir=${forcedDir} 走位。` + String(cmd.thinking || '');
+      // 戰鬥中畫面背景持續變動,stuck-detection 不應介入;重置 stuckCount 避免誤判。
+      stuckCount = 0;
+    }
+
     // 實際點擊用「裝置截圖像素」座標:把 cmd(縮圖空間)的 x/y/x2/y2 換算到 origW/origH 空間再送。
     // 這一步是消除歪斜的關鍵 —— 縮圖與裝置解析度不同,直接拿縮圖座標點會整個偏掉。
     const deviceCmd = { ...cmd };
