@@ -12,29 +12,32 @@
 export type SeatKind = 'agent' | 'vlm' | 'subagent';
 
 export const RECOMMENDED: Record<SeatKind, string[]> = {
-  // 控制遊戲(決策):高成功率 → 長任務 → 均衡 → 非 Claude 首選 → 可自架
+  // 控制遊戲(決策):以判斷力/代次為序(無實測,依模型能力合理排)。
+  // Opus5.5(最強)→ Sonnet5(性價比)→ Fable5.1 → Kimi K3 → DeepSeek V3.2(非 Claude 首選)。
   agent: [
     'us.anthropic.claude-opus-5-5',
+    'us.anthropic.claude-sonnet-5',
     'us.anthropic.claude-fable-5-1',
-    'us.anthropic.claude-sonnet-5',
-    'moonshotai.kimi-k2.5',
-    'qwen.qwen3-vl-235b-a22b',
+    'moonshotai.kimi-k3',
+    'deepseek.v3.2',
   ],
-  // 分析畫面(判座標):GUI 專項 → 替代候選 → 託管 API → 語意目標 → 能力上限
+  // 分析畫面(判座標):依離線定位基準實測(像素誤差,越小越準)排名。
+  // Kimi K3 25px → Opus5.5 26px → Sonnet5 28px(性價比最佳/真機唯一玩進戰鬥)→ Opus5 32px → Opus4.8 34px。
   vlm: [
-    'uitars',
-    'qwen.qwen3-vl-235b-a22b',
-    'us.anthropic.claude-sonnet-5',
-    'moonshotai.kimi-k2.5',
+    'moonshotai.kimi-k3',
     'us.anthropic.claude-opus-5-5',
+    'us.anthropic.claude-sonnet-5',
+    'us.anthropic.claude-opus-5',
+    'us.anthropic.claude-opus-4-8',
   ],
-  // 子代理(輔助):最省 → 低成本更多推理 → 支援看圖 → 升級選項 → 可自架
+  // 子代理(輔助小任務):性價比優先(無實測,依成本/能力合理排)。
+  // Nova Micro(最省)→ Haiku 4.5(便宜且會看圖)→ Nova Lite → GLM 4.7 Flash → Ministral 3B。
   subagent: [
     'us.amazon.nova-micro-v1:0',
-    'zai.glm-4.7-flash',
-    'us.amazon.nova-lite-v1:0',
     'us.anthropic.claude-haiku-4-5-20251001-v1:0',
-    'nvidia.nemotron-nano-3-30b',
+    'us.amazon.nova-lite-v1:0',
+    'zai.glm-4.7-flash',
+    'mistral.ministral-3-3b-instruct',
   ],
 };
 
