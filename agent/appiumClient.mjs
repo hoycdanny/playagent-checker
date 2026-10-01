@@ -296,6 +296,11 @@ export class AppiumClient {
   async #holdMove(x1, y1, x2, y2, holdMs) {
     const chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
+      // down 後先在原地停留 100ms 再開始移動(對齊 #tapWithFallback 的 pause(120) 做法)——
+      // Unity/Cocos 等自繪引擎可能要先確認「這是一次有效按下在搖桿上」,才會把後續 move
+      // 當成拖曳搖桿;down 完立刻移動,引擎可能來不及辨識就已經在拖,導致整個手勢落空
+      // (實測摇桿白球完全沒偏移,停在正中央,代表遊戲判定從頭到尾沒收到有效摇桿輸入)。
+      .move({ x: x1, y: y1, duration: 100 })
       .move({ x: x2, y: y2, duration: 180 }); // 180ms 把搖桿壓到方向底(模擬手指快速滑過去)
     // 按住期間每 100ms 對終點座標補一次 move(座標不變,純粹維持觸控事件流不中斷),
     // 直到湊滿 holdMs,再放開。這對應真人手指「按住不放、位置穩定在終點」的狀態。
