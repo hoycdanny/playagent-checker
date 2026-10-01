@@ -476,6 +476,7 @@ export type MessageKey =
   | 'tasks.modelVlm'
   | 'tasks.modelSubagent'
   | 'tasks.modelsIntro'
+  | 'tasks.roleVlmWebHint'
   | 'tasks.device'
   | 'tasks.deviceHint'
   | 'tasks.deviceAuto'
@@ -985,6 +986,7 @@ const zhHant: Catalog = {
   'tasks.modelVlm': '分析畫面模型(VLM)',
   'tasks.modelSubagent': '子代理模型(Subagent)',
   'tasks.modelsIntro': '本次執行由三顆模型分工協作,可分別指定:',
+  'tasks.roleVlmWebHint': 'Web 瀏覽器只有單一模型座位:同時負責讀畫面定位與決策下一步。選 UI-TARS 時會自動改用 Qwen3-VL(UI-TARS 僅支援行動裝置真機)。',
   'tasks.device': '裝置型號 / Android 版本',
   'tasks.deviceHint': '指定要跑在哪一台實體真機;留「自動」則由系統挑第一台可用機。',
   'tasks.deviceAuto': '自動(第一台可用)',
@@ -1494,6 +1496,7 @@ const en: Catalog = {
   'tasks.modelVlm': 'Screen analysis model (VLM)',
   'tasks.modelSubagent': 'Subagent model',
   'tasks.modelsIntro': 'This run is handled by three models working together — set each one:',
+  'tasks.roleVlmWebHint': 'The Web browser backend has a single model seat that both reads the screen and decides the next move. Picking UI-TARS automatically falls back to Qwen3-VL (UI-TARS only supports mobile devices).',
   'tasks.device': 'Device model / Android version',
   'tasks.deviceHint': 'Pick which physical device to run on; leave on Auto to let the system take the first available one.',
   'tasks.deviceAuto': 'Auto (first available)',
@@ -2006,6 +2009,7 @@ const zhHans: Catalog = {
   'tasks.modelVlm': '分析画面模型(VLM)',
   'tasks.modelSubagent': '子代理模型(Subagent)',
   'tasks.modelsIntro': '本次执行由三颗模型分工协作,可分别指定:',
+  'tasks.roleVlmWebHint': 'Web 浏览器只有单一模型座位:同时负责读画面定位与决策下一步。选 UI-TARS 时会自动改用 Qwen3-VL(UI-TARS 仅支持移动设备真机)。',
   'tasks.device': '设备型号 / Android 版本',
   'tasks.deviceHint': '指定要跑在哪一台实体真机;留「自动」则由系统挑第一台可用机。',
   'tasks.deviceAuto': '自动(第一台可用)',
@@ -2515,6 +2519,7 @@ const ja: Catalog = {
   'tasks.modelVlm': '画面解析モデル(VLM)',
   'tasks.modelSubagent': 'サブエージェントモデル(Subagent)',
   'tasks.modelsIntro': '今回の実行は 3 つのモデルが分担して協働します。それぞれ指定できます:',
+  'tasks.roleVlmWebHint': 'Web ブラウザは単一のモデル座席のみ:画面の読み取りと次の操作の決定を兼任します。UI-TARS を選ぶと自動的に Qwen3-VL にフォールバックします(UI-TARS はモバイル実機のみ対応)。',
   'tasks.device': 'デバイス機種 / Android バージョン',
   'tasks.deviceHint': 'どの実機で実行するかを指定します。「自動」のままなら最初に利用可能な端末を使います。',
   'tasks.deviceAuto': '自動(最初に利用可能な端末)',
@@ -3024,6 +3029,7 @@ const ko: Catalog = {
   'tasks.modelVlm': '화면 분석 모델(VLM)',
   'tasks.modelSubagent': '서브에이전트 모델(Subagent)',
   'tasks.modelsIntro': '이번 실행은 세 개의 모델이 분담·협업합니다. 각각 지정할 수 있습니다:',
+  'tasks.roleVlmWebHint': 'Web 브라우저는 단일 모델 좌석만 있어 화면 인식과 다음 동작 결정을 함께 담당합니다. UI-TARS를 선택하면 자동으로 Qwen3-VL로 대체됩니다(UI-TARS는 모바일 실기기에서만 지원).',
   'tasks.device': '기기 모델 / Android 버전',
   'tasks.deviceHint': '어느 실물 기기에서 실행할지 지정합니다. "자동"으로 두면 시스템이 첫 번째 사용 가능한 기기를 사용합니다.',
   'tasks.deviceAuto': '자동(첫 번째 사용 가능 기기)',
