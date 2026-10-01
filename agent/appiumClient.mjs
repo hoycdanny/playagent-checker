@@ -284,21 +284,30 @@ export class AppiumClient {
    * 搖桿實作上會被判定成「已放開」——這類搖桿多半是逐帧讀「目前觸點」算方向向量,若底層
    * (UiAutomator2)在 pause 期間真的不送任何觸控事件,遊戲收不到觸點更新,可能在數十~數百 ms
    * 後把搖桿判定回中或無效,導致角色原地不動(角色仍會自動攻擊,但不會走位)。
-   * 修法:把單次 pause 換成「多段極小抖動 move」——在 holdMs 期間持續對同一點附近(±1px 內)
-   * 送出 move,讓觸控事件流不中斷,同時視覺上與手指真的按住不放無異。
+   * 修法:把單次 pause 換成「多段抖動 move」——在 holdMs 期間持續沿著「起點→終點方向向量」
+   * 前後小幅抖動(預設 30px,沿方向軸而非固定軸,避免抖動改變方向判定)送出 move,讓觸控事件流
+   * 不中斷,同時視覺上與手指真的按住不放無異。
    */
-  async #holdMove(x1, y1, x2, y2, holdMs) {
+  async #holdMove(x1, y1, x2, y2, holdMs, jitterPx = 30) {
+    // 沿「起點→終點」方向的單位向量,抖動時只在這條軸上前後位移,不混入垂直分量,避免抖動
+    // 本身被搖桿誤判為轉向。終點與起點重合(理論上不會,防呆用)時退化為不抖動。
+    const vx = x2 - x1, vy = y2 - y1;
+    const vlen = Math.hypot(vx, vy) || 1;
+    const ux = vx / vlen, uy = vy / vlen;
+    const jx = (sign) => Math.round(x2 + ux * jitterPx * sign);
+    const jy = (sign) => Math.round(y2 + uy * jitterPx * sign);
+
     const chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
       .move({ x: x2, y: y2, duration: 180 }); // 180ms 把搖桿推到方向底
-    // 每 150ms 補一次幾乎原地的 move(交替 ±1px)維持觸控事件流,直到湊滿 holdMs。
+    // 每 150ms 補一次沿方向軸的 move(交替 ±jitterPx)維持觸控事件流,直到湊滿 holdMs。
     const TICK_MS = 150;
     let remaining = holdMs;
     let toggle = false;
     while (remaining > 0) {
       const step = Math.min(TICK_MS, remaining);
-      const jx = ex => ex + (toggle ? 1 : -1);
-      chain.move({ x: jx(x2), y: y2, duration: step });
+      const sign = toggle ? 1 : -1;
+      chain.move({ x: jx(sign), y: jy(sign), duration: step });
       toggle = !toggle;
       remaining -= step;
     }
