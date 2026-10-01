@@ -45,8 +45,12 @@ const BACKENDS: { value: string; labelKey: MessageKey }[] = [
 /** 目前可端到端執行的後端(其餘標「尚未支援」並停用,避免誤選後才失敗)。
  *  devicefarm=iOS/Android 真機(取代模擬器,可過遊戲伺服器對模擬器的檢查);web=Lambda 瀏覽器。 */
 const SUPPORTED_BACKENDS = new Set(['web', 'devicefarm']);
-/** 需要選 VLM 模型(判畫面座標)的後端。web 用固定預設模型,不讓使用者選。 */
-const VLM_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
+/** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
+ *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
+ *  故 web 不開放這兩欄(開放了設定也不會被 runner 使用,只會誤導使用者)。 */
+const AGENT_SUBAGENT_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
+/** 需要選 VLM 模型(判畫面座標,web 上同時兼任決策)的後端。web 也開放選擇(single-seat)。 */
+const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
 
 /** App 平台決定可用的執行後端:web 應用只能用 Web 瀏覽器;原生(android/ios)只能用 Device Farm 真機。 */
 function backendForPlatform(platform: string | undefined): string {
@@ -281,8 +285,8 @@ export default function TasksPage() {
         appId,
         caseId,
         ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
-        ...(VLM_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
-        ...(VLM_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
+        ...(AGENT_SUBAGENT_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
+        ...(AGENT_SUBAGENT_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
         // 空 = 無上限:僅在填了正數時帶入。
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
@@ -514,42 +518,50 @@ export default function TasksPage() {
               onClose={() => setDevicePickerOpen(false)}
             />
           )}
-          {VLM_BACKENDS.has(backend) && (
+          {(VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend)) && (
             <>
               <p className="tasks__models-intro">{t('tasks.modelsIntro')}</p>
-              <label className="tasks__field">
-                <span className="tasks__label">{t('tasks.modelAgent')}</span>
-                <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
-                <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
-                  {agentModels.map((m) => (
-                    <option key={m.modelId} value={m.modelId}>
-                      {starLabel('agent', m.modelId, modelOptionLabel(m))}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tasks__field">
-                <span className="tasks__label">{t('tasks.modelVlm')}</span>
-                <span className="tasks__field-hint">{t('detail.roleVlmHint')}</span>
-                <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
-                  {vlmModels.map((m) => (
-                    <option key={m.modelId} value={m.modelId}>
-                      {starLabel('vlm', m.modelId, modelOptionLabel(m))}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tasks__field">
-                <span className="tasks__label">{t('tasks.modelSubagent')}</span>
-                <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
-                <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
-                  {subagentModels.map((m) => (
-                    <option key={m.modelId} value={m.modelId}>
-                      {starLabel('subagent', m.modelId, modelOptionLabel(m))}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {AGENT_SUBAGENT_BACKENDS.has(backend) && (
+                <label className="tasks__field">
+                  <span className="tasks__label">{t('tasks.modelAgent')}</span>
+                  <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
+                  <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
+                    {agentModels.map((m) => (
+                      <option key={m.modelId} value={m.modelId}>
+                        {starLabel('agent', m.modelId, modelOptionLabel(m))}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {VLM_BACKENDS.has(backend) && (
+                <label className="tasks__field">
+                  <span className="tasks__label">{t('tasks.modelVlm')}</span>
+                  <span className="tasks__field-hint">
+                    {backend === 'web' ? t('tasks.roleVlmWebHint') : t('detail.roleVlmHint')}
+                  </span>
+                  <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
+                    {vlmModels.map((m) => (
+                      <option key={m.modelId} value={m.modelId}>
+                        {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {AGENT_SUBAGENT_BACKENDS.has(backend) && (
+                <label className="tasks__field">
+                  <span className="tasks__label">{t('tasks.modelSubagent')}</span>
+                  <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
+                  <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
+                    {subagentModels.map((m) => (
+                      <option key={m.modelId} value={m.modelId}>
+                        {starLabel('subagent', m.modelId, modelOptionLabel(m))}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </>
           )}
           <label className="tasks__field">

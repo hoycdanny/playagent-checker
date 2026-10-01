@@ -61,8 +61,12 @@ const BACKENDS: { value: string; labelKey: MessageKey; supported: boolean }[] = 
   { value: 'attached', labelKey: 'backend.attached', supported: false },
 ];
 
-/** 需要選 VLM 模型(判畫面座標)的後端。web 用固定預設模型,不讓使用者選。 */
-const VLM_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
+/** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
+ *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
+ *  故 web 不開放這兩欄(開放了設定也不會被 runner 使用,只會誤導使用者)。 */
+const AGENT_SUBAGENT_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
+/** 需要選 VLM 模型(判畫面座標,web 上同時兼任決策)的後端。web 也開放選擇(single-seat)。 */
+const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
 
 /** App 平台決定執行後端:web→web 瀏覽器;原生(android/ios)→ Device Farm 真機。 */
 function backendForPlatform(platform: string | undefined): string {
@@ -380,8 +384,8 @@ export default function AppWorkspacePage() {
         caseId: taskCaseId,
         category: 'exploration',
         ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
-        ...(VLM_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
-        ...(VLM_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
+        ...(AGENT_SUBAGENT_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
+        ...(AGENT_SUBAGENT_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
         ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
@@ -717,43 +721,52 @@ export default function AppWorkspacePage() {
                   onClose={() => setDevicePickerOpen(false)}
                 />
               )}
-              {/* 三個 Seat 模型選擇(與獨立「測試任務」頁一致):控制遊戲 / 分析畫面 / 子代理。 */}
-              {VLM_BACKENDS.has(backend) && (
+              {/* 模型選擇(與獨立「測試任務」頁一致):控制遊戲 / 分析畫面 / 子代理。
+                  web runner 只有單一 VLM 座位,故只顯示分析畫面欄。 */}
+              {(VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend)) && (
                 <>
                   <p className="ws__models-intro">{t('tasks.modelsIntro')}</p>
-                  <label className="ws__field">
-                    <span className="ws__label">{t('tasks.modelAgent')}</span>
-                    <span className="ws__muted">{t('detail.roleAgentHint')}</span>
-                    <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
-                      {agentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>
-                          {starLabel('agent', m.modelId, modelOptionLabel(m))}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="ws__field">
-                    <span className="ws__label">{t('tasks.modelVlm')}</span>
-                    <span className="ws__muted">{t('detail.roleVlmHint')}</span>
-                    <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
-                      {vlmModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>
-                          {starLabel('vlm', m.modelId, modelOptionLabel(m))}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="ws__field">
-                    <span className="ws__label">{t('tasks.modelSubagent')}</span>
-                    <span className="ws__muted">{t('detail.roleSubagentHint')}</span>
-                    <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
-                      {subagentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>
-                          {starLabel('subagent', m.modelId, modelOptionLabel(m))}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {AGENT_SUBAGENT_BACKENDS.has(backend) && (
+                    <label className="ws__field">
+                      <span className="ws__label">{t('tasks.modelAgent')}</span>
+                      <span className="ws__muted">{t('detail.roleAgentHint')}</span>
+                      <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
+                        {agentModels.map((m) => (
+                          <option key={m.modelId} value={m.modelId}>
+                            {starLabel('agent', m.modelId, modelOptionLabel(m))}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {VLM_BACKENDS.has(backend) && (
+                    <label className="ws__field">
+                      <span className="ws__label">{t('tasks.modelVlm')}</span>
+                      <span className="ws__muted">
+                        {backend === 'web' ? t('tasks.roleVlmWebHint') : t('detail.roleVlmHint')}
+                      </span>
+                      <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
+                        {vlmModels.map((m) => (
+                          <option key={m.modelId} value={m.modelId}>
+                            {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {AGENT_SUBAGENT_BACKENDS.has(backend) && (
+                    <label className="ws__field">
+                      <span className="ws__label">{t('tasks.modelSubagent')}</span>
+                      <span className="ws__muted">{t('detail.roleSubagentHint')}</span>
+                      <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
+                        {subagentModels.map((m) => (
+                          <option key={m.modelId} value={m.modelId}>
+                            {starLabel('subagent', m.modelId, modelOptionLabel(m))}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                 </>
               )}
               <label className="ws__field">
