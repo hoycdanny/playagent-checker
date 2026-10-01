@@ -168,14 +168,13 @@ export class AppiumClient {
       }
       // move:虛擬搖桿「持續移動」手勢。割草/動作遊戲(如倖存者/Vampire-Survivors-like)
       // 的走位不是「從 A 滑到 B 放開」,而是「在搖桿上按住不放、朝某方向壓住、維持數秒」。
-      // 語意(2026-10-01 實機驗證修正):這類遊戲的虛擬搖桿不是「按住不放持續走位」—
-      // 用 Device Farm 真機連續三組對照實驗(A:單純 tap、B:原 hold+持續抖動、C:標準 swipe
-      // 按下→滑→立即放開)證實:A、C 都讓角色產生明確位移,B(我們舊版的 hold+pause/抖動)
-      // 完全無效——角色自動攻擊照常運作,但位置原地不動。换言之,這款遊戲的移動是「每次
-      // 觸發一下(tap 或快速 swipe),角色朝該方向位移一段固定距離」,不是「按住方向鍵式」。
-      // 故 move 動作改為執行一次快速 swipe(按下→朝 dir/角度滑到偏移點→立即放開,不 pause/
-      // 不 hold),並支援 repeat 參數重複多次(對應持續走位),預設 repeat=1(呼叫方可連續
-      // 呼叫 move 達到持續移動的效果,一次 move = 一次位移,語意更貼近真實操作)。
+      // 語意(2026-10-01 真人錄屏驗證修正):錄屏逐帧比對確認這是標準「連續拖拽式」虛擬
+      // 搖桿——手指全程按住不放,搖桿白球即時跟隨手指目前位置偏移,角色朝偏移方向持續走;
+      // 放開手指白球才彈回中心。之前兩次誤判(先以為要 tap/quickSwipe,後又以為要
+      // hold+pause)都是錯的方向。真正的問題在執行細節:原 #holdMove 用 down→move→pause→up,
+      // pause 期間完全不送任何觸控事件,可能被遊戲判定成「沒有新輸入」等同放開。修法:
+      // 按住期間持續對終點送 move(維持手指在終點位置的狀態,不靠 pause 的靜默),讓觸控
+      // 事件流不中斷,貼近真人手指按住不放的實際行為。
       // dir 支援 up/down/left/right/upleft/upright/downleft/downright,或用 x2,y2 指定終點方向。
       case 'move': {
         // 虛擬搖桿通常在畫面「下方中央」,不是正中心(實測倖存者類遊戲搖桿在寬度中央、高度約 84% 處)。
@@ -198,12 +197,9 @@ export class AppiumClient {
         }
         const [sx, sy] = this.#toWindow(cx, cy);
         const [ex, ey] = this.#toWindow(cx + dx, cy + dy);
-        // repeat:同一方向連續滑動幾次(模擬「持續走位」);每次間隔 180ms,預設 1 次。
-        const repeat = Math.max(1, Math.min(10, Number.isFinite(cmd.repeat) ? Math.round(cmd.repeat) : 1));
-        for (let i = 0; i < repeat; i++) {
-          await this.#quickSwipe(sx, sy, ex, ey);
-          if (i < repeat - 1) await sleep(180);
-        }
+        // holdMs:按住維持的時間(角色實際行走的秒數),預設 1500ms,夾在 300–8000ms。
+        const holdMs = Math.max(300, Math.min(8000, Number.isFinite(cmd.holdMs) ? cmd.holdMs : (Number.isFinite(cmd.durationSec) ? cmd.durationSec * 1000 : 1500)));
+        await this.#holdMove(sx, sy, ex, ey, holdMs);
         break;
       }
       case 'type':
@@ -286,20 +282,32 @@ export class AppiumClient {
   }
 
   /**
-   * 「單次位移」手勢:按下起點 → 快速滑到方向偏移點(180ms)→ 立即放開,不 pause 不停留。
+   * 虛擬搖桿「持續移動」:按住起點 → 快速壓到方向偏移點 → 在終點持續送 move 事件維持
+   * holdMs → 放開。
    *
-   * 背景:原本以為這類割草遊戲的虛擬搖桿要「按住不放、持續走位」,為此做過兩輪 hold+pause
-   * 的調整(先 1px 後 30px 抖動,想避免 pause 期間觸點靜止被判定放開),兩輪實機測試後角色
-   * 仍原地不動。2026-10-01 改用 Device Farm 真機連續三組對照實驗才找到真正原因:這款遊戲
-   * 的移動是「每次觸發一下,角色朝方向位移固定距離」——單純 tap 和標準 swipe(按下→滑→
-   * 立即放開)都讓角色移動,只有「hold 住不放」的版本完全無效。故移除所有 hold/pause/抖動
-   * 邏輯,改成單純快速滑動;要持續走位則由呼叫方重複呼叫(見 case 'move' 的 repeat 參數)。
+   * 背景(除錯記錄):最早用 down→move→pause→up,pause 期間完全靜默角色不動;改成 pause
+   * 期間抖動(1px 後 30px)角色仍不動;一度誤判成「要用單次 tap/swipe」,但那個結論建立在
+   * 不嚴謹的目測上,後來用真人錄屏逐帧比對(見 2026-10-01 記錄)證實遊戲的搖桿其實是標準
+   * 「連續拖拽式」——手指按住不放,搖桿白球即時跟隨目前觸點位置,角色朝偏移方向持續走。
+   * 真正該修的是執行細節:不要用 pause(完全不發事件),而是在 holdMs 期間持續對終點座標
+   * 送 move(維持「手指在終點按住」的狀態,事件流不中斷),這樣才貼近真人手指按住不放的
+   * 實際行為,而不是讓遊戲在靜默期判定成「沒有新輸入」。
    */
-  async #quickSwipe(x1, y1, x2, y2) {
-    await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+  async #holdMove(x1, y1, x2, y2, holdMs) {
+    const chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
-      .move({ x: x2, y: y2, duration: 150 })
-      .up({ button: 0 }).perform();
+      .move({ x: x2, y: y2, duration: 180 }); // 180ms 把搖桿壓到方向底(模擬手指快速滑過去)
+    // 按住期間每 100ms 對終點座標補一次 move(座標不變,純粹維持觸控事件流不中斷),
+    // 直到湊滿 holdMs,再放開。這對應真人手指「按住不放、位置穩定在終點」的狀態。
+    const TICK_MS = 100;
+    let remaining = holdMs;
+    while (remaining > 0) {
+      const step = Math.min(TICK_MS, remaining);
+      chain.move({ x: x2, y: y2, duration: step });
+      remaining -= step;
+    }
+    chain.up({ button: 0 });
+    await chain.perform();
     await this.#driver.releaseActions().catch(() => {});
   }
 
