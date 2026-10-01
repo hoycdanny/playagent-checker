@@ -725,7 +725,9 @@ export default function AppWorkspacePage() {
                   web runner 只有單一 VLM 座位,故只顯示分析畫面欄。 */}
               {(VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend)) && (
                 <>
-                  <p className="ws__models-intro">{t('tasks.modelsIntro')}</p>
+                  <p className="ws__models-intro">
+                    {t(AGENT_SUBAGENT_BACKENDS.has(backend) ? 'tasks.modelsIntro' : 'tasks.modelsIntroWeb')}
+                  </p>
                   {AGENT_SUBAGENT_BACKENDS.has(backend) && (
                     <label className="ws__field">
                       <span className="ws__label">{t('tasks.modelAgent')}</span>

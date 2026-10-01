@@ -520,7 +520,9 @@ export default function TasksPage() {
           )}
           {(VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend)) && (
             <>
-              <p className="tasks__models-intro">{t('tasks.modelsIntro')}</p>
+              <p className="tasks__models-intro">
+                {t(AGENT_SUBAGENT_BACKENDS.has(backend) ? 'tasks.modelsIntro' : 'tasks.modelsIntroWeb')}
+              </p>
               {AGENT_SUBAGENT_BACKENDS.has(backend) && (
                 <label className="tasks__field">
                   <span className="tasks__label">{t('tasks.modelAgent')}</span>
