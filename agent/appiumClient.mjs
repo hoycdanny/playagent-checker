@@ -168,14 +168,21 @@ export class AppiumClient {
       }
       // move:虛擬搖桿「持續移動」手勢。割草/動作遊戲(如倖存者/Vampire-Survivors-like)
       // 的走位不是「從 A 滑到 B 放開」,而是「在搖桿上按住不放、朝某方向壓住、維持數秒」。
-      // 語意:從起點(x,y;預設畫面中心=搖桿中心)按住 → 朝 dir/角度方向壓到偏移點 → 保持 holdMs → 放開。
+      // 語意(2026-10-01 實機驗證修正):這類遊戲的虛擬搖桿不是「按住不放持續走位」—
+      // 用 Device Farm 真機連續三組對照實驗(A:單純 tap、B:原 hold+持續抖動、C:標準 swipe
+      // 按下→滑→立即放開)證實:A、C 都讓角色產生明確位移,B(我們舊版的 hold+pause/抖動)
+      // 完全無效——角色自動攻擊照常運作,但位置原地不動。换言之,這款遊戲的移動是「每次
+      // 觸發一下(tap 或快速 swipe),角色朝該方向位移一段固定距離」,不是「按住方向鍵式」。
+      // 故 move 動作改為執行一次快速 swipe(按下→朝 dir/角度滑到偏移點→立即放開,不 pause/
+      // 不 hold),並支援 repeat 參數重複多次(對應持續走位),預設 repeat=1(呼叫方可連續
+      // 呼叫 move 達到持續移動的效果,一次 move = 一次位移,語意更貼近真實操作)。
       // dir 支援 up/down/left/right/upleft/upright/downleft/downright,或用 x2,y2 指定終點方向。
       case 'move': {
         // 虛擬搖桿通常在畫面「下方中央」,不是正中心(實測倖存者類遊戲搖桿在寬度中央、高度約 84% 處)。
         // 模型可用 x,y 明確指定搖桿中心;省略時預設用下方中央,以免在正中心空拖(那裡沒有搖桿)。
         const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) / 2);
         const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.84);
-        // 位移量:預設為畫面較短邊的 22%(搖桿壓到底約略距離);可用 magnitude 覆寫(截圖像素)。
+        // 位移量:預設為畫面較短邊的 22%(單次滑動距離);可用 magnitude 覆寫(截圖像素)。
         const shortSide = Math.min(this.#shotW || 1080, this.#shotH || 2340);
         const mag = Number.isFinite(cmd.magnitude) ? Math.round(cmd.magnitude) : Math.round(shortSide * 0.22);
         let dx = 0, dy = 0;
@@ -191,9 +198,12 @@ export class AppiumClient {
         }
         const [sx, sy] = this.#toWindow(cx, cy);
         const [ex, ey] = this.#toWindow(cx + dx, cy + dy);
-        // holdMs:按住維持的時間(角色實際行走的秒數),預設 1500ms,夾在 300–8000ms。
-        const holdMs = Math.max(300, Math.min(8000, Number.isFinite(cmd.holdMs) ? cmd.holdMs : (Number.isFinite(cmd.durationSec) ? cmd.durationSec * 1000 : 1500)));
-        await this.#holdMove(sx, sy, ex, ey, holdMs);
+        // repeat:同一方向連續滑動幾次(模擬「持續走位」);每次間隔 180ms,預設 1 次。
+        const repeat = Math.max(1, Math.min(10, Number.isFinite(cmd.repeat) ? Math.round(cmd.repeat) : 1));
+        for (let i = 0; i < repeat; i++) {
+          await this.#quickSwipe(sx, sy, ex, ey);
+          if (i < repeat - 1) await sleep(180);
+        }
         break;
       }
       case 'type':
@@ -276,43 +286,20 @@ export class AppiumClient {
   }
 
   /**
-   * 虛擬搖桿「持續移動」:按住起點 → 快速壓到方向偏移點(當作把搖桿推到底)→ 保持 holdMs
-   * 讓角色持續朝該方向行走 → 放開。與 #swipe 的差別是「到位後停住不放」,對應割草/動作遊戲
-   * 的持續走位。
+   * 「單次位移」手勢:按下起點 → 快速滑到方向偏移點(180ms)→ 立即放開,不 pause 不停留。
    *
-   * 實測發現:單次 move+pause(手指到位後完全靜止 holdMs 才放開)在部分 Unity/Cocos2d 虛擬
-   * 搖桿實作上會被判定成「已放開」——這類搖桿多半是逐帧讀「目前觸點」算方向向量,若底層
-   * (UiAutomator2)在 pause 期間真的不送任何觸控事件,遊戲收不到觸點更新,可能在數十~數百 ms
-   * 後把搖桿判定回中或無效,導致角色原地不動(角色仍會自動攻擊,但不會走位)。
-   * 修法:把單次 pause 換成「多段抖動 move」——在 holdMs 期間持續沿著「起點→終點方向向量」
-   * 前後小幅抖動(預設 30px,沿方向軸而非固定軸,避免抖動改變方向判定)送出 move,讓觸控事件流
-   * 不中斷,同時視覺上與手指真的按住不放無異。
+   * 背景:原本以為這類割草遊戲的虛擬搖桿要「按住不放、持續走位」,為此做過兩輪 hold+pause
+   * 的調整(先 1px 後 30px 抖動,想避免 pause 期間觸點靜止被判定放開),兩輪實機測試後角色
+   * 仍原地不動。2026-10-01 改用 Device Farm 真機連續三組對照實驗才找到真正原因:這款遊戲
+   * 的移動是「每次觸發一下,角色朝方向位移固定距離」——單純 tap 和標準 swipe(按下→滑→
+   * 立即放開)都讓角色移動,只有「hold 住不放」的版本完全無效。故移除所有 hold/pause/抖動
+   * 邏輯,改成單純快速滑動;要持續走位則由呼叫方重複呼叫(見 case 'move' 的 repeat 參數)。
    */
-  async #holdMove(x1, y1, x2, y2, holdMs, jitterPx = 30) {
-    // 沿「起點→終點」方向的單位向量,抖動時只在這條軸上前後位移,不混入垂直分量,避免抖動
-    // 本身被搖桿誤判為轉向。終點與起點重合(理論上不會,防呆用)時退化為不抖動。
-    const vx = x2 - x1, vy = y2 - y1;
-    const vlen = Math.hypot(vx, vy) || 1;
-    const ux = vx / vlen, uy = vy / vlen;
-    const jx = (sign) => Math.round(x2 + ux * jitterPx * sign);
-    const jy = (sign) => Math.round(y2 + uy * jitterPx * sign);
-
-    const chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+  async #quickSwipe(x1, y1, x2, y2) {
+    await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
-      .move({ x: x2, y: y2, duration: 180 }); // 180ms 把搖桿推到方向底
-    // 每 150ms 補一次沿方向軸的 move(交替 ±jitterPx)維持觸控事件流,直到湊滿 holdMs。
-    const TICK_MS = 150;
-    let remaining = holdMs;
-    let toggle = false;
-    while (remaining > 0) {
-      const step = Math.min(TICK_MS, remaining);
-      const sign = toggle ? 1 : -1;
-      chain.move({ x: jx(sign), y: jy(sign), duration: step });
-      toggle = !toggle;
-      remaining -= step;
-    }
-    chain.move({ x: x2, y: y2, duration: 0 }).up({ button: 0 });
-    await chain.perform();
+      .move({ x: x2, y: y2, duration: 150 })
+      .up({ button: 0 }).perform();
     await this.#driver.releaseActions().catch(() => {});
   }
 
