@@ -150,7 +150,7 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `判斷要點:手指與「!」通常在底部一排功能鈕(如 Battle/Growth/成長/角色/背包)其中一顆上,或某顆發光的植物/星星圖示上。` +
     `把座標對到「手指指尖正下方那顆發光圖示的正中心」。若點了 Start 沒反應、畫面沒變,幾乎一定是被教學 gating——` +
     `立刻改點手指所指的發光圖示,完成引導後再回來點 Start。反覆點 Start/房子/✕ 卻沒反應是最常見的卡死原因,務必避免。` +
-    `先簡短思考(thinking),再給動作。只輸出 JSON:` +
+    `thinking 務必簡短(一句話,約 30~60 字即可,不要長篇分析),再給動作。只輸出 JSON:` +
     `{"thinking":"...","action":"tap|swipe|move|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>,"text":"...","screen":"畫面名稱"}。` +
     `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;type 需 text;done 只在真正完成或完全無法進行時用。` +
     `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
@@ -185,6 +185,34 @@ function pruneImages(messages, keepLatest = 2) {
     if (seen++ >= keepFrom) continue;
     const textParts = (messages[i].content || []).filter((c) => c.type === 'text');
     messages[i].content = textParts.length > 0 ? textParts : [{ type: 'text', text: '(先前畫面)' }];
+  }
+  return messages;
+}
+
+/**
+ * 裁剪過舊的 assistant 回應文字(含 thinking 全文),只保留最近 keepLatest 輪的完整內容,
+ * 更早的壓縮成極短占位。
+ *
+ * 背景:pruneImages 只處理圖片,assistant turn 的完整原始輸出文字從不裁剪,隨步數線性
+ * 增長(273 步 ≈ 273 則完整回應文字永遠留在對話歷史裡)。這會讓送給模型的 prompt 越跑
+ * 越長、越雜訊化,懷疑是長任務後期模型行為漂移、輸出格式開始不穩定(連續解析失敗)的
+ * 放大因子之一。裁剪掉舊的完整回應不影響「決策」本身(模型靠最新畫面 + 少量近期歷史
+ * 判斷下一步,不需要記得 200 步前自己說了什麼細節),但保留最近幾輪完整內容,維持
+ * 「這是連續對話,你會記得前幾步做了什麼」的 prompt 承諾。
+ */
+function pruneAssistantText(messages, keepLatest = 6) {
+  const assistantIdx = [];
+  for (let i = 0; i < messages.length; i++) if (messages[i].role === 'assistant') assistantIdx.push(i);
+  const keepFrom = assistantIdx.length - keepLatest;
+  let seen = 0;
+  for (const i of assistantIdx) {
+    if (seen++ >= keepFrom) continue;
+    const text = messages[i].content?.[0]?.text || '';
+    // 盡量保留 action/screen 這類短摘要供模型對照「上一步做了什麼」,但捨棄冗長 thinking。
+    const actionMatch = /"action"\s*:\s*"([^"]+)"/.exec(text);
+    const screenMatch = /"screen"\s*:\s*"([^"]+)"/.exec(text);
+    const summary = `(先前回應,已精簡) action=${actionMatch?.[1] ?? '?'} screen=${screenMatch?.[1] ?? '?'}`;
+    messages[i].content = [{ type: 'text', text: summary }];
   }
   return messages;
 }
@@ -278,13 +306,21 @@ async function decide(system, messages) {
   pruneImages(messages, 2);
   const SOFT_LIMIT = 1_500_000; // ~1.5MB 原始位元組(base64 會再脹 ~33%,保守留裕度)
   if (totalImageBytes(messages) > SOFT_LIMIT) pruneImages(messages, 1);
+  // 裁剪過舊的 assistant 回應文字(見 pruneAssistantText 註解):長任務的對話歷史文字
+  // 本來無限增長,這裡控制在最近 6 輪完整內容,避免 prompt 隨步數線性變長變雜訊化。
+  pruneAssistantText(messages, 6);
   const channel = channelFor(VLM);
   const request = summarizeRequest(system, messages);
   const baseTrace = { modelId: VLM, channel, request };
   try {
     if (channel === 'bedrock') {
       // Anthropic Claude:InvokeModel + Anthropic body。
-      const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 500, system, messages };
+      // max_tokens 原為 500 ——與系統 prompt「先 thinking 再給完整 JSON」的格式要求衝突:
+      // thinking 稍長,JSON 本體還沒輸出完就被截斷(stop_reason=max_tokens),parseCmd 的
+      // /\{[\s\S]*\}/ 抓不到配對的結尾 },JSON.parse 必定失敗。實測長任務(273 步)在局面
+      // 變複雜時 thinking 變長,連續 10 次因此解析失敗而中止整個任務。配合上面把 prompt
+      // 改成要求「thinking 30~60 字」雙重防護,這裡提高到 1000 留足夠餘裕。
+      const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 1000, system, messages };
       const res = await bedrock.send(new InvokeModelCommand({
         modelId: VLM, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body),
       }));
@@ -298,7 +334,7 @@ async function decide(system, messages) {
       modelId: VLM,
       system: [{ text: system }],
       messages: toConverseMessages(messages),
-      inferenceConfig: { maxTokens: 500 },
+      inferenceConfig: { maxTokens: 1000 },
     }));
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';
     const usage = res.usage ? { input: res.usage.inputTokens, output: res.usage.outputTokens } : null;
@@ -314,6 +350,67 @@ async function decide(system, messages) {
       trace: { ...baseTrace, ok: false, error: { name, message } },
     };
   }
+}
+
+/**
+ * RTP(Return To Player)統計:僅當案例任務要求算 RTP 時才有意義,從每步 thinking 文字裡
+ * 嘗試抓出「本次下注(bet/TOTAL BET/下注)」與「本次派彩(WIN/贏得/派彩)」的數字配對,
+ * 逐步累加總下注與總派彩,算出 RTP = 總派彩 / 總下注 × 100%。
+ *
+ * 這是「盡力而為」的擷取(從模型自由敘述的 thinking 文字正則比對,不是結構化資料),
+ * 原因:老虎機類遊戲沒有統一的畫面 UI 可結構化讀取下注/派彩金額,模型的 thinking 本來就
+ * 會描述這些數字(prompt 沒有特別要求,是模型自主判讀畫面上的文字產生的描述),這是目前
+ * 唯一可行的資料來源。擷取結果的準確性取決於模型描述的一致性,無法保證 100% 精確,但能
+ * 提供一個遠優於「完全沒有」的估算與視覺化。
+ */
+function isRtpTask(task) {
+  return /RTP|Return\s*To\s*Player|派彩率|回報率/i.test(String(task || ''));
+}
+
+/**
+ * 從單句 thinking 文字抓出 { bet, win } 數字配對(若找得到)。數字可能含千分位逗號。
+ * 嘗試多種常見描述順序與中英混用寫法,找不到就回 null(該步不計入統計,不當作 0)。
+ */
+function extractSpinResult(thinking) {
+  const text = String(thinking || '');
+  const num = (s) => Number(String(s).replace(/,/g, ''));
+  // 下注:TOTAL BET=1,320 / 下注 880 / 總下注 1320 / bet: 880
+  const betMatch = /(?:TOTAL\s*BET|總下注|下注(?:額)?|押注|BET)\s*[:=是為]?\s*([\d,]+)/i.exec(text);
+  // 派彩:WIN=9,600 / WIN 9600 / 贏得 300 / 派彩 19,040
+  const winMatch = /(?:WIN|贏得|派彩|中獎)\s*[:=是為]?\s*([\d,]+)/i.exec(text);
+  if (!betMatch) return null;
+  const bet = num(betMatch[1]);
+  const win = winMatch ? num(winMatch[1]) : 0;
+  if (!Number.isFinite(bet) || bet <= 0) return null;
+  return { bet, win: Number.isFinite(win) ? win : 0 };
+}
+
+/**
+ * 掃描全部 steps 的 thinking,累計 RTP 統計:總下注、總派彩、取樣次數、RTP 百分比,
+ * 以及「逐次累積 RTP」序列(供報告畫折線圖,觀察 RTP 隨取樣次數收斂的趨勢)。
+ * 回 null 代表完全沒抓到任何可用的下注/派彩資料(不應顯示 RTP 圖表)。
+ */
+function computeRtpStats(steps) {
+  let totalBet = 0;
+  let totalWin = 0;
+  let sampleCount = 0;
+  const series = []; // [{ n, rtp }],每抓到一筆有效 spin 就記一個點,n = 累積取樣次數
+  for (const step of steps) {
+    const result = extractSpinResult(step.thinking);
+    if (!result) continue;
+    totalBet += result.bet;
+    totalWin += result.win;
+    sampleCount++;
+    series.push({ n: sampleCount, rtp: totalBet > 0 ? Number(((totalWin / totalBet) * 100).toFixed(2)) : 0 });
+  }
+  if (sampleCount === 0) return null;
+  return {
+    sampleCount,
+    totalBet,
+    totalWin,
+    rtpPercent: totalBet > 0 ? Number(((totalWin / totalBet) * 100).toFixed(2)) : 0,
+    series,
+  };
 }
 
 // ── 增量記憶地圖(每步更新 structure.json,供前端即時重繪)──
@@ -849,8 +946,12 @@ async function main() {
 
   // 報告 + 終態。
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
+  // RTP 統計:只有案例任務要求算 RTP、且確實從 thinking 抓到可用資料時才附上 rtp 欄位,
+  // 前端據此判斷要不要顯示 RTP 圖表(見 computeRtpStats 註解)。
+  const rtp = isRtpTask(TASK) ? computeRtpStats(steps) : null;
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w, h }, vlmModel: VLM,
     ...(deviceModel ? { deviceModel } : {}),
+    ...(rtp ? { rtp } : {}),
     stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);

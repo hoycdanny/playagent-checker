@@ -1,0 +1,62 @@
+.rtpchart {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-4);
+  margin-bottom: var(--space-6);
+  overflow-x: auto;
+}
+
+.rtpchart__summary {
+  display: flex;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.rtpchart__summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rtpchart__summary-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.rtpchart__summary-value {
+  font-size: 18px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.rtpchart__summary-item--main .rtpchart__summary-value {
+  font-size: 28px;
+  color: var(--brand);
+}
+
+.rtpchart__gridline {
+  stroke: var(--border);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+
+.rtpchart__refline {
+  stroke: var(--text-tertiary);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.rtpchart__line {
+  stroke: var(--brand);
+  stroke-width: 2;
+}
+
+.rtpchart__ytick,
+.rtpchart__xtick {
+  fill: var(--text-tertiary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
