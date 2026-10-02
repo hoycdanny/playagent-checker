@@ -177,10 +177,13 @@ export class AppiumClient {
       // 事件流不中斷,貼近真人手指按住不放的實際行為。
       // dir 支援 up/down/left/right/upleft/upright/downleft/downright,或用 x2,y2 指定終點方向。
       case 'move': {
-        // 虛擬搖桿通常在畫面「下方中央」,不是正中心(實測倖存者類遊戲搖桿在寬度中央、高度約 84% 處)。
-        // 模型可用 x,y 明確指定搖桿中心;省略時預設用下方中央,以免在正中心空拖(那裡沒有搖桿)。
-        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) / 2);
-        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.84);
+        // 虛擬搖桿通常在畫面「下方中央」,不是正中心。
+        // 2026-10-02 用 Device Farm 原始截圖(1080x2404)逐像素掃描量出搖桿圓心實際位置
+        // 是 (535, 1975),換算比例為寬度 49.5%、高度 82.1%(原本用目測估的 84% 偏差約
+        // 50px,足以讓觸控完全落在搖桿熱區之外、角色完全不移動——這才是真正的根因,
+        // 不是手勢時間參數的問題)。模型可用 x,y 明確指定搖桿中心;省略時用此精確比例預設。
+        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) * 0.495);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.821);
         // 位移量:預設為畫面較短邊的 22%(單次滑動距離);可用 magnitude 覆寫(截圖像素)。
         const shortSide = Math.min(this.#shotW || 1080, this.#shotH || 2340);
         const mag = Number.isFinite(cmd.magnitude) ? Math.round(cmd.magnitude) : Math.round(shortSide * 0.22);
@@ -282,37 +285,24 @@ export class AppiumClient {
   }
 
   /**
-   * 虛擬搖桿「持續移動」:按住起點 → 快速壓到方向偏移點 → 在終點持續送 move 事件維持
-   * holdMs → 放開。
+   * 虛擬搖桿「持續移動」:按住起點 → 拖到方向偏移點 → 停留 holdMs → 放開。
    *
-   * 背景(除錯記錄):最早用 down→move→pause→up,pause 期間完全靜默角色不動;改成 pause
-   * 期間抖動(1px 後 30px)角色仍不動;一度誤判成「要用單次 tap/swipe」,但那個結論建立在
-   * 不嚴謹的目測上,後來用真人錄屏逐帧比對(見 2026-10-01 記錄)證實遊戲的搖桿其實是標準
-   * 「連續拖拽式」——手指按住不放,搖桿白球即時跟隨目前觸點位置,角色朝偏移方向持續走。
-   * 真正該修的是執行細節:不要用 pause(完全不發事件),而是在 holdMs 期間持續對終點座標
-   * 送 move(維持「手指在終點按住」的狀態,事件流不中斷),這樣才貼近真人手指按住不放的
-   * 實際行為,而不是讓遊戲在靜默期判定成「沒有新輸入」。
+   * 背景(除錯記錄,2026-10-01~10-02):之前排查方向完全錯了——先誤判成要用單次
+   * tap/swipe,又誤判成 pause 期間要補 move tick 維持事件流,改了好幾輪手勢時間參數
+   * (pause、tick 間隔、down 後延遲)都沒用,角色依然完全不移動一個像素。
+   * 真正的根因不是手勢寫法,是座標:原本 cy 用目測比例估成畫面高度 84%,但用 Device
+   * Farm 原始截圖逐像素掃描量出搖桿圓心其實在 82.1%——約 50px 的偏差,但足以讓整個
+   * 觸控完全落在搖桿熱區之外(遊戲判定「沒有按在搖桿上」,所以無論手勢多精緻都沒反應)。
+   * 用隔離的 raw test script(繞過 playagent-checker 全部邏輯、純粹單點觸控 down→move
+   * (150ms)→pause(holdMs)→up)配合修正後座標重新驗證,角色才真正移動。手勢本身不需要
+   * 複雜的 tick 補償,簡單的 down→move→pause→up 就夠。
    */
   async #holdMove(x1, y1, x2, y2, holdMs) {
-    const chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+    await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
       .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
-      // down 後先在原地停留 100ms 再開始移動(對齊 #tapWithFallback 的 pause(120) 做法)——
-      // Unity/Cocos 等自繪引擎可能要先確認「這是一次有效按下在搖桿上」,才會把後續 move
-      // 當成拖曳搖桿;down 完立刻移動,引擎可能來不及辨識就已經在拖,導致整個手勢落空
-      // (實測摇桿白球完全沒偏移,停在正中央,代表遊戲判定從頭到尾沒收到有效摇桿輸入)。
-      .move({ x: x1, y: y1, duration: 100 })
-      .move({ x: x2, y: y2, duration: 180 }); // 180ms 把搖桿壓到方向底(模擬手指快速滑過去)
-    // 按住期間每 100ms 對終點座標補一次 move(座標不變,純粹維持觸控事件流不中斷),
-    // 直到湊滿 holdMs,再放開。這對應真人手指「按住不放、位置穩定在終點」的狀態。
-    const TICK_MS = 100;
-    let remaining = holdMs;
-    while (remaining > 0) {
-      const step = Math.min(TICK_MS, remaining);
-      chain.move({ x: x2, y: y2, duration: step });
-      remaining -= step;
-    }
-    chain.up({ button: 0 });
-    await chain.perform();
+      .move({ x: x2, y: y2, duration: 150 }) // 150ms 把搖桿壓到方向底(模擬手指滑過去)
+      .pause(holdMs) // 按住不放,維持在終點位置,讓角色持續朝該方向走 holdMs
+      .up({ button: 0 }).perform();
     await this.#driver.releaseActions().catch(() => {});
   }
 

@@ -21,3 +21,6 @@ cdk.context.json
 
 # test coverage
 coverage/
+
+# 本地測試用的遊戲 APK(大型二進位檔,不應進版控)
+*.apk

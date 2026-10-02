@@ -130,7 +130,8 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `判斷是否在戰鬥畫面:畫面有角色在場景中、有敵人、有血條/HP、有存活倒數時間或波次進度條——這時每一步都應該是 move,不是 tap。` +
     `move 語意=「按住畫面朝某方向壓住並持續行走一段時間(虛擬搖桿)」。用 dir 指定方向(up/down/left/right,` +
     `或斜向 upleft/upright/downleft/downright),holdMs 指定按住毫秒數(建議 1500~3000,持續移動才躲得掉怪)。` +
-    `【搖桿位置】這類遊戲的虛擬搖桿在【畫面下方中央】(一個半透明大圓圈/白圈,中心約在畫面寬度中央、高度約 84% 處),` +
+    `【搖桿位置】這類遊戲的虛擬搖桿在【畫面下方中央】(一個半透明大圓圈/白圈,中心約在畫面寬度 49.5%、高度約 82.1% 處——` +
+    `這是用原始截圖逐像素量出來的精確位置,不是目測估的;座標若偏差超過約 30px 就會完全落在熱區外、角色完全不動),` +
     `操作是「按住那個白圈中心 → 朝上下左右滑動並持續按住」來控制角色方向。move 動作 runner 會自動從下方中央的搖桿中心朝 dir 拖曳,` +
     `你只要給對 dir 即可;若截圖看得到搖桿白圈,也可用 x,y 指定它的中心更精準。注意搖桿在下方,不是畫面正中心。` +
     `這類遊戲「移動即戰鬥」(邊走位邊自動攻擊),你的任務是【不停走位】:朝敵人少/空曠處移動來躲怪、遛怪、撿經驗,活得越久越好。` +
@@ -646,6 +647,9 @@ async function main() {
     const step = { index: i, action: cmd.action, screen: screenName, thinking: cmd.thinking,
       // x/y 為「縮圖空間」座標(與標記圖一致);deviceXY 為實際送裝置的截圖像素座標,供除錯比對。
       ...(cmd.x != null ? { x: cmd.x, y: cmd.y, deviceX: toDeviceX(cmd.x), deviceY: toDeviceY(cmd.y) } : {}),
+      // move 動作額外記 dir/holdMs(除錯用:之前排查 move 不生效時,step json 完全沒存方向與
+      // 按住時長,只能從 x,y 猜搖桿中心,猜不出實際終點座標與持續時間,拖慢了排查速度)。
+      ...(cmd.action === 'move' ? { dir: cmd.dir ?? cmd.direction ?? null, holdMs: cmd.holdMs ?? null, x2: cmd.x2 ?? null, y2: cmd.y2 ?? null } : {}),
       ...(snappedFrom ? { snappedFrom } : {}),
       ...(cmd.x != null ? { space: { shot: [cw, ch], device: [origW, origH] } } : {}),
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,
