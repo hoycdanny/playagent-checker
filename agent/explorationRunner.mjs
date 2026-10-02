@@ -607,21 +607,36 @@ async function main() {
       escapeOverride = true;
     }
 
-    if (stuckCount >= 3) {
+    // 2026-10-02 修正:老虎機/輪盤等賭場類遊戲的核心節奏是「轉輪結果畫面停留 → 玩家點
+    // SPIN 繼續下一輪」,畫面停留期間 pHash 本來就幾乎不變(不是卡死,是在等玩家操作)。
+    // 舊版 stuckCount>=3 就不分青紅皂白把接下來最多 20 步「全部強制改 wait」,完全蓋掉模型
+    // 自己已經正確判斷要點 SPIN 的 tap(實測 job-muqvy57p-cquk7t:模型第 13 步明確說「繼續
+    // 第 2 次旋轉,點 SPIN」,但接下來 7 步全被覆寫成「連續畫面沒變,先等待」,最終因為脫困
+    // 輪換掃描的座標都沒掃到 SPIN 鈕,8 次無效互動後被死循環偵測中止)。
+    // 這裡偵測「模型自己想做 tap/swipe」且畫面/thinking 像是老虎機轉輪結果 → 放行讓它試,
+    // 不用 stuckCount 覆寫;若真的連續試了也沒用,交由下面既有的死循環計數器(LOOP_ABORT_LIMIT)
+    // 去判斷是不是真的卡死,而不是在這裡提前擋掉。
+    const slotHint = /slot|轮盘|輪盤|spin|轉軸|转轴|老虎機|老虎机|jackpot|total bet|free game|賭場|赌场|casino/i;
+    const looksSlotSpin = (cmd.action === 'tap' || cmd.action === 'swipe') &&
+      (slotHint.test(String(cmd.thinking || '')) || slotHint.test(String(cmd.screen || '')));
+
+    // (B) 硬上限:脫困(含等待)累計超過 STUCK_ABORT_STEPS 步畫面仍完全沒變 → 判定卡死結束。
+    // 這個判斷不受 looksSlotSpin 影響 —— 即使放行模型自己點 SPIN,若真的連續 30 步畫面
+    // 都沒變(模型可能瞄不準 SPIN 鈕位置),仍要有硬性中止,不能無上限空轉。
+    const STUCK_ABORT_STEPS = 30;
+    if (stuckCount >= STUCK_ABORT_STEPS) {
+      finalState = 'error';
+      finalMsg = looksLoading
+        ? `畫面連續 ${stuckCount} 步無變化且停在安裝/載入畫面 —— 可能 APK 安裝或首次啟動失敗/逾時(此 APK 可能過大或需額外下載資源)。已中止,避免空轉。`
+        : `畫面連續 ${stuckCount} 步無變化,各種脫困嘗試均無效 —— 可能當機/卡死或需人工介入。已中止,避免空轉。`;
+      await writeStatus('error', finalMsg, steps.length);
+      break;
+    }
+
+    if (stuckCount >= 3 && !looksSlotSpin) {
       // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
       //     配合此處額外 wait 動作,等於給數十秒到 1-2 分鐘讓安裝/載入完成),不亂點。
       const STUCK_WAIT_STEPS = 20; // 卡住的前 20 輪(約 60-100s)只等待,不亂點
-      // (B) 硬上限:脫困(含等待)累計超過 STUCK_ABORT_STEPS 步畫面仍完全沒變 → 判定卡死結束。
-      const STUCK_ABORT_STEPS = 30;
-
-      if (stuckCount >= STUCK_ABORT_STEPS) {
-        finalState = 'error';
-        finalMsg = looksLoading
-          ? `畫面連續 ${stuckCount} 步無變化且停在安裝/載入畫面 —— 可能 APK 安裝或首次啟動失敗/逾時(此 APK 可能過大或需額外下載資源)。已中止,避免空轉。`
-          : `畫面連續 ${stuckCount} 步無變化,各種脫困嘗試均無效 —— 可能當機/卡死或需人工介入。已中止,避免空轉。`;
-        await writeStatus('error', finalMsg, steps.length);
-        break;
-      }
 
       if (looksLoading || stuckCount < STUCK_WAIT_STEPS) {
         // 載入中或仍在耐心期:等待,不亂點。
@@ -732,7 +747,11 @@ async function main() {
     // 不會是「單純等待」。
     const screenNameLower = String(screenName || '').toLowerCase();
     const loopLoadingHint = /loading|載入|载入|請稍候|请稍候|connecting|連線中|连接中|進場|进场/i;
-    const countsForLoop = cmd.action !== 'wait' && !loopLoadingHint.test(screenNameLower);
+    // 2026-10-02 修正:老虎機類遊戲每輪 SPIN 後畫面名稱常常一樣(都是同一台機台的「轉輪
+    // 結果」畫面),這是正常重複玩法(連續多輪 SPIN 本就該停在同畫面名),不是卡死 —— 不該
+    // 計入死循環次數,否則玩滿 8 輪 SPIN 就會被誤判成「App 死循環」提早中止整個任務。
+    const screenLoopExempt = loopLoadingHint.test(screenNameLower) || slotHint.test(screenNameLower);
+    const countsForLoop = cmd.action !== 'wait' && !screenLoopExempt;
     const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
     if (countsForLoop) screenSeen.set(screenName, seen);
     if (countsForLoop && seen >= LOOP_ABORT_LIMIT) {
