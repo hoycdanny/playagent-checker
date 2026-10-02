@@ -154,6 +154,9 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `{"thinking":"...","action":"tap|swipe|move|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>,"text":"...","screen":"畫面名稱"}。` +
     `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;type 需 text;done 只在真正完成或完全無法進行時用。` +
     `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
+    `【品牌 Logo/開場動畫畫面|重要】若畫面是純展示性的「遊戲 Logo/工作室 Logo/品牌動畫/Config Ready/Loading」(畫面上沒有任何按鈕,只有標題文字、角色插圖、特效動畫,正在自動播放等待載入完成),` +
+    `這種畫面本來就【沒有可互動元素】,【只能用 wait】,絕對不要對著它亂 tap/swipe/move——這種畫面不管點哪裡都不會有反應,亂點只會浪費步數並可能被系統誤判為死循環而提早中止任務。` +
+    `判斷依據:畫面上只有大型標題字樣(如遊戲名稱配驚嘆號/特效)、無任何方框/按鈕外觀的文字(如 Start/OK/Confirm)、底部可能有小字樣如「Loading」「Config Ready」——這類畫面一律 wait。` +
     `對割草通關任務:只有當你在畫面上「親眼看到關卡指示已達第 5 關/第 5 波(如 Stage 5 / Wave 5 / 第5關 / 5. XXX Zone)」時,才可以 done 並在 thinking 寫出你看到的關卡文字為證。` +
     `在那之前,即使遊戲載入很久、或你覺得流程走完了,都不可 done —— 繼續 wait 或 move 走位推進關卡。誤把載入畫面當完成而 done 是嚴重錯誤。` +
     `screen 用精確畫面名(如「主選單」「大廳」「轉軸畫面」「載入中」)描述當前畫面,不同畫面用不同名稱。`;
@@ -420,6 +423,12 @@ async function main() {
   // (常見:此裝置無 Google/Facebook 登入環境,關掉彈窗又立刻重跳),提早收斂不空轉到步數上限。
   const screenSeen = new Map();
   const LOOP_ABORT_LIMIT = 8;
+  // 連續 wait 次數上限:2026-10-02 修正死循環偵測排除 wait 動作後的副作用——純等待不再計入
+  // screenSeen,但若畫面本身真的卡死在載入階段(如 APK 配置下載失敗/逾時),會變成無上限空等,
+  // 持續燒錢卻永遠不會觸發任何中止條件。這裡加一個獨立、簡單的「連續 wait 次數」硬上限,
+  // 不管畫面名稱、pHash 是否變化,純粹計數「上一步也是 wait」的連續次數。
+  let consecWaitCount = 0;
+  const WAIT_ABORT_LIMIT = 40; // 連續 wait ~40 次(每輪約數秒,約略對應 2-3 分鐘耐心)上限
   // 方向追蹤(直向/橫向):用來偵測「進遊戲前後方向切換」並提示模型重新評估版面。null=尚未知。
   let prevOrient = null;
 
@@ -555,10 +564,22 @@ async function main() {
     // 不再無止盡空轉(尤其步數無上限的任務,避免在真機上一直計費)。
     let escapeOverride = false;
     // 安裝/載入偵測:VLM 的 thinking 或畫面名提到 install/loading/安裝/載入 → 視為載入中。
-    const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中/i;
+    const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中|config\s*ready|進場|进场|logo|品牌動畫|品牌动画|開場|开场/i;
     // 注意:此處在 screenName 宣告之前,只能用 cmd.screen(別引用 screenName,否則 TDZ ReferenceError)。
     const looksLoading =
       loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || ''));
+
+    // 2026-10-02 修正:品牌 Logo/開場動畫畫面常帶有持續的粒子/火焰特效,導致 pHash 判定
+    // 「畫面有變化」而讓 stuckCount 一直被重置為 0,使下面「連續無變化才耐心等待」的保護
+    // 從未生效——結果 VLM 對著純展示性動畫反覆 tap/swipe/move,8 次就被死循環偵測誤殺
+    // (實測 job-muqscmna-syzeke:畫面「大廳頁面ConfigReady」反覆被亂點 8 次才中止)。
+    // 這裡獨立於 stuckCount,只要畫面本身被判定為載入/開場動畫,一律強制改 wait,不亂點。
+    if (looksLoading && cmd.action !== 'wait') {
+      const origAction = cmd.action;
+      cmd.action = 'wait'; cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 3;
+      cmd.thinking = `偵測到載入/開場動畫畫面(無可互動元素),強制改為等待,不亂點。原動作:${origAction}。` + String(cmd.thinking || '');
+      escapeOverride = true;
+    }
 
     if (stuckCount >= 3) {
       // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
@@ -678,11 +699,29 @@ async function main() {
 
     // App 死循環偵測:累計每個「畫面名」出現次數;超過門檻代表卡在同一處(常見:登入失敗彈窗
     // 反覆跳,此裝置無對應第三方登入環境)。提早收斂為 fail 並在訊息點出原因,不空轉到步數上限。
-    const seen = (screenSeen.get(screenName) || 0) + 1;
-    screenSeen.set(screenName, seen);
-    if (seen >= LOOP_ABORT_LIMIT) {
+    // 2026-10-02 修正:原本不分動作一律計數,導致「載入畫面持續 wait 耐心等待」(正常行為,
+    // stuckCount 機制本該給到 STUCK_ABORT_STEPS=30 步耐心)在第 8 次就被這裡誤判成死循環
+    // 提早判 fail,比耐心機制還早觸發。改成只有「主動互動動作」(tap/swipe/move/type/back)
+    // 重複才算死循環,純粹等待載入(wait)不計入——真正的死循環一定是「做了動作畫面還是沒變」,
+    // 不會是「單純等待」。
+    const screenNameLower = String(screenName || '').toLowerCase();
+    const loopLoadingHint = /loading|載入|载入|請稍候|请稍候|connecting|連線中|连接中|進場|进场/i;
+    const countsForLoop = cmd.action !== 'wait' && !loopLoadingHint.test(screenNameLower);
+    const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
+    if (countsForLoop) screenSeen.set(screenName, seen);
+    if (countsForLoop && seen >= LOOP_ABORT_LIMIT) {
       finalState = 'fail';
       finalMsg = `偵測到 App 死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進,可能此裝置環境無法完成該步驟(如第三方登入服務不可用)。已提早結束以節省時間與成本。`;
+      break;
+    }
+
+    // 連續 wait 次數上限:純等待不計入上面的死循環計數,但也不能無上限空等——
+    // 若真的卡在載入/配置下載失敗,須有一個與畫面名稱、pHash 都無關的獨立硬停止點。
+    consecWaitCount = cmd.action === 'wait' ? consecWaitCount + 1 : 0;
+    if (consecWaitCount >= WAIT_ABORT_LIMIT) {
+      finalState = 'error';
+      finalMsg = `連續 wait ${consecWaitCount} 次仍停在「${screenName}」—— 可能載入/配置下載逾時或失敗,此裝置環境無法完成該步驟。已中止,避免空轉。`;
+      await writeStatus('error', finalMsg, steps.length);
       break;
     }
 
