@@ -11,7 +11,11 @@ import './ReportViewPage.css';
 
 /** emulator 報告的逐步 trace。 */
 interface EmuStep {
-  stepNumber: number;
+  // emulator runner 寫 stepNumber/reason;Device Farm runner(explorationRunner.mjs)寫 index/thinking。
+  // 兩種都接受,渲染時用 stepNo()/stepReason() 取值。
+  stepNumber?: number;
+  index?: number;
+  thinking?: string;
   action: string;
   screen?: string;
   reason?: string;
@@ -22,8 +26,11 @@ interface EmuStep {
   durationMs?: number;
   tokens?: { input: number; output: number };
 }
-interface NavNode { id: string; step: number; screen: string; screenshotUrl?: string }
-interface NavEdge { from: string; to: string; action: string }
+interface NavNode { id: string; step?: number; screen?: string; name?: string; screenshotUrl?: string }
+interface NavEdge {
+  from?: string; to?: string; action?: string;
+  fromPageId?: string; toPageId?: string; trigger?: { label?: string };
+}
 
 interface ReportDoc {
   jobId: string;
@@ -55,6 +62,15 @@ function asText(v: unknown): string | undefined {
   if (typeof v === 'string') return v;
   if (typeof v === 'number' || typeof v === 'boolean') return String(v);
   try { return JSON.stringify(v); } catch { return String(v); }
+}
+
+/** 步驟序號:emulator 用 stepNumber,Device Farm 用 index。 */
+function stepNo(s: EmuStep, fallback: number): number {
+  return s.stepNumber ?? s.index ?? fallback;
+}
+/** 步驟說明:emulator 用 reason,Device Farm 用 thinking。 */
+function stepReason(s: EmuStep): string | undefined {
+  return asText(s.reason) ?? asText(s.thinking);
 }
 
 export default function ReportViewPage() {
@@ -190,16 +206,17 @@ function EmulatorReport({
         <p className="report__empty-note">{t('report.noScreens')}</p>
       ) : (
         <div className="report__gallery">
-          {shots.map((s) => {
+          {shots.map((s, i) => {
             const url = asText(s.annotatedUrl) ?? asText(s.screenshotUrl)!;
             const screenText = asText(s.screen);
+            const no = stepNo(s, i);
             return (
-              <figure key={s.stepNumber} className="report__shot">
+              <figure key={`${no}-${i}`} className="report__shot">
                 <button type="button" className="report__shot-btn" onClick={() => onOpen(url)} title={t('report.viewFull')}>
-                  <img src={url} alt={`step ${s.stepNumber}`} loading="lazy" />
+                  <img src={url} alt={`step ${no}`} loading="lazy" />
                 </button>
                 <figcaption>
-                  #{s.stepNumber} {asText(s.action)}
+                  #{no} {asText(s.action)}
                   {screenText ? ` · ${screenText}` : ''}
                 </figcaption>
               </figure>
@@ -209,7 +226,7 @@ function EmulatorReport({
       )}
 
       {/* 導覽關係圖 */}
-      {navGraph && navGraph.nodes.length > 0 && (
+      {navGraph && navGraph.nodes && navGraph.nodes.length > 0 && (
         <>
           <h2 className="report__subtitle">{t('report.navGraph')}</h2>
           <p className="report__empty-note">{t('report.navGraphHint')}</p>
@@ -222,13 +239,14 @@ function EmulatorReport({
         {t('report.trace')} ({steps.length})
       </h2>
       <ol className="report__trace">
-        {steps.map((s) => {
+        {steps.map((s, i) => {
           const screenText = asText(s.screen);
-          const reasonText = asText(s.reason);
+          const reasonText = stepReason(s);
+          const no = stepNo(s, i);
           return (
-            <li key={s.stepNumber} className="report__trace-step">
+            <li key={`${no}-${i}`} className="report__trace-step">
               <div className="report__trace-head">
-                <span className="report__step-idx">#{s.stepNumber}</span>
+                <span className="report__step-idx">#{no}</span>
                 <span className="report__trace-action">{asText(s.action)}</span>
                 {screenText && <span className="report__trace-screen">{screenText}</span>}
                 {s.coords && (
