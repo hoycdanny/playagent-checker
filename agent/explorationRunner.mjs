@@ -613,12 +613,19 @@ async function main() {
     // 自己已經正確判斷要點 SPIN 的 tap(實測 job-muqvy57p-cquk7t:模型第 13 步明確說「繼續
     // 第 2 次旋轉,點 SPIN」,但接下來 7 步全被覆寫成「連續畫面沒變,先等待」,最終因為脫困
     // 輪換掃描的座標都沒掃到 SPIN 鈕,8 次無效互動後被死循環偵測中止)。
-    // 這裡偵測「模型自己想做 tap/swipe」且畫面/thinking 像是老虎機轉輪結果 → 放行讓它試,
+    // 這裡偵測「模型自己想做 tap/swipe」且畫面名(非 thinking)像是老虎機轉輪結果 → 放行讓它試,
     // 不用 stuckCount 覆寫;若真的連續試了也沒用,交由下面既有的死循環計數器(LOOP_ABORT_LIMIT)
     // 去判斷是不是真的卡死,而不是在這裡提前擋掉。
-    const slotHint = /slot|轮盘|輪盤|spin|轉軸|转轴|老虎機|老虎机|jackpot|total bet|free game|賭場|赌场|casino/i;
+    // 2026-10-02 修正(二):原本連 thinking 也納入比對,而且用了過寬的單字「spin」—— 任何
+    // 遊戲只要在 thinking 裡提到類似「10 Spins Completed(成就/任務文案)」就會誤中,把
+    // 「活動彈窗卡死」誤判成「老虎機轉輪結果」,反而讓死循環保護被意外豁免、卡更久才被
+    // 解析失敗計數器攔下(實測 job-muqz92nk-05pqac:卡在 EVENT 任務彈窗,因 thinking 提到
+    // 「10 Spins Completed」被誤判豁免,拖到 VLM 連續解析失敗才中止,比正常死循環慢很多)。
+    // 改成只看「畫面名」(模型對畫面的簡短分類標籤,比自由敘述穩定),且用更明確的複合詞,
+    // 避免「spin」這種在成就/任務文案裡常見的單字誤觸。
+    const slotHint = /slot machine|slot game|轮盘|輪盤|spin\s*wheel|轉軸|转轴|老虎機|老虎机|jackpot|賭場|赌场|casino/i;
     const looksSlotSpin = (cmd.action === 'tap' || cmd.action === 'swipe') &&
-      (slotHint.test(String(cmd.thinking || '')) || slotHint.test(String(cmd.screen || '')));
+      slotHint.test(String(cmd.screen || ''));
 
     // (B) 硬上限:脫困(含等待)累計超過 STUCK_ABORT_STEPS 步畫面仍完全沒變 → 判定卡死結束。
     // 這個判斷不受 looksSlotSpin 影響 —— 即使放行模型自己點 SPIN,若真的連續 30 步畫面
