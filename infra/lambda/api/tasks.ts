@@ -419,12 +419,24 @@ export async function readSteps(
     .map((o) => o.Key)
     .filter((k): k is string => typeof k === 'string' && k.endsWith('.json'));
 
-  const steps = await Promise.all(
+  // 用 allSettled 而非 all:單一 step JSON 損毀(寫入中斷/截斷,長任務步數多時機率更高)
+  // 不該讓整批 steps 都讀不到 —— 之前用 Promise.all,任一筆 readJson 的 JSON.parse 失敗
+  // 就會讓整個請求 reject,前端只能顯示空白/「尚無步驟」,使用者完全看不到其餘數百個
+  // 正常步驟。改成略過損毀的那一筆,其餘照常回傳。
+  const results = await Promise.allSettled(
     keys.map((key) => readJson<StepRecord>(s3, bucket, key)),
   );
-  return steps
-    .filter((s): s is StepRecord => s !== null)
-    .sort((a, b) => a.index - b.index);
+  const steps: StepRecord[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const r = results[i]!;
+    if (r.status === 'fulfilled' && r.value !== null) {
+      steps.push(r.value);
+    } else if (r.status === 'rejected') {
+      // eslint-disable-next-line no-console
+      console.error(`[readSteps] 讀取損毀,略過: ${keys[i]}`, r.reason);
+    }
+  }
+  return steps.sort((a, b) => a.index - b.index);
 }
 
 /** 單步互動 log(traces/<i>.json):模型/channel/請求摘要/原始回應/token/錯誤。 */

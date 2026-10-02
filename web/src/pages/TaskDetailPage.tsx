@@ -33,6 +33,16 @@ interface TraceLog {
   at?: string;
 }
 
+/** 把任意值安全轉成可渲染字串;非 string/number/boolean 一律字串化,避免把物件/陣列當
+ *  React child 直接渲染而丟出未捕捉例外(長任務的 step 欄位型別偶爾會跑掉,例如模型
+ *  輸出異常或 runner 版本差異造成 thinking 不是純字串)。 */
+function asText(v: unknown): string | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try { return JSON.stringify(v); } catch { return String(v); }
+}
+
 export default function TaskDetailPage() {
   const { t } = useI18n();
   const { jobId } = useParams<{ jobId: string }>();
@@ -105,7 +115,7 @@ export default function TaskDetailPage() {
   const latestShot = [...steps]
     .reverse()
     .find((s) => s.annotatedUrl || s.screenshotUrl);
-  const liveUrl = latestShot?.annotatedUrl ?? latestShot?.screenshotUrl;
+  const liveUrl = asText(latestShot?.annotatedUrl) ?? asText(latestShot?.screenshotUrl);
 
   return (
     <section className="listpage listpage--wide detail">
@@ -351,11 +361,11 @@ export default function TaskDetailPage() {
             </figure>
           ) : liveUrl ? (
             <figure className="detail__live-shot">
-              <img src={liveUrl} alt={latestShot?.screen ?? t('detail.liveView')} />
-              {latestShot?.screen && (
+              <img src={liveUrl} alt={asText(latestShot?.screen) ?? t('detail.liveView')} />
+              {asText(latestShot?.screen) && (
                 <figcaption className="detail__live-cap">
-                  {t('detail.step')} {latestShot.index}
-                  {latestShot.screen ? ` · ${latestShot.screen}` : ''}
+                  {t('detail.step')} {latestShot?.index}
+                  {` · ${asText(latestShot?.screen)}`}
                 </figcaption>
               )}
             </figure>
@@ -376,18 +386,23 @@ export default function TaskDetailPage() {
           ) : (
             <ol className="detail__steps">
               {steps.map((s) => {
-                const thumb = s.annotatedUrl ?? s.screenshotUrl;
+                const thumb = asText(s.annotatedUrl) ?? asText(s.screenshotUrl);
+                const screenText = asText(s.screen);
+                const actionText = asText(s.action);
+                const thinkingText = asText(s.thinking);
+                const urlText = asText(s.url);
+                const titleText = asText(s.observedTitle);
                 return (
                   <li key={s.index} className="detail__step">
                     <div className="detail__step-head">
                       <span className="detail__step-idx">
                         {t('detail.step')} {s.index}
                       </span>
-                      {s.screen && (
-                        <span className="detail__step-screen">{s.screen}</span>
+                      {screenText && (
+                        <span className="detail__step-screen">{screenText}</span>
                       )}
-                      {s.action && (
-                        <span className="detail__step-action">{s.action}</span>
+                      {actionText && (
+                        <span className="detail__step-action">{actionText}</span>
                       )}
                     </div>
                     <div className="detail__step-body">
@@ -398,19 +413,19 @@ export default function TaskDetailPage() {
                           rel="noreferrer"
                           className="detail__step-thumb"
                         >
-                          <img src={thumb} alt={s.screen ?? `step ${s.index}`} loading="lazy" />
+                          <img src={thumb} alt={screenText ?? `step ${s.index}`} loading="lazy" />
                         </a>
                       )}
                       <div className="detail__step-text">
-                        {s.thinking && (
-                          <div className="detail__step-think">{s.thinking}</div>
+                        {thinkingText && (
+                          <div className="detail__step-think">{thinkingText}</div>
                         )}
-                        {s.url && <div className="detail__step-url">{s.url}</div>}
+                        {urlText && <div className="detail__step-url">{urlText}</div>}
                         {typeof s.httpStatus === 'number' && (
                           <div>HTTP {s.httpStatus}</div>
                         )}
-                        {s.observedTitle && (
-                          <div className="detail__step-title">{s.observedTitle}</div>
+                        {titleText && (
+                          <div className="detail__step-title">{titleText}</div>
                         )}
                       </div>
                     </div>

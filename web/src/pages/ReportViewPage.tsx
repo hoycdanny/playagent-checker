@@ -5,6 +5,7 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import { LOCALE_LABELS, type Locale } from '../i18n/messages.ts';
 import type { MessageKey } from '../i18n/messages.ts';
 import { NavGraph } from '../components/NavGraph.tsx';
+import { RtpChart, type RtpStats } from '../components/RtpChart.tsx';
 import './ListPage.css';
 import './ReportViewPage.css';
 
@@ -41,6 +42,19 @@ interface ReportDoc {
   navGraph?: { nodes: NavNode[]; edges: NavEdge[] };
   tokens?: { input: number; output: number };
   generatedAt?: string;
+  // RTP(Return To Player)統計:僅案例任務要求算 RTP、且 runner 從 thinking 文字抓到
+  // 可用的下注/派彩資料時才會有此欄位(見 agent/explorationRunner.mjs computeRtpStats)。
+  // 沒有這個欄位(undefined)代表這不是 RTP 任務,或資料不足以估算,報告呈現一般遊戲測試內容。
+  rtp?: RtpStats;
+}
+
+/** 把任意值安全轉成可渲染字串,避免把物件/陣列當 React child 渲染而丟出未捕捉例外
+ *  (長任務的 step 欄位型別偶爾會跑掉)。 */
+function asText(v: unknown): string | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  try { return JSON.stringify(v); } catch { return String(v); }
 }
 
 export default function ReportViewPage() {
@@ -123,6 +137,7 @@ export default function ReportViewPage() {
         <EmulatorReport
           steps={emuSteps ?? []}
           navGraph={report.navGraph}
+          rtp={report.rtp}
           onOpen={setLightbox}
         />
       ) : (
@@ -143,14 +158,16 @@ export default function ReportViewPage() {
   );
 }
 
-/** emulator 報告:遊戲畫面畫廊 + 導覽關係圖 + 逐步 trace。 */
+/** emulator 報告:RTP 統計圖(若有)+ 遊戲畫面畫廊 + 導覽關係圖 + 逐步 trace。 */
 function EmulatorReport({
   steps,
   navGraph,
+  rtp,
   onOpen,
 }: {
   steps: EmuStep[];
   navGraph?: { nodes: NavNode[]; edges: NavEdge[] };
+  rtp?: RtpStats;
   onOpen: (url: string) => void;
 }) {
   const { t } = useI18n();
@@ -158,6 +175,15 @@ function EmulatorReport({
 
   return (
     <>
+      {/* RTP 統計圖:只有案例任務要求算 RTP 且確實抓到資料時才顯示;其餘情況(一般功能
+          測試)完全不顯示這一區塊,呈現正常的遊戲測試報告。 */}
+      {rtp && (
+        <>
+          <h2 className="report__subtitle">{t('report.rtp')}</h2>
+          <RtpChart stats={rtp} />
+        </>
+      )}
+
       {/* 遊戲畫面畫廊(標註圖優先) */}
       <h2 className="report__subtitle">{t('report.gameplay')}</h2>
       {shots.length === 0 ? (
@@ -165,15 +191,16 @@ function EmulatorReport({
       ) : (
         <div className="report__gallery">
           {shots.map((s) => {
-            const url = s.annotatedUrl ?? s.screenshotUrl!;
+            const url = asText(s.annotatedUrl) ?? asText(s.screenshotUrl)!;
+            const screenText = asText(s.screen);
             return (
               <figure key={s.stepNumber} className="report__shot">
                 <button type="button" className="report__shot-btn" onClick={() => onOpen(url)} title={t('report.viewFull')}>
                   <img src={url} alt={`step ${s.stepNumber}`} loading="lazy" />
                 </button>
                 <figcaption>
-                  #{s.stepNumber} {s.action}
-                  {s.screen ? ` · ${s.screen}` : ''}
+                  #{s.stepNumber} {asText(s.action)}
+                  {screenText ? ` · ${screenText}` : ''}
                 </figcaption>
               </figure>
             );
@@ -195,22 +222,26 @@ function EmulatorReport({
         {t('report.trace')} ({steps.length})
       </h2>
       <ol className="report__trace">
-        {steps.map((s) => (
-          <li key={s.stepNumber} className="report__trace-step">
-            <div className="report__trace-head">
-              <span className="report__step-idx">#{s.stepNumber}</span>
-              <span className="report__trace-action">{s.action}</span>
-              {s.screen && <span className="report__trace-screen">{s.screen}</span>}
-              {s.coords && (
-                <span className="report__trace-coords">({s.coords.x}, {s.coords.y})</span>
-              )}
-              {typeof s.durationMs === 'number' && (
-                <span className="report__trace-dur">{(s.durationMs / 1000).toFixed(1)}s</span>
-              )}
-            </div>
-            {s.reason && <p className="report__trace-reason">{s.reason}</p>}
-          </li>
-        ))}
+        {steps.map((s) => {
+          const screenText = asText(s.screen);
+          const reasonText = asText(s.reason);
+          return (
+            <li key={s.stepNumber} className="report__trace-step">
+              <div className="report__trace-head">
+                <span className="report__step-idx">#{s.stepNumber}</span>
+                <span className="report__trace-action">{asText(s.action)}</span>
+                {screenText && <span className="report__trace-screen">{screenText}</span>}
+                {s.coords && (
+                  <span className="report__trace-coords">({s.coords.x}, {s.coords.y})</span>
+                )}
+                {typeof s.durationMs === 'number' && (
+                  <span className="report__trace-dur">{(s.durationMs / 1000).toFixed(1)}s</span>
+                )}
+              </div>
+              {reasonText && <p className="report__trace-reason">{reasonText}</p>}
+            </li>
+          );
+        })}
       </ol>
     </>
   );

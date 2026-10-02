@@ -1,7 +1,8 @@
 import { lazy, Suspense } from 'react';
-import { HashRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthProvider.tsx';
 import { TopBar } from './components/TopBar.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import './App.css';
 
@@ -36,25 +37,39 @@ export function App() {
         <TopBar />
         <main className="app-shell__content" role="main">
           <Suspense fallback={<div className="app-shell__loading" aria-hidden="true" />}>
-            <Routes>
-              <Route path="/guide" element={<GuidePage />} />
-              <Route path="/apps" element={<AppsPage />} />
-              <Route path="/apps/:appId" element={<AppWorkspacePage />} />
-              <Route path="/cases" element={<CasesPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/tasks/:jobId" element={<TaskDetailPage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              <Route path="/reports/:jobId" element={<ReportViewPage />} />
-              <Route path="/devices" element={<DevicesPage />} />
-              <Route path="/memory" element={<MemoryPage />} />
-              <Route path="/knowledge" element={<KnowledgePage />} />
-              <Route path="/cost" element={<CostPage />} />
-              <Route path="/members" element={<MembersPage />} />
-              <Route path="*" element={<Navigate to="/guide" replace />} />
-            </Routes>
+            <AppRoutes />
           </Suspense>
         </main>
       </div>
     </HashRouter>
+  );
+}
+
+/**
+ * 路由集合,外層包 Error Boundary 防止任一頁面渲染期例外讓整個 App 空白(main.tsx 的
+ * 渲染樹原本完全沒有防護)。用 location.pathname 當 key 讓邊界在路由切換時重新 mount,
+ * 這樣從壞掉的頁面導到別處時,錯誤狀態不會卡住下一個頁面。
+ */
+function AppRoutes() {
+  const location = useLocation();
+  return (
+    <ErrorBoundary key={location.pathname} label="頁面">
+      <Routes>
+        <Route path="/guide" element={<GuidePage />} />
+        <Route path="/apps" element={<AppsPage />} />
+        <Route path="/apps/:appId" element={<AppWorkspacePage />} />
+        <Route path="/cases" element={<CasesPage />} />
+        <Route path="/tasks" element={<TasksPage />} />
+        <Route path="/tasks/:jobId" element={<TaskDetailPage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/reports/:jobId" element={<ReportViewPage />} />
+        <Route path="/devices" element={<DevicesPage />} />
+        <Route path="/memory" element={<MemoryPage />} />
+        <Route path="/knowledge" element={<KnowledgePage />} />
+        <Route path="/cost" element={<CostPage />} />
+        <Route path="/members" element={<MembersPage />} />
+        <Route path="*" element={<Navigate to="/guide" replace />} />
+      </Routes>
+    </ErrorBoundary>
   );
 }

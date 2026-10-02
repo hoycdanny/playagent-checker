@@ -974,12 +974,19 @@ async function enrichStepScreenshots(
 ): Promise<void> {
   const sign = async (key: unknown): Promise<string | undefined> =>
     typeof key === 'string' && key ? createDownloadUrl(s3, bucket, key) : undefined;
-  for (const step of steps) {
-    const shot = await sign(step['screenshotKey']);
-    if (shot) step['screenshotUrl'] = shot;
-    const ann = await sign(step['annotatedKey']);
-    if (ann) step['annotatedUrl'] = ann;
-  }
+  // 平行簽名(原本序列 for...of,長任務數百步時會逐步拖慢回應;Promise.all 讓簽名時間
+  // 只跟最慢的一次簽名有關,不會隨步數線性增長)。單一簽名失敗不應讓整批都掛掉,
+  // 用 allSettled 容錯,失敗的那張圖就是沒有 URL(前端已處理缺圖的情況)。
+  await Promise.all(
+    steps.map(async (step) => {
+      const [shotResult, annResult] = await Promise.allSettled([
+        sign(step['screenshotKey']),
+        sign(step['annotatedKey']),
+      ]);
+      if (shotResult.status === 'fulfilled' && shotResult.value) step['screenshotUrl'] = shotResult.value;
+      if (annResult.status === 'fulfilled' && annResult.value) step['annotatedUrl'] = annResult.value;
+    }),
+  );
 }
 
 async function enrichReportScreenshots(

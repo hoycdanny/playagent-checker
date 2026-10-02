@@ -496,6 +496,7 @@ export type MessageKey =
   | 'device.confirm'
   | 'device.cancel'
   | 'device.close'
+  | 'report.rtp'
   | 'report.gameplay'
   | 'report.trace'
   | 'report.navGraph'
@@ -1007,6 +1008,7 @@ const zhHant: Catalog = {
   'device.confirm': '選定',
   'device.cancel': '取消',
   'device.close': '關閉',
+  'report.rtp': 'RTP 統計',
   'report.gameplay': '遊戲畫面',
   'report.trace': '執行軌跡',
   'report.navGraph': '導覽關係圖',
@@ -1518,6 +1520,7 @@ const en: Catalog = {
   'device.confirm': 'Select',
   'device.cancel': 'Cancel',
   'device.close': 'Close',
+  'report.rtp': 'RTP Statistics',
   'report.gameplay': 'Gameplay screens',
   'report.trace': 'Execution trace',
   'report.navGraph': 'Navigation graph',
@@ -2032,6 +2035,7 @@ const zhHans: Catalog = {
   'device.confirm': '选定',
   'device.cancel': '取消',
   'device.close': '关闭',
+  'report.rtp': 'RTP 统计',
   'report.gameplay': '游戏画面',
   'report.trace': '执行轨迹',
   'report.navGraph': '导览关系图',
@@ -2543,6 +2547,7 @@ const ja: Catalog = {
   'device.confirm': '選択',
   'device.cancel': 'キャンセル',
   'device.close': '閉じる',
+  'report.rtp': 'RTP 統計',
   'report.gameplay': 'ゲーム画面',
   'report.trace': '実行トレース',
   'report.navGraph': 'ナビゲーション図',
@@ -3054,6 +3059,7 @@ const ko: Catalog = {
   'device.confirm': '선택',
   'device.cancel': '취소',
   'device.close': '닫기',
+  'report.rtp': 'RTP 통계',
   'report.gameplay': '게임 화면',
   'report.trace': '실행 트레이스',
   'report.navGraph': '내비게이션 그래프',
