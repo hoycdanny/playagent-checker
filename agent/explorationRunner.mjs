@@ -200,11 +200,22 @@ function channelFor(modelId) {
   return 'converse';
 }
 
-/** 從模型輸出的文字抽出決策 JSON;失敗回 done。 */
+/**
+ * 從模型輸出的文字抽出決策 JSON;解析失敗時回 wait(不是 done)。
+ *
+ * 2026-10-02 修正:舊版解析失敗時回 { action: 'done', ... },而主迴圈把 done 一律當成
+ * 「模型主動宣告完成」,直接判 finalState='pass' 收尾(除了「割草通關」任務有額外的
+ * 「拒絕假完成」保護,其他任務類型完全沒有防護)。結果就是任何一次 VLM 回應格式異常
+ * (例如被截斷、夾雜非 JSON 說明文字導致抽取失敗),都會讓整個任務在還沒真正完成時就
+ * 被誤判為成功結束(實測:老虎機 RTP 測試在第 12 步因此直接 pass,訊息「無法解析結果」,
+ * 但任務要求的 500 次 spin 根本沒跑完)。解析失敗跟「模型決定完成」是完全不同的事,
+ * 不該共用同一個分支——改成回 wait,讓流程自然進入下一輪重試,並標記 parseFailed 供
+ * 主迴圈做連續失敗次數的獨立計數(避免模型持續輸出不可解析內容時無限 wait 空轉)。
+ */
 function parseCmd(out) {
   const m = /\{[\s\S]*\}/.exec(out || '');
-  try { return m ? JSON.parse(m[0]) : { action: 'done', thinking: '無法解析回應' }; }
-  catch { return { action: 'done', thinking: '無法解析回應 JSON' }; }
+  try { return m ? JSON.parse(m[0]) : { action: 'wait', duration: 3, thinking: '無法解析回應,等待後重試', parseFailed: true }; }
+  catch { return { action: 'wait', duration: 3, thinking: '無法解析回應 JSON,等待後重試', parseFailed: true }; }
 }
 
 /** 把內部 Anthropic 形態的 messages 轉成 Converse API 形態(image bytes + text)。 */
@@ -429,6 +440,10 @@ async function main() {
   // 不管畫面名稱、pHash 是否變化,純粹計數「上一步也是 wait」的連續次數。
   let consecWaitCount = 0;
   const WAIT_ABORT_LIMIT = 40; // 連續 wait ~40 次(每輪約數秒,約略對應 2-3 分鐘耐心)上限
+  // 連續「VLM 回應無法解析」次數上限:這代表模型本身輸出有問題(非畫面載入),給較短的
+  // 耐心(10 次)就中止,避免解析失敗被誤判成功之外,也不要在模型持續壞輸出時無限空等。
+  let consecParseFailCount = 0;
+  const PARSE_FAIL_ABORT_LIMIT = 10;
   // 方向追蹤(直向/橫向):用來偵測「進遊戲前後方向切換」並提示模型重新評估版面。null=尚未知。
   let prevOrient = null;
 
@@ -562,6 +577,17 @@ async function main() {
     // 但先分辨「安裝/載入畫面」:此時亂點無意義,應「耐心等待」而非脫困(APK 尤其數百 MB 首裝很慢)。
     // 且脫困若試了很多輪畫面仍全無變化,代表真的卡死(安裝失敗/當機/需人工)—— 判定 error 結束,
     // 不再無止盡空轉(尤其步數無上限的任務,避免在真機上一直計費)。
+    // 連續 VLM 回應無法解析次數上限:parseCmd 解析失敗時回 wait(見該函式註解),這裡累計
+    // 連續次數,超過門檻代表模型本身持續輸出不可用內容(非畫面載入問題),中止並明確回報
+    // error(而不是像舊版一樣被當成 done 直接誤判 pass)。
+    consecParseFailCount = cmd.parseFailed ? consecParseFailCount + 1 : 0;
+    if (consecParseFailCount >= PARSE_FAIL_ABORT_LIMIT) {
+      finalState = 'error';
+      finalMsg = `VLM 連續 ${consecParseFailCount} 次回應無法解析為有效動作 —— 模型輸出格式異常,已中止(避免誤判為完成)。`;
+      await writeStatus('error', finalMsg, steps.length);
+      break;
+    }
+
     let escapeOverride = false;
     // 安裝/載入偵測:VLM 的 thinking 或畫面名提到 install/loading/安裝/載入 → 視為載入中。
     const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中|config\s*ready|進場|进场|logo|品牌動畫|品牌动画|開場|开场/i;
