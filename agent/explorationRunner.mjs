@@ -761,11 +761,19 @@ async function main() {
     }
 
     // 連續 wait 次數上限:純等待不計入上面的死循環計數,但也不能無上限空等——
-    // 若真的卡在載入/配置下載失敗,須有一個與畫面名稱、pHash 都無關的獨立硬停止點。
-    consecWaitCount = cmd.action === 'wait' ? consecWaitCount + 1 : 0;
+    // 若真的卡在載入/配置下載失敗,須有一個與畫面名稱都無關的獨立硬停止點。
+    // 2026-10-02 修正:原本只看「動作是不是 wait」,完全不管畫面有沒有實際變化,導致
+    // 老虎機 AUTOSPIN 這種「畫面持續在變(累積次數/餘額/畫面名稱都在跳動),玩家只需要
+    // 持續觀察等待」的正常情境被誤殺(實測 job-muqxaa0z-m4hbrl:AUTOSPIN 已經正確跑了
+    // 127 輪,餘額從 1,573,680 漲到 1,742,678,中間還觸發 JACKPOT,卻在第 70 步因為連續
+    // 40 次 wait 被判定「可能載入逾時」中止——但畫面明明一直在變,不是卡死)。
+    // 改成只有在「畫面真的沒變化」(stuckCount 同步在累積,即 pHash 判定卡住)時才計入
+    // 這個上限;若畫面持續變動(如 AUTOSPIN 跑動畫),純等待不設上限,真正的卡死由
+    // stuckCount 自己的 STUCK_ABORT_STEPS(30 步)去把關。
+    consecWaitCount = (cmd.action === 'wait' && stuckCount > 0) ? consecWaitCount + 1 : 0;
     if (consecWaitCount >= WAIT_ABORT_LIMIT) {
       finalState = 'error';
-      finalMsg = `連續 wait ${consecWaitCount} 次仍停在「${screenName}」—— 可能載入/配置下載逾時或失敗,此裝置環境無法完成該步驟。已中止,避免空轉。`;
+      finalMsg = `連續 wait ${consecWaitCount} 次且畫面無變化,仍停在「${screenName}」—— 可能載入/配置下載逾時或失敗,此裝置環境無法完成該步驟。已中止,避免空轉。`;
       await writeStatus('error', finalMsg, steps.length);
       break;
     }
