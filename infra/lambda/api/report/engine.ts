@@ -55,6 +55,9 @@ export interface EngineJob {
   backend?: string;
   category?: string;
   caseId?: string;
+  /** 執行時的案例版本號(job 快照)。 */
+  caseVersion?: string;
+  caseName?: string;
   artifactVersion?: string;
   vlmModel?: string;
   agentModel?: string;
@@ -87,7 +90,8 @@ export interface EngineInput {
   raw: Record<string, unknown>;
   job?: EngineJob | null;
   app?: EngineApp | null;
-  testCase?: { id: string; name: string; yaml: string } | null;
+  /** version = 執行時的不可變案例版本號(舊任務無)。 */
+  testCase?: { id: string; name: string; yaml: string; version?: string } | null;
   kbs?: EngineKb[];
 }
 
@@ -1115,6 +1119,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   });
 
   const yaml = input.testCase?.yaml ?? '';
+  const caseVersion = job?.caseVersion ?? input.testCase?.version;
   const confs = steps.map((s) => s.confidence).filter((c): c is number => typeof c === 'number');
 
   const report: StructuredReport = {
@@ -1138,6 +1143,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
       ...(job?.agentModel ? { agentModel: job.agentModel } : {}),
       testEngineVersion: typeof raw['runnerVersion'] === 'string' ? raw['runnerVersion'] : 'legacy',
       knowledgeBaseVersions: kbVersions,
+      ...(caseVersion ? { caseVersion } : {}),
       testPlanVersion: profile.version,
     },
     overallStatus,
@@ -1165,7 +1171,8 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     mechanics,
     testCase: {
       id: job?.caseId ?? input.testCase?.id ?? '—',
-      name: input.testCase?.name ?? (job?.category === 'exploration' ? 'Exploration' : job?.caseId ?? '—'),
+      name: input.testCase?.name ?? job?.caseName ?? (job?.category === 'exploration' ? 'Exploration' : job?.caseId ?? '—'),
+      ...(caseVersion ? { version: caseVersion } : {}),
       category: job?.category ?? 'test',
       ...(yamlField(yaml, 'module') ? { module: yamlField(yaml, 'module') } : {}),
       ...(yamlField(yaml, 'priority') ? { priority: yamlField(yaml, 'priority') } : {}),

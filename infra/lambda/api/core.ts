@@ -28,10 +28,15 @@ import {
 } from './apps.js';
 import { artifactKey } from './artifacts.js';
 import {
+  activateCaseVersion,
+  CASE_VERSION_RE,
   createCase,
   deleteCase,
+  ensureCaseVersion,
   getCase,
+  getCaseVersion,
   listCases,
+  listCaseVersions,
   updateCase,
   validateCaseInput,
   ValidationError as CaseValidationError,
@@ -552,7 +557,7 @@ export async function handleRequest(
       case 'POST /cases': {
         const input = validateCaseInput(req.body);
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const record = await createCase(s3, deps.bucket, tenant.tenantId, input);
+        const record = await createCase(s3, deps.bucket, tenant.tenantId, input, tenant.email ?? undefined);
         return json(201, record);
       }
 
@@ -825,7 +830,32 @@ export async function handleRequest(
               ...(typeof b.name === 'string' ? { name: b.name } : {}),
               ...(typeof b.yaml === 'string' ? { yaml: b.yaml } : {}),
             },
+            tenant.email ?? undefined,
           );
+          return json(200, detail);
+        }
+        // 動態路由:GET /cases/{app}/{id}/versions(版本清單,新到舊;舊案例自動補建基準版本)
+        const caseVersionsMatch = req.method === 'GET' && /^\/cases\/([^/]+)\/([^/]+)\/versions$/.exec(req.path);
+        if (caseVersionsMatch) {
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const res = await listCaseVersions(s3, deps.bucket, tenant.tenantId, caseVersionsMatch[1]!, caseVersionsMatch[2]!);
+          return json(200, res);
+        }
+        // 動態路由:GET /cases/{app}/{id}/versions/{version}(讀單一不可變版本,含 YAML)
+        const caseVersionGet = req.method === 'GET' && /^\/cases\/([^/]+)\/([^/]+)\/versions\/([^/]+)$/.exec(req.path);
+        if (caseVersionGet) {
+          if (!CASE_VERSION_RE.test(caseVersionGet[3]!)) return json(400, { error: '版本號格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const v = await getCaseVersion(s3, deps.bucket, tenant.tenantId, caseVersionGet[1]!, caseVersionGet[2]!, caseVersionGet[3]!);
+          if (!v) return json(404, { error: '找不到案例版本' });
+          return json(200, v);
+        }
+        // 動態路由:POST /cases/{app}/{id}/versions/{version}/activate(切換使用中的版本)
+        const caseVersionActivate = req.method === 'POST' && /^\/cases\/([^/]+)\/([^/]+)\/versions\/([^/]+)\/activate$/.exec(req.path);
+        if (caseVersionActivate) {
+          if (!CASE_VERSION_RE.test(caseVersionActivate[3]!)) return json(400, { error: '版本號格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const detail = await activateCaseVersion(s3, deps.bucket, tenant.tenantId, caseVersionActivate[1]!, caseVersionActivate[2]!, caseVersionActivate[3]!);
           return json(200, detail);
         }
         // 動態路由:DELETE /cases/{app}/{id}(刪除案例)
@@ -1128,15 +1158,20 @@ async function buildReportForJob(
   raw: Record<string, unknown>,
   opts: { sign?: boolean } = {},
 ): Promise<StructuredReport> {
-  const job = await readJsonObject<EngineJob & { appId?: string; knowledgeBaseIds?: string[]; kbSnapshot?: EngineKb[] }>(
+  const job = await readJsonObject<EngineJob & { appId?: string; knowledgeBaseIds?: string[]; kbSnapshot?: EngineKb[]; caseVersion?: string; caseName?: string }>(
     s3,
     deps.bucket,
     `${tenantPrefix(tenantId)}jobs/${jobId}/job.json`,
   );
   const [app, testCase, kbs] = await Promise.all([
     job?.appId ? getApp(s3, deps.bucket, tenantId, job.appId).catch(() => null) : Promise.resolve(null),
+    // 有版本號就讀「執行當時」的不可變版本(案例之後改過也不影響舊報告);舊任務退回讀目前的案例。
     job?.appId && job.caseId && job.caseId !== 'exploration'
-      ? getCase(s3, deps.bucket, tenantId, job.appId, job.caseId).catch(() => null)
+      ? (job.caseVersion
+          ? getCaseVersion(s3, deps.bucket, tenantId, job.appId, job.caseId, job.caseVersion)
+              .then((v) => (v ? { id: v.caseId, name: v.name, yaml: v.yaml, version: v.version } : null))
+              .catch(() => null)
+          : getCase(s3, deps.bucket, tenantId, job.appId, job.caseId).catch(() => null))
       : Promise.resolve(null),
     // 優先用提交時的知識庫快照(自建 KB 之後被修改/封存也不影響舊報告);
     // 內建樣板以程式碼為真相源(快照只記 id/版本);舊任務無快照則讀目前的知識庫。
@@ -1231,12 +1266,22 @@ async function handleSubmitTask(
   );
   if (!appOk) return json(400, { error: `找不到 App: ${input.appId}` });
 
-  const caseOk = await objectExists(
-    s3,
-    deps.bucket,
-    `${tenantPrefix(tenantId)}cases/${input.appId}/${input.caseId}.yaml`,
-  );
-  if (!caseOk) return json(400, { error: `找不到測試案例: ${input.caseId}` });
+  // 案例版本:明指版本就用該版本;否則用「目前使用中」的版本(舊案例自動補建基準版本)。
+  // 任務以該版本的不可變內容執行,job 記下版本號,之後案例再怎麼改都能溯源。
+  let caseVersion: string | null = null;
+  if (input.caseVersion) {
+    caseVersion = input.caseVersion;
+  } else {
+    const head = await getCase(s3, deps.bucket, tenantId, input.appId, input.caseId);
+    if (!head) return json(400, { error: `找不到測試案例: ${input.caseId}` });
+    caseVersion = await ensureCaseVersion(s3, deps.bucket, tenantId, input.appId, input.caseId, head);
+  }
+  const caseRecord = caseVersion
+    ? await getCaseVersion(s3, deps.bucket, tenantId, input.appId, input.caseId, caseVersion)
+    : null;
+  if (!caseRecord) {
+    return json(400, { error: input.caseVersion ? `找不到案例版本: ${input.caseVersion}` : `找不到測試案例: ${input.caseId}` });
+  }
 
   // 三角色模型校驗(Req 8/7):若使用者指定,各模型必須在對應 seat 的 Catalog 且可定價
   // (Fail Closed),否則在任何執行花費前拒絕。未指定則引擎用預設。
@@ -1315,21 +1360,9 @@ async function handleSubmitTask(
     ? `${tenantPrefix(tenantId)}artifacts/${appRecord.artifactId}/app.apk`
     : undefined;
   const pkg = appRecord?.identifier;
-  let caseTask: string | undefined;
-  let caseYamlText = '';
-  try {
-    const caseObj = await s3.send(
-      new GetObjectCommand({
-        Bucket: deps.bucket,
-        Key: `${tenantPrefix(tenantId)}cases/${input.appId}/${input.caseId}.yaml`,
-      }),
-    );
-    const yaml = (await caseObj.Body?.transformToString()) ?? '';
-    caseYamlText = yaml;
-    caseTask = extractCaseTask(yaml);
-  } catch {
-    /* 無 task 欄位則由下方 fallback 或 runner 預設探索目標 */
-  }
+  // 任務目標取自「本次使用的版本」內容(不是 head,避免提交瞬間被改)。
+  const caseYamlText = caseRecord.yaml;
+  let caseTask: string | undefined = extractCaseTask(caseYamlText);
   // exploration 任務且案例未指定 task 時,依 App 類型組出「自主探索目標」,
   // 讓探索有語意(走遍該類型關鍵畫面)而非泛用亂逛。
   if (!caseTask && input.category === 'exploration') {
@@ -1357,6 +1390,8 @@ async function handleSubmitTask(
       ...(genres.length > 0 ? { genres } : {}),
       ...(kbSnapshot.length > 0 ? { kbSnapshot } : {}),
       ...(controls ? { controls } : {}),
+      caseVersion: caseRecord.version,
+      caseName: caseRecord.name,
     },
   );
   // 知識庫引用索引(刪除防呆);失敗不擋提交。

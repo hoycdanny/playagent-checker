@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../../i18n/messages.ts';
+import { CaseVersionBadge } from '../cases/CaseVersions.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { ReportChart } from './ReportChart.tsx';
 import { ResultPill, VerdictMatrix, type CheckFilter } from './VerdictMatrix.tsx';
@@ -183,7 +184,10 @@ export function StructuredReportView({
         <H id="cover" />
         <div className="srep__cover">
           <div className="srep__cover-id">
-            <div className="srep__eyebrow">{lang === 'zh' ? '遊戲測試報告' : 'Game Test Report'} · {r.testCase.name}</div>
+            <div className="srep__eyebrow">
+              {lang === 'zh' ? '遊戲測試報告' : 'Game Test Report'} · {r.testCase.name}
+              {h.caseVersion && <> · <CaseVersionBadge version={h.caseVersion} title={txt('caseVersion', lang)} /></>}
+            </div>
             <div className="srep__cover-game">{h.gameName ?? '—'}</div>
             <div className="srep__muted">
               {[h.gameVersion && `v${h.gameVersion}`, genreName(h.genre), ...h.secondaryGenres.map(genreName)].filter(Boolean).join(' · ')}
@@ -197,6 +201,7 @@ export function StructuredReportView({
         </div>
         <p className="srep__reason">{tr(r.statusReason, lang)}</p>
         <dl className="srep__facts" aria-label={txt('keyFacts', lang)}>
+          <div><dt>{txt('caseVersion', lang)}</dt><dd className="srep__mono">{h.caseVersion ?? '—'}</dd></div>
           <div><dt>{txt('device', lang)}</dt><dd>{h.device ?? '—'}</dd></div>
           <div><dt>{txt('platform', lang)}</dt><dd>{[h.platform, h.operatingSystem].filter(Boolean).join(' ') || '—'}</dd></div>
           <div><dt>{txt('start', lang)}</dt><dd>{time(h.testStartTime)}</dd></div>
@@ -316,6 +321,7 @@ export function StructuredReportView({
         <H id="environment" />
         <dl className="srep__kv">
           <KV k={txt('reportId', lang)} v={h.reportId} />
+          <KV k={txt('caseVersion', lang)} v={h.caseVersion} />
           <KV k={txt('gameName', lang)} v={h.gameName} />
           <KV k={txt('gameVersion', lang)} v={h.gameVersion} />
           <KV k={txt('build', lang)} v={h.buildNumber} />
@@ -599,6 +605,7 @@ export function StructuredReportView({
         <dl className="srep__kv">
           <KV k={txt('caseId', lang)} v={r.testCase.id} />
           <KV k={txt('caseName', lang)} v={r.testCase.name} />
+          <KV k={txt('caseVersion', lang)} v={r.testCase.version ?? (r.testCase.category === 'exploration' ? undefined : txt('caseVersionLegacy', lang))} />
           <KV k={txt('category', lang)} v={r.testCase.category} />
           <KV k={txt('module', lang)} v={r.testCase.module} />
           <KV k={txt('priority', lang)} v={r.testCase.priority} />
