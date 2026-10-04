@@ -49,10 +49,23 @@ export interface TaskMeta {
   maxSteps?: number;
 }
 
+/** Device Farm 啟動進度(runner 寫進 status.json)。 */
+export type BootPhase = 'download' | 'upload' | 'device' | 'connect' | 'run';
+export interface BootProgress {
+  runnerAt?: string;
+  phase?: BootPhase;
+  at?: Partial<Record<BootPhase, string>>;
+  deviceStatus?: string;
+  deviceModel?: string;
+  sizeMB?: number;
+}
+
 export interface JobDetail {
-  job: { jobId: string; backend: string; locality: string; appId: string; caseId: string } | null;
+  job: { jobId: string; backend: string; locality: string; appId: string; caseId: string; createdAt?: string } | null;
   state: string;
   message?: string;
+  boot?: BootProgress;
+  updatedAt?: string;
   steps: Step[];
   meta?: TaskMeta;
 }
@@ -64,6 +77,12 @@ export interface JobStream {
   meta?: TaskMeta;
   /** 任務所屬應用 id(來自 job.json;供即時指令 / 應用記憶連結)。 */
   appId?: string;
+  /** 後端(devicefarm / web …)與送出時間。 */
+  backend?: string;
+  createdAt?: string;
+  /** 啟動進度 + 狀態最後更新時間(終局時間用)。 */
+  boot?: BootProgress;
+  updatedAt?: string;
   connected: boolean;
   loading: boolean;
 }
@@ -83,6 +102,10 @@ export function useJobStream(jobId: string | null): JobStream {
   const [steps, setSteps] = useState<Step[]>([]);
   const [meta, setMeta] = useState<TaskMeta | undefined>();
   const [appId, setAppId] = useState<string | undefined>();
+  const [backend, setBackend] = useState<string | undefined>();
+  const [createdAt, setCreatedAt] = useState<string | undefined>();
+  const [boot, setBoot] = useState<BootProgress | undefined>();
+  const [updatedAt, setUpdatedAt] = useState<string | undefined>();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
@@ -109,6 +132,10 @@ export function useJobStream(jobId: string | null): JobStream {
         setMessage(detail.message);
         if (detail.meta) setMeta(detail.meta);
         if (detail.job?.appId) setAppId(detail.job.appId);
+        if (detail.job?.backend) setBackend(detail.job.backend);
+        if (detail.job?.createdAt) setCreatedAt(detail.job.createdAt);
+        if (detail.boot) setBoot(detail.boot);
+        if (detail.updatedAt) setUpdatedAt(detail.updatedAt);
         setSteps((prev) => {
           const byIndex = new Map(prev.map((s) => [s.index, s]));
           for (const s of detail.steps) byIndex.set(s.index, s);
@@ -146,9 +173,11 @@ export function useJobStream(jobId: string | null): JobStream {
           };
           if (msg.type === 'step') mergeStep(msg.data as Step);
           if (msg.type === 'status') {
-            const d = msg.data as { state: string; message?: string };
+            const d = msg.data as { state: string; message?: string; boot?: BootProgress; updatedAt?: string };
             setState(d.state);
             setMessage(d.message);
+            if (d.boot) setBoot(d.boot);
+            if (d.updatedAt) setUpdatedAt(d.updatedAt);
           }
         } catch {
           /* 忽略非 JSON */
@@ -181,5 +210,5 @@ export function useJobStream(jobId: string | null): JobStream {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  return { state, message, steps, meta, appId, connected, loading };
+  return { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, connected, loading };
 }

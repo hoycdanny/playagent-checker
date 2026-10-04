@@ -8,6 +8,8 @@ import type { MessageKey } from '../i18n/messages.ts';
 import { OperatorChat } from '../components/tasks/OperatorChat.tsx';
 import { ScriptPanel } from '../components/tasks/ScriptPanel.tsx';
 import { TaskInfoStrip } from '../components/tasks/TaskInfoStrip.tsx';
+import { BootTimeline } from '../components/tasks/BootTimeline.tsx';
+import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
 import './ListPage.css';
 import './TaskDetailPage.css';
@@ -54,6 +56,8 @@ const PT = {
   newestFirst: ['最新在上', 'Newest first'],
   current: ['目前', 'Now'],
   stepCount: ['{n} 步', '{n} steps'],
+  booting: ['真機啟動中…', 'Starting the device…'],
+  bootingHint: ['Device Farm 開機通常需要 3–5 分鐘,畫面就緒後會自動出現。', 'Device Farm usually takes 3–5 minutes; the screen appears automatically.'],
 } as const;
 const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
 
@@ -61,7 +65,7 @@ export default function TaskDetailPage() {
   const { t, locale } = useI18n();
   const lang = reportLang(locale);
   const { jobId } = useParams<{ jobId: string }>();
-  const { state, message, steps, meta, appId, connected, loading } = useJobStream(jobId ?? null);
+  const { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, connected, loading } = useJobStream(jobId ?? null);
 
   // 知識庫 id → 名稱對照(供資訊列以人類可讀名稱呈現)。
   const [kbNames, setKbNames] = useState<Map<string, string>>(new Map());
@@ -298,6 +302,15 @@ export default function TaskDetailPage() {
             {t('detail.liveView')}
             {isLive && liveFrameUrl && <span className="detail__live-badge">{t('detail.liveBadge')}</span>}
           </h2>
+          {/* 啟動時間軸:Device Farm 開機各階段 + 啟動/執行計時 */}
+          <BootTimeline
+            state={state}
+            lang={lang}
+            {...(boot ? { boot } : {})}
+            {...(createdAt ? { createdAt } : {})}
+            {...(updatedAt ? { updatedAt } : {})}
+            {...(backend ? { backend } : {})}
+          />
           {isLive && liveFrameUrl ? (
             <figure className="detail__screen">
               <img src={liveFrameUrl} alt={latestScreen ?? t('detail.liveView')} />
@@ -306,6 +319,16 @@ export default function TaskDetailPage() {
             <figure className="detail__screen">
               <img src={liveUrl} alt={asText(latestShot?.screen) ?? t('detail.liveView')} />
             </figure>
+          ) : isLive || state === 'queued' ? (
+            // 開機中還沒有畫面:顯示手機外框 + 目前階段,不要只有一行字。
+            <div className="detail__booting" role="status">
+              <div className="detail__booting-phone" aria-hidden="true">
+                <InfoIcon name={boot?.phase === 'connect' ? 'plug' : boot?.phase === 'upload' ? 'upload' : boot?.phase === 'download' ? 'package' : boot?.phase === 'device' ? 'phone' : 'cloud'} size={30} />
+                <span className="detail__booting-ring" />
+              </div>
+              <p className="detail__booting-text">{message || pt('booting', lang)}</p>
+              <p className="detail__booting-sub">{pt('bootingHint', lang)}</p>
+            </div>
           ) : (
             <div className="detail__no-live">{t('detail.noLiveView')}</div>
           )}

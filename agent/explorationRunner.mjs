@@ -113,11 +113,27 @@ function pngSize(buf) {
   if (!w || !h) return null;
   return { w, h };
 }
+// 啟動進度(前端即時畫面上方的開機時間軸):各階段開始時間 + 目前階段 + 真機配置狀態。
+// phase:download(準備 APK)→ upload(上傳 Device Farm)→ device(配置真機)→ connect(連線 Appium)→ run(AI 測試中)。
+const boot = { runnerAt: new Date().toISOString(), phase: 'download', at: {} };
+function bootPhase(phase, info = {}) {
+  if (!boot.at[phase]) boot.at[phase] = new Date().toISOString();
+  boot.phase = phase;
+  if (info.deviceStatus) boot.deviceStatus = info.deviceStatus;
+  if (info.deviceModel) boot.deviceModel = info.deviceModel;
+  if (info.sizeMB) boot.sizeMB = info.sizeMB;
+}
 async function writeStatus(state, message, steps) {
   await s3put(`${PREFIX}/status.json`,
-    JSON.stringify({ jobId: JOB, state, message, steps: steps ?? 0, updatedAt: new Date().toISOString() }),
+    JSON.stringify({ jobId: JOB, state, message, steps: steps ?? 0, boot, updatedAt: new Date().toISOString() }),
     'application/json').catch(() => {});
 }
+const BOOT_MSG = {
+  download: 'Device Farm:準備 APK',
+  upload: 'Device Farm:上傳 APK',
+  device: 'Device Farm:配置真機',
+  connect: 'Device Farm:真機就緒,連線中',
+};
 
 // ── VLM 決策(純邏輯,對齊 emulatorRunner 的 prompt/對話策略,但改用 SDK)──
 
@@ -494,10 +510,16 @@ async function main() {
   let effectivePkg = PKG;
   if (!APPIUM_URL) {
     if (!ARTIFACT_KEY) throw new Error('缺少 PA_ARTIFACT_KEY,無法建立 Device Farm session');
-    await writeStatus('running', 'Device Farm:上傳 APK 並開真機 session 中', 0);
+    bootPhase('download');
+    await writeStatus('running', BOOT_MSG.download, 0);
     const session = await setupDeviceFarmSession(
       { dfClient, s3 },
       {
+        onPhase: async (p, info) => {
+          const changed = boot.phase !== p || (info?.deviceStatus && info.deviceStatus !== boot.deviceStatus);
+          bootPhase(p, info);
+          if (changed) await writeStatus('running', BOOT_MSG[p] ?? 'Device Farm 啟動中', 0);
+        },
         bucket: BUCKET,
         artifactKey: ARTIFACT_KEY,
         appId: APP_ID || JOB,
@@ -518,8 +540,10 @@ async function main() {
       effectivePkg = session.detectedPackage;
       console.log(`PA_PKG 未提供,改用從 APK 解析的套件名啟動:${effectivePkg}`);
     }
+    bootPhase('connect', deviceModel ? { deviceModel } : {});
     await writeStatus('running', `Device Farm 真機就緒(${deviceModel ?? '真機'}),Appium 連線中`, 0);
   } else {
+    bootPhase('connect');
     await writeStatus('running', 'Appium 連線中', 0);
   }
 
@@ -636,6 +660,7 @@ async function main() {
   let controlNote = '';
   let perfPending = null; // 進行中的效能取樣(Promise)
 
+  bootPhase('run');
   await writeStatus('running', 'AI 探索執行中', 0);
 
   // ── 即時畫面串流(真機):背景以 ~2.5fps 額外截圖覆寫 live 幀。
