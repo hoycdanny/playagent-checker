@@ -375,6 +375,19 @@
   gap: var(--space-3);
 }
 
+.detail__report-link {
+  padding: 2px var(--space-3);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.detail__report-link:hover { filter: brightness(1.08); }
+.detail__report-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
 .detail__logs-btn {
   padding: 2px var(--space-3);
   border: 1px solid var(--border);

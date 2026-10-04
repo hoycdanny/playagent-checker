@@ -177,7 +177,7 @@ const PATHS: Record<Genre, ReactNode> = {
       <path d="M6 21l12 0M8 18l8 3M16 18l-8 3" />
     </>
   ),
-  // 倖存者/割草:鐮刀劃過(移動即戰鬥)
+  // 割草:鐮刀劃過(移動即戰鬥)
   survivor: (
     <>
       <path d="M4 20c6 0 12-4 15-11" />

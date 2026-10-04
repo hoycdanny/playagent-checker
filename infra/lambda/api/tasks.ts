@@ -58,7 +58,29 @@ export interface JobRecord {
   osVersion?: string;
   /** 提交時選的共用知識庫 id 快照(執行時據此讀取並注入 Markdown)。 */
   knowledgeBaseIds?: string[];
+  /** 提交時 App 的遊戲類型快照(主類型在前);報告引擎據此合併 GenreProfile。 */
+  genres?: string[];
+  /** 提交時所用知識庫的快照(報告依執行當時的知識庫計算,之後修改/封存不影響舊報告)。 */
+  kbSnapshot?: KbSnapshot[];
+  /** 操作行為(控制方案)快照:案例指定或依類型建議;runner 據此限定手勢與注入操作說明。 */
+  controls?: JobControls;
   createdAt: string;
+}
+
+export interface JobControls {
+  ids: string[];
+  source: 'case' | 'genre';
+}
+
+export interface KbSnapshot {
+  id: string;
+  name: string;
+  genre?: string;
+  version?: string;
+  revision?: number;
+  builtin?: boolean;
+  markdown?: string;
+  reportSpec?: unknown;
 }
 
 function jobsPrefix(tenantId: string): string {
@@ -190,7 +212,7 @@ export async function createJob(
   tenantId: string,
   input: SubmitInput,
   artifactVersion?: string,
-  extra?: { artifactKey?: string; caseTask?: string; abi?: string; package?: string; platform?: string },
+  extra?: { artifactKey?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls },
 ): Promise<JobRecord> {
   const jobId = newJobId();
   const record: JobRecord = {
@@ -215,6 +237,9 @@ export async function createJob(
     ...(extra?.abi ? { abi: extra.abi } : {}),
     ...(extra?.package ? { package: extra.package } : {}),
     ...(extra?.platform ? { platform: extra.platform } : {}),
+    ...(extra?.genres && extra.genres.length > 0 ? { genres: extra.genres } : {}),
+    ...(extra?.kbSnapshot && extra.kbSnapshot.length > 0 ? { kbSnapshot: extra.kbSnapshot } : {}),
+    ...(extra?.controls && extra.controls.ids.length > 0 ? { controls: extra.controls } : {}),
     ...(input.knowledgeBaseIds && input.knowledgeBaseIds.length > 0
       ? { knowledgeBaseIds: input.knowledgeBaseIds }
       : {}),
@@ -251,6 +276,14 @@ export interface TaskListItem {
   spendEstimated?: boolean;
   /** 已執行步數(終局取 report.stepCount;執行中取 status.steps)。無則 undefined。 */
   stepCount?: number;
+  /** 終局訊息(如「達步數上限」「偵測到 App 死循環」),供報告列表一眼看出結果原因。 */
+  message?: string;
+  /** 任務目標摘要(report.task 或 job.caseTask,截斷 200 字)。 */
+  task?: string;
+  /** 實際執行的裝置機型。 */
+  deviceModel?: string;
+  /** 結束時間(報告產生時間;無報告則取最後狀態更新)。 */
+  finishedAt?: string;
 }
 
 /** 讀某物件 JSON(不存在回 null)。 */
@@ -330,7 +363,7 @@ export async function listJobs(
       if (!job) return null;
       // status(狀態)、report(花費/模型)、config(各角色模型)併發讀取,避免序列往返拖慢列表。
       const [status, report, config] = await Promise.all([
-        readJson<{ state: TaskState; updatedAt: string; steps?: number }>(
+        readJson<{ state: TaskState; updatedAt: string; steps?: number; message?: string }>(
           s3,
           bucket,
           statusKeyFor(tenantId, job.jobId),
@@ -387,6 +420,10 @@ export async function listJobs(
         ...(billableSpendUsd !== undefined ? { billableSpendUsd } : {}),
         ...(spendEstimated ? { spendEstimated: true } : {}),
         ...(stepCount !== undefined ? { stepCount } : {}),
+        ...((report?.message ?? status?.message) ? { message: String(report?.message ?? status?.message).slice(0, 300) } : {}),
+        ...((report?.task ?? job.caseTask) ? { task: String(report?.task ?? job.caseTask).slice(0, 200) } : {}),
+        ...((report?.deviceModel ?? job.deviceModel) ? { deviceModel: report?.deviceModel ?? job.deviceModel } : {}),
+        ...((report?.generatedAt ?? status?.updatedAt) ? { finishedAt: report?.generatedAt ?? status?.updatedAt } : {}),
       };
       return item;
     }),
@@ -494,6 +531,10 @@ interface ReportShape {
   vlmModel?: string;
   /** runner 寫入的實際執行真機機型(Device Farm;供詳情頁顯示「執行裝置」)。 */
   deviceModel?: string;
+  /** 終局訊息。 */
+  message?: string;
+  /** 報告產生時間(= 任務結束時間)。 */
+  generatedAt?: string;
 }
 
 /** 任務詳情頁需要的彙整 metadata:套用情境、使用模型、花費。 */

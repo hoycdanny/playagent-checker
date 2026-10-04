@@ -1,0 +1,210 @@
+/* 測試報告列表:統計列 + 搜尋/篩選 + 資訊豐富的報告列。全部使用語意 token(深/淺主題)。 */
+
+.rpts__header { margin-bottom: var(--space-3); }
+
+/* 統計 */
+.rpts__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+.rpts__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.rpts__stat-label { font-size: 12px; color: var(--text-tertiary); }
+.rpts__stat-value { font-size: 20px; font-weight: 650; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.rpts__stat--pass .rpts__stat-value { color: var(--status-pass); }
+.rpts__stat--fail .rpts__stat-value { color: var(--status-fail); }
+.rpts__stat--warn .rpts__stat-value { color: var(--status-error); }
+
+/* 篩選區 */
+.rpts__filters {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.rpts__search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-tertiary);
+}
+.rpts__search:focus-within { border-color: var(--focus-ring); }
+.rpts__search input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) 0;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+}
+
+.rpts__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.rpts__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+}
+.rpts__chip:hover { border-color: var(--border-strong); color: var(--text-primary); }
+.rpts__chip.is-active { border-color: var(--brand); background: color-mix(in srgb, var(--brand) 12%, transparent); color: var(--text-primary); }
+.rpts__chip-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.rpts__selects { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: flex-end; }
+.rpts__select { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-tertiary); }
+.rpts__select select {
+  min-width: 130px;
+  max-width: 220px;
+  padding: 6px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.rpts__clear {
+  padding: 6px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.rpts__clear:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+/* 狀態圓點(chip / 列共用) */
+.rpts__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--status-cancelled); flex: 0 0 auto; }
+.rpts__chip--pass .rpts__dot, .rpts__state--pass .rpts__dot { background: var(--status-pass); }
+.rpts__chip--fail .rpts__dot, .rpts__state--fail .rpts__dot,
+.rpts__chip--dead .rpts__dot, .rpts__state--dead .rpts__dot { background: var(--status-fail); }
+.rpts__chip--error .rpts__dot, .rpts__state--error .rpts__dot,
+.rpts__chip--budget_exceeded .rpts__dot, .rpts__state--budget_exceeded .rpts__dot { background: var(--status-error); }
+
+/* 結果列 */
+.rpts__bar { display: flex; align-items: center; gap: var(--space-4); margin-bottom: var(--space-2); font-size: 13px; color: var(--text-secondary); }
+.rpts__selectall { display: inline-flex; align-items: center; gap: var(--space-2); cursor: pointer; }
+.rpts__count { color: var(--text-tertiary); }
+.rpts__bar .tasks__batch-delete { margin-left: auto; }
+
+/* 報告列 */
+.rpts__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.rpts__row {
+  display: grid;
+  grid-template-columns: auto 92px minmax(240px, 1fr) minmax(300px, 380px) 128px auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--status-cancelled);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+.rpts__row:hover { box-shadow: var(--shadow-sm); border-color: var(--border-strong); }
+.rpts__row.is-selected { background: color-mix(in srgb, var(--brand) 6%, var(--surface)); }
+.rpts__row--pass { border-left-color: var(--status-pass); }
+.rpts__row--fail, .rpts__row--dead { border-left-color: var(--status-fail); }
+.rpts__row--error, .rpts__row--budget_exceeded { border-left-color: var(--status-error); }
+
+.rpts__state { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+
+.rpts__main { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: inherit; text-decoration: none; }
+.rpts__main:hover .appref__name { color: var(--brand); text-decoration: underline; }
+.rpts__title { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-weight: 600; font-size: 14px; }
+.rpts__tag {
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+.rpts__backend { display: inline-flex; color: var(--text-tertiary); }
+.rpts__task, .rpts__message {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.rpts__task { -webkit-line-clamp: 2; line-clamp: 2; color: var(--text-secondary); }
+.rpts__message { -webkit-line-clamp: 1; line-clamp: 1; color: var(--text-tertiary); }
+.rpts__row--fail .rpts__message, .rpts__row--dead .rpts__message { color: var(--status-fail); }
+.rpts__row--error .rpts__message { color: var(--status-error); }
+
+.rpts__meta { display: grid; grid-template-columns: repeat(3, auto); gap: 4px var(--space-4); margin: 0; font-size: 13px; }
+.rpts__meta > div { min-width: 0; }
+.rpts__meta-wide { grid-column: span 3; display: flex; gap: var(--space-2); }
+.rpts__meta dt { font-size: 11px; color: var(--text-tertiary); }
+.rpts__meta-wide dt { flex: 0 0 auto; padding-top: 1px; }
+.rpts__meta dd { margin: 0; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpts__meta dd small { color: var(--text-tertiary); }
+
+.rpts__time { display: flex; flex-direction: column; font-size: 13px; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.rpts__time small { color: var(--text-tertiary); font-size: 12px; }
+
+.rpts__actions { display: flex; align-items: center; gap: var(--space-2); }
+.rpts__open {
+  padding: 6px var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.rpts__open:hover { background: var(--brand-hover); }
+
+/* 窄螢幕:改為堆疊卡片 */
+@media (max-width: 1100px) {
+  .rpts__row {
+    grid-template-columns: auto 1fr auto;
+    grid-template-areas:
+      'check state actions'
+      'main main main'
+      'meta meta meta'
+      'time time time';
+  }
+  .rpts__check { grid-area: check; }
+  .rpts__state { grid-area: state; }
+  .rpts__main { grid-area: main; }
+  .rpts__meta { grid-area: meta; }
+  .rpts__time { grid-area: time; flex-direction: row; gap: var(--space-2); }
+  .rpts__actions { grid-area: actions; }
+}

@@ -68,8 +68,10 @@ export function generateScenarioTemplates(structure: MemStructure): ScenarioTemp
   for (const e of structure.edges ?? []) {
     if (!pages[e.fromPageId] || !pages[e.toPageId]) continue; // 跳過懸空邊
     if (e.fromPageId === e.toPageId) continue; // 跳過自環
+    if ((e.missCount ?? 0) > (e.hitCount ?? 0)) continue; // 不可靠路徑不拿來產範本
     if (!adj.has(e.fromPageId)) adj.set(e.fromPageId, []);
-    adj.get(e.fromPageId)!.push({ to: e.toPageId, label: (e.trigger?.label ?? '').trim() });
+    const rawLabel = (e.trigger?.label ?? '').trim();
+    adj.get(e.fromPageId)!.push({ to: e.toPageId, label: rawLabel === 'auto' ? '等待自動轉場' : rawLabel });
     outDegree.set(e.fromPageId, (outDegree.get(e.fromPageId) ?? 0) + 1);
   }
 
@@ -106,7 +108,7 @@ export function generateScenarioTemplates(structure: MemStructure): ScenarioTemp
   // 選「目標畫面」:可達、非 root、且是葉節點(無出邊)或路徑最深的畫面。
   // 以「路徑長度」由深到淺排序,取前 MAX_TEMPLATES,讓範本涵蓋較完整的流程。
   const candidates = order
-    .filter((id) => id !== root)
+    .filter((id) => id !== root && !pages[id]?.transient) // 載入/過場畫面不當測試目標
     .map((id) => ({ id, depth: pathTo(id).length, isLeaf: (outDegree.get(id) ?? 0) === 0 }))
     .filter((c) => c.depth <= MAX_PATH_LEN)
     // 葉節點優先(完整流程終點),其次深度較深者。

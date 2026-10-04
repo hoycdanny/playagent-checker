@@ -62,6 +62,8 @@ export interface AppRecord {
   identifier?: string;
   /** 遊戲類型(可選)。 */
   genre?: AppGenre;
+  /** 次要遊戲類型(可多選,如 RPG + Action);報告引擎合併各類型 profile。 */
+  secondaryGenres?: AppGenre[];
   /** 版本(可選,手動填;未來可由 APK 自動解析)。 */
   version?: string;
   /** 引用的產物 id(可選,階段 3 上傳後填入)。 */
@@ -93,6 +95,21 @@ function isGenre(v: unknown): v is AppGenre {
   return typeof v === 'string' && (APP_GENRES as readonly string[]).includes(v);
 }
 
+/** 次要類型上限(避免 profile 合併過多稀釋報告)。 */
+const SECONDARY_GENRES_MAX = 3;
+
+/** 校驗次要類型陣列:必須都在清單內、去重、上限 3。 */
+function parseSecondaryGenres(raw: unknown): AppGenre[] {
+  if (!Array.isArray(raw)) throw new ValidationError('secondaryGenres 必須是陣列');
+  const out: AppGenre[] = [];
+  for (const g of raw) {
+    if (!isGenre(g)) throw new ValidationError('secondaryGenres 含不支援的類型');
+    if (!out.includes(g)) out.push(g);
+  }
+  if (out.length > SECONDARY_GENRES_MAX) throw new ValidationError(`secondaryGenres 最多 ${SECONDARY_GENRES_MAX} 個`);
+  return out;
+}
+
 export class ValidationError extends Error {}
 export class NotFoundError extends Error {}
 
@@ -105,6 +122,7 @@ export function validateCreateApp(body: unknown): {
   platform: AppPlatform;
   identifier?: string;
   genre?: AppGenre;
+  secondaryGenres?: AppGenre[];
   version?: string;
   artifactId?: string;
   iconArtifactId?: string;
@@ -131,6 +149,12 @@ export function validateCreateApp(body: unknown): {
     platform: b['platform'],
     ...optionalStr(b, 'identifier'),
     ...(isGenre(b['genre']) ? { genre: b['genre'] } : {}),
+    ...(b['secondaryGenres'] !== undefined
+      ? (() => {
+          const sg = parseSecondaryGenres(b['secondaryGenres']).filter((g) => g !== b['genre']);
+          return sg.length > 0 ? { secondaryGenres: sg } : {};
+        })()
+      : {}),
     ...optionalVersion(b),
     ...optionalStr(b, 'artifactId'),
     ...optionalStr(b, 'iconArtifactId'),
@@ -156,6 +180,7 @@ export function validateUpdateApp(body: unknown): {
   platform?: AppPlatform;
   identifier?: string;
   genre?: string;
+  secondaryGenres?: AppGenre[];
   version?: string;
   artifactId?: string;
   iconArtifactId?: string;
@@ -170,12 +195,16 @@ export function validateUpdateApp(body: unknown): {
     platform?: AppPlatform;
     identifier?: string;
     genre?: string;
+    secondaryGenres?: AppGenre[];
     version?: string;
     artifactId?: string;
     iconArtifactId?: string;
     notes?: string;
     defaultKnowledgeBaseIds?: string[];
   } = {};
+
+  // 次要類型:空陣列 = 清除。
+  if ('secondaryGenres' in b) out.secondaryGenres = parseSecondaryGenres(b['secondaryGenres']);
 
   if ('defaultKnowledgeBaseIds' in b) {
     const raw = b['defaultKnowledgeBaseIds'];
@@ -271,6 +300,7 @@ export async function createApp(
     platform: AppPlatform;
     identifier?: string;
     genre?: AppGenre;
+    secondaryGenres?: AppGenre[];
     version?: string;
     artifactId?: string;
     iconArtifactId?: string;
@@ -288,6 +318,7 @@ export async function createApp(
     updatedAt: now,
     ...(input.identifier ? { identifier: input.identifier } : {}),
     ...(input.genre ? { genre: input.genre } : {}),
+    ...(input.secondaryGenres && input.secondaryGenres.length > 0 ? { secondaryGenres: input.secondaryGenres } : {}),
     ...(input.version ? { version: input.version } : {}),
     ...(input.artifactId ? { artifactId: input.artifactId } : {}),
     ...(input.iconArtifactId ? { iconArtifactId: input.iconArtifactId } : {}),
@@ -336,6 +367,7 @@ export async function updateApp(
     platform?: AppPlatform;
     identifier?: string;
     genre?: string;
+    secondaryGenres?: AppGenre[];
     version?: string;
     artifactId?: string;
     iconArtifactId?: string;
@@ -357,6 +389,11 @@ export async function updateApp(
   if (patch.genre !== undefined) {
     if (patch.genre === '') delete next.genre;
     else next.genre = patch.genre as AppGenre;
+  }
+  if (patch.secondaryGenres !== undefined) {
+    const sg = patch.secondaryGenres.filter((g) => g !== next.genre);
+    if (sg.length === 0) delete next.secondaryGenres;
+    else next.secondaryGenres = sg;
   }
   applyClearable(next, 'version', patch.version);
   applyClearable(next, 'identifier', patch.identifier);

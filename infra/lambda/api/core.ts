@@ -53,7 +53,8 @@ import {
   type Backend,
 } from './tasks.js';
 import { writeStatus, readStatus } from './status.js';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
+import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { generateInsights } from './report/insights.js';
 import { CATALOG, modelsForSeat, type Seat } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
 import {
@@ -93,6 +94,7 @@ import {
   createKnowledgeBase,
   updateKnowledgeBase,
   deleteKnowledgeBase,
+  cloneKnowledgeBase,
   setBedrockCoords,
   validateCreateKb,
   validateUpdateKb,
@@ -100,6 +102,11 @@ import {
   NotFoundError as KbNotFoundError,
 } from './knowledgeBases.js';
 import { genreBuiltinKbId, explorationGoalForGenre, isBuiltinKbId } from './builtinKnowledgeBases.js';
+import { buildStructuredReport, type EngineJob, type EngineKb } from './report/engine.js';
+import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } from './kbRefs.js';
+import { defaultControlsForGenre, describeControlCatalog, parseCaseControls } from './controlSchemes.js';
+import { describeProfile } from './report/profiles.js';
+import type { ReportInsights, StructuredReport } from './report/types.js';
 import {
   provisionBedrockKb,
   teardownBedrockKb,
@@ -242,6 +249,8 @@ export async function handleRequest(
         const input = validateCreateApp(req.body);
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const record = await createApp(s3, deps.bucket, tenant.tenantId, input);
+        // 知識庫引用索引(刪除防呆);失敗不擋建立。
+        await addKbRefs(deps.sharedS3, deps.bucket, record.defaultKnowledgeBaseIds, { type: 'app', tenantId: tenant.tenantId, appId: record.id }).catch(() => {});
         const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, record);
         return json(201, enriched);
       }
@@ -262,7 +271,15 @@ export async function handleRequest(
       case 'GET /knowledge-bases': {
         // 共用知識庫(跨租戶):所有登入使用者共用同一批。走 sharedS3,不隔租戶。
         const items = await listKnowledgeBases(deps.sharedS3, deps.bucket);
-        return json(200, { items });
+        // 附上「目前租戶」的使用數(App 預設 + 任務),供列表顯示「使用中」與刪除前提示。
+        // 掃描失敗不擋列表(只是看不到使用數)。
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        const usage = await tenantUsageMap(s3, deps.bucket, tenant.tenantId).catch(() => null);
+        const withUsage = usage
+          ? items.map((k) => ({ ...k, usage: usage.get(k.id) ?? { apps: 0, jobs: 0 } }))
+          : items;
+        // globalTemplate:所有類型都會套用的通用規則/門檻(知識庫頁規格編輯器可逐項停用/覆寫)。
+        return json(200, { items: withUsage, globalTemplate: describeProfile('global') });
       }
 
       case 'POST /knowledge-bases': {
@@ -291,6 +308,11 @@ export async function handleRequest(
           }
         }
         return json(201, record);
+      }
+
+      case 'GET /control-schemes': {
+        // 遊戲操作行為目錄(建立測試腳本時的圖像化勾選;依類型預選建議)。
+        return json(200, describeControlCatalog());
       }
 
       case 'GET /cases': {
@@ -609,6 +631,7 @@ export async function handleRequest(
         if (appPutMatch) {
           const patch = validateUpdateApp(req.body);
           const s3 = await deps.getTenantS3(tenant.tenantId);
+          const before = await getApp(s3, deps.bucket, tenant.tenantId, appPutMatch[1]!);
           const record = await updateApp(
             s3,
             deps.bucket,
@@ -616,6 +639,7 @@ export async function handleRequest(
             appPutMatch[1]!,
             patch,
           );
+          await syncAppKbRefs(deps.sharedS3, deps.bucket, tenant.tenantId, record.id, before?.defaultKnowledgeBaseIds, record.defaultKnowledgeBaseIds).catch(() => {});
           const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, record);
           return json(200, enriched);
         }
@@ -623,7 +647,9 @@ export async function handleRequest(
         const appDelMatch = req.method === 'DELETE' && /^\/apps\/([^/]+)$/.exec(req.path);
         if (appDelMatch) {
           const s3 = await deps.getTenantS3(tenant.tenantId);
+          const before = await getApp(s3, deps.bucket, tenant.tenantId, appDelMatch[1]!).catch(() => null);
           await deleteApp(s3, deps.bucket, tenant.tenantId, appDelMatch[1]!);
+          await removeKbRefs(deps.sharedS3, deps.bucket, before?.defaultKnowledgeBaseIds, { type: 'app', tenantId: tenant.tenantId, appId: appDelMatch[1]! }).catch(() => {});
           return json(200, { id: appDelMatch[1]! });
         }
         // 動態路由:GET /knowledge-bases/{id}(讀單一知識庫)
@@ -640,10 +666,38 @@ export async function handleRequest(
           const record = await updateKnowledgeBase(deps.sharedS3, deps.bucket, kbPutMatch[1]!, patch);
           return json(200, record);
         }
+        // 動態路由:GET /knowledge-bases/{id}/usage(誰在用這座知識庫:App 預設 / 測試任務)
+        const kbUsageMatch = req.method === 'GET' && /^\/knowledge-bases\/([^/]+)\/usage$/.exec(req.path);
+        if (kbUsageMatch) {
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const usage = await getKbUsage(deps.sharedS3, s3, deps.bucket, tenant.tenantId, kbUsageMatch[1]!);
+          return json(200, usage);
+        }
+        // 動態路由:POST /knowledge-bases/{id}/clone(以樣板或既有 KB 為基礎建立自己的知識庫)
+        const kbCloneMatch = req.method === 'POST' && /^\/knowledge-bases\/([^/]+)\/clone$/.exec(req.path);
+        if (kbCloneMatch) {
+          const name = (req.body as { name?: unknown } | null)?.name;
+          const record = await cloneKnowledgeBase(deps.sharedS3, deps.bucket, kbCloneMatch[1]!, {
+            ...(typeof name === 'string' ? { name } : {}),
+          });
+          return json(201, record);
+        }
         // 動態路由:DELETE /knowledge-bases/{id}(連帶拆 Bedrock KB + 向量資源 + 文件)
         const kbDelMatch = req.method === 'DELETE' && /^\/knowledge-bases\/([^/]+)$/.exec(req.path);
         if (kbDelMatch) {
           const kbId = kbDelMatch[1]!;
+          if (isBuiltinKbId(kbId)) return json(400, { error: '內建知識庫為唯讀,不可刪除' });
+          // 刪除防呆:仍被 App(預設知識庫)或測試任務引用 → 禁止刪除,回傳引用清單,建議改用封存。
+          // 已刪掉的知識庫會讓既有任務重跑與報告規格失去來源,故一律擋下(不提供強制刪除)。
+          const tenantS3 = await deps.getTenantS3(tenant.tenantId);
+          const usage = await getKbUsage(deps.sharedS3, tenantS3, deps.bucket, tenant.tenantId, kbId);
+          if (usage.total > 0) {
+            return json(409, {
+              error: `知識庫仍被使用中(App ${usage.apps.length + usage.otherTenants.apps} 個、測試任務 ${usage.jobs.length + usage.otherTenants.jobs} 筆),不可刪除;可改為封存。`,
+              code: 'KB_IN_USE',
+              usage,
+            });
+          }
           const rec = await getKnowledgeBase(deps.sharedS3, deps.bucket, kbId);
           // 若已接 Bedrock KB,先拆雲資源(容忍部分已刪);失敗不擋刪 registry。
           if (rec?.bedrockKbId && isKbConfigured()) {
@@ -793,7 +847,12 @@ export async function handleRequest(
           const jobId = taskDelMatch[1]!;
           if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
           const s3 = await deps.getTenantS3(tenant.tenantId);
+          // 刪前先記下引用的知識庫,刪後解除引用(任務不在了就不再擋知識庫刪除)。
+          const jobRec = await readJsonObject<{ knowledgeBaseIds?: string[] }>(
+            s3, deps.bucket, `${tenantPrefix(tenant.tenantId)}jobs/${jobId}/job.json`,
+          ).catch(() => null);
           await deleteJob(s3, deps.bucket, tenant.tenantId, jobId);
+          await removeKbRefs(deps.sharedS3, deps.bucket, jobRec?.knowledgeBaseIds, { type: 'job', tenantId: tenant.tenantId, jobId }).catch(() => {});
           return json(200, { jobId });
         }
         // 動態路由:POST /tasks/{id}/cancel
@@ -856,7 +915,51 @@ export async function handleRequest(
           // emulator 報告含 steps/navGraph 與截圖 S3 key —— 為每個截圖附上限時 presigned
           // GET URL,讓前端能直接顯示遊戲畫面/標註圖(位元組不經 Lambda)。
           const enriched = await enrichReportScreenshots(s3, deps.bucket, report);
+          // 結構化報告(GenreProfile + Metric + Evidence + Finding + 規則引擎)—— 讀取時計算,
+          // 舊報告也適用新版 profile。失敗不擋原始報告(前端回退舊版呈現)。
+          if (typeof enriched === 'object' && enriched !== null) {
+            try {
+              const [structured, insZh, insEn] = await Promise.all([
+                buildReportForJob(deps, s3, tenant.tenantId, jobId, enriched as Record<string, unknown>),
+                readJsonObject<ReportInsights>(s3, deps.bucket, insightsKey(tenant.tenantId, jobId, 'zh')).catch(() => null),
+                readJsonObject<ReportInsights>(s3, deps.bucket, insightsKey(tenant.tenantId, jobId, 'en')).catch(() => null),
+              ]);
+              (enriched as Record<string, unknown>)['structured'] = structured;
+              if (insZh || insEn) {
+                (enriched as Record<string, unknown>)['insights'] = { ...(insZh ? { zh: insZh } : {}), ...(insEn ? { en: insEn } : {}) };
+              }
+            } catch (err) {
+              console.warn('[report] structured build failed', err);
+            }
+          }
           return json(200, enriched);
+        }
+        // 動態路由:POST /reports/{id}/insights(AI 洞察:需求矩陣 + 根因 + 修正建議;快取到 S3)
+        const insightsMatch = req.method === 'POST' && /^\/reports\/([^/]+)\/insights$/.exec(req.path);
+        if (insightsMatch) {
+          const jobId = insightsMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const body = (req.body ?? {}) as { force?: unknown; lang?: unknown };
+          const force = body.force === true;
+          const lang: 'zh' | 'en' = body.lang === 'en' ? 'en' : 'zh';
+          const key = insightsKey(tenant.tenantId, jobId, lang);
+          if (!force) {
+            const cached = await readJsonObject<ReportInsights>(s3, deps.bucket, key).catch(() => null);
+            if (cached) return json(200, cached);
+          }
+          const report = await readReport(s3, deps.bucket, tenant.tenantId, jobId);
+          if (!report || typeof report !== 'object') return json(404, { error: '找不到報告' });
+          const structured = await buildReportForJob(deps, s3, tenant.tenantId, jobId, report as Record<string, unknown>, { sign: false });
+          let insights: ReportInsights;
+          try {
+            insights = await generateInsights(structured, lang);
+          } catch (err) {
+            console.warn('[report] insights failed', err);
+            return json(502, { error: `AI 洞察產生失敗:${err instanceof Error ? err.message : String(err)}` });
+          }
+          await s3.send(new PutObjectCommand({ Bucket: deps.bucket, Key: key, Body: JSON.stringify(insights), ContentType: 'application/json' }));
+          return json(200, insights);
         }
         return json(404, { error: `未知路由: ${route}` });
       }
@@ -1012,6 +1115,67 @@ async function enrichReportScreenshots(
   return report;
 }
 
+/**
+ * 組結構化報告:job 快照(類型/模型/裝置)+ App + 案例 + 本次掛的知識庫(報告規格)。
+ * 任何一份缺失都退化(舊任務可能沒有 genres 快照,就退回讀 App 目前的類型)。
+ * 證據截圖與缺陷截圖附 presigned URL。
+ */
+async function buildReportForJob(
+  deps: ApiDeps,
+  s3: S3Client,
+  tenantId: string,
+  jobId: string,
+  raw: Record<string, unknown>,
+  opts: { sign?: boolean } = {},
+): Promise<StructuredReport> {
+  const job = await readJsonObject<EngineJob & { appId?: string; knowledgeBaseIds?: string[]; kbSnapshot?: EngineKb[] }>(
+    s3,
+    deps.bucket,
+    `${tenantPrefix(tenantId)}jobs/${jobId}/job.json`,
+  );
+  const [app, testCase, kbs] = await Promise.all([
+    job?.appId ? getApp(s3, deps.bucket, tenantId, job.appId).catch(() => null) : Promise.resolve(null),
+    job?.appId && job.caseId && job.caseId !== 'exploration'
+      ? getCase(s3, deps.bucket, tenantId, job.appId, job.caseId).catch(() => null)
+      : Promise.resolve(null),
+    // 優先用提交時的知識庫快照(自建 KB 之後被修改/封存也不影響舊報告);
+    // 內建樣板以程式碼為真相源(快照只記 id/版本);舊任務無快照則讀目前的知識庫。
+    Promise.all(
+      job?.kbSnapshot?.length
+        ? job.kbSnapshot.map((s) =>
+            s.builtin ? getKnowledgeBase(deps.sharedS3, deps.bucket, s.id).catch(() => null) : Promise.resolve(s),
+          )
+        : (job?.knowledgeBaseIds ?? []).map((id) => getKnowledgeBase(deps.sharedS3, deps.bucket, id).catch(() => null)),
+    ),
+  ]);
+  const structured = buildStructuredReport({
+    raw,
+    job: job ?? null,
+    app: app ?? null,
+    testCase: testCase ?? null,
+    kbs: kbs.filter((k): k is NonNullable<typeof k> => k !== null),
+  });
+  const sign = async (key: string | undefined): Promise<string | undefined> => {
+    if (!key) return undefined;
+    try { return await createDownloadUrl(s3, deps.bucket, key); } catch { return undefined; }
+  };
+  const withUrls = async <T extends { screenshotKey?: string; annotatedKey?: string }>(o: T) => {
+    const [shot, ann] = await Promise.all([sign(o.screenshotKey), sign(o.annotatedKey)]);
+    const out = o as T & { screenshotUrl?: string; annotatedUrl?: string };
+    if (shot) out.screenshotUrl = shot;
+    if (ann) out.annotatedUrl = ann;
+  };
+  if (opts.sign !== false) {
+    await Promise.all([...structured.evidence, ...structured.findings, ...structured.aiFailures].map(withUrls));
+  }
+  return structured;
+}
+
+/** AI 洞察快取位置(與 report.json 同一 job 前綴)。 */
+function insightsKey(tenantId: string, jobId: string, lang: 'zh' | 'en'): string {
+  return `${tenantPrefix(tenantId)}jobs/${jobId}/insights-${lang}.json`;
+}
+
 /** 讀 S3 JSON 物件(不存在回 null)。 */
 async function readJsonObject<T>(
   s3: S3Client,
@@ -1097,6 +1261,7 @@ async function handleSubmitTask(
     artifactId?: string;
     identifier?: string;
     genre?: string;
+    secondaryGenres?: string[];
     platform?: string;
     defaultKnowledgeBaseIds?: string[];
   }>(
@@ -1105,16 +1270,44 @@ async function handleSubmitTask(
     `${tenantPrefix(tenantId)}apps/${input.appId}.json`,
   );
 
+  // 類型快照(主類型 + 次要類型):報告引擎據此合併 GenreProfile;後續改 App 類型不影響舊報告。
+  const genres = [appRecord?.genre, ...(appRecord?.secondaryGenres ?? [])].filter(
+    (g, i, arr): g is string => typeof g === 'string' && g !== '' && arr.indexOf(g) === i,
+  );
+
   // 解析知識庫:提交明選 ?? App 預設。寫進 job 快照供執行時讀取注入。
   const selectedKbIds =
     input.knowledgeBaseIds ?? appRecord?.defaultKnowledgeBaseIds ?? [];
-  // 依 App 類型(genre)自動掛上對應的「內建類型知識庫」,讓 agent 更懂這款遊戲
-  // (探索與測試皆適用)。內建 id 放最前(類型知識優先),與使用者明選項去重。
-  const genreKbId = genreBuiltinKbId(appRecord?.genre);
-  const resolvedKbIds =
-    genreKbId && !selectedKbIds.includes(genreKbId)
-      ? [genreKbId, ...selectedKbIds]
-      : selectedKbIds;
+  // 依 App 類型(主+次要)自動掛上對應的「內建類型知識庫」,讓 agent 更懂這款遊戲,
+  // 也讓報告引擎套用對應的類型報告規格。內建 id 放最前(類型知識優先),與使用者明選項去重。
+  // 讀所選知識庫:若某座是「由內建樣板 clone 出來的自建版本」,代表使用者要用自己的版本取代該樣板,
+  // 就不再自動掛原樣板(避免同一份類型知識重複注入、或樣板規則蓋過客製)。
+  const selectedRecords = (
+    await Promise.all(selectedKbIds.map((id) => getKnowledgeBase(deps.sharedS3, deps.bucket, id).catch(() => null)))
+  ).filter((k): k is NonNullable<typeof k> => k !== null);
+  const replacedBuiltins = new Set(
+    selectedRecords.map((k) => k.clonedFrom?.id).filter((id): id is string => Boolean(id && isBuiltinKbId(id))),
+  );
+  const genreKbIds = genres
+    .map((g) => genreBuiltinKbId(g))
+    .filter((id): id is string => id !== null && !selectedKbIds.includes(id) && !replacedBuiltins.has(id));
+  const resolvedKbIds = [...genreKbIds, ...selectedKbIds];
+  // 知識庫快照(名稱/版本/修訂/Markdown/報告規格):報告依「執行當時」的知識庫計算,
+  // 之後修改或封存知識庫不會改寫舊報告的判定。
+  const kbSnapshot = (
+    await Promise.all(resolvedKbIds.map((id) => getKnowledgeBase(deps.sharedS3, deps.bucket, id).catch(() => null)))
+  )
+    .filter((k): k is NonNullable<typeof k> => k !== null)
+    .map((k) => ({
+      id: k.id,
+      name: k.name,
+      ...(k.genre ? { genre: k.genre } : {}),
+      ...(k.version ? { version: k.version } : {}),
+      ...(typeof k.revision === 'number' ? { revision: k.revision } : {}),
+      ...(k.builtin ? { builtin: true } : {}),
+      // 內建樣板內容以程式碼為準(可由 id+version 重建),不必存 Markdown;自建則完整快照。
+      ...(!k.builtin ? { markdown: k.markdown ?? '', ...(k.reportSpec ? { reportSpec: k.reportSpec } : {}) } : {}),
+    }));
   const artifactVersion = appRecord?.artifactId ?? input.appId;
   // emulator/裝置後端需要被測產物的完整 S3 key + 案例任務描述(給 VLM 的目標)。
   // package(Android 包名)來自 App identifier,供 OBB 推送與自動啟動遊戲。
@@ -1123,6 +1316,7 @@ async function handleSubmitTask(
     : undefined;
   const pkg = appRecord?.identifier;
   let caseTask: string | undefined;
+  let caseYamlText = '';
   try {
     const caseObj = await s3.send(
       new GetObjectCommand({
@@ -1131,6 +1325,7 @@ async function handleSubmitTask(
       }),
     );
     const yaml = (await caseObj.Body?.transformToString()) ?? '';
+    caseYamlText = yaml;
     caseTask = extractCaseTask(yaml);
   } catch {
     /* 無 task 欄位則由下方 fallback 或 runner 預設探索目標 */
@@ -1141,6 +1336,11 @@ async function handleSubmitTask(
     const goal = explorationGoalForGenre(appRecord?.genre);
     if (goal) caseTask = goal;
   }
+
+  // 操作行為(控制方案):案例 YAML `controls:` 優先;沒寫則用 App 類型的建議(寫了空清單 = 不限定)。
+  const caseControls = caseYamlText ? parseCaseControls(caseYamlText) : undefined;
+  const controlIds = caseControls ?? defaultControlsForGenre(appRecord?.genre);
+  const controls = controlIds.length > 0 ? { ids: controlIds, source: caseControls ? ('case' as const) : ('genre' as const) } : undefined;
 
   const job = await createJob(
     s3,
@@ -1154,8 +1354,13 @@ async function handleSubmitTask(
       ...(caseTask ? { caseTask } : {}),
       ...(pkg ? { package: pkg } : {}),
       ...(appRecord?.platform ? { platform: appRecord.platform } : {}),
+      ...(genres.length > 0 ? { genres } : {}),
+      ...(kbSnapshot.length > 0 ? { kbSnapshot } : {}),
+      ...(controls ? { controls } : {}),
     },
   );
+  // 知識庫引用索引(刪除防呆);失敗不擋提交。
+  await addKbRefs(deps.sharedS3, deps.bucket, job.knowledgeBaseIds, { type: 'job', tenantId, jobId: job.jobId }).catch(() => {});
   await writeStatus(s3, deps.bucket, tenantId, {
     jobId: job.jobId,
     state: 'running',

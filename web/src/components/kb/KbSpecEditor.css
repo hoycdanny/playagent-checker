@@ -1,0 +1,230 @@
+/* 報告規格編輯器(樣板繼承 + 覆寫 / 新增 / 停用) */
+.kbs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.kbs__intro,
+.kbs__hint {
+  margin: 0;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.kbs__hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.kbs__note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--status-error);
+  background: color-mix(in srgb, var(--status-error) 8%, transparent);
+  color: var(--text-secondary);
+}
+
+.kbs__sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.kbs__sec h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.kbs__sec input,
+.kbs__sec select {
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 13px;
+  min-width: 0;
+}
+.kbs__sec input:disabled,
+.kbs__sec select:disabled {
+  opacity: 0.8;
+}
+
+/* 規格值 */
+.kbs__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+.kbs__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kbs__field > span {
+  font-weight: 600;
+}
+.kbs__field small {
+  color: var(--text-tertiary);
+  line-height: 1.4;
+}
+
+/* 門檻 */
+.kbs__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.kbs__table th,
+.kbs__table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+}
+.kbs__table thead th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+.kbs__table tbody th {
+  font-weight: 400;
+}
+.kbs__table code {
+  margin-left: var(--space-1);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.kbs__table td:nth-child(2) {
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.kbs__table input {
+  width: 120px;
+}
+.kbs__table tr.is-overridden th,
+.kbs__table tr.is-overridden input {
+  color: var(--brand);
+  font-weight: 600;
+}
+.kbs__table tr.is-overridden input {
+  border-color: var(--brand);
+}
+
+/* 繼承項目 */
+.kbs__inherited {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.kbs__inherited h5 {
+  margin: 0 0 var(--space-1);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.kbs__group summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+.kbs__count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.kbs__off {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--status-error);
+}
+.kbs__group ul {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0 0 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kbs__group li label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+.kbs__group li small {
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.kbs__group li.is-off span {
+  text-decoration: line-through;
+  color: var(--text-tertiary);
+}
+
+/* 自訂觀測 / 模組 */
+.kbs__row {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(100px, 1fr) minmax(160px, 2fr) auto auto;
+  gap: var(--space-2);
+  align-items: center;
+}
+.kbs__wide {
+  min-width: 0;
+}
+.kbs__remove,
+.kbs__add {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-size: 13px;
+  cursor: pointer;
+}
+.kbs__remove {
+  color: var(--status-fail);
+}
+.kbs__add {
+  align-self: flex-start;
+  color: var(--brand);
+}
+.kbs__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+/* 測試範疇 */
+.kbs__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.kbs__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.kbs__chip.is-on {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.kbs__chip.is-inherited {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  cursor: default;
+}
+
+@media (max-width: 720px) {
+  .kbs__row {
+    grid-template-columns: 1fr 1fr;
+  }
+}

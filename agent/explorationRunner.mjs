@@ -38,6 +38,9 @@ import { setupDeviceFarmSession } from './deviceFarmSetup.mjs';
 import { magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
+import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
+import { upsertPage, recordTransition, recordMiss, compactStructure } from './memoryGraph.mjs';
+import { PerfMonitor } from './perfMonitor.mjs';
 
 let APPIUM_URL = process.env.PA_APPIUM_URL;
 let SESSION_ARN = process.env.PA_SESSION_ARN;
@@ -67,6 +70,12 @@ const TASK = process.env.PA_TASK || '啟動遊戲,通過開場動畫與任何彈
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
 const CONSEC_FAIL_LIMIT = 3;
+// runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
+const RUNNER_VERSION = 'devicefarm-runner/2.1 (evidence-v1, controls-v1)';
+// 效能取樣間隔(步)。adb shell 取樣與 VLM 並行、且 FPS/CPU/GPU 為區間累計,預設每 2 步一次;0 = 停用。
+const PERF_EVERY = process.env.PA_PERF_EVERY ? Math.max(0, Number(process.env.PA_PERF_EVERY) || 0) : 2;
+/** 有啟用 adb 效能監測時的參照(main 例外收尾用,確保還原電池狀態)。 */
+let activePerfMon = null;
 
 const s3 = new S3Client({ region: DATA_REGION });
 const bedrock = new BedrockRuntimeClient({ region: DATA_REGION });
@@ -111,7 +120,18 @@ async function writeStatus(state, message, steps) {
 
 // ── VLM 決策(純邏輯,對齊 emulatorRunner 的 prompt/對話策略,但改用 SDK)──
 
-function buildSystemPrompt(w, h, knowledge, _hasGrid) {
+function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
+  // 操作行為(控制方案,由測試腳本勾選):有指定時注入權威操作段落,且只有「下方中央搖桿」
+  // 方案才保留割草類的移動說明;沒指定 = 舊行為(全部保留)。
+  const includeMow = !controls || controls.battleMove;
+  const controlsBlock = controls?.prompt ? `\n${controls.prompt}\n` : '';
+  const actionEnum = controls?.allowedActions?.length ? controls.allowedActions.join('|') : 'tap|swipe|move|back|type|wait|launch|done';
+  const gestureFields = controls
+    ? ',"durationMs":<滑動毫秒>,"tx":<右手像素x>,"ty":<右手像素y>,"taps":<次數>,"scale":"in|out"'
+    : '';
+  const gestureHelp = controls
+    ? `hold 需 x,y,holdMs(按住);swipe 可加 durationMs(長=拖曳、短=快劃);combo 需 x,y(左手)、可選 dir、holdMs、tx,ty(右手按鈕)、taps;pinch 需 x,y 與 scale。只能使用上面列出的可用動作。`
+    : '';
   const base =
     `你是專業遊戲測試工程師,正在測試一個 ${PLATFORM === 'ios' ? 'iOS' : 'Android'} 遊戲。每一步你會看到一張最新截圖。` +
     // A 路座標契約:直接回「這張圖的絕對像素座標」(Qwen-VL 系天生的定位方式),不要正規化。
@@ -125,8 +145,10 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `但若「同一個錯誤彈窗」(如登入失敗 login failed)已反覆出現多次、點掉又立刻跳出,代表此裝置環境無法完成該登入,` +
     `不要一直點它空轉;改走其他入口(如免登入的訪客/Play now),真的無其他路可走再用 done 收尾並在 thinking 說明原因。` +
     `目標:${TASK}` +
+    controlsBlock +
+    (includeMow ? (
     `【割草/動作遊戲的移動|最高優先|重要】若這是「進入遊戲後靠虛擬搖桿/按住螢幕拖曳來移動角色」的遊戲` +
-    `(如倖存者 Vampire-Survivors-like 割草、動作、生存類):在「戰鬥/遊戲進行畫面」中,移動【只能】用 move 動作,【嚴禁用 tap 移動】。` +
+    `(如割草、動作、生存類):在「戰鬥/遊戲進行畫面」中,移動【只能】用 move 動作,【嚴禁用 tap 移動】。` +
     `判斷是否在戰鬥畫面:畫面有角色在場景中、有敵人、有血條/HP、有存活倒數時間或波次進度條——這時每一步都應該是 move,不是 tap。` +
     `move 語意=「按住畫面朝某方向壓住並持續行走一段時間(虛擬搖桿)」。用 dir 指定方向(up/down/left/right,` +
     `或斜向 upleft/upright/downleft/downright),holdMs 指定按住毫秒數(建議 1500~3000,持續移動才躲得掉怪)。` +
@@ -136,7 +158,7 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `你只要給對 dir 即可;若截圖看得到搖桿白圈,也可用 x,y 指定它的中心更精準。注意搖桿在下方,不是畫面正中心。` +
     `這類遊戲「移動即戰鬥」(邊走位邊自動攻擊),你的任務是【不停走位】:朝敵人少/空曠處移動來躲怪、遛怪、撿經驗,活得越久越好。` +
     `站著不動(或用 tap)=被怪包圍=失敗。所以戰鬥中若你正想 tap,先自問「這是移動嗎?」是的話一律改用 move。` +
-    `觀察 HP/血條、存活時間、波次/關卡進度(如 Stage/Wave/第N關/Comfort Zone)、敵人聚集處來決定往哪走。` +
+    `觀察 HP/血條、存活時間、波次/關卡進度(如 Stage/Wave/第N關/Comfort Zone)、敵人聚集處來決定往哪走。`) : '') +
     `【關卡結算/彈窗處理|重要】當出現結算或狀態彈窗時(標題如 Fail 失敗 / Win 勝利 / Clear 過關 / Level Up 升級 / 寶箱 / 結算面板),` +
     `【一定要用 tap 點畫面上的主要按鈕把它關掉或推進】,常見按鈕在【彈窗底部置中】,文字如 Confirm 確認 / OK / 繼續 / Next / Claim / Start / 再玩一次 / Retry。` +
     `絕對不要在有彈窗時 wait 空等——彈窗不會自己消失,必須按按鈕。升級/選技能彈窗則 tap 選一個強化選項。` +
@@ -151,8 +173,13 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `把座標對到「手指指尖正下方那顆發光圖示的正中心」。若點了 Start 沒反應、畫面沒變,幾乎一定是被教學 gating——` +
     `立刻改點手指所指的發光圖示,完成引導後再回來點 Start。反覆點 Start/房子/✕ 卻沒反應是最常見的卡死原因,務必避免。` +
     `thinking 務必簡短(一句話,約 30~60 字即可,不要長篇分析),再給動作。只輸出 JSON:` +
-    `{"thinking":"...","action":"tap|swipe|move|back|type|wait|launch|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>,"text":"...","screen":"畫面名稱"}。` +
-    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;type 需 text;done 只在真正完成或完全無法進行時用。` +
+    `{"thinking":"...","action":"${actionEnum}","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>${gestureFields},"text":"...","screen":"畫面名稱"}。` +
+    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;` +
+    (controls
+      ? (controls.joystick ? `move 需 dir 與可選 holdMs(按住毫秒,預設1500),x,y 省略時 runner 用本遊戲搖桿的預設位置,看得到搖桿圓圈時用 x,y 指定其中心更準;` : '')
+      : `move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;`) +
+    gestureHelp +
+    `type 需 text;done 只在真正完成或完全無法進行時用。` +
     `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
     `【品牌 Logo/開場動畫畫面|重要】若畫面是純展示性的「遊戲 Logo/工作室 Logo/品牌動畫/Config Ready/Loading」(畫面上沒有任何按鈕,只有標題文字、角色插圖、特效動畫,正在自動播放等待載入完成),` +
     `這種畫面本來就【沒有可互動元素】,【只能用 wait】,絕對不要對著它亂 tap/swipe/move——這種畫面不管點哪裡都不會有反應,亂點只會浪費步數並可能被系統誤判為死循環而提早中止任務。` +
@@ -161,8 +188,10 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid) {
     `在那之前,即使遊戲載入很久、或你覺得流程走完了,都不可 done —— 繼續 wait 或 move 走位推進關卡。誤把載入畫面當完成而 done 是嚴重錯誤。` +
     `screen 用精確畫面名(如「主選單」「大廳」「轉軸畫面」「載入中」)描述當前畫面,不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
-  if (!k) return base;
-  return base + `\n\n這款遊戲「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 4000)}`;
+  const withEvidence = base + evidencePromptSection(evidence);
+  if (!k) return withEvidence;
+  // 知識上限 9000 字:導覽圖摘要排在知識庫之前,4000 字時遊戲專屬知識庫常被截掉。
+  return withEvidence + `\n\n這款遊戲「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 9000)}`;
 }
 
 function makeUserTurn(images, text, fmt = 'png') {
@@ -300,6 +329,9 @@ function totalImageBytes(messages) {
   return bytes;
 }
 
+// 目前 VLM 是否拒收 temperature/topP(首次被拒後設為 true,見 decide() 的 Converse 分支)。
+let samplingUnsupported = false;
+
 async function decide(system, messages) {
   // 預設保留最近 2 張圖;但再加一道保險:若總圖量仍逼近模型 body 上限(~2MB),就降到只留最新 1 張,
   // 避免像大廳這種細節多的畫面兩張疊起來撐爆(Failed to buffer request body: length limit exceeded)。
@@ -330,12 +362,29 @@ async function decide(system, messages) {
       return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
     }
     // Nova / Llama / Qwen / DeepSeek 等:Bedrock Converse API(統一格式,含視覺)。
-    const res = await bedrock.send(new ConverseCommand({
+    // 2026-10-03:部分模型在預設取樣下偶爾整段吐出亂碼/空字串(輸出吃滿 maxTokens 卻沒有 JSON),
+    // 長任務會因連續解析失敗中止。降低溫度收斂輸出;呼叫端另有「解析失敗立即重問」。
+    // 2026-10-04:但 Kimi K3 等模型直接拒收 temperature/topP 欄位(ValidationException:
+    // "This model doesn't support the temperature field"),第 0 步就失敗。改為:被拒時去掉取樣參數
+    // 重送一次,並記住此模型不支援,後續步驟直接不送。
+    const converse = (withSampling) => bedrock.send(new ConverseCommand({
       modelId: VLM,
       system: [{ text: system }],
       messages: toConverseMessages(messages),
-      inferenceConfig: { maxTokens: 1000 },
+      inferenceConfig: withSampling ? { maxTokens: 1000, temperature: 0.2, topP: 0.9 } : { maxTokens: 1000 },
     }));
+    let res;
+    if (samplingUnsupported) {
+      res = await converse(false);
+    } else {
+      try {
+        res = await converse(true);
+      } catch (e) {
+        if (!/temperature|top_?p/i.test(String(e?.message || ''))) throw e;
+        samplingUnsupported = true;
+        res = await converse(false);
+      }
+    }
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';
     const usage = res.usage ? { input: res.usage.inputTokens, output: res.usage.outputTokens } : null;
     return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
@@ -488,13 +537,31 @@ async function main() {
 
   // 讀注入知識(engine 已組 context.json)。
   let knowledge = '';
+  let evidence = null; // 證據協議(模組/機制/觀測欄位),由類型知識庫決定
+  let controls = null; // 操作行為(控制方案):測試腳本勾選或類型建議,engine 組成協議
   try {
     const ctx = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/context.json` }))).Body.transformToString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
+    if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
+    if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
   } catch { /* 無則略過 */ }
+  // 操作行為:允許的動作集合(null = 未指定,不限定)。
+  const allowedActions = controls ? new Set(controls.allowedActions) : null;
+  if (controls) console.log('操作行為', controls.ids.join(','), `(${controls.source})`, '可用動作', controls.allowedActions.join('/'));
 
-  // 啟動 app。
-  if (effectivePkg) { try { await client.launchPackage(effectivePkg); await sleep(8000); } catch { /* 交給 agent 視覺找入口 */ } }
+  // 效能監測(Android:adb shell 收 FPS/CPU/GPU/記憶體/溫度/耗電;不可用時退回 getPerformanceData)。
+  const perfMon = PLATFORM === 'android' && effectivePkg && PERF_EVERY > 0 ? new PerfMonitor(client, effectivePkg) : null;
+  const perfShell = perfMon ? await perfMon.start() : false;
+  if (perfShell) activePerfMon = perfMon;
+  console.log('效能監測', perfShell ? `adb shell(每 ${PERF_EVERY} 步取樣)` : perfMon ? 'Appium getPerformanceData(僅 CPU/記憶體)' : '停用');
+  let launchInfo = null;
+
+  // 啟動 app(可用 shell 時以 am start -W 冷啟動並量測啟動時間)。
+  if (effectivePkg) {
+    if (perfShell) launchInfo = await perfMon.launch();
+    if (!launchInfo) { try { await client.launchPackage(effectivePkg); } catch { /* 交給 agent 視覺找入口 */ } }
+    await sleep(8000);
+  }
 
   // 座標空間以「實際截圖像素尺寸」為準(Appium 截圖空間 == 點擊空間)。
   // 不用 getWindowSize:Device Farm/UiAutomator2 有時回傳直向預設,與橫向遊戲畫面不符,
@@ -508,13 +575,15 @@ async function main() {
   } catch {
     const [gw, gh] = await client.getScreenSize().catch(() => [1080, 1920]); w = gw; h = gh;
   }
-  const system = buildSystemPrompt(w, h, knowledge, MAGICK);
+  const system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls);
   console.log('ImageMagick 座標校正', MAGICK ? '啟用' : '不可用(裸座標)');
   console.log('定位模型', USE_UITARS ? `UI-TARS(SageMaker endpoint=${process.env.PA_UITARS_ENDPOINT})` : `Bedrock VLM(${VLM})`);
   const messages = [];
   const steps = [];
-  const struct = await loadStructure();
-  let prevPageId = null, prevAction = null;
+  // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新。
+  const struct = compactStructure(await loadStructure());
+  // prevAction:給 prompt 的上一步動作;navAction/prevTarget:導覽圖「造成轉場的動作/目標」。
+  let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let consecFail = 0;
   // 無上限時不會「達步數上限」;若真的迴圈自然結束(理論上只有有限步才會),訊息才用步數上限。
   let finalState = 'fail';
@@ -524,6 +593,12 @@ async function main() {
   let lastPhash = null;
   let stuckCount = 0;
   let battleMoveTick = 0; // 割草戰鬥強制走位的方向輪換計數
+  // 戰鬥自動走位(VLM 思考期間背景繞圈):僅「下方中央搖桿」方案或 PA_AUTOPILOT=1 啟用。
+  const battleAutoEnabled = Boolean(controls?.battleMove) || process.env.PA_AUTOPILOT === '1';
+  const AUTOPILOT_MS = Math.max(2000, Math.min(8000, Number(process.env.PA_AUTOPILOT_MS || 6000)));
+  let lastBattleMove = false; // 上一步是否為「戰鬥中走位」
+  let popupLastStep = false; // 上一步是否判定有彈窗(有彈窗時不自動走位,免得誤觸)
+  let autopilotTick = 0;
   let everInBattle = false; // 是否曾進入戰鬥畫面
   let seenLevel5 = false; // 是否曾在畫面看到第5關/第5波證據
   let prematureDoneCount = 0; // agent 提前 done 被 runner 攔截的次數
@@ -536,6 +611,10 @@ async function main() {
   // 持續燒錢卻永遠不會觸發任何中止條件。這裡加一個獨立、簡單的「連續 wait 次數」硬上限,
   // 不管畫面名稱、pHash 是否變化,純粹計數「上一步也是 wait」的連續次數。
   let consecWaitCount = 0;
+  let loadingStreak = 0; // 連續停在「載入畫面且無變化」的步數
+  let appRestarts = 0; // runner 主動重啟 App 次數
+  const LOADING_RECOVER_AFTER = 12; // 之後開放 AI 用 back/launch 脫困
+  const LOADING_RESTART_AFTER = Number(process.env.PA_LOADING_RESTART || 20); // 之後 runner 主動重啟 App
   const WAIT_ABORT_LIMIT = 40; // 連續 wait ~40 次(每輪約數秒,約略對應 2-3 分鐘耐心)上限
   // 連續「VLM 回應無法解析」次數上限:這代表模型本身輸出有問題(非畫面載入),給較短的
   // 耐心(10 次)就中止,避免解析失敗被誤判成功之外,也不要在模型持續壞輸出時無限空等。
@@ -543,6 +622,9 @@ async function main() {
   const PARSE_FAIL_ABORT_LIMIT = 10;
   // 方向追蹤(直向/橫向):用來偵測「進遊戲前後方向切換」並提示模型重新評估版面。null=尚未知。
   let prevOrient = null;
+  // 上一步被「操作行為」攔下時的回饋(下一回合告訴 AI 改用允許的動作)。
+  let controlNote = '';
+  let perfPending = null; // 進行中的效能取樣(Promise)
 
   await writeStatus('running', 'AI 探索執行中', 0);
 
@@ -569,11 +651,22 @@ async function main() {
     const t0 = Date.now();
     // 前景守衛:AI 可能誤按 back 把遊戲退到背景/桌面。已知包名時,每步先確保遊戲在前景,
     // 若被拉回前景則多等一下載入,避免整段在 Android 桌面/Play Games 空轉。
+    // 前景遺失記錄成證據(報告據 appState + 上一步動作區分:AI 按 back / 疑似閃退 / 跳到其他 App)。
+    let foregroundLost = false;
+    let appState;
     if (effectivePkg) {
       try {
         const wasForeground = await client.ensureForeground(effectivePkg);
-        if (!wasForeground) await sleep(4000);
+        if (!wasForeground) { foregroundLost = true; appState = client.lastAppState; await sleep(4000); }
       } catch { /* 盡力,不擋主流程 */ }
+    }
+    // 效能取樣(每 PERF_EVERY 步一次;取不到為 null,報告標示未收集)。
+    // adb shell 取樣與 VLM 推理並行(不拖慢步調);FPS/CPU/GPU 是「區間累計」,不會漏掉取樣間的幀。
+    // 本步若中途 continue,未寫入的結果留給下一步(perfPending 不會重複發起)。
+    if (!perfPending && perfMon && i % PERF_EVERY === 0) {
+      perfPending = perfShell
+        ? perfMon.sample().catch(() => null)
+        : client.perfSample(effectivePkg).catch(() => null);
     }
     let shot;
     try { shot = await client.takeScreenshot(); } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
@@ -620,12 +713,37 @@ async function main() {
     const stuckNote = (stuckCount >= 2)
       ? `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化 —— 你先前點的位置不是可互動按鈕。請「換一個明顯不同的位置」,對準畫面上最大最醒目的主按鈕(通常在中下段,文字如 Play now / START / 開始 / 進入),把座標對到那顆按鈕的正中心,不要再點同一處或空白處。`
       : (i > 0 && !screenChanged ? '上一步後畫面沒變(可能無效),換個位置或做法。' : '');
-    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote;
+    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + controlNote;
+    controlNote = '';
     messages.push(makeUserTurn([visionShot], turnText, visionFmt));
     // UI-TARS(SageMaker):單幀 GUI grounding,座標直接落在 cw×ch smart-resize 幀;否則走 Bedrock 通用 VLM。
-    const { cmd, usage, rawText, trace } = USE_UITARS
+    const tVlm = Date.now();
+    // 【戰鬥自動走位】割草類(下方中央搖桿):上一步是戰鬥中的走位時,AI 思考期間(數秒)角色
+    // 若站著不動就會被包圍死亡 —— 先前實測每步只走 2 秒、其餘 8~10 秒原地挨打,第 1 關就陣亡。
+    // 這裡在呼叫 VLM 的同時,背景執行一段「繞圈走位」手勢(按住搖桿畫圓,角色持續繞圈遛怪)。
+    const autopilot = battleAutoEnabled && lastBattleMove && !popupLastStep;
+    let autopilotPromise = null;
+    if (autopilot) {
+      autopilotTick++;
+      autopilotPromise = client
+        .act({ action: 'kite', holdMs: AUTOPILOT_MS, clockwise: autopilotTick % 2 === 0, start: autopilotTick * 1.3,
+          ...(controls?.joystick ? { x: Math.round(origW * controls.joystick.x), y: Math.round(origH * controls.joystick.y) } : {}) })
+        .catch((e) => console.warn('[autopilot] kite 失敗', e?.message || e));
+    }
+    let decided = USE_UITARS
       ? await decideUitars(TASK, messages, cw, ch)
       : await decide(system, messages);
+    // 解析失敗(模型吐亂碼/空字串)時立即重問,最多 2 次;不浪費一個步驟、也不讓連續失敗計數誤殺任務。
+    for (let r = 0; r < 2 && decided.cmd.parseFailed && decided.trace?.ok !== false && !USE_UITARS; r++) {
+      const retry = await decide(system, messages);
+      if (retry.usage && decided.usage) retry.usage = { input: retry.usage.input + decided.usage.input, output: retry.usage.output + decided.usage.output };
+      decided = { ...retry, trace: { ...retry.trace, retries: r + 1 } };
+    }
+    const { cmd, usage, rawText, trace } = decided;
+    if (autopilotPromise) await autopilotPromise;
+    const vlmMs = Date.now() - tVlm;
+    // AI 原始動作(runner 若覆寫,原始 expect 不再代表實際動作,報告不據以判定 assertion)。
+    const aiAction = cmd.action;
     messages.push(makeAssistantTurn(rawText));
     if (usage) { tok.input += usage.input; tok.output += usage.output; }
     // 完整互動 log:每步落一份 traces/<i>.json(模型/channel/請求摘要/原始回應/token/錯誤)。
@@ -654,9 +772,10 @@ async function main() {
     };
     await s3put(`${PREFIX}/traces/${i}.json`, JSON.stringify(traceRecord), 'application/json').catch(() => {});
     // 座標數值化:部分模型(如 Nova)把 x/y 以字串回傳,統一轉成數字供後續吸附/標記/點擊計算。
-    for (const k of ['x', 'y', 'x2', 'y2']) {
+    for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'holdMs', 'durationMs', 'taps']) {
       if (cmd[k] != null && typeof cmd[k] !== 'number') { const n = Number(cmd[k]); if (Number.isFinite(n)) cmd[k] = n; }
     }
+    if (typeof cmd.action === 'string') cmd.action = cmd.action.trim().toLowerCase();
     // A 路:模型回的「已經是 smart-resize 圖(cw×ch)的絕對像素座標」,不需正規化還原。
     // 只夾到 [0, cw/ch] 範圍(模型偶爾越界)。落點標記/吸附都在此 cw×ch 空間;點擊再換算到裝置像素。
     const clampTo = (v, span) => Math.max(0, Math.min(span, Math.round(v)));
@@ -664,6 +783,8 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) cmd.y = clampTo(cmd.y, ch);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) cmd.x2 = clampTo(cmd.x2, cw);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) cmd.y2 = clampTo(cmd.y2, ch);
+    if (cmd.tx != null && Number.isFinite(cmd.tx)) cmd.tx = clampTo(cmd.tx, cw);
+    if (cmd.ty != null && Number.isFinite(cmd.ty)) cmd.ty = clampTo(cmd.ty, ch);
     // 縮圖(smart-resize)空間 → 裝置截圖空間 的等比換算係數(origW/cw 與 origH/ch 理論上相同,分開算更穩健)。
     const devScaleX = cw > 0 ? origW / cw : 1;
     const devScaleY = ch > 0 ? origH / ch : 1;
@@ -689,18 +810,43 @@ async function main() {
     // 安裝/載入偵測:VLM 的 thinking 或畫面名提到 install/loading/安裝/載入 → 視為載入中。
     const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中|config\s*ready|進場|进场|logo|品牌動畫|品牌动画|開場|开场/i;
     // 注意:此處在 screenName 宣告之前,只能用 cmd.screen(別引用 screenName,否則 TDZ ReferenceError)。
-    const looksLoading =
-      loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || ''));
+    // 2026-10-03 修正(實測 job-mus2tskm-mlstop):AI 把有 PLAY 鈕的標題頁命名為「開場畫面」,
+    // thinking 寫「開場畫面已載入…點 PLAY」—— 舊規則對 thinking/畫面名做寬鬆關鍵字比對,
+    // 「開場」「已載入」都命中,AI 每次想點 PLAY 都被強制改成 wait,卡死 20+ 步。
+    // 改為:AI 高信心(conf ≥ 0.8)要點擊/滑動時,只有「畫面名」明確是載入中狀態才強制等待;
+    // 其餘情況(低信心或沒回報信心)維持原本的寬鬆判斷。
+    const strongLoadingScreen = /loading|載入中|载入中|請稍候|请稍候|installing|安裝中|安装中|connecting|連線中|连接中|config\s*ready/i;
+    const aiConf = Number(cmd.conf);
+    const confidentInteract = (cmd.action === 'tap' || cmd.action === 'swipe') && Number.isFinite(aiConf) && aiConf >= 0.8;
+    const looksLoading = confidentInteract
+      ? strongLoadingScreen.test(String(cmd.screen || ''))
+      : loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || ''));
 
     // 2026-10-02 修正:品牌 Logo/開場動畫畫面常帶有持續的粒子/火焰特效,導致 pHash 判定
     // 「畫面有變化」而讓 stuckCount 一直被重置為 0,使下面「連續無變化才耐心等待」的保護
     // 從未生效——結果 VLM 對著純展示性動畫反覆 tap/swipe/move,8 次就被死循環偵測誤殺
     // (實測 job-muqscmna-syzeke:畫面「大廳頁面ConfigReady」反覆被亂點 8 次才中止)。
     // 這裡獨立於 stuckCount,只要畫面本身被判定為載入/開場動畫,一律強制改 wait,不亂點。
-    if (looksLoading && cmd.action !== 'wait') {
+    // 載入畫面連續停留計數:卡太久(如倖存者 Config Ready 等 SDK 回調卡死)時,
+    // 允許 AI 的 back/launch 脫困,並由 runner 主動重啟 App(實測 AI 的 launch 一直被改成 wait,永遠出不去)。
+    // 不看 pHash:Config Ready 這類畫面有持續動畫,「畫面有變」不代表流程有進展。
+    loadingStreak = looksLoading ? loadingStreak + 1 : 0;
+    const allowRecovery = loadingStreak >= LOADING_RECOVER_AFTER && (cmd.action === 'back' || cmd.action === 'launch');
+    if (looksLoading && loadingStreak >= LOADING_RESTART_AFTER && effectivePkg && appRestarts < 3) {
+      appRestarts++;
+      loadingStreak = 0;
+      console.log(`[recover] 載入畫面卡住 ${LOADING_RESTART_AFTER} 步,重啟 App(第 ${appRestarts} 次)`);
+      try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
+      cmd.action = 'wait'; cmd.duration = 1; cmd.x = undefined; cmd.y = undefined;
+      cmd.thinking = `[runner 重啟 App] 載入畫面長時間無進展,已關閉並重新開啟遊戲(第 ${appRestarts} 次),請從頭依流程進入。` + String(cmd.thinking || '');
+      cmd.override = 'app_restart';
+      escapeOverride = true;
+      controlNote = '【系統】遊戲剛被重新啟動,請從第一個畫面重新依知識庫流程進入。';
+    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery) {
       const origAction = cmd.action;
       cmd.action = 'wait'; cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 3;
       cmd.thinking = `偵測到載入/開場動畫畫面(無可互動元素),強制改為等待,不亂點。原動作:${origAction}。` + String(cmd.thinking || '');
+      cmd.override = 'loading_wait';
       escapeOverride = true;
     }
 
@@ -728,6 +874,18 @@ async function main() {
     // 這個判斷不受 looksSlotSpin 影響 —— 即使放行模型自己點 SPIN,若真的連續 30 步畫面
     // 都沒變(模型可能瞄不準 SPIN 鈕位置),仍要有硬性中止,不能無上限空轉。
     const STUCK_ABORT_STEPS = 30;
+    // 中止前先嘗試「重啟 App」(最多 3 次):很多卡死(載入回調、空白大廳)重開就好。
+    if (stuckCount >= STUCK_ABORT_STEPS && effectivePkg && appRestarts < 3) {
+      appRestarts++;
+      console.log(`[recover] 畫面 ${stuckCount} 步無變化,重啟 App(第 ${appRestarts} 次)`);
+      try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
+      stuckCount = 0; lastPhash = null; loadingStreak = 0;
+      cmd.action = 'wait'; cmd.duration = 1; cmd.x = undefined; cmd.y = undefined;
+      cmd.thinking = `[runner 重啟 App] 畫面長時間無變化,已重新開啟遊戲(第 ${appRestarts} 次)。` + String(cmd.thinking || '');
+      cmd.override = 'app_restart';
+      escapeOverride = true;
+      controlNote = '【系統】遊戲剛被重新啟動,請從第一個畫面重新依知識庫流程進入。';
+    }
     if (stuckCount >= STUCK_ABORT_STEPS) {
       finalState = 'error';
       finalMsg = looksLoading
@@ -737,7 +895,12 @@ async function main() {
       break;
     }
 
-    if (stuckCount >= 3 && !looksSlotSpin) {
+    // AI 高信心要點擊且畫面不是載入中:耐心期內放行 AI 自己換位置嘗試(prompt 已提示換座標),
+    // 不用「先等待」蓋掉;耐心期過後仍無變化才進入 runner 脫困輪換。
+    // 2026-10-04:不再要求高信心才放行——實測大廳機台列表空白時,AI 想點分類/展開鈕卻被
+    // 「先等待」連續蓋掉 20 步。非載入畫面一律讓 AI 自己換位置嘗試,耐心期過後才進 runner 脫困輪換。
+    const letAiTry = !looksLoading && cmd.action !== 'wait' && stuckCount < 20;
+    if (stuckCount >= 3 && !looksSlotSpin && !letAiTry) {
       // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
       //     配合此處額外 wait 動作,等於給數十秒到 1-2 分鐘讓安裝/載入完成),不亂點。
       const STUCK_WAIT_STEPS = 20; // 卡住的前 20 輪(約 60-100s)只等待,不亂點
@@ -748,11 +911,13 @@ async function main() {
         cmd.thinking = looksLoading
           ? `偵測到安裝/載入畫面(第 ${stuckCount + 1} 次未變),耐心等待安裝/載入完成`
           : `連續 ${stuckCount} 步畫面沒變,先等待(可能仍在載入)`;
+        cmd.override = 'stuck_wait';
         escapeOverride = true;
       } else {
         // 耐心期過後仍未變 → 才進入主動脫困輪換(中下段掃描 + back + 右上角)。
         const yBand = [0.70, 0.78, 0.64, 0.86, 0.57];
         const mode = (stuckCount - STUCK_WAIT_STEPS) % (yBand.length + 2);
+        cmd.override = 'stuck_escape';
         if (mode < yBand.length) {
           cmd.action = 'tap'; cmd.x = Math.round(cw * 0.5); cmd.y = Math.round(ch * yBand[mode]);
           cmd.thinking = `連續 ${stuckCount} 步畫面沒變,掃描中下段主按鈕帶 y=${(yBand[mode] * 100).toFixed(0)}% 脫困`;
@@ -777,6 +942,18 @@ async function main() {
     // 預設關閉:實測 findButtonBands 在這類「按鈕不是畫面最鮮明物件」的美術重的賭場畫面偵測不到按鈕
     // (金幣/天空才是最高彩度),硬套反而有誤觸風險。主力校正靠「0~1000 正規化網格 + prompt 提示」。
     // 保留開關 PA_YSNAP=1,供日後在偵測穩定的畫面啟用「只修 y」的按鈕條吸附。
+    // 【操作行為把關】測試腳本指定了操作方式時,不在允許清單的手勢(例:拉霸機卻要 move 搖桿、
+    // 沒勾多點觸控卻要 combo/pinch)不送裝置,改為短暫等待並在下一回合明確告知 AI 可用動作,
+    // 避免用錯操作方式撞牆空轉。runner 自己的脫困/載入覆寫不受限。
+    if (allowedActions && !escapeOverride && !allowedActions.has(cmd.action)) {
+      const bad = cmd.action;
+      cmd.action = 'wait'; cmd.duration = 1;
+      cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.tx = undefined; cmd.ty = undefined;
+      cmd.thinking = `[操作方式限制] 「${bad}」不在本遊戲的操作方式內,未執行。` + String(cmd.thinking || '');
+      cmd.override = 'control_violation';
+      controlNote = `【操作方式提醒】上一步你用了「${bad}」,但本遊戲的操作方式只允許:${controls.allowedActions.join(' / ')}。請改用允許的動作(依系統提示的操作方式說明)。`;
+    }
+
     let snappedFrom = null;
     if (process.env.PA_YSNAP === '1' && MAGICK && !escapeOverride && cmd.action === 'tap' && cmd.x != null && cmd.y != null) {
       const bands = findButtonBands(ds.b64, ssDim);
@@ -810,32 +987,46 @@ async function main() {
       }
     }
 
+    const perf = perfPending ? await perfPending : null;
+    perfPending = null;
     const step = { index: i, action: cmd.action, screen: screenName, thinking: cmd.thinking,
       // x/y 為「縮圖空間」座標(與標記圖一致);deviceXY 為實際送裝置的截圖像素座標,供除錯比對。
       ...(cmd.x != null ? { x: cmd.x, y: cmd.y, deviceX: toDeviceX(cmd.x), deviceY: toDeviceY(cmd.y) } : {}),
       // move 動作額外記 dir/holdMs(除錯用:之前排查 move 不生效時,step json 完全沒存方向與
       // 按住時長,只能從 x,y 猜搖桿中心,猜不出實際終點座標與持續時間,拖慢了排查速度)。
       ...(cmd.action === 'move' ? { dir: cmd.dir ?? cmd.direction ?? null, holdMs: cmd.holdMs ?? null, x2: cmd.x2 ?? null, y2: cmd.y2 ?? null } : {}),
+      // 多點觸控/長按手勢參數(除錯與報告用)。
+      ...(cmd.action === 'hold' ? { holdMs: cmd.holdMs ?? null } : {}),
+      ...(cmd.action === 'combo' ? { dir: cmd.dir ?? null, holdMs: cmd.holdMs ?? null, tx: cmd.tx ?? null, ty: cmd.ty ?? null, taps: cmd.taps ?? null } : {}),
+      ...(cmd.action === 'pinch' ? { scale: cmd.scale ?? null } : {}),
+      ...(cmd.action === 'swipe' && Number.isFinite(cmd.durationMs) ? { swipeMs: cmd.durationMs } : {}),
       ...(snappedFrom ? { snappedFrom } : {}),
       ...(cmd.x != null ? { space: { shot: [cw, ch], device: [origW, origH] } } : {}),
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,
       ...(annotatedKey ? { annotatedKey } : {}),
-      durationMs: Date.now() - t0, ...(usage ? { tokens: usage } : {}) };
+      durationMs: Date.now() - t0, ...(usage ? { tokens: usage } : {}),
+      // ── 證據(報告引擎據此以程式計算指標;AI 只觀察與標註)──
+      at: new Date(t0).toISOString(),
+      vlmMs,
+      // 本步截圖相對上一步是否有可見變化 = 「上一步動作是否生效」(pHash,確定性)。
+      ...(i > 0 && curPhash ? { screenChanged } : {}),
+      ...evidenceFields(cmd, aiAction),
+      ...(cmd.override ? { override: cmd.override } : {}),
+      ...(cmd.parseFailed ? { parseFailed: true } : {}),
+      ...(trace && trace.ok === false ? { modelError: true } : {}),
+      ...(foregroundLost ? { foregroundLost: true, ...(appState !== undefined ? { appState } : {}) } : {}),
+      ...(perf ? { perf } : {}) };
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
 
     // 增量記憶地圖:建/更新當前畫面節點 + 從上一畫面的轉移邊,即時寫回供前端重繪。
-    const pid = pageIdFromName(screenName, i);
-    if (!struct.pages[pid]) {
-      struct.pages[pid] = { id: pid, name: screenName, pHash: '', screenshotRef: `screenshots/${pid}.png`,
-        knownControlLabels: [], visitCount: 1, hitCount: 1, firstSeenAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
-      await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
-    } else { struct.pages[pid].visitCount++; struct.pages[pid].lastSeenAt = new Date().toISOString(); }
-    if (struct.rootPageId === null) struct.rootPageId = pid;
-    if (prevPageId && prevPageId !== pid) {
-      const label = prevAction || '';
-      let edge = struct.edges.find((e) => e.fromPageId === prevPageId && e.toPageId === pid && (e.trigger?.label || '') === label);
-      if (edge) { edge.hitCount++; } else struct.edges.push({ fromPageId: prevPageId, toPageId: pid, trigger: { kind: 'tap', label }, hitCount: 1, missCount: 0 });
+    // 畫面身分用「視覺指紋 + 正規化名稱 + 模組」判斷(見 memoryGraph.mjs),AI 換說法不會長出重複節點。
+    const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
+    if (isNew) await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    if (prevPageId && pid) {
+      // 畫面真的換了才建邊(觸發 = 上一步實際執行的動作 + 目標元件);同畫面且無變化 = 該操作失效一次。
+      if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget });
+      else if (!screenChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
     }
     struct.lastUpdatedAt = new Date().toISOString();
     await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
@@ -887,21 +1078,29 @@ async function main() {
     if (lvl5Hint.test(String(cmd.thinking || '')) || lvl5Hint.test(String(cmd.screen || ''))) seenLevel5 = true;
     // 【拒絕假完成】agent 下 done,但這是割草通關任務(TASK 含 5/第五/level/stage/survivor 等),
     // 且從未看到第5關證據 → 這多半是「載入中/過場誤判完成」。runner 攔截,改成 wait 逼它繼續,不讓假 pass 收尾。
+    // 模型呼叫失敗時 decide() 回 done:這是 AI 測試代理失敗,不是「完成」,不可判 pass。
+    if (cmd.action === 'done' && trace && trace.ok === false) {
+      finalState = 'error';
+      finalMsg = String(cmd.thinking || '模型呼叫失敗');
+      break;
+    }
     if (cmd.action === 'done') {
       const isSurvivorGoal = /survivor|倖存|割草|level|stage|wave|第.?五|第.?5|clear/i.test(String(TASK || ''));
       if (isSurvivorGoal && !seenLevel5 && prematureDoneCount < 8) {
         prematureDoneCount++;
-        cmd.action = everInBattle ? 'move' : 'wait';
+        cmd.action = everInBattle && (!allowedActions || allowedActions.has('move')) ? 'move' : 'wait';
         if (cmd.action === 'move') { cmd.dir = ['up','right','down','left'][prematureDoneCount % 4]; cmd.holdMs = 2200; }
         cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 4;
         cmd.thinking = `[拒絕假完成] agent 想 done 但尚未看到第5關證據(載入/過場不算完成),第 ${prematureDoneCount} 次攔截,改為 ${cmd.action} 繼續推進。` + String(cmd.thinking || '');
+        cmd.override = 'reject_done';
+        step.action = cmd.action; step.override = 'reject_done'; step.thinking = cmd.thinking; delete step.expect;
         stuckCount = 0;
       } else {
         finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break;
       }
     }
 
-    // 【割草戰鬥強制走位】倖存者類遊戲:進入戰鬥後角色必須「持續移動走位」才能存活,
+    // 【割草戰鬥強制走位】割草類遊戲:進入戰鬥後角色必須「持續移動走位」才能存活,
     // 但 VLM/agent 常回退用 tap(站著不動→被包圍→Fail)。這裡在 runner 層強制:
     // 偵測「戰鬥畫面」(thinking/screen 提到存活倒數、波次、關卡、Comfort Zone、Stage/Wave,
     // 或畫面名含戰鬥字樣),且 agent 下的是 tap/swipe/wait(非升級選技能彈窗)→ 改寫成一個輪換方向的 move。
@@ -911,20 +1110,40 @@ async function main() {
     const inBattle = battleHint.test(String(cmd.thinking || '')) || battleHint.test(String(cmd.screen || ''));
     if (inBattle) everInBattle = true;
     const isPopup = popupHint.test(String(cmd.thinking || '')) || popupHint.test(String(cmd.screen || ''));
-    if (inBattle && !isPopup && (cmd.action === 'tap' || cmd.action === 'swipe' || cmd.action === 'wait')) {
+    // 測試腳本指定了操作方式時,只有「下方中央搖桿」(割草類)才啟用強制走位;
+    // 其他類型(如左搖桿+技能、賽車)不可把 tap 改寫成 move,否則會破壞技能/轉向操作。
+    const battleMoveEnabled = !controls || controls.battleMove;
+    if (battleMoveEnabled && inBattle && !isPopup && (cmd.action === 'tap' || cmd.action === 'swipe' || cmd.action === 'wait')) {
       const dirs = ['up', 'right', 'down', 'left', 'upright', 'downleft', 'upleft', 'downright'];
       const forcedDir = dirs[battleMoveTick % dirs.length];
       battleMoveTick++;
       cmd.action = 'move'; cmd.dir = forcedDir; cmd.holdMs = 2200;
       cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined;
       cmd.thinking = `[戰鬥強制走位] 偵測到戰鬥畫面,角色必須持續移動躲怪。原動作(${cmd.action})改為 move dir=${forcedDir} 走位。` + String(cmd.thinking || '');
+      cmd.override = 'battle_move';
+      step.action = 'move'; step.dir = forcedDir; step.holdMs = 2200; step.override = 'battle_move'; step.thinking = cmd.thinking; delete step.expect;
       // 戰鬥中畫面背景持續變動,stuck-detection 不應介入;重置 stuckCount 避免誤判。
       stuckCount = 0;
     }
 
+    lastBattleMove = battleAutoEnabled && inBattle && !isPopup && cmd.action === 'move';
+    popupLastStep = isPopup;
+    if (autopilot) { step.autopilotMs = AUTOPILOT_MS; }
+
+    // runner 在 step 落地後才改寫動作(拒絕假完成/戰鬥強制走位)時,重寫 step json 讓證據與實際執行一致。
+    if (step.override === 'reject_done' || step.override === 'battle_move' || autopilot) {
+      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+    }
+
     // 實際點擊用「裝置截圖像素」座標:把 cmd(縮圖空間)的 x/y/x2/y2 換算到 origW/origH 空間再送。
     // 這一步是消除歪斜的關鍵 —— 縮圖與裝置解析度不同,直接拿縮圖座標點會整個偏掉。
+    // 搖桿預設位置依操作方式(左搖桿 / 下方中央);AI 沒給 x,y 時補上(截圖空間)。
+    if (controls?.joystick && (cmd.action === 'move' || (cmd.action === 'combo' && cmd.dir)) && !Number.isFinite(cmd.x)) {
+      cmd.x = Math.round(cw * controls.joystick.x); cmd.y = Math.round(ch * controls.joystick.y);
+    }
     const deviceCmd = { ...cmd };
+    if (cmd.tx != null && Number.isFinite(cmd.tx)) deviceCmd.tx = toDeviceX(cmd.tx);
+    if (cmd.ty != null && Number.isFinite(cmd.ty)) deviceCmd.ty = toDeviceY(cmd.ty);
     if (cmd.x != null && Number.isFinite(cmd.x)) deviceCmd.x = toDeviceX(cmd.x);
     if (cmd.y != null && Number.isFinite(cmd.y)) deviceCmd.y = toDeviceY(cmd.y);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDeviceX(cmd.x2);
@@ -934,15 +1153,33 @@ async function main() {
       try { deviceCmd.text = (await substituteText(deviceCmd.text, appCredentials)).text; }
       catch (e) { console.warn('[secrets] type 替換例外(用原文):', e?.message || e); }
     }
+    // launch 沒帶 app 時(AI 想「重開遊戲」),實際關閉並重開被測 App;舊版只 activateApp(已在前景時等於什麼都沒做)。
+    if (deviceCmd.action === 'launch' && !deviceCmd.app && effectivePkg) {
+      try { await client.restartApp(effectivePkg); await sleep(8000); consecFail = 0; } catch (e) { console.warn('[launch] 重啟失敗', e?.message || e); }
+    } else
     try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
-    prevPageId = pid; prevAction = cmd.action; prevOrient = isLandscape;
-    await sleep(3000);
+    prevOrient = isLandscape;
+    // 導覽圖用的「上一畫面/上一動作」:AI 沒給畫面名(pid=null,如解析失敗)時沿用上一個已知畫面,
+    // 且該步若只是 wait 不覆蓋真正造成轉場的動作(如先 tap Slots → 解析失敗 wait → 機台選擇)。
+    prevAction = cmd.action; // 給 prompt 用:上一步實際執行的動作
+    if (pid) {
+      prevPageId = pid; navAction = cmd.action;
+      // runner 覆寫了動作時,AI 的 target 不代表實際操作的元件。
+      prevTarget = cmd.override ? '' : (typeof cmd.target === 'string' ? cmd.target : '');
+    } else if (cmd.action !== 'wait') {
+      navAction = cmd.action; prevTarget = '';
+    }
+    // 戰鬥走位中不額外等待(站著不動就會被包圍);其餘維持 3 秒讓畫面穩定。
+    await sleep(lastBattleMove ? 300 : 3000);
   }
 
   // 停止即時串流(先停,避免 quit session 後仍嘗試截圖)。
   clearInterval(liveTimer);
   // 等待可能仍在飛行中的最後一張 live 截圖結束,避免對已關閉 session 發請求。
   for (let w2 = 0; liveBusy && w2 < 20; w2++) await sleep(50);
+  // 效能監測收尾:讀最終耗電、還原電池「未接電」模擬與 timestats(必須在 quit session 前)。
+  if (perfPending) await perfPending.catch(() => null);
+  if (perfShell) await perfMon.stop().catch(() => {});
 
   // 報告 + 終態。
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
@@ -950,8 +1187,12 @@ async function main() {
   // 前端據此判斷要不要顯示 RTP 圖表(見 computeRtpStats 註解)。
   const rtp = isRtpTask(TASK) ? computeRtpStats(steps) : null;
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w, h }, vlmModel: VLM,
+    runnerVersion: RUNNER_VERSION,
+    ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}),
+    ...(controls ? { controls: { ids: controls.ids, source: controls.source } } : {}),
     ...(deviceModel ? { deviceModel } : {}),
     ...(rtp ? { rtp } : {}),
+    ...(perfShell ? { perfMeta: perfMon.meta(launchInfo) } : {}),
     stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);
@@ -962,6 +1203,8 @@ async function main() {
 
 main().catch(async (e) => {
   await writeStatus('error', String(e), 0);
+  // 還原「未接電」模擬(盡力;session 隨後也會被釋放並由 Device Farm 清機)。
+  if (activePerfMon) await activePerfMon.stop().catch(() => {});
   await stopSelfOwnedSession(); // 中途失敗也要釋放真機/停計費
   process.exitCode = 1;
 });

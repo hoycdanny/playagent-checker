@@ -81,6 +81,41 @@ export type MessageKey =
   | 'page.tasks.empty'
   | 'page.reports.title'
   | 'page.reports.empty'
+  | 'reports.searchPlaceholder'
+  | 'reports.filterApp'
+  | 'reports.allApps'
+  | 'reports.filterCategory'
+  | 'reports.allCategories'
+  | 'reports.category.test'
+  | 'reports.category.exploration'
+  | 'reports.filterBackend'
+  | 'reports.allBackends'
+  | 'reports.filterRange'
+  | 'reports.range.all'
+  | 'reports.range.24h'
+  | 'reports.range.7d'
+  | 'reports.range.30d'
+  | 'reports.sort'
+  | 'reports.sort.newest'
+  | 'reports.sort.oldest'
+  | 'reports.sort.duration'
+  | 'reports.sort.steps'
+  | 'reports.sort.cost'
+  | 'reports.clearFilters'
+  | 'reports.allStates'
+  | 'reports.stat.total'
+  | 'reports.stat.passRate'
+  | 'reports.stat.avgDuration'
+  | 'reports.stat.cost'
+  | 'reports.col.steps'
+  | 'reports.col.duration'
+  | 'reports.col.cost'
+  | 'reports.col.device'
+  | 'reports.col.models'
+  | 'reports.col.created'
+  | 'reports.noMatch'
+  | 'reports.resultCount'
+  | 'reports.estimated'
   | 'page.devices.title'
   | 'page.devices.empty'
   | 'page.loadError'
@@ -132,6 +167,10 @@ export type MessageKey =
   | 'apps.genre'
   | 'apps.genreNone'
   | 'apps.genrePlaceholder'
+  | 'apps.secondaryGenres'
+  | 'apps.secondaryGenresAdd'
+  | 'apps.secondaryGenresRemove'
+  | 'apps.secondaryGenresHint'
   | 'apps.version'
   | 'apps.versionHint'
   | 'apps.versionNone'
@@ -211,6 +250,10 @@ export type MessageKey =
   | 'kb.genre'
   | 'kb.markdown'
   | 'kb.markdownHint'
+  | 'kb.reportProfile'
+  | 'kb.reportProfileHint'
+  | 'kb.reportSpecHint'
+  | 'kb.reportSpecInsert'
   | 'kb.save'
   | 'kb.saving'
   | 'kb.saveEdit'
@@ -362,6 +405,7 @@ export type MessageKey =
   | 'detail.roleSubagentHint'
   | 'detail.logs'
   | 'detail.logsShow'
+  | 'detail.viewReport'
   | 'detail.logsHide'
   | 'detail.logsEmpty'
   | 'detail.logOk'
@@ -523,6 +567,15 @@ export type MessageKey =
   | 'memory.visits'
   | 'memory.lastUpdated'
   | 'memory.graphHint'
+  | 'memory.graphVisits'
+  | 'memory.graphAliases'
+  | 'memory.graphRoot'
+  | 'memory.graphAuto'
+  | 'memory.graphHideTransient'
+  | 'memory.graphHideUnreliable'
+  | 'memory.graphMinHits'
+  | 'memory.graphLegendAction'
+  | 'memory.graphLegendUnreliable'
   | 'memory.templatesTitle'
   | 'memory.templatesHint'
   | 'memory.tplUse'
@@ -593,6 +646,41 @@ const zhHant: Catalog = {
   'page.tasks.empty': '尚無任務。提交一個測試任務後會顯示於此。',
   'page.reports.title': '測試報告',
   'page.reports.empty': '尚無報告。任務完成後報告會顯示於此。',
+  'reports.searchPlaceholder': "搜尋 App、任務目標、裝置、結果訊息、報告編號…",
+  'reports.filterApp': "App",
+  'reports.allApps': "全部 App",
+  'reports.filterCategory': "類型",
+  'reports.allCategories': "全部類型",
+  'reports.category.test': "測試",
+  'reports.category.exploration': "探索",
+  'reports.filterBackend': "執行環境",
+  'reports.allBackends': "全部環境",
+  'reports.filterRange': "時間",
+  'reports.range.all': "全部時間",
+  'reports.range.24h': "24 小時內",
+  'reports.range.7d': "7 天內",
+  'reports.range.30d': "30 天內",
+  'reports.sort': "排序",
+  'reports.sort.newest': "最新",
+  'reports.sort.oldest': "最舊",
+  'reports.sort.duration': "耗時最長",
+  'reports.sort.steps': "步數最多",
+  'reports.sort.cost': "花費最高",
+  'reports.clearFilters': "清除篩選",
+  'reports.allStates': "全部",
+  'reports.stat.total': "報告數",
+  'reports.stat.passRate': "通過率",
+  'reports.stat.avgDuration': "平均耗時",
+  'reports.stat.cost': "總花費",
+  'reports.col.steps': "步數",
+  'reports.col.duration': "耗時",
+  'reports.col.cost': "花費",
+  'reports.col.device': "裝置",
+  'reports.col.models': "模型",
+  'reports.col.created': "建立時間",
+  'reports.noMatch': "沒有符合篩選條件的報告。",
+  'reports.resultCount': "顯示 {n} / {total} 份報告",
+  'reports.estimated': "估",
   'page.devices.title': '裝置管理',
   'page.devices.empty': '尚無裝置。註冊雲端或本地裝置以開始。',
   'page.loadError': '載入失敗,請稍後再試。',
@@ -644,6 +732,10 @@ const zhHant: Catalog = {
   'apps.genre': '遊戲類型',
   'apps.genreNone': '未分類',
   'apps.genrePlaceholder': '選擇遊戲類型…',
+  'apps.secondaryGenres': "次要類型(可選,最多 3 個)",
+  'apps.secondaryGenresAdd': "加入次要類型…",
+  'apps.secondaryGenresRemove': "移除",
+  'apps.secondaryGenresHint': "例如 RPG + 動作。報告會合併各類型的測試指標、圖表與放行規則。",
   'apps.version': '版本',
   'apps.versionHint': '例如 1.2.3 或 build 號;方便報告對應版本。',
   'apps.versionNone': '未填版本',
@@ -668,7 +760,7 @@ const zhHant: Catalog = {
   'genre.board': '桌遊',
   'genre.rhythm': '節奏音樂',
   'genre.survival': '生存',
-  'genre.survivor': '倖存者/割草',
+  'genre.survivor': '割草',
   'genre.roguelike': 'Roguelike',
   'genre.battle_royale': '大逃殺',
   'genre.sandbox': '沙盒開放世界',
@@ -723,6 +815,10 @@ const zhHant: Catalog = {
   'kb.genre': '對應遊戲類別',
   'kb.markdown': '知識內容(Markdown)',
   'kb.markdownHint': '直接注入 AI 的知識;例如 Slot 的術語、RTP 的判讀規則。',
+  'kb.reportProfile': "這座知識庫如何引導測試報告",
+  'kb.reportProfileHint': "選用此類型時,報告會自動載入以下模組、指標、圖表與規則;數字由程式計算,AI 只負責觀察",
+  'kb.reportSpecHint': "可在 Markdown 加入 ```playagent-report 區塊,設定 Expected RTP、放行門檻、額外模組與 AI 觀測欄位。此區塊只給報告引擎使用,不會注入 AI。",
+  'kb.reportSpecInsert': "插入報告規格範本",
   'kb.save': '建立',
   'kb.saving': '儲存中…',
   'kb.saveEdit': '儲存變更',
@@ -874,6 +970,7 @@ const zhHant: Catalog = {
   'detail.roleSubagentHint': '輔助小幫手:處理主控交辦的次要子任務(如歸納資訊、簡單判斷),分擔負載',
   'detail.logs': '模型互動 Log',
   'detail.logsShow': 'Log',
+  'detail.viewReport': '查看測試報告',
   'detail.logsHide': '隱藏 Log',
   'detail.logsEmpty': '尚無互動記錄(任務剛開始或此後端未產生 Log)。',
   'detail.logOk': '成功',
@@ -1035,6 +1132,15 @@ const zhHant: Catalog = {
   'memory.visits': '次',
   'memory.lastUpdated': '最後更新',
   'memory.graphHint': '跨多次測試累積的 App 全景:畫面為節點、操作轉移為連線',
+  'memory.graphVisits': "{n} 次",
+  'memory.graphAliases': "別名",
+  'memory.graphRoot': "起點",
+  'memory.graphAuto': "自動轉場",
+  'memory.graphHideTransient': "隱藏載入畫面",
+  'memory.graphHideUnreliable': "隱藏常失敗的路徑",
+  'memory.graphMinHits': "最少成功次數",
+  'memory.graphLegendAction': "操作轉場",
+  'memory.graphLegendUnreliable': "常失敗",
   'memory.templatesTitle': '場景範本',
   'memory.templatesHint': '依記憶地圖上的可達路徑自動生成,點「使用」建立為測試案例後可再用 AI 編修。',
   'memory.tplUse': '使用',
@@ -1104,6 +1210,41 @@ const en: Catalog = {
   'page.tasks.empty': 'No tasks yet. Submit a test task and it will appear here.',
   'page.reports.title': 'Test Reports',
   'page.reports.empty': 'No reports yet. Reports appear here after a task completes.',
+  'reports.searchPlaceholder': "Search app, goal, device, result message, report ID…",
+  'reports.filterApp': "App",
+  'reports.allApps': "All apps",
+  'reports.filterCategory': "Type",
+  'reports.allCategories': "All types",
+  'reports.category.test': "Test",
+  'reports.category.exploration': "Exploration",
+  'reports.filterBackend': "Environment",
+  'reports.allBackends': "All environments",
+  'reports.filterRange': "Time",
+  'reports.range.all': "Any time",
+  'reports.range.24h': "Last 24 hours",
+  'reports.range.7d': "Last 7 days",
+  'reports.range.30d': "Last 30 days",
+  'reports.sort': "Sort",
+  'reports.sort.newest': "Newest",
+  'reports.sort.oldest': "Oldest",
+  'reports.sort.duration': "Longest duration",
+  'reports.sort.steps': "Most steps",
+  'reports.sort.cost': "Highest cost",
+  'reports.clearFilters': "Clear filters",
+  'reports.allStates': "All",
+  'reports.stat.total': "Reports",
+  'reports.stat.passRate': "Pass rate",
+  'reports.stat.avgDuration': "Avg duration",
+  'reports.stat.cost': "Total cost",
+  'reports.col.steps': "Steps",
+  'reports.col.duration': "Duration",
+  'reports.col.cost': "Cost",
+  'reports.col.device': "Device",
+  'reports.col.models': "Models",
+  'reports.col.created': "Created",
+  'reports.noMatch': "No reports match the filters.",
+  'reports.resultCount': "Showing {n} of {total} reports",
+  'reports.estimated': "est.",
   'page.devices.title': 'Devices',
   'page.devices.empty': 'No devices yet. Register a cloud or local device to get started.',
   'page.loadError': 'Failed to load. Please try again.',
@@ -1155,6 +1296,10 @@ const en: Catalog = {
   'apps.genre': 'Genre',
   'apps.genreNone': 'Uncategorized',
   'apps.genrePlaceholder': 'Select a genre…',
+  'apps.secondaryGenres': "Secondary genres (optional, up to 3)",
+  'apps.secondaryGenresAdd': "Add a secondary genre…",
+  'apps.secondaryGenresRemove': "Remove",
+  'apps.secondaryGenresHint': "e.g. RPG + Action. Reports merge each genre’s metrics, charts and release rules.",
   'apps.version': 'Version',
   'apps.versionHint': 'e.g. 1.2.3 or a build number; lets reports map to a version.',
   'apps.versionNone': 'No version',
@@ -1179,7 +1324,7 @@ const en: Catalog = {
   'genre.board': 'Board / Tabletop',
   'genre.rhythm': 'Rhythm / Music',
   'genre.survival': 'Survival',
-  'genre.survivor': 'Survivor / Hack-and-slash',
+  'genre.survivor': 'Bullet Heaven',
   'genre.roguelike': 'Roguelike',
   'genre.battle_royale': 'Battle Royale',
   'genre.sandbox': 'Sandbox / Open-world',
@@ -1234,6 +1379,10 @@ const en: Catalog = {
   'kb.genre': 'Linked genre',
   'kb.markdown': 'Knowledge content (Markdown)',
   'kb.markdownHint': 'Injected directly into the AI; e.g. Slot terminology, RTP reading rules.',
+  'kb.reportProfile': "How this knowledge base guides the test report",
+  'kb.reportProfileHint': "When this genre is selected, reports load these modules, metrics, charts and rules; numbers are computed by code, the AI only observes",
+  'kb.reportSpecHint': "Add a ```playagent-report block to the Markdown to set Expected RTP, release thresholds, extra modules and AI observation fields. The block is used by the report engine only and is not injected into the AI.",
+  'kb.reportSpecInsert': "Insert report spec template",
   'kb.save': 'Create',
   'kb.saving': 'Saving…',
   'kb.saveEdit': 'Save changes',
@@ -1385,6 +1534,7 @@ const en: Catalog = {
   'detail.roleSubagentHint': 'Helper: handles secondary sub-tasks delegated by the main brain (summarizing, simple checks) to share the load',
   'detail.logs': 'Model interaction log',
   'detail.logsShow': 'Log',
+  'detail.viewReport': 'View test report',
   'detail.logsHide': 'Hide log',
   'detail.logsEmpty': 'No interactions yet (task just started, or this backend produces no log).',
   'detail.logOk': 'OK',
@@ -1547,6 +1697,15 @@ const en: Catalog = {
   'memory.visits': 'visits',
   'memory.lastUpdated': 'Updated',
   'memory.graphHint': 'App-wide map accumulated across tests: screens are nodes, transitions are edges',
+  'memory.graphVisits': "{n} visits",
+  'memory.graphAliases': "aliases",
+  'memory.graphRoot': "Start",
+  'memory.graphAuto': "Auto transition",
+  'memory.graphHideTransient': "Hide loading screens",
+  'memory.graphHideUnreliable': "Hide unreliable paths",
+  'memory.graphMinHits': "Min successes",
+  'memory.graphLegendAction': "Action",
+  'memory.graphLegendUnreliable': "Unreliable",
   'memory.templatesTitle': 'Scenario templates',
   'memory.templatesHint': 'Auto-generated from reachable paths on the memory map. Click Use to create a test case, then refine it with AI.',
   'memory.tplUse': 'Use',
@@ -1620,6 +1779,41 @@ const zhHans: Catalog = {
   'page.tasks.empty': '尚无任务。提交一个测试任务后会显示于此。',
   'page.reports.title': '测试报告',
   'page.reports.empty': '尚无报告。任务完成后报告会显示于此。',
+  'reports.searchPlaceholder': "搜索 App、任务目标、设备、结果消息、报告编号…",
+  'reports.filterApp': "App",
+  'reports.allApps': "全部 App",
+  'reports.filterCategory': "类型",
+  'reports.allCategories': "全部类型",
+  'reports.category.test': "测试",
+  'reports.category.exploration': "探索",
+  'reports.filterBackend': "执行环境",
+  'reports.allBackends': "全部环境",
+  'reports.filterRange': "时间",
+  'reports.range.all': "全部时间",
+  'reports.range.24h': "24 小时内",
+  'reports.range.7d': "7 天内",
+  'reports.range.30d': "30 天内",
+  'reports.sort': "排序",
+  'reports.sort.newest': "最新",
+  'reports.sort.oldest': "最旧",
+  'reports.sort.duration': "耗时最长",
+  'reports.sort.steps': "步数最多",
+  'reports.sort.cost': "花费最高",
+  'reports.clearFilters': "清除筛选",
+  'reports.allStates': "全部",
+  'reports.stat.total': "报告数",
+  'reports.stat.passRate': "通过率",
+  'reports.stat.avgDuration': "平均耗时",
+  'reports.stat.cost': "总花费",
+  'reports.col.steps': "步数",
+  'reports.col.duration': "耗时",
+  'reports.col.cost': "花费",
+  'reports.col.device': "设备",
+  'reports.col.models': "模型",
+  'reports.col.created': "创建时间",
+  'reports.noMatch': "没有符合筛选条件的报告。",
+  'reports.resultCount': "显示 {n} / {total} 份报告",
+  'reports.estimated': "估",
   'page.devices.title': '设备管理',
   'page.devices.empty': '尚无设备。注册云端或本地设备以开始。',
   'page.loadError': '加载失败,请稍后再试。',
@@ -1671,6 +1865,10 @@ const zhHans: Catalog = {
   'apps.genre': '游戏类型',
   'apps.genreNone': '未分类',
   'apps.genrePlaceholder': '选择游戏类型…',
+  'apps.secondaryGenres': "次要类型(可选,最多 3 个)",
+  'apps.secondaryGenresAdd': "加入次要类型…",
+  'apps.secondaryGenresRemove': "移除",
+  'apps.secondaryGenresHint': "例如 RPG + 动作。报告会合并各类型的测试指标、图表与放行规则。",
   'apps.version': '版本',
   'apps.versionHint': '例如 1.2.3 或 build 号;方便报告对应版本。',
   'apps.versionNone': '未填版本',
@@ -1695,7 +1893,7 @@ const zhHans: Catalog = {
   'genre.board': '桌游',
   'genre.rhythm': '节奏音乐',
   'genre.survival': '生存',
-  'genre.survivor': '倖存者/割草',
+  'genre.survivor': '割草',
   'genre.roguelike': 'Roguelike',
   'genre.battle_royale': '大逃杀',
   'genre.sandbox': '沙盒开放世界',
@@ -1750,6 +1948,10 @@ const zhHans: Catalog = {
   'kb.genre': '对应游戏类别',
   'kb.markdown': '知识内容(Markdown)',
   'kb.markdownHint': '直接注入 AI 的知识;例如 Slot 的术语、RTP 的判读规则。',
+  'kb.reportProfile': "这座知识库如何引导测试报告",
+  'kb.reportProfileHint': "选用此类型时,报告会自动加载以下模块、指标、图表与规则;数字由程序计算,AI 只负责观察",
+  'kb.reportSpecHint': "可在 Markdown 加入 ```playagent-report 区块,设置 Expected RTP、放行门槛、额外模块与 AI 观测字段。此区块只给报告引擎使用,不会注入 AI。",
+  'kb.reportSpecInsert': "插入报告规格模板",
   'kb.save': '创建',
   'kb.saving': '保存中…',
   'kb.saveEdit': '保存更改',
@@ -1901,6 +2103,7 @@ const zhHans: Catalog = {
   'detail.roleSubagentHint': '辅助小帮手:处理主控交办的次要子任务(如归纳信息、简单判断),分担负载',
   'detail.logs': '模型交互 Log',
   'detail.logsShow': 'Log',
+  'detail.viewReport': '查看测试报告',
   'detail.logsHide': '隐藏 Log',
   'detail.logsEmpty': '尚无交互记录(任务刚开始或此后端未产生 Log)。',
   'detail.logOk': '成功',
@@ -2062,6 +2265,15 @@ const zhHans: Catalog = {
   'memory.visits': '次',
   'memory.lastUpdated': '最后更新',
   'memory.graphHint': '跨多次测试累积的 App 全景:画面为节点、操作转移为连线',
+  'memory.graphVisits': "{n} 次",
+  'memory.graphAliases': "别名",
+  'memory.graphRoot': "起点",
+  'memory.graphAuto': "自动转场",
+  'memory.graphHideTransient': "隐藏加载画面",
+  'memory.graphHideUnreliable': "隐藏常失败的路径",
+  'memory.graphMinHits': "最少成功次数",
+  'memory.graphLegendAction': "操作转场",
+  'memory.graphLegendUnreliable': "常失败",
   'memory.templatesTitle': '场景范本',
   'memory.templatesHint': '依记忆地图上的可达路径自动生成,点「使用」创建为测试用例后可再用 AI 编修。',
   'memory.tplUse': '使用',
@@ -2131,6 +2343,41 @@ const ja: Catalog = {
   'page.tasks.empty': 'タスクがまだありません。テストタスクを送信するとここに表示されます。',
   'page.reports.title': 'テストレポート',
   'page.reports.empty': 'レポートがまだありません。タスク完了後にここに表示されます。',
+  'reports.searchPlaceholder': "アプリ・目標・デバイス・結果メッセージ・レポート ID を検索…",
+  'reports.filterApp': "アプリ",
+  'reports.allApps': "すべてのアプリ",
+  'reports.filterCategory': "種類",
+  'reports.allCategories': "すべての種類",
+  'reports.category.test': "テスト",
+  'reports.category.exploration': "探索",
+  'reports.filterBackend': "実行環境",
+  'reports.allBackends': "すべての環境",
+  'reports.filterRange': "期間",
+  'reports.range.all': "全期間",
+  'reports.range.24h': "24 時間以内",
+  'reports.range.7d': "7 日以内",
+  'reports.range.30d': "30 日以内",
+  'reports.sort': "並び替え",
+  'reports.sort.newest': "新しい順",
+  'reports.sort.oldest': "古い順",
+  'reports.sort.duration': "所要時間が長い順",
+  'reports.sort.steps': "ステップ数が多い順",
+  'reports.sort.cost': "コストが高い順",
+  'reports.clearFilters': "フィルターをクリア",
+  'reports.allStates': "すべて",
+  'reports.stat.total': "レポート数",
+  'reports.stat.passRate': "合格率",
+  'reports.stat.avgDuration': "平均所要時間",
+  'reports.stat.cost': "総コスト",
+  'reports.col.steps': "ステップ",
+  'reports.col.duration': "所要時間",
+  'reports.col.cost': "コスト",
+  'reports.col.device': "デバイス",
+  'reports.col.models': "モデル",
+  'reports.col.created': "作成日時",
+  'reports.noMatch': "条件に一致するレポートはありません。",
+  'reports.resultCount': "{total} 件中 {n} 件を表示",
+  'reports.estimated': "推定",
   'page.devices.title': 'デバイス管理',
   'page.devices.empty': 'デバイスがまだありません。クラウドまたはローカルデバイスを登録してください。',
   'page.loadError': '読み込みに失敗しました。もう一度お試しください。',
@@ -2182,6 +2429,10 @@ const ja: Catalog = {
   'apps.genre': 'ジャンル',
   'apps.genreNone': '未分類',
   'apps.genrePlaceholder': 'ジャンルを選択…',
+  'apps.secondaryGenres': "サブジャンル(任意、最大 3 つ)",
+  'apps.secondaryGenresAdd': "サブジャンルを追加…",
+  'apps.secondaryGenresRemove': "削除",
+  'apps.secondaryGenresHint': "例: RPG + アクション。レポートは各ジャンルの指標・グラフ・リリース基準を統合します。",
   'apps.version': 'バージョン',
   'apps.versionHint': '例: 1.2.3 やビルド番号。レポートがバージョンに対応できます。',
   'apps.versionNone': 'バージョン未入力',
@@ -2206,7 +2457,7 @@ const ja: Catalog = {
   'genre.board': 'ボード / テーブル',
   'genre.rhythm': 'リズム / 音楽',
   'genre.survival': 'サバイバル',
-  'genre.survivor': 'サバイバー/草刈り',
+  'genre.survivor': '草刈り',
   'genre.roguelike': 'ローグライク',
   'genre.battle_royale': 'バトルロイヤル',
   'genre.sandbox': 'サンドボックス / オープンワールド',
@@ -2261,6 +2512,10 @@ const ja: Catalog = {
   'kb.genre': '対応ジャンル',
   'kb.markdown': 'ナレッジ内容(Markdown)',
   'kb.markdownHint': 'AI に直接注入されます。例: Slot の用語、RTP の判定ルール。',
+  'kb.reportProfile': "このナレッジがテストレポートをどう導くか",
+  'kb.reportProfileHint': "このジャンルを選ぶと、以下のモジュール・指標・グラフ・ルールがレポートに読み込まれます。数値はプログラムが計算し、AI は観察のみ",
+  'kb.reportSpecHint': "Markdown に ```playagent-report ブロックを追加すると、Expected RTP、リリース閾値、追加モジュール、AI 観測項目を設定できます。このブロックはレポートエンジン専用で AI には注入されません。",
+  'kb.reportSpecInsert': "レポート仕様テンプレートを挿入",
   'kb.save': '作成',
   'kb.saving': '保存中…',
   'kb.saveEdit': '変更を保存',
@@ -2412,6 +2667,7 @@ const ja: Catalog = {
   'detail.roleSubagentHint': '補助役:主制御が委任する副次タスク(要約や簡単な判断)を処理し負荷を分担',
   'detail.logs': 'モデル対話ログ',
   'detail.logsShow': 'ログ',
+  'detail.viewReport': 'テストレポートを見る',
   'detail.logsHide': 'ログを隠す',
   'detail.logsEmpty': 'まだ対話記録がありません(タスク開始直後、またはこのバックエンドはログを生成しません)。',
   'detail.logOk': '成功',
@@ -2574,6 +2830,15 @@ const ja: Catalog = {
   'memory.visits': '回',
   'memory.lastUpdated': '最終更新',
   'memory.graphHint': 'テストを跨いで蓄積したアプリ全体像:画面がノード、遷移がエッジ',
+  'memory.graphVisits': "{n} 回",
+  'memory.graphAliases': "別名",
+  'memory.graphRoot': "開始",
+  'memory.graphAuto': "自動遷移",
+  'memory.graphHideTransient': "ロード画面を隠す",
+  'memory.graphHideUnreliable': "失敗が多い経路を隠す",
+  'memory.graphMinHits': "最小成功回数",
+  'memory.graphLegendAction': "操作による遷移",
+  'memory.graphLegendUnreliable': "失敗が多い",
   'memory.templatesTitle': 'シナリオテンプレート',
   'memory.templatesHint': 'メモリマップの到達可能な経路から自動生成。「使う」でテストケースを作成し、AI で調整できます。',
   'memory.tplUse': '使う',
@@ -2643,6 +2908,41 @@ const ko: Catalog = {
   'page.tasks.empty': '작업이 아직 없습니다. 테스트 작업을 제출하면 여기에 표시됩니다.',
   'page.reports.title': '테스트 보고서',
   'page.reports.empty': '보고서가 아직 없습니다. 작업 완료 후 여기에 표시됩니다.',
+  'reports.searchPlaceholder': "앱, 목표, 장치, 결과 메시지, 리포트 ID 검색…",
+  'reports.filterApp': "앱",
+  'reports.allApps': "모든 앱",
+  'reports.filterCategory': "유형",
+  'reports.allCategories': "모든 유형",
+  'reports.category.test': "테스트",
+  'reports.category.exploration': "탐색",
+  'reports.filterBackend': "실행 환경",
+  'reports.allBackends': "모든 환경",
+  'reports.filterRange': "기간",
+  'reports.range.all': "전체 기간",
+  'reports.range.24h': "24시간 이내",
+  'reports.range.7d': "7일 이내",
+  'reports.range.30d': "30일 이내",
+  'reports.sort': "정렬",
+  'reports.sort.newest': "최신순",
+  'reports.sort.oldest': "오래된순",
+  'reports.sort.duration': "소요 시간 긴 순",
+  'reports.sort.steps': "스텝 많은 순",
+  'reports.sort.cost': "비용 높은 순",
+  'reports.clearFilters': "필터 초기화",
+  'reports.allStates': "전체",
+  'reports.stat.total': "리포트 수",
+  'reports.stat.passRate': "통과율",
+  'reports.stat.avgDuration': "평균 소요 시간",
+  'reports.stat.cost': "총 비용",
+  'reports.col.steps': "스텝",
+  'reports.col.duration': "소요 시간",
+  'reports.col.cost': "비용",
+  'reports.col.device': "장치",
+  'reports.col.models': "모델",
+  'reports.col.created': "생성 시간",
+  'reports.noMatch': "조건에 맞는 리포트가 없습니다.",
+  'reports.resultCount': "{total}개 중 {n}개 표시",
+  'reports.estimated': "추정",
   'page.devices.title': '장치 관리',
   'page.devices.empty': '장치가 아직 없습니다. 클라우드 또는 로컬 장치를 등록해 시작하세요.',
   'page.loadError': '불러오기에 실패했습니다. 다시 시도해 주세요.',
@@ -2694,6 +2994,10 @@ const ko: Catalog = {
   'apps.genre': '장르',
   'apps.genreNone': '미분류',
   'apps.genrePlaceholder': '장르 선택…',
+  'apps.secondaryGenres': "보조 장르(선택, 최대 3개)",
+  'apps.secondaryGenresAdd': "보조 장르 추가…",
+  'apps.secondaryGenresRemove': "제거",
+  'apps.secondaryGenresHint': "예: RPG + 액션. 리포트가 각 장르의 지표, 차트, 릴리스 규칙을 병합합니다.",
   'apps.version': '버전',
   'apps.versionHint': '예: 1.2.3 또는 빌드 번호. 리포트가 버전과 매핑됩니다.',
   'apps.versionNone': '버전 없음',
@@ -2718,7 +3022,7 @@ const ko: Catalog = {
   'genre.board': '보드 / 테이블',
   'genre.rhythm': '리듬 / 음악',
   'genre.survival': '생존',
-  'genre.survivor': '서바이버/뱀서라이크',
+  'genre.survivor': '핵앤슬래시',
   'genre.roguelike': '로그라이크',
   'genre.battle_royale': '배틀로얄',
   'genre.sandbox': '샌드박스 / 오픈월드',
@@ -2773,6 +3077,10 @@ const ko: Catalog = {
   'kb.genre': '연결된 장르',
   'kb.markdown': '지식 내용(Markdown)',
   'kb.markdownHint': 'AI에 직접 주입됩니다. 예: Slot 용어, RTP 판독 규칙.',
+  'kb.reportProfile': "이 지식 베이스가 테스트 리포트를 안내하는 방식",
+  'kb.reportProfileHint': "이 장르를 선택하면 아래 모듈, 지표, 차트, 규칙이 리포트에 적용됩니다. 수치는 코드가 계산하고 AI는 관찰만 합니다",
+  'kb.reportSpecHint': "Markdown에 ```playagent-report 블록을 추가해 Expected RTP, 릴리스 기준값, 추가 모듈, AI 관찰 항목을 설정할 수 있습니다. 이 블록은 리포트 엔진 전용이며 AI에 주입되지 않습니다.",
+  'kb.reportSpecInsert': "리포트 규격 템플릿 삽입",
   'kb.save': '만들기',
   'kb.saving': '저장 중…',
   'kb.saveEdit': '변경 사항 저장',
@@ -2924,6 +3232,7 @@ const ko: Catalog = {
   'detail.roleSubagentHint': '보조 도우미: 메인이 위임한 보조 작업(요약, 간단한 판단)을 처리해 부하를 분담',
   'detail.logs': '모델 상호작용 로그',
   'detail.logsShow': '로그',
+  'detail.viewReport': '테스트 보고서 보기',
   'detail.logsHide': '로그 숨기기',
   'detail.logsEmpty': '아직 상호작용 기록이 없습니다(작업 시작 직후이거나 이 백엔드는 로그를 생성하지 않음).',
   'detail.logOk': '성공',
@@ -3086,6 +3395,15 @@ const ko: Catalog = {
   'memory.visits': '회',
   'memory.lastUpdated': '마지막 업데이트',
   'memory.graphHint': '여러 테스트에 걸쳐 축적된 앱 전체 지도: 화면은 노드, 전환은 엣지',
+  'memory.graphVisits': "{n}회",
+  'memory.graphAliases': "별칭",
+  'memory.graphRoot': "시작",
+  'memory.graphAuto': "자동 전환",
+  'memory.graphHideTransient': "로딩 화면 숨기기",
+  'memory.graphHideUnreliable': "자주 실패하는 경로 숨기기",
+  'memory.graphMinHits': "최소 성공 횟수",
+  'memory.graphLegendAction': "조작 전환",
+  'memory.graphLegendUnreliable': "자주 실패",
   'memory.templatesTitle': '시나리오 템플릿',
   'memory.templatesHint': '메모리 맵의 도달 가능한 경로에서 자동 생성됩니다. "사용"을 눌러 테스트 케이스를 만든 뒤 AI로 다듬으세요.',
   'memory.tplUse': '사용',

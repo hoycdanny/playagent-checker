@@ -6,6 +6,8 @@ import { LOCALE_LABELS, type Locale } from '../i18n/messages.ts';
 import type { MessageKey } from '../i18n/messages.ts';
 import { NavGraph } from '../components/NavGraph.tsx';
 import { RtpChart, type RtpStats } from '../components/RtpChart.tsx';
+import { StructuredReportView } from '../components/report/StructuredReportView.tsx';
+import type { ReportInsights, StructuredReport } from '../components/report/reportTypes.ts';
 import './ListPage.css';
 import './ReportViewPage.css';
 
@@ -53,6 +55,10 @@ interface ReportDoc {
   // 可用的下注/派彩資料時才會有此欄位(見 agent/explorationRunner.mjs computeRtpStats)。
   // 沒有這個欄位(undefined)代表這不是 RTP 任務,或資料不足以估算,報告呈現一般遊戲測試內容。
   rtp?: RtpStats;
+  // 結構化報告(後端報告引擎讀取時計算:GenreProfile + Metric + Evidence + Finding + 規則引擎)。
+  structured?: StructuredReport;
+  // AI 分析快取(使用者觸發產生;依語言分開存)。
+  insights?: { zh?: ReportInsights; en?: ReportInsights };
 }
 
 /** 把任意值安全轉成可渲染字串,避免把物件/陣列當 React child 渲染而丟出未捕捉例外
@@ -97,7 +103,7 @@ export default function ReportViewPage() {
 
   if (loading) {
     return (
-      <section className="listpage">
+      <section className="listpage listpage--wide report">
         <div className="listpage__skeleton" aria-hidden="true">
           <div className="listpage__skeleton-row" />
         </div>
@@ -107,7 +113,7 @@ export default function ReportViewPage() {
 
   if (notFound || !report) {
     return (
-      <section className="listpage">
+      <section className="listpage listpage--wide report">
         <Link to="/reports" className="report__back">← {t('report.back')}</Link>
         <div className="listpage__empty">
           <p>{t('report.noReport')}</p>
@@ -123,7 +129,8 @@ export default function ReportViewPage() {
   const isEmulator = Boolean(report.navGraph || emuSteps?.some((s) => s.screenshotUrl));
 
   return (
-    <section className="listpage report">
+    // 所有報告類型一律寬版(對齊應用管理頁 1520px),不再讓 Web 敘事報告縮在 960px、左右大片留白。
+    <section className="listpage listpage--wide report report--wide">
       <Link to="/reports" className="report__back">← {t('report.back')}</Link>
 
       <header className="listpage__header">
@@ -149,7 +156,26 @@ export default function ReportViewPage() {
         {report.vlmModel && <span className="report__model">{report.vlmModel.replace(/^us\./, '')}</span>}
       </div>
 
-      {isEmulator ? (
+      {report.structured?.schemaVersion === 1 ? (
+        <StructuredReportView
+          report={report.structured}
+          onOpenImage={setLightbox}
+          {...(jobId ? { jobId } : {})}
+          {...(report.insights ? { insights: report.insights } : {})}
+          appendix={
+            isEmulator ? (
+              <EmulatorReport
+                steps={emuSteps ?? []}
+                navGraph={report.navGraph}
+                // 結構化報告已有 RTP 收斂圖時不重複顯示舊版 RTP 圖。
+                rtp={report.structured.charts.some((c) => c.id === 'rtp_convergence') ? undefined : report.rtp}
+                onOpen={setLightbox}
+                hideTrace
+              />
+            ) : undefined
+          }
+        />
+      ) : isEmulator ? (
         <EmulatorReport
           steps={emuSteps ?? []}
           navGraph={report.navGraph}
@@ -180,11 +206,14 @@ function EmulatorReport({
   navGraph,
   rtp,
   onOpen,
+  hideTrace,
 }: {
   steps: EmuStep[];
   navGraph?: { nodes: NavNode[]; edges: NavEdge[] };
   rtp?: RtpStats;
   onOpen: (url: string) => void;
+  /** 結構化報告已呈現 AI 執行證據時,附錄不再重複逐步 trace。 */
+  hideTrace?: boolean;
 }) {
   const { t } = useI18n();
   const shots = steps.filter((s) => s.annotatedUrl || s.screenshotUrl);
@@ -235,6 +264,7 @@ function EmulatorReport({
       )}
 
       {/* 逐步 trace */}
+      {!hideTrace && (<>
       <h2 className="report__subtitle">
         {t('report.trace')} ({steps.length})
       </h2>
@@ -261,6 +291,7 @@ function EmulatorReport({
           );
         })}
       </ol>
+      </>)}
     </>
   );
 }

@@ -17,16 +17,20 @@ interface MemPage {
   visitCount: number;
   screenshotRef: string;
   knownControlLabels?: string[];
+  /** AI 對同一畫面用過的各種命名(已合併成同一節點)。 */
+  aliases?: Record<string, number>;
+  module?: string;
+  transient?: boolean;
 }
 interface MemEdge {
   fromPageId: string;
   toPageId: string;
-  trigger?: { label?: string };
+  trigger?: { kind?: string; label?: string; target?: string };
   hitCount: number;
   missCount: number;
 }
 interface MemOverview {
-  structure: { pages: Record<string, MemPage>; edges: MemEdge[]; lastUpdatedAt: string | null };
+  structure: { pages: Record<string, MemPage>; edges: MemEdge[]; rootPageId?: string | null; lastUpdatedAt: string | null };
   stats: { pages: number; edges: number; controls: number; totalRuns: number };
 }
 
@@ -234,6 +238,11 @@ export default function MemoryPage() {
                   <figcaption>
                     <span className="memory__card-name">{p.name}</span>
                     <span className="memory__card-meta">{p.visitCount} {t('memory.visits')}</span>
+                    {Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).length > 0 && (
+                      <span className="memory__card-meta" title={Object.keys(p.aliases ?? {}).join('、')}>
+                        {t('memory.graphAliases')}: {Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).slice(0, 3).join('、')}
+                      </span>
+                    )}
                   </figcaption>
                 </figure>
               ))}
@@ -242,7 +251,7 @@ export default function MemoryPage() {
             <>
               <p className="memory__hint">{t('memory.graphHint')}</p>
               <Suspense fallback={<div className="listpage__skeleton" aria-hidden="true"><div className="listpage__skeleton-row" /></div>}>
-                <ScreenGraph pages={pagesWithShots} edges={edges} />
+                <ScreenGraph pages={pagesWithShots} edges={edges} rootPageId={overview?.structure.rootPageId ?? null} />
               </Suspense>
             </>
           )}

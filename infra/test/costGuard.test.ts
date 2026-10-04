@@ -36,19 +36,17 @@ describe('成本護欄 — 執行配置快照(Req 7.5)', () => {
     expect(() => resolveExecutionConfig(bad, 5)).toThrow(PricingError);
   });
 
-  it('預設選型:vlm=UI-TARS(定位專用)/ agent=MiniMax M2.1 / subagent=Nova Micro', () => {
+  it('預設選型:agent=Nova Lite / vlm=Kimi K3 / subagent=Nova Micro', () => {
     const sel = defaultSeatSelection();
-    // vlm 預設為 UI-TARS(GUI grounding 專用,座標最準);agent/subagent 維持性價比最佳組。
-    // UI-TARS 走 SageMaker(id 'uitars'),MiniMax 走原始 id,Amazon 走 us. 前綴(經 Bedrock 實測)。
-    expect(sel.vlm).toBe('uitars');
-    expect(sel.agent).toBe('minimax.minimax-m2.1');
+    expect(sel.agent).toBe('us.amazon.nova-lite-v1:0');
+    expect(sel.vlm).toBe('us.moonshotai.kimi-k3');
     expect(sel.subagent).toBe('us.amazon.nova-micro-v1:0');
   });
 
-  it('channel 由 modelId 推導寫入快照(UI-TARS → sagemaker;agent/subagent → bedrock-converse)', () => {
+  it('channel 由 modelId 推導寫入快照(預設三 seat 皆走 bedrock-converse)', () => {
     const snapshot = resolveExecutionConfig(defaultSeatSelection(), 1);
     const bySeat = Object.fromEntries(snapshot.seats.map((s) => [s.seat, s.channel]));
-    expect(bySeat.vlm).toBe('sagemaker');
+    expect(bySeat.vlm).toBe('bedrock-converse');
     expect(bySeat.agent).toBe('bedrock-converse');
     expect(bySeat.subagent).toBe('bedrock-converse');
   });

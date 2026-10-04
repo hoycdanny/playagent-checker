@@ -41,14 +41,25 @@ export const RECOMMENDED: Record<SeatKind, string[]> = {
   ],
 };
 
+/**
+ * 各 seat 的預設選擇(建立測試時下拉的初始值)。與推薦排名(★)分開:
+ * 預設採團隊指定的組合,★ 仍反映能力排名。清單沒有該 id 時退回推薦第 1 名。
+ */
+export const DEFAULT_MODELS: Record<SeatKind, string> = {
+  agent: 'us.amazon.nova-lite-v1:0', // 控制遊戲:Amazon Nova Lite
+  vlm: 'us.moonshotai.kimi-k3', // 分析畫面:Moonshot Kimi K3
+  subagent: 'us.amazon.nova-micro-v1:0', // 子代理:Amazon Nova Micro
+};
+
 /** 推薦名次(1-based);非前 5 名回 0。 */
 export function recommendRank(seat: SeatKind, modelId: string): number {
   const i = RECOMMENDED[seat].indexOf(modelId);
   return i < 0 ? 0 : i + 1;
 }
 
-/** 該 seat 的預設模型 id:第 1 名(清單有才用),否則清單第一個。 */
+/** 該 seat 的預設模型 id:DEFAULT_MODELS(清單有才用)→ 推薦第 1 名 → 清單第一個。 */
 export function recommendedDefault(seat: SeatKind, items: { modelId: string }[]): string {
+  if (items.some((m) => m.modelId === DEFAULT_MODELS[seat])) return DEFAULT_MODELS[seat];
   for (const id of RECOMMENDED[seat]) {
     if (items.some((m) => m.modelId === id)) return id;
   }

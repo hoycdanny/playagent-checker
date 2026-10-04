@@ -1,0 +1,347 @@
+/**
+ * 記憶導覽圖(Memory Navigation Graph)—— runner 與 API 共用的純函式(無 I/O、無相依)。
+ *
+ * 問題(舊做法):page id = hash(AI 自由命名的畫面名)。AI 對同一畫面每步命名不同
+ * (「大廳」「大廳頁面」「大廳-機台列表空白」),於是同一畫面變成多個節點;邊又在任何
+ * 相鄰兩步都建立(含 wait、動畫),關係圖雜亂,也無法拿來引導 agent。
+ *
+ * 新做法(更接近遊戲的正式畫面流程圖):
+ *  1. 畫面身分 = 視覺指紋(pHash,保留多個樣本以容忍動畫)+ 正規化畫面名 + AI 標的模組。
+ *     - 視覺很接近且名稱相容 → 同一畫面(AI 換了說法也合併)。
+ *     - 正規化名稱相同且模組相同 → 同一畫面(戰鬥/轉軸等動態畫面視覺每幀不同)。
+ *     - 其餘才建新節點。所有見過的命名都記為 aliases,節點顯示最常用的名字。
+ *  2. 載入/過場類畫面統一收斂成「載入中」節點(transient),不會到處長出孤兒節點。
+ *  3. 邊只在「畫面真的換了」時建立:觸發 = 上一步的動作 + 目標元件(如 tap PLAY);
+ *     上一步是 wait 則記為 auto(自動轉場)。自環不存。
+ *  4. 同一個操作在某畫面沒效果(畫面沒變)→ 該操作既有邊的 missCount+1,標示不可靠路徑。
+ *  5. compactStructure() 可把舊格式的雜亂資料就地收斂(讀取時套用,舊資料也變乾淨)。
+ *  6. summarizeForAgent() 把圖轉成精簡文字注入 agent(已知畫面與可靠路徑),正確引導測試引擎。
+ */
+
+export const GRAPH_SCHEMA_VERSION = 2;
+
+/** 視覺「幾乎相同」門檻(1024-bit pHash 漢明距離;同畫面通常 < 40)。 */
+const STRONG_MATCH = 48;
+/** 視覺「相近」門檻(需再搭配名稱相容才合併)。 */
+const WEAK_MATCH = 110;
+/** 每個節點保留的 pHash 樣本數(動態畫面需要多個樣本)。 */
+const MAX_HASH_SAMPLES = 6;
+const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch']);
+
+const TRANSIENT_RE = /loading|載入|载入|請稍候|请稍候|連線中|连接中|connecting|進場|进场|過場|过场|splash|logo|品牌動畫|品牌动画|config\s*ready|installing|安裝中|安装中/i;
+export const TRANSIENT_NAME = '載入中';
+
+/** 1024-bit hex pHash 的漢明距離;無法比較回 Infinity。 */
+export function hamming(a, b) {
+  if (!a || !b || a.length !== b.length) return Infinity;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) { d += x & 1; x >>= 1; }
+  }
+  return d;
+}
+
+/**
+ * 正規化畫面名:去掉 AI 加的狀態描述/裝飾,只留「這是哪個畫面」。
+ * 例:「大廳-機台列表空白」→「大廳」;「轉軸畫面(第 3 次 Spin)」→「轉軸」;「Main Menu Screen」→「main menu」。
+ */
+/** runner 在 AI 沒給畫面名時用的佔位名(如「畫面 27」)—— 不是真的畫面,不進圖。 */
+const PLACEHOLDER_RE = /^(畫面|画面|screen)\s*\d+$/i;
+export function isPlaceholderName(name) {
+  return !String(name ?? '').trim() || PLACEHOLDER_RE.test(String(name).trim());
+}
+
+/** 去掉 AI 加在畫面名上的狀態描述、序號、泛稱尾綴(保留原大小寫,供顯示)。 */
+export function displayName(name) {
+  let s = String(name ?? '').trim();
+  if (!s) return '';
+  if (TRANSIENT_RE.test(s)) return TRANSIENT_NAME;
+  const orig = s;
+  for (let i = 0; i < 3; i++) {
+    const before = s;
+    s = s.split(/\s*[-–—:：|/／>→+]\s*/)[0];                                   // 去掉「-狀態描述」「1/7」
+    s = s.replace(/[（(\[【「].*$/, '');                                         // 去掉括號補充
+    s = s.replace(/\s*(剩|第)?\s*[\d,.]+\s*(次|步|關|关|波|k|K|m|M)?\s*$/, '');  // 去掉尾端數字(計數/金額/序號)
+    s = s.trim();
+    if (s === before) break;
+  }
+  return s || orig;
+}
+
+/** 比對用的正規化名稱(displayName + 小寫 + 去空白)。 */
+export function canonicalName(name) {
+  const d = displayName(name);
+  if (d === TRANSIENT_NAME) return TRANSIENT_NAME;
+  // 比對時再去掉「畫面/頁面/screen」等泛稱尾綴(顯示名保留,讀起來較自然)。
+  const stripped = d.replace(/\s*(畫面|画面|頁面|页面|介面|界面|視窗|视窗|screen|page|view)\s*$/i, '').trim() || d;
+  return stripped.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+/** 只是修飾、不改變「是哪個畫面」的字(差異只由這些字組成時視為同名)。 */
+const FILLER_RE = /^(主|遊戲|游戏|進行|进行|中|的|game|main|the|s|\s)+$/i;
+
+/** 兩個正規化名稱是否視為同一畫面:相同,或一方包含另一方且差異只有修飾字(「大廳」≈「遊戲大廳」,但「免費遊戲」≠「免費遊戲結算」)。 */
+function namesEquivalent(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length <= b.length ? [a, b] : [b, a];
+  if (short.length < 2 || !long.includes(short)) return false;
+  const rest = long.replace(short, '');
+  return FILLER_RE.test(rest);
+}
+
+/** 兩個正規化名稱是否相容(可在視覺很接近時合併):相等、包含關係。 */
+function namesCompatible(a, b) {
+  if (!a || !b) return true;
+  if (a === b) return true;
+  return a.length >= 2 && b.length >= 2 && (a.includes(b) || b.includes(a));
+}
+
+function stableId(seed) {
+  let h = 2166136261;
+  const s = String(seed);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  return `page_${h.toString(16).padStart(8, '0')}`;
+}
+
+export function emptyStructure(appName) {
+  return { schemaVersion: GRAPH_SCHEMA_VERSION, appName: appName ?? '', rootPageId: null, pages: {}, edges: [], lastUpdatedAt: null };
+}
+
+function pageHashes(p) {
+  const list = Array.isArray(p.pHashes) ? p.pHashes : [];
+  return p.pHash && !list.includes(p.pHash) ? [p.pHash, ...list] : list;
+}
+
+function bumpAlias(page, rawName) {
+  const n = String(rawName ?? '').trim();
+  if (!n) return;
+  page.aliases = page.aliases && typeof page.aliases === 'object' ? page.aliases : {};
+  page.aliases[n] = (page.aliases[n] ?? 0) + 1;
+  refreshName(page);
+}
+
+/** 顯示名 = 最常用命名去掉狀態描述/序號後的形式(transient 固定「載入中」)。 */
+function refreshName(page) {
+  if (page.transient) { page.name = TRANSIENT_NAME; return; }
+  const top = Object.entries(page.aliases ?? {}).sort((a, b) => b[1] - a[1])[0];
+  if (top) page.name = displayName(top[0]) || top[0];
+}
+
+/** 找最佳匹配頁;回 page id 或 null。 */
+function findMatch(struct, { canon, pHash, module }) {
+  let best = null;
+  let bestScore = Infinity;
+  for (const p of Object.values(struct.pages)) {
+    const pc = p.canonical ?? canonicalName(p.name);
+    const sameModule = !module || !p.module || p.module === module;
+    if (canon === TRANSIENT_NAME || pc === TRANSIENT_NAME) {
+      // 載入/過場:同模組(或未知模組)的載入畫面一律併成一個節點。
+      if (canon === pc && sameModule) return p.id;
+      continue;
+    }
+    const dist = pHash ? Math.min(Infinity, ...pageHashes(p).map((h) => hamming(pHash, h))) : Infinity;
+    let score = Infinity;
+    // 視覺幾乎相同:還需名稱相容,或兩邊都有標模組且相同(避免把「純色背景上的不同彈窗」硬併)。
+    const bothSameModule = Boolean(module && p.module && module === p.module);
+    if (dist <= STRONG_MATCH && (namesCompatible(canon, pc) || bothSameModule)) score = dist;
+    else if (canon && canon === pc && sameModule) score = STRONG_MATCH + 1;                         // 同名同模組(動態畫面)
+    else if (namesEquivalent(canon, pc) && sameModule) score = STRONG_MATCH + 2;                    // 只差修飾字(「大廳」≈「遊戲大廳」)
+    else if (dist <= WEAK_MATCH && namesCompatible(canon, pc) && sameModule) score = STRONG_MATCH + 3 + dist; // 相近 + 名稱相容
+    if (score < bestScore) { bestScore = score; best = p.id; }
+  }
+  return best;
+}
+
+/**
+ * 加入/命中一個畫面。回 { pageId, isNew }。
+ * frame: { name, pHash?, module?, at? }
+ */
+export function upsertPage(struct, frame) {
+  // AI 沒給畫面名(解析失敗等)時不進圖:回 null,呼叫端維持上一個畫面當起點。
+  if (isPlaceholderName(frame.name)) return { pageId: null, isNew: false };
+  const now = frame.at ?? new Date().toISOString();
+  const canon = canonicalName(frame.name);
+  const transient = canon === TRANSIENT_NAME;
+  const id = findMatch(struct, { canon, pHash: frame.pHash, module: frame.module });
+  if (id) {
+    const p = struct.pages[id];
+    p.visitCount = (p.visitCount ?? 0) + 1;
+    p.lastSeenAt = now;
+    if (frame.module && !p.module) p.module = frame.module;
+    if (frame.pHash) {
+      const hs = pageHashes(p);
+      // 只收「與既有樣本有明顯差異」的新樣本,保留代表性。
+      if (!hs.some((h) => hamming(h, frame.pHash) <= 16)) p.pHashes = [...hs, frame.pHash].slice(-MAX_HASH_SAMPLES);
+    }
+    bumpAlias(p, frame.name);
+    return { pageId: id, isNew: false };
+  }
+  const newId = stableId(`${canon}|${frame.module ?? ''}|${frame.pHash?.slice(0, 32) ?? ''}|${Object.keys(struct.pages).length}`);
+  struct.pages[newId] = {
+    id: newId,
+    name: transient ? TRANSIENT_NAME : String(frame.name ?? '').trim() || '未命名畫面',
+    canonical: canon,
+    ...(frame.module ? { module: frame.module } : {}),
+    ...(transient ? { transient: true } : {}),
+    pHash: frame.pHash ?? '',
+    pHashes: frame.pHash ? [frame.pHash] : [],
+    aliases: {},
+    screenshotRef: `screenshots/${newId}.png`,
+    knownControlLabels: [],
+    visitCount: 1,
+    hitCount: 1,
+    firstSeenAt: now,
+    lastSeenAt: now,
+  };
+  bumpAlias(struct.pages[newId], frame.name);
+  if (!struct.rootPageId && !transient) struct.rootPageId = newId;
+  return { pageId: newId, isNew: true };
+}
+
+function normTarget(t) {
+  return String(t ?? '').trim().replace(/\s+/g, ' ').slice(0, 40);
+}
+
+/**
+ * 記錄一次轉場。action = 上一步動作(tap/swipe/back/move/type/launch/wait…),target = 上一步目標元件文字。
+ * 只有 from !== to 才建邊;上一步非互動動作 → kind='auto'(自動轉場,如載入完成)。
+ */
+export function recordTransition(struct, fromId, toId, { action, target } = {}) {
+  if (!fromId || !toId || fromId === toId) return;
+  if (!struct.pages[fromId] || !struct.pages[toId]) return;
+  const kind = INTERACTIVE.has(action) ? action : 'auto';
+  const tgt = kind === 'auto' ? '' : normTarget(target);
+  const label = kind === 'auto' ? 'auto' : tgt ? `${kind} ${tgt}` : kind;
+  let edge = struct.edges.find((e) => e.fromPageId === fromId && e.toPageId === toId && (e.trigger?.kind ?? '') === kind && normTarget(e.trigger?.target) === tgt);
+  if (!edge) {
+    edge = { fromPageId: fromId, toPageId: toId, trigger: { kind, label, ...(tgt ? { target: tgt } : {}) }, hitCount: 0, missCount: 0 };
+    struct.edges.push(edge);
+  }
+  edge.hitCount += 1;
+  if (tgt && !struct.pages[fromId].knownControlLabels.includes(tgt)) {
+    struct.pages[fromId].knownControlLabels = [...struct.pages[fromId].knownControlLabels, tgt].slice(-30);
+  }
+}
+
+/** 互動動作後畫面沒變:對同畫面、同動作+目標的既有出邊記一次 miss(路徑可靠度)。 */
+export function recordMiss(struct, pageId, { action, target } = {}) {
+  if (!INTERACTIVE.has(action) || !struct.pages[pageId]) return;
+  const tgt = normTarget(target);
+  for (const e of struct.edges) {
+    if (e.fromPageId === pageId && e.trigger?.kind === action && normTarget(e.trigger?.target) === tgt) e.missCount += 1;
+  }
+}
+
+/**
+ * 把舊格式/雜亂的結構就地收斂:依新規則重新歸併頁面、重導邊、合併重複邊、去自環與懸空邊。
+ * 回新的結構物件(不修改輸入)。可重複套用(冪等)。
+ */
+export function compactStructure(input) {
+  const src = input && typeof input === 'object' ? input : emptyStructure();
+  const out = emptyStructure(src.appName);
+  out.lastUpdatedAt = src.lastUpdatedAt ?? null;
+  const remap = new Map();
+  // 依訪問次數由多到少歸併,讓主要畫面成為代表節點。
+  // 佔位名(「畫面 27」= AI 當步沒給畫面名)不是真畫面:整個丟掉,連到它的邊也不留。
+  const pages = Object.values(src.pages ?? {})
+    .filter((p) => !isPlaceholderName(p.name) || Object.keys(p.aliases ?? {}).some((n) => !isPlaceholderName(n)))
+    .sort((a, b) => (b.visitCount ?? 0) - (a.visitCount ?? 0));
+  for (const p of pages) {
+    // 一律以目前規則重算(舊資料的 canonical 可能是舊版演算法算的)。
+    const topAlias = Object.entries(p.aliases ?? {}).filter(([n]) => !isPlaceholderName(n)).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const canon = canonicalName(topAlias ?? p.name);
+    const hashes = pageHashes(p);
+    const match = findMatch(out, { canon, pHash: hashes[0], module: p.module });
+    if (match) {
+      const t = out.pages[match];
+      t.visitCount += p.visitCount ?? 1;
+      t.hitCount = (t.hitCount ?? 0) + (p.hitCount ?? 0);
+      t.firstSeenAt = [t.firstSeenAt, p.firstSeenAt].filter(Boolean).sort()[0];
+      t.lastSeenAt = [t.lastSeenAt, p.lastSeenAt].filter(Boolean).sort().slice(-1)[0];
+      for (const h of hashes) if (!t.pHashes.some((x) => hamming(x, h) <= 16)) t.pHashes = [...t.pHashes, h].slice(-MAX_HASH_SAMPLES);
+      const aliases = p.aliases && Object.keys(p.aliases).length ? p.aliases : { [p.name]: p.visitCount ?? 1 };
+      for (const [n, c] of Object.entries(aliases)) if (!isPlaceholderName(n)) t.aliases[n] = (t.aliases[n] ?? 0) + c;
+      refreshName(t);
+      t.knownControlLabels = [...new Set([...(t.knownControlLabels ?? []), ...(p.knownControlLabels ?? [])])].slice(-30);
+      remap.set(p.id, match);
+      continue;
+    }
+    const transient = canon === TRANSIENT_NAME;
+    const aliases = Object.fromEntries(
+      Object.entries(p.aliases && Object.keys(p.aliases).length ? p.aliases : { [p.name]: p.visitCount ?? 1 }).filter(([n]) => !isPlaceholderName(n)),
+    );
+    out.pages[p.id] = {
+      ...p,
+      canonical: canon,
+      ...(transient ? { transient: true } : {}),
+      pHash: hashes[0] ?? '',
+      pHashes: hashes.slice(0, MAX_HASH_SAMPLES),
+      aliases,
+      knownControlLabels: [...(p.knownControlLabels ?? [])],
+      visitCount: p.visitCount ?? 1,
+    };
+    refreshName(out.pages[p.id]);
+    remap.set(p.id, p.id);
+  }
+  const root = src.rootPageId ? remap.get(src.rootPageId) : null;
+  out.rootPageId = root && !out.pages[root]?.transient ? root : (Object.values(out.pages).find((p) => !p.transient)?.id ?? null);
+  for (const e of src.edges ?? []) {
+    const from = remap.get(e.fromPageId);
+    const to = remap.get(e.toPageId);
+    if (!from || !to || from === to) continue;
+    // 舊資料的 label 只有動作名(tap/wait…);wait 視為 auto。
+    // 舊格式:kind 固定 'tap'、label = 上一步動作名;新格式:kind = 動作、label = 「動作 目標」。
+    const k = e.trigger?.kind;
+    const first = String(e.trigger?.label ?? '').split(' ')[0];
+    const rawKind = k && k !== 'tap' ? k : (first || k || 'auto');
+    const kind = INTERACTIVE.has(rawKind) ? rawKind : 'auto';
+    const tgt = kind === 'auto' ? '' : normTarget(e.trigger?.target);
+    let edge = out.edges.find((x) => x.fromPageId === from && x.toPageId === to && x.trigger.kind === kind && normTarget(x.trigger.target) === tgt);
+    if (!edge) {
+      edge = { fromPageId: from, toPageId: to, trigger: { kind, label: kind === 'auto' ? 'auto' : tgt ? `${kind} ${tgt}` : kind, ...(tgt ? { target: tgt } : {}) }, hitCount: 0, missCount: 0 };
+      out.edges.push(edge);
+    }
+    edge.hitCount += e.hitCount ?? 1;
+    edge.missCount += e.missCount ?? 0;
+  }
+  return out;
+}
+
+/**
+ * 把導覽圖轉成給 agent 的精簡文字(低優先參考,畫面以截圖為準)。
+ * 只列可靠路徑(hit > miss),依使用次數排序,控制長度。
+ */
+export function summarizeForAgent(struct, maxChars = 1800) {
+  const s = compactStructure(struct);
+  const pages = Object.values(s.pages).filter((p) => !p.transient);
+  if (pages.length === 0) return '';
+  const nameOf = (id) => s.pages[id]?.name ?? id;
+  const lines = [];
+  lines.push(`已知畫面(${pages.length}):` + pages
+    .sort((a, b) => b.visitCount - a.visitCount)
+    .slice(0, 20)
+    .map((p) => {
+      const alts = Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).slice(0, 2);
+      return alts.length ? `${p.name}(又稱 ${alts.join('、')})` : p.name;
+    })
+    .join('、'));
+  const edges = s.edges
+    .filter((e) => e.hitCount > e.missCount && !s.pages[e.fromPageId]?.transient)
+    .sort((a, b) => b.hitCount - a.hitCount);
+  if (edges.length) {
+    lines.push('已驗證的操作路徑(成功次數/失敗次數):');
+    for (const e of edges.slice(0, 40)) {
+      lines.push(`- 「${nameOf(e.fromPageId)}」 --${e.trigger.kind === 'auto' ? '自動轉場' : e.trigger.label}--> 「${nameOf(e.toPageId)}」(${e.hitCount}/${e.missCount})`);
+    }
+  }
+  const unreliable = s.edges.filter((e) => e.missCount >= e.hitCount && e.missCount > 0).slice(0, 10);
+  if (unreliable.length) {
+    lines.push('常失敗的操作(避免重複嘗試):');
+    for (const e of unreliable) lines.push(`- 在「${nameOf(e.fromPageId)}」${e.trigger.label}(成功 ${e.hitCount} / 失敗 ${e.missCount})`);
+  }
+  let text = lines.join('\n');
+  if (text.length > maxChars) text = text.slice(0, maxChars) + '\n…';
+  return text;
+}

@@ -92,6 +92,7 @@ interface KnowledgeBaseSummary {
   id: string;
   name: string;
   kind: string;
+  archived?: boolean;
 }
 
 export default function TasksPage() {
@@ -595,7 +596,7 @@ export default function TasksPage() {
             <div className="tasks__field tasks__kb-field">
               <span className="tasks__label">{t('tasks.knowledgeBases')}</span>
               <div className="tasks__kb-list">
-                {kbs.map((kb) => (
+                {kbs.filter((kb) => !kb.archived || selectedKbIds.includes(kb.id)).map((kb) => (
                   <label key={kb.id} className="tasks__kb-option">
                     <input
                       type="checkbox"
