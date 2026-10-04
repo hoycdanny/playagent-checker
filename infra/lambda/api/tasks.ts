@@ -560,6 +560,16 @@ interface ReportShape {
   generatedAt?: string;
 }
 
+/** runner 寫在 status.json 的啟動進度(Device Farm 開機時間軸)。 */
+export interface BootProgress {
+  runnerAt?: string;
+  phase?: 'download' | 'upload' | 'device' | 'connect' | 'run';
+  at?: Partial<Record<'download' | 'upload' | 'device' | 'connect' | 'run', string>>;
+  deviceStatus?: string;
+  deviceModel?: string;
+  sizeMB?: number;
+}
+
 /** 任務詳情頁需要的彙整 metadata:套用情境、使用模型、花費。 */
 export interface TaskMeta {
   /** 本次執行的任務描述(情境語意;取自 report.task,無則 undefined)。 */
@@ -671,6 +681,8 @@ export async function readJobDetail(
   job: JobRecord | null;
   state: string;
   message?: string;
+  boot?: BootProgress;
+  updatedAt?: string;
   steps: StepRecord[];
   meta: TaskMeta;
 } | null> {
@@ -681,7 +693,7 @@ export async function readJobDetail(
   );
   if (!job) return null;
   const [status, steps, meta] = await Promise.all([
-    readJson<{ state: string; message?: string }>(s3, bucket, statusKeyFor(tenantId, jobId)),
+    readJson<{ state: string; message?: string; boot?: BootProgress; updatedAt?: string }>(s3, bucket, statusKeyFor(tenantId, jobId)),
     readSteps(s3, bucket, tenantId, jobId),
     buildTaskMeta(s3, bucket, tenantId, jobId, job),
   ]);
@@ -689,6 +701,8 @@ export async function readJobDetail(
     job,
     state: status?.state ?? 'queued',
     ...(status?.message ? { message: status.message } : {}),
+    ...(status?.boot && typeof status.boot === 'object' ? { boot: status.boot } : {}),
+    ...(status?.updatedAt ? { updatedAt: status.updatedAt } : {}),
     steps,
     meta,
   };

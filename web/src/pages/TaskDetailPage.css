@@ -363,6 +363,253 @@
   padding: var(--space-4);
 }
 
+/* ───────────── 啟動時間軸(BootTimeline) ───────────── */
+.dboot {
+  margin-bottom: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.dboot__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.dboot__timer {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px 2px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.dboot__timer b {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.dboot__timer.is-active {
+  border-color: color-mix(in srgb, #f59e0b 60%, var(--border));
+  color: #b45309;
+}
+.dboot__timer.is-running {
+  border-color: color-mix(in srgb, var(--status-running) 60%, var(--border));
+  color: var(--status-running);
+}
+.dboot__timer.is-fail {
+  border-color: var(--status-fail);
+  color: var(--status-fail);
+}
+.dboot__total {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.dboot__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  position: relative;
+}
+
+.dboot__step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+/* 連接線 */
+.dboot__step + .dboot__step::before {
+  content: '';
+  position: absolute;
+  top: 13px;
+  right: calc(50% + 15px);
+  width: calc(100% - 30px);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.dboot__step.is-done + .dboot__step::before,
+.dboot__step.is-done + .dboot__step.is-active::before {
+  background: var(--status-running);
+}
+
+.dboot__dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  color: var(--text-tertiary);
+  cursor: help;
+}
+.dboot__dot:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.is-done .dboot__dot {
+  border-color: var(--status-running);
+  background: var(--status-running);
+  color: #fff;
+}
+.is-active .dboot__dot {
+  border-color: #f59e0b;
+  color: #b45309;
+  background: color-mix(in srgb, #f59e0b 14%, var(--surface));
+  animation: dboot-pulse 1.4s ease-in-out infinite;
+}
+.is-fail .dboot__dot {
+  border-color: var(--status-fail);
+  background: var(--status-fail);
+  color: #fff;
+}
+@keyframes dboot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, #f59e0b 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in srgb, #f59e0b 0%, transparent); }
+}
+
+.dboot__name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.is-todo .dboot__name { color: var(--text-tertiary); font-weight: 400; }
+.is-active .dboot__name { color: #b45309; }
+
+.dboot__dur {
+  min-height: 14px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.is-active .dboot__dur { color: #b45309; font-weight: 600; }
+
+.dboot__detail {
+  font-size: 10.5px;
+  color: #b45309;
+  line-height: 1.3;
+}
+
+.dboot__tip {
+  position: absolute;
+  z-index: 30;
+  top: 34px;
+  left: 50%;
+  transform: translate(-50%, -2px);
+  width: max-content;
+  max-width: 220px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  text-align: left;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+}
+.dboot__tip b { color: var(--text-primary); }
+.dboot__step:hover .dboot__tip,
+.dboot__dot:focus-visible ~ .dboot__tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+.dboot__step:first-child .dboot__tip { left: 0; transform: translate(0, -2px); }
+.dboot__step:first-child:hover .dboot__tip,
+.dboot__step:first-child .dboot__dot:focus-visible ~ .dboot__tip { transform: none; }
+.dboot__step:last-child .dboot__tip { left: auto; right: 0; transform: translate(0, -2px); }
+.dboot__step:last-child:hover .dboot__tip,
+.dboot__step:last-child .dboot__dot:focus-visible ~ .dboot__tip { transform: none; }
+
+/* 開機中的畫面佔位:手機外框 + 目前階段 icon */
+.detail__booting {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: 14px;
+  border: 1px dashed var(--border-strong, var(--border));
+  background: repeating-linear-gradient(135deg, var(--surface-raised), var(--surface-raised) 10px, var(--surface) 10px, var(--surface) 20px);
+  text-align: center;
+}
+.detail__booting-phone {
+  position: relative;
+  width: 74px;
+  height: 128px;
+  border: 3px solid var(--text-tertiary);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #b45309;
+  background: var(--surface);
+}
+.detail__booting-ring {
+  position: absolute;
+  inset: -9px;
+  border-radius: 20px;
+  border: 2px solid color-mix(in srgb, #f59e0b 55%, transparent);
+  animation: dboot-ring 1.8s ease-out infinite;
+}
+@keyframes dboot-ring {
+  0% { opacity: 0.9; transform: scale(0.94); }
+  100% { opacity: 0; transform: scale(1.12); }
+}
+.detail__booting-text {
+  margin: var(--space-2) 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.detail__booting-sub {
+  margin: 0;
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-active .dboot__dot,
+  .detail__booting-ring { animation: none; }
+  .dboot__tip { transition: none; }
+}
+
 /* 中欄:下指令 + 測試腳本(欄內捲動) */
 .detail__col--ops {
   gap: var(--space-3);

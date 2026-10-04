@@ -234,13 +234,19 @@ async function resolveDeviceArn(client, platform, deviceArn, maxOsVersion, minOs
 }
 
 /** 等 session RUNNING,回 { appiumUrl, deviceModel }。 */
-async function waitForSession(client, sessionArn, timeoutMs = 300_000) {
+async function waitForSession(client, sessionArn, timeoutMs = 300_000, onStatus) {
   const startTime = Date.now();
+  let lastStatus;
   while (Date.now() - startTime < timeoutMs) {
     const resp = await client.send(new GetRemoteAccessSessionCommand({ arn: sessionArn }));
     const session = resp.remoteAccessSession;
     if (!session) throw new Error(`Session ${sessionArn} 不存在`);
     console.log('Device Farm session 狀態', session.status);
+    if (session.status !== lastStatus) {
+      lastStatus = session.status;
+      // 回報真機配置進度(PENDING/PREPARING/SCHEDULING/INITIALIZING…),前端顯示啟動進度。
+      try { await onStatus?.(session.status); } catch { /* 進度回報失敗不影響開機 */ }
+    }
     if (session.status === 'RUNNING') {
       const appiumUrl = session.endpoints?.remoteDriverEndpoint;
       if (!appiumUrl) throw new Error('Session RUNNING 但無 remoteDriverEndpoint');
@@ -286,7 +292,8 @@ export async function createSession(client, params) {
   const sessionArn = createResp.remoteAccessSession?.arn;
   if (!sessionArn) throw new Error('Device Farm 建 session 失敗:未回傳 ARN');
 
-  const result = await waitForSession(client, sessionArn, 300_000);
+  const result = await waitForSession(client, sessionArn, 300_000, params.onStatus);
+  try { await params.onConnecting?.(result.deviceModel); } catch { /* ignore */ }
   await sleep(10_000); // Appium 端點初始化緩衝
   return { ...result, sessionArn };
 }
@@ -299,7 +306,10 @@ export async function setupDeviceFarmSession(deps, params) {
   const { dfClient, s3 } = deps;
   const platform = params.platform ?? 'android';
   const projectName = params.projectName ?? 'playagent-checker';
+  // 啟動進度回報(download → upload → device → connect),失敗不影響流程。
+  const phase = async (name, info) => { try { await params.onPhase?.(name, info); } catch { /* ignore */ } };
 
+  await phase('download');
   const artifact = await downloadArtifactToTmp(s3, params.bucket, params.artifactKey, platform);
   // 若下載回來的是 XAPK / split bundle(Android 專用),先合併成單一 universal APK 再上傳,
   // 否則 Device Farm 的 aapt badging 會失敗(ANDROID_APP_AAPT_DEBUG_BADGING_FAILED)。
@@ -346,12 +356,16 @@ export async function setupDeviceFarmSession(deps, params) {
     } catch { /* 取不到就算了,交給 runner 視覺找入口 */ }
   }
   try {
+    await phase('upload', { sizeMB: uploadArtifact.size ? Math.round(uploadArtifact.size / 1024 / 1024) : undefined });
     const projectArn = await getOrCreateProject(projectName, dfClient);
     const appArn = await uploadAppFromFile(projectArn, uploadArtifact, params.appId, platform, dfClient);
+    await phase('device', { deviceStatus: 'PENDING' });
     const session = await createSession(dfClient, {
       projectArn,
       appArn,
       platform,
+      onStatus: (s) => phase('device', { deviceStatus: s }),
+      onConnecting: (model) => phase('connect', model ? { deviceModel: model } : {}),
       namePrefix: `pa-${params.jobId}`,
       ...(prefer32bit ? { prefer32bit: true } : {}),
       // 使用者明選的裝置優先(resolveDeviceArn 會短路直接用此 ARN);沒帶才靠 OS 區間挑。
