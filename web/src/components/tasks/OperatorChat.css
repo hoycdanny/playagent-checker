@@ -1,0 +1,38 @@
+/* 測試人員即時指令聊天室 */
+.opchat { margin-top: var(--space-4); padding-top: var(--space-3); border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: var(--space-2); }
+.opchat__head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-2); }
+.opchat__title { margin: 0; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.opchat__memlink { font-size: 12px; color: var(--brand); text-decoration: none; }
+.opchat__memlink:hover { text-decoration: underline; }
+.opchat__hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-tertiary); }
+.opchat__list { list-style: none; margin: 0; padding: var(--space-2); display: flex; flex-direction: column; gap: var(--space-3); max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.opchat__empty { color: var(--text-tertiary); font-size: 13px; text-align: center; padding: var(--space-3); }
+.opchat__item { display: flex; flex-direction: column; gap: 6px; }
+.opchat__msg { max-width: 92%; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); font-size: 13px; line-height: 1.5; }
+.opchat__msg p { margin: 2px 0 0; white-space: pre-wrap; word-break: break-word; }
+.opchat__msg--you { align-self: flex-end; background: var(--brand); color: var(--brand-contrast); border-bottom-right-radius: 4px; }
+.opchat__msg--you .opchat__meta { color: color-mix(in srgb, var(--brand-contrast) 80%, transparent); }
+.opchat__msg--ai { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary); border-bottom-left-radius: 4px; }
+.opchat__msg--ai.is-wait { border-style: dashed; }
+.opchat__meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--text-tertiary); }
+.opchat__screen { opacity: 0.9; }
+.opchat__tag { padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 10px; }
+.opchat__tag--action { font-family: var(--font-mono); }
+.opchat__status { color: var(--text-secondary); font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.opchat__reply { color: var(--text-primary); }
+.opchat__dots { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); animation: opchat-pulse 1.2s ease-in-out infinite; flex: 0 0 auto; }
+@keyframes opchat-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .opchat__dots { animation: none; } }
+.opchat__form { display: flex; flex-direction: column; gap: var(--space-2); }
+.opchat__input { width: 100%; box-sizing: border-box; resize: vertical; min-height: 52px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-primary); font: inherit; font-size: 13px; }
+.opchat__input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.opchat__row { display: flex; justify-content: space-between; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.opchat__remember { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.opchat__send { padding: var(--space-2) var(--space-4); border: none; border-radius: var(--radius-sm); background: var(--brand); color: var(--brand-contrast); font-size: 13px; font-weight: 600; cursor: pointer; }
+.opchat__send:disabled { opacity: 0.55; cursor: default; }
+.opchat__send:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.opchat__examples { display: flex; flex-wrap: wrap; gap: 6px; }
+.opchat__example { padding: 3px var(--space-2); border: 1px dashed var(--border-strong); border-radius: 999px; background: none; color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.opchat__example:hover { color: var(--brand); border-color: var(--brand); }
+.opchat__error { margin: 0; font-size: 12px; color: var(--status-fail); }
+.opchat__ended { margin: 0; font-size: 12px; color: var(--text-tertiary); }

@@ -94,6 +94,25 @@ import { readCaseTrend } from './trends.js';
 import { aggregateEstimatedCost, buildDailyCost, DEVICE_FARM_USD_PER_MIN, type DeviceSessionUsage, type RealCost } from './cost.js';
 import { parseCase, runStats, type CaseOverviewItem } from './caseOverview.js';
 import type { TaskListItem } from './tasks.js';
+import {
+  addHint,
+  applyEdit,
+  deleteHint,
+  HintNotFoundError,
+  HintValidationError,
+  isTransientScreenName,
+  listHints,
+  parseEditOp,
+  updateHint,
+} from './memoryHints.js';
+import {
+  CommandValidationError,
+  listCommands,
+  newCommandId,
+  validateCommandBody,
+  writeCommand,
+  type OperatorCommand,
+} from './operatorCommands.js';
 import { readMemoryOverview, memScreenshotKey } from './memoryStructure.js';
 import { generateScenarioTemplates } from './scenarioTemplates.js';
 import {
@@ -487,6 +506,39 @@ export async function handleRequest(
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const overview = await readMemoryOverview(s3, deps.bucket, tenant.tenantId, app);
         return json(200, overview);
+      }
+
+      case 'GET /memory/hints': {
+        // 應用記憶(使用者教 AI 的經驗)。
+        const app = req.query?.['app'];
+        if (!app) return json(400, { error: 'app 為必填' });
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        return json(200, { items: await listHints(s3, deps.bucket, tenant.tenantId, app) });
+      }
+
+      case 'POST /memory/hints': {
+        const b = (req.body ?? {}) as Record<string, unknown>;
+        const app = typeof b['app'] === 'string' ? b['app'] : '';
+        if (!app) return json(400, { error: 'app 為必填' });
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        const hint = await addHint(s3, deps.bucket, tenant.tenantId, app, {
+          text: b['text'],
+          ...(b['screen'] !== undefined ? { screen: b['screen'] } : {}),
+          ...(b['pageId'] !== undefined ? { pageId: b['pageId'] } : {}),
+          source: 'manual',
+          ...(tenant.email ? { createdBy: tenant.email } : {}),
+        });
+        return json(201, hint);
+      }
+
+      case 'POST /memory/edit': {
+        // 記憶地圖手動編修:改名 / 刪畫面 / 刪路徑(與還原)。存成覆寫層,不會被下一次執行洗掉。
+        const b = (req.body ?? {}) as Record<string, unknown>;
+        const app = typeof b['app'] === 'string' ? b['app'] : '';
+        if (!app) return json(400, { error: 'app 為必填' });
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        const edits = await applyEdit(s3, deps.bucket, tenant.tenantId, app, parseEditOp(b));
+        return json(200, edits);
       }
 
       case 'GET /memory/screenshot': {
@@ -932,6 +984,68 @@ export async function handleRequest(
           await removeKbRefs(deps.sharedS3, deps.bucket, jobRec?.knowledgeBaseIds, { type: 'job', tenantId: tenant.tenantId, jobId }).catch(() => {});
           return json(200, { jobId });
         }
+        // 動態路由:GET|POST /tasks/{id}/commands(測試人員即時指令;runner 下一步注入 AI)
+        const commandsMatch = /^\/tasks\/([^/]+)\/commands$/.exec(req.path);
+        if (commandsMatch && (req.method === 'GET' || req.method === 'POST')) {
+          const jobId = commandsMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          if (req.method === 'GET') {
+            return json(200, { items: await listCommands(s3, deps.bucket, tenant.tenantId, jobId) });
+          }
+          const input = validateCommandBody(req.body);
+          const status = (await readStatus(s3, deps.bucket, tenant.tenantId, jobId))?.status;
+          if (!status) return json(404, { error: '找不到任務' });
+          if (['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead'].includes(status.state)) {
+            return json(409, { error: '測試已結束,無法再下指令' });
+          }
+          const jobRec = await readJsonObject<{ appId?: string }>(s3, deps.bucket, `${tenantPrefix(tenant.tenantId)}jobs/${jobId}/job.json`);
+          const id = newCommandId();
+          // 勾「記住」:同時寫進這個應用的記憶,下次測試 AI 一開始就知道。
+          let hintId: string | undefined;
+          if (input.remember && jobRec?.appId) {
+            // 載入/過場畫面不當記憶範圍(指令通常是針對「接下來那個畫面」),改存成全應用通用。
+            const memScreen = input.screen && !isTransientScreenName(input.screen) ? input.screen : undefined;
+            const hint = await addHint(s3, deps.bucket, tenant.tenantId, jobRec.appId, {
+              text: input.text,
+              ...(memScreen ? { screen: memScreen } : {}),
+              source: 'operator',
+              jobId,
+              ...(typeof status.steps === 'number' ? { step: status.steps } : {}),
+              ...(tenant.email ? { createdBy: tenant.email } : {}),
+            });
+            hintId = hint.id;
+          }
+          const cmd: OperatorCommand = {
+            id,
+            text: input.text,
+            createdAt: new Date().toISOString(),
+            ...(tenant.email ? { createdBy: tenant.email } : {}),
+            ...(input.screen ? { screen: input.screen } : {}),
+            ...(hintId ? { hintId } : {}),
+          };
+          await writeCommand(s3, deps.bucket, tenant.tenantId, jobId, cmd);
+          return json(201, cmd);
+        }
+        // 動態路由:PUT|DELETE /memory/hints/{id}(編修/刪除應用記憶;?app= 或 body.app)
+        const hintMatch = /^\/memory\/hints\/([^/]+)$/.exec(req.path);
+        if (hintMatch && (req.method === 'PUT' || req.method === 'DELETE')) {
+          const body = (req.body ?? {}) as Record<string, unknown>;
+          const app = (typeof body['app'] === 'string' ? body['app'] : undefined) ?? req.query?.['app'];
+          if (!app) return json(400, { error: 'app 為必填' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          if (req.method === 'DELETE') {
+            await deleteHint(s3, deps.bucket, tenant.tenantId, app, hintMatch[1]!);
+            return json(200, { id: hintMatch[1] });
+          }
+          const hint = await updateHint(s3, deps.bucket, tenant.tenantId, app, hintMatch[1]!, {
+            ...(body['text'] !== undefined ? { text: body['text'] } : {}),
+            ...(body['enabled'] !== undefined ? { enabled: body['enabled'] } : {}),
+            ...(body['screen'] !== undefined ? { screen: body['screen'] } : {}),
+            ...(body['pageId'] !== undefined ? { pageId: body['pageId'] } : {}),
+          });
+          return json(200, hint);
+        }
         // 動態路由:POST /tasks/{id}/cancel
         const cancelMatch = req.method === 'POST' && /^\/tasks\/([^/]+)\/cancel$/.exec(req.path);
         if (cancelMatch) {
@@ -1047,6 +1161,9 @@ export async function handleRequest(
     if (err instanceof CaseNotFoundError) return json(404, { error: err.message });
     if (err instanceof KbNotFoundError) return json(404, { error: err.message });
     if (err instanceof KbValidationError) return json(400, { error: err.message });
+    if (err instanceof HintValidationError) return json(400, { error: err.message });
+    if (err instanceof HintNotFoundError) return json(404, { error: err.message });
+    if (err instanceof CommandValidationError) return json(400, { error: err.message });
     if (err instanceof KbProvisionError) return json(400, { error: err.message });
     if (err instanceof ValidationError) return json(400, { error: err.message });
     if (err instanceof CaseValidationError) return json(400, { error: err.message });

@@ -57,6 +57,8 @@ export interface JobStream {
   message?: string;
   steps: Step[];
   meta?: TaskMeta;
+  /** 任務所屬應用 id(來自 job.json;供即時指令 / 應用記憶連結)。 */
+  appId?: string;
   connected: boolean;
   loading: boolean;
 }
@@ -75,6 +77,7 @@ export function useJobStream(jobId: string | null): JobStream {
   const [message, setMessage] = useState<string | undefined>();
   const [steps, setSteps] = useState<Step[]>([]);
   const [meta, setMeta] = useState<TaskMeta | undefined>();
+  const [appId, setAppId] = useState<string | undefined>();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
@@ -100,6 +103,7 @@ export function useJobStream(jobId: string | null): JobStream {
         setState(detail.state);
         setMessage(detail.message);
         if (detail.meta) setMeta(detail.meta);
+        if (detail.job?.appId) setAppId(detail.job.appId);
         setSteps((prev) => {
           const byIndex = new Map(prev.map((s) => [s.index, s]));
           for (const s of detail.steps) byIndex.set(s.index, s);
@@ -172,5 +176,5 @@ export function useJobStream(jobId: string | null): JobStream {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  return { state, message, steps, meta, connected, loading };
+  return { state, message, steps, meta, appId, connected, loading };
 }
