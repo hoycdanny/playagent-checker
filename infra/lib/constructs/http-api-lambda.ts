@@ -173,6 +173,13 @@ export class HttpApiLambda extends Construct {
         resources: ['*'],
       }),
     );
+    // 費用分析頁:讀 Device Farm session 的實際計量分鐘(唯讀),依任務歸屬裝置費用。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['devicefarm:ListProjects', 'devicefarm:ListRemoteAccessSessions'],
+        resources: ['*'],
+      }),
+    );
 
     // 測試憑證:API 建立/更新/刪除使用者的測試帳密(存 Secrets Manager,值永不回傳)。
     // scope 到本平台命名前綴 playagent/tenant/*;租戶隔離由後端以 tenantSecretPrefix 強制。

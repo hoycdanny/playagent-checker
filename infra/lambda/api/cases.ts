@@ -360,6 +360,35 @@ export async function listCases(
   return summaries;
 }
 
+/** 列出案例(含 YAML 正文與版本數),供案例總覽頁。 */
+export async function listCasesDetailed(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+): Promise<Array<CaseDetail & { versionCount: number }>> {
+  const prefix = `${tenantPrefix(tenantId)}cases/`;
+  const keys: string[] = [];
+  let token: string | undefined;
+  do {
+    const res = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ...(token ? { ContinuationToken: token } : {}) }));
+    for (const o of res.Contents ?? []) if (o.Key?.endsWith('.yaml')) keys.push(o.Key);
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  const items = await Promise.all(
+    keys.map(async (key) => {
+      const parts = key.split('/');
+      const app = parts[parts.length - 2] ?? '';
+      const id = (parts[parts.length - 1] ?? '').replace(/\.yaml$/, '');
+      const [detail, versions] = await Promise.all([
+        getCase(s3, bucket, tenantId, app, id),
+        listVersionIds(s3, bucket, tenantId, app, id).catch(() => [] as string[]),
+      ]);
+      return detail ? { ...detail, versionCount: versions.length } : null;
+    }),
+  );
+  return items.filter((x): x is CaseDetail & { versionCount: number } => x !== null);
+}
+
 export interface CaseDetail {
   id: string;
   app: string;

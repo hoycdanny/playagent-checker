@@ -36,6 +36,7 @@ import {
   getCase,
   getCaseVersion,
   listCases,
+  listCasesDetailed,
   listCaseVersions,
   updateCase,
   validateCaseInput,
@@ -90,7 +91,9 @@ import {
   type Hasher,
 } from './devices.js';
 import { readCaseTrend } from './trends.js';
-import { aggregateEstimatedCost, type RealCost } from './cost.js';
+import { aggregateEstimatedCost, buildDailyCost, DEVICE_FARM_USD_PER_MIN, type DeviceSessionUsage, type RealCost } from './cost.js';
+import { parseCase, runStats, type CaseOverviewItem } from './caseOverview.js';
+import type { TaskListItem } from './tasks.js';
 import { readMemoryOverview, memScreenshotKey } from './memoryStructure.js';
 import { generateScenarioTemplates } from './scenarioTemplates.js';
 import {
@@ -168,6 +171,8 @@ export interface ApiDeps {
   listCloudDevices?: () => Promise<CloudDevice[]>;
   /** 取 AWS 真實成本(Cost Explorer)。選填;未注入或失敗時費用頁只顯示估算成本。 */
   getRealCost?: (opts: { start?: string; end?: string }) => Promise<RealCost>;
+  /** 列出 Device Farm remote access session 的實際計量分鐘(費用頁依任務歸屬)。選填。 */
+  listDeviceSessions?: () => Promise<DeviceSessionUsage[]>;
   /** 成員管理(admin 專用)。選填;未注入時 /users 路由回 501。 */
   userAdmin?: UserAdmin;
   /** 測試憑證值寫入(Secrets Manager)。選填;未注入時 /secret-refs 僅登記名稱不存值。 */
@@ -318,6 +323,37 @@ export async function handleRequest(
       case 'GET /control-schemes': {
         // 遊戲操作行為目錄(建立測試腳本時的圖像化勾選;依類型預選建議)。
         return json(200, describeControlCatalog());
+      }
+
+      case 'GET /cases/overview': {
+        // 案例總覽:解析後的案例設定 + 執行統計(次數/通過率/最近結果/費用,含真機分鐘)。
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        const [cases, { items: jobs }, sessions] = await Promise.all([
+          listCasesDetailed(s3, deps.bucket, tenant.tenantId),
+          listJobs(s3, deps.bucket, tenant.tenantId),
+          deps.listDeviceSessions ? deps.listDeviceSessions().catch(() => null) : Promise.resolve(null),
+        ]);
+        const minutes = new Map<string, number>();
+        for (const s of sessions ?? []) if (s.jobId) minutes.set(s.jobId, (minutes.get(s.jobId) ?? 0) + s.meteredMinutes);
+        const costOf = (t: TaskListItem) =>
+          (typeof t.billableSpendUsd === 'number' ? t.billableSpendUsd : 0) + (minutes.get(t.jobId) ?? 0) * DEVICE_FARM_USD_PER_MIN;
+        const byCase = new Map<string, TaskListItem[]>();
+        for (const j of jobs) {
+          const k = `${j.appId}/${j.caseId}`;
+          byCase.set(k, [...(byCase.get(k) ?? []), j]);
+        }
+        const items: CaseOverviewItem[] = cases.map((c) => ({
+          id: c.id,
+          app: c.app,
+          name: c.name,
+          ...(c.version ? { version: c.version } : {}),
+          ...(c.updatedAt ? { updatedAt: c.updatedAt } : {}),
+          versionCount: c.versionCount,
+          parsed: parseCase(c.yaml),
+          stats: runStats(byCase.get(`${c.app}/${c.id}`) ?? [], c.version, costOf),
+        }));
+        items.sort((a, b) => (b.stats.last?.createdAt ?? b.updatedAt ?? '').localeCompare(a.stats.last?.createdAt ?? a.updatedAt ?? ''));
+        return json(200, { items, deviceDataAvailable: sessions !== null });
       }
 
       case 'GET /cases': {
@@ -488,8 +524,19 @@ export async function handleRequest(
         // 費用分析(方案 C):AWS 真實成本(Cost Explorer)+ 系統內任務估算成本對照。
         // 估算成本:由本租戶任務清單彙整(依應用/模型/月)。
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const { items: tasks } = await listJobs(s3, deps.bucket, tenant.tenantId);
+        const [{ items: tasks }, sessions] = await Promise.all([
+          listJobs(s3, deps.bucket, tenant.tenantId),
+          // Device Farm 實際計量分鐘(依 session 名稱 pa-<jobId>- 歸屬到任務);取不到則裝置費用不計並標示。
+          deps.listDeviceSessions
+            ? deps.listDeviceSessions().catch((err) => { console.warn('[cost] device sessions', err); return null; })
+            : Promise.resolve(null),
+        ]);
         const estimated = aggregateEstimatedCost(tasks);
+        const rawDays = Number(req.query?.['days']);
+        const daily = buildDailyCost(tasks, sessions, {
+          days: Number.isFinite(rawDays) && rawDays > 0 ? rawDays : 30,
+          includeUnattributed: isAdmin(req.claims),
+        });
 
         // 真實成本:呼叫 Cost Explorer(可能未啟用/無權限/未注入)——失敗時回 available:false,
         // 附說明,前端只呈現估算成本並提示如何啟用。
@@ -529,7 +576,7 @@ export async function handleRequest(
           };
         }
 
-        return json(200, { real, estimated });
+        return json(200, { real, estimated, daily });
       }
 
       case 'POST /devices/register': {

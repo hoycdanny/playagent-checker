@@ -3,11 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import { apiGet, apiPost, apiPut, apiDelete, type ListResponse } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
-import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
-import AppBadge, { type AppRef } from '../components/AppRef.tsx';
+import { type AppRef } from '../components/AppRef.tsx';
 import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
 import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
-import { CaseVersionBadge, CaseVersions } from '../components/cases/CaseVersions.tsx';
+import { CaseVersions } from '../components/cases/CaseVersions.tsx';
+import { CaseOverviewTable, type CaseOverviewItem } from '../components/cases/CaseOverviewTable.tsx';
 import './ListPage.css';
 import './CasesPage.css';
 import './TasksPage.css';
@@ -28,6 +28,15 @@ export default function CasesPage() {
   const casesQuery = useQuery<ListResponse<CaseSummary>>('cases', () =>
     apiGet<ListResponse<CaseSummary>>('/cases'),
   );
+  // 專業總覽:解析後的案例設定 + 執行統計(GET /cases/overview)。
+  const overviewQuery = useQuery<{ items: CaseOverviewItem[] }>('casesOverview', () =>
+    apiGet<{ items: CaseOverviewItem[] }>('/cases/overview'),
+  );
+  const overview = overviewQuery.data?.items ?? [];
+  const refetchAll = () => {
+    casesQuery.refetch();
+    overviewQuery.refetch();
+  };
   const appsQuery = useQuery<ListResponse<AppRecord>>('apps', () =>
     apiGet<ListResponse<AppRecord>>('/apps'),
   );
@@ -126,7 +135,7 @@ export default function CasesPage() {
       await apiDelete(
         `/cases/${encodeURIComponent(c.app)}/${encodeURIComponent(c.id)}`,
       );
-      casesQuery.refetch();
+      refetchAll();
     } finally {
       setBusyId(null);
     }
@@ -149,7 +158,7 @@ export default function CasesPage() {
           ),
       );
       setSelectedKeys(new Set());
-      casesQuery.refetch();
+      refetchAll();
     } finally {
       setBatchDeleting(false);
     }
@@ -207,7 +216,7 @@ export default function CasesPage() {
       }
       setShowForm(false);
       resetForm();
-      casesQuery.refetch();
+      refetchAll();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -366,7 +375,7 @@ export default function CasesPage() {
                 setYaml(v.yaml);
                 setControls(readControls(v.yaml));
                 setMode('yaml');
-                casesQuery.refetch();
+                refetchAll();
               }}
             />
           )}
@@ -399,64 +408,36 @@ export default function CasesPage() {
         </form>
       )}
 
-      {casesQuery.loading && cases.length === 0 ? (
+      {overviewQuery.loading && !overviewQuery.data ? (
         <div className="listpage__skeleton" aria-hidden="true">
           <div className="listpage__skeleton-row" />
           <div className="listpage__skeleton-row" />
         </div>
-      ) : casesQuery.error ? (
+      ) : overviewQuery.error && !overviewQuery.data ? (
         <p className="listpage__error" role="alert">
           {t('page.loadError')}
         </p>
-      ) : cases.length === 0 ? (
+      ) : overview.length === 0 ? (
         <div className="listpage__empty">
           <p>{t('page.cases.empty')}</p>
         </div>
       ) : (
-        <ul className="listpage__list">
-          {cases.map((c) => (
-            <li key={`${c.app}/${c.id}`} className={`listpage__item cases__item ${selectedKeys.has(caseKey(c)) ? 'tasks__row--selected' : ''}`}>
-              <input
-                type="checkbox"
-                aria-label={t('tasks.selectRow')}
-                checked={selectedKeys.has(caseKey(c))}
-                onChange={(e) => {
-                  const k = caseKey(c);
-                  setSelectedKeys((prev) => {
-                    const next = new Set(prev);
-                    if (e.target.checked) next.add(k);
-                    else next.delete(k);
-                    return next;
-                  });
-                }}
-              />
-              <span className="cases__item-name">{c.name}</span>
-              <CaseVersionBadge version={c.version} />
-              <AppBadge app={appById.get(c.app)} fallbackId={c.app} />
-              <span className="cases__item-trend">
-                <CaseTrendBadge app={c.app} caseId={c.id} />
-              </span>
-              <span className="cases__item-actions">
-                <button
-                  type="button"
-                  className="cases__row-btn"
-                  onClick={() => void openEdit(c)}
-                  disabled={busyId === c.id}
-                >
-                  {t('cases.edit')}
-                </button>
-                <button
-                  type="button"
-                  className="cases__row-btn cases__row-btn--danger"
-                  onClick={() => void onDelete(c)}
-                  disabled={busyId === c.id}
-                >
-                  {t('cases.delete')}
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
+        <CaseOverviewTable
+          items={overview}
+          appLookup={(id) => appById.get(id)}
+          selected={selectedKeys}
+          onToggleSelect={(k, checked) =>
+            setSelectedKeys((prev) => {
+              const next = new Set(prev);
+              if (checked) next.add(k);
+              else next.delete(k);
+              return next;
+            })
+          }
+          onEdit={(c) => void openEdit(c)}
+          onDelete={(c) => void onDelete(c)}
+          busyId={busyId}
+        />
       )}
     </section>
   );

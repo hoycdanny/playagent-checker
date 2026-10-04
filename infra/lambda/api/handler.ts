@@ -5,12 +5,18 @@ import type {
 import { STSClient } from '@aws-sdk/client-sts';
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { S3Client } from '@aws-sdk/client-s3';
-import { DeviceFarmClient, ListDevicesCommand, type Device } from '@aws-sdk/client-device-farm';
+import {
+  DeviceFarmClient,
+  ListDevicesCommand,
+  ListProjectsCommand,
+  ListRemoteAccessSessionsCommand,
+  type Device,
+} from '@aws-sdk/client-device-farm';
 import { createHash, randomBytes } from 'node:crypto';
 import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice } from './core.js';
 import { assumeTenantS3 } from './tenantCredentials.js';
 import { draftCaseYaml, makeBedrockClient } from './draft.js';
-import { getRealCost, makeCostExplorerClient } from './cost.js';
+import { getRealCost, jobIdFromSessionName, makeCostExplorerClient, type DeviceSessionUsage, type RealCost } from './cost.js';
 import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
 import { makeSecretWriter } from './secretValueStore.js';
 
@@ -98,6 +104,44 @@ async function listCloudDevices(): Promise<CloudDevice[]> {
   return items;
 }
 
+// Device Farm session 實際計量分鐘(費用頁依任務歸屬用);快取 2 分鐘。
+const DF_PROJECT = process.env.DF_PROJECT ?? 'playagent-checker';
+let deviceSessionCache: { at: number; items: DeviceSessionUsage[] } | null = null;
+async function listDeviceSessions(): Promise<DeviceSessionUsage[]> {
+  if (deviceSessionCache && Date.now() - deviceSessionCache.at < 2 * 60 * 1000) return deviceSessionCache.items;
+  let projectArn: string | undefined;
+  let pt: string | undefined;
+  do {
+    const res = await deviceFarm.send(new ListProjectsCommand({ ...(pt ? { nextToken: pt } : {}) }));
+    projectArn = res.projects?.find((p) => p.name === DF_PROJECT)?.arn ?? projectArn;
+    pt = projectArn ? undefined : res.nextToken;
+  } while (pt);
+  const items: DeviceSessionUsage[] = [];
+  if (projectArn) {
+    let nt: string | undefined;
+    do {
+      const res = await deviceFarm.send(new ListRemoteAccessSessionsCommand({ arn: projectArn, ...(nt ? { nextToken: nt } : {}) }));
+      for (const s of res.remoteAccessSessions ?? []) {
+        const name = s.name ?? '';
+        const jobId = jobIdFromSessionName(name);
+        // 只有 METERED 的分鐘才計費(UNMETERED = 購買的 device slot,已月費)。
+        const metered = s.billingMethod === 'UNMETERED' ? 0 : Number(s.deviceMinutes?.metered ?? 0);
+        items.push({
+          name,
+          ...(jobId ? { jobId } : {}),
+          ...(s.created ? { created: s.created.toISOString() } : {}),
+          meteredMinutes: Number.isFinite(metered) ? metered : 0,
+          totalMinutes: Number(s.deviceMinutes?.total ?? 0) || 0,
+        });
+      }
+      nt = res.nextToken;
+    } while (nt);
+  }
+  deviceSessionCache = { at: Date.now(), items };
+  return items;
+}
+let realCostCache: { key: string; at: number; value: RealCost } | null = null;
+
 const deps: ApiDeps = {
   bucket: BUCKET,
   sharedS3,
@@ -118,7 +162,15 @@ const deps: ApiDeps = {
     randomToken: () => randomBytes(24).toString('base64url'),
   },
   listCloudDevices,
-  getRealCost: (opts) => getRealCost(costExplorer, opts),
+  listDeviceSessions,
+  // Cost Explorer 每次查詢約 US$0.01 且資料本來就有 ~24h 延遲:同一 Lambda 實例快取 10 分鐘。
+  getRealCost: async (opts) => {
+    const key = JSON.stringify(opts);
+    if (realCostCache && realCostCache.key === key && Date.now() - realCostCache.at < 10 * 60 * 1000) return realCostCache.value;
+    const value = await getRealCost(costExplorer, opts);
+    realCostCache = { key, at: Date.now(), value };
+    return value;
+  },
   ...(userAdmin ? { userAdmin } : {}),
   secretWriter,
 };
