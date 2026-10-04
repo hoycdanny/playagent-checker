@@ -1,0 +1,85 @@
+/* 測試案例總覽表(tokens.css 語意 token,深/淺主題)。 */
+.cov { display: flex; flex-direction: column; gap: var(--space-3); }
+.cov__kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-3); }
+.cov__kpi { display: flex; flex-direction: column; gap: 2px; padding: var(--space-3) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); text-align: left; font: inherit; color: inherit; }
+.cov__kpi span { font-size: 12px; color: var(--text-tertiary); }
+.cov__kpi strong { font-size: 22px; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.cov__kpi strong.is-fail { color: var(--status-fail); }
+.cov__kpi--btn { cursor: pointer; }
+.cov__kpi--btn:hover { border-color: var(--brand); }
+.cov__kpi--btn.is-active { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
+.cov__kpi--btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+.cov__bar { display: flex; gap: var(--space-2); flex-wrap: wrap; align-items: center; }
+.cov__search { flex: 1 1 260px; padding: 7px var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-primary); font-size: 13px; }
+.cov__select { padding: 6px var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-primary); font-size: 13px; max-width: 240px; }
+.cov__seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.cov__seg-btn { padding: 6px var(--space-3); border: 0; border-right: 1px solid var(--border); background: var(--surface); color: var(--text-secondary); font-size: 13px; cursor: pointer; }
+.cov__seg-btn:last-child { border-right: 0; }
+.cov__seg-btn.is-active { background: var(--brand); color: var(--brand-contrast); }
+.cov__seg-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+.cov__table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.cov__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cov__table th, .cov__table td { padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.cov__table thead th { font-size: 11px; font-weight: 600; color: var(--text-tertiary); white-space: nowrap; background: var(--surface-raised); }
+.cov__table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cov__row:hover > td { background: var(--surface-raised); }
+.cov__row.is-selected > td { background: color-mix(in srgb, var(--brand) 8%, transparent); }
+.cov__row.is-open > td { border-bottom-color: transparent; background: var(--surface-raised); }
+.cov__chk { width: 28px; }
+.cov__case { min-width: 260px; }
+.cov__name { display: inline-flex; gap: 4px; align-items: baseline; background: none; border: 0; padding: 0; font: inherit; font-weight: 600; font-size: 14px; color: var(--text-primary); text-align: left; cursor: pointer; }
+.cov__name:hover { color: var(--brand); }
+.cov__name:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.cov__caret { width: 1em; color: var(--text-tertiary); }
+.cov__sub { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 4px; padding-left: 1em; }
+.cov__chip { display: inline-block; padding: 0 8px; border: 1px solid var(--border-strong); border-radius: 999px; font-size: 11px; color: var(--text-secondary); white-space: nowrap; }
+.cov__chip--prio { border-color: var(--status-error); color: var(--status-error); font-weight: 600; }
+.cov__chip--tag { border-style: dashed; }
+.cov__scope { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; color: var(--text-secondary); }
+.cov__last { white-space: nowrap; }
+.cov__last > * { margin-right: 6px; }
+.cov__pill { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--brand-contrast); background: var(--status-cancelled); text-decoration: none; }
+.cov__pill--pass { background: var(--status-pass); }
+.cov__pill--fail { background: var(--status-fail); }
+.cov__pill--error { background: var(--status-error); }
+.cov__pill--running, .cov__pill--queued { background: var(--brand); }
+.cov__pill:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.cov__running { font-size: 11px; color: var(--brand); }
+.cov__rate { white-space: nowrap; }
+.cov__rate-v { font-weight: 600; font-variant-numeric: tabular-nums; margin-right: 6px; color: var(--text-primary); }
+.cov__rate-track { display: inline-block; vertical-align: middle; width: 64px; height: 6px; border-radius: 3px; background: var(--border); overflow: hidden; margin-right: 6px; }
+.cov__rate-track span { display: block; height: 100%; background: var(--status-pass); }
+.cov__dots { display: inline-flex; gap: 3px; align-items: center; }
+.cov__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--status-cancelled); display: inline-block; }
+.cov__dot--pass { background: var(--status-pass); }
+.cov__dot--fail { background: var(--status-fail); }
+.cov__dot--error { background: var(--status-error); }
+.cov__dot--running, .cov__dot--queued { background: var(--brand); }
+.cov__actions-h { text-align: right; }
+.cov__actions { white-space: nowrap; text-align: right; }
+.cov__btn { padding: 3px var(--space-2); margin-left: 4px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); color: var(--text-secondary); font-size: 12px; cursor: pointer; }
+.cov__btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.cov__btn--danger:hover { color: var(--status-fail); border-color: var(--status-fail); }
+.cov__btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.cov__muted { color: var(--text-tertiary); font-size: 12px; }
+.cov__mono { font-family: var(--font-mono); font-size: 12px; }
+
+.cov__detail-row > td { background: var(--surface-raised); padding: 0 var(--space-4) var(--space-4); }
+.cov__detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); padding-left: calc(28px + var(--space-3)); }
+.cov__detail h4 { margin: var(--space-2) 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-tertiary); }
+.cov__detail-wide { grid-column: 1 / -1; }
+.cov__steps { margin: 0; padding-left: var(--space-5); display: flex; flex-direction: column; gap: 4px; line-height: 1.55; color: var(--text-primary); }
+.cov__checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; line-height: 1.55; color: var(--text-primary); }
+.cov__checks li { display: flex; gap: 6px; }
+.cov__checks li span { color: var(--text-tertiary); }
+.cov__dl { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.cov__dl > div { display: grid; grid-template-columns: 96px 1fr; gap: var(--space-2); }
+.cov__dl dt { color: var(--text-tertiary); font-size: 12px; }
+.cov__dl dd { margin: 0; color: var(--text-primary); word-break: break-word; white-space: pre-wrap; }
+.cov__dl--row { flex-direction: row; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
+.cov__dl--row > div { grid-template-columns: auto 1fr; }
+.cov__msg { margin: var(--space-2) 0 0; padding: var(--space-2) var(--space-3); border-left: 3px solid var(--border-strong); background: var(--surface); font-size: 12px; color: var(--text-secondary); }
+.cov__empty { margin: 0; padding: var(--space-5); text-align: center; color: var(--text-tertiary); }
+.cov__note { margin: 0; font-size: 12px; color: var(--text-tertiary); }

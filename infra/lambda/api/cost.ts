@@ -39,8 +39,12 @@ export interface RealCost {
   byService: CostBucket[];
   byComponent: CostBucket[];
   byMonth: MonthlyCost[];
+  /** 近 N 天每日成本(依服務;Cost Explorer 日界線為 UTC)。 */
+  byDay?: Array<{ date: string; totalUsd: number; byService: Record<string, number> }>;
   /** 已套用的專案篩選標籤(前端可顯示「僅本專案:project=playagent-checker」)。 */
   projectFilter?: { key: string; value: string };
+  /** 無法貼標、以服務名稱另外納入的服務(如 AWS Device Farm)。 */
+  includedServices?: string[];
   /** 取數時的說明/警告(前端顯示)。 */
   note?: string;
 }
@@ -58,10 +62,157 @@ export interface EstimatedCost {
 export interface CostReport {
   real: RealCost;
   estimated: EstimatedCost;
+  daily: DailyCost;
 }
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
+// ───────────────────────── 每日 × 應用(任務歸屬)─────────────────────────
+
+/** Device Farm 計量(METERED)單價:US$0.17 / 裝置分鐘(https://aws.amazon.com/device-farm/pricing/)。 */
+export const DEVICE_FARM_USD_PER_MIN = 0.17;
+
+/** Device Farm remote access session 的實際用量(GetRemoteAccessSession.deviceMinutes)。 */
+export interface DeviceSessionUsage {
+  name: string;
+  /** 由 session 名稱 pa-<jobId>-<ts> 解析出的任務 id;非任務 session(手動/探針)為 undefined。 */
+  jobId?: string;
+  created?: string;
+  meteredMinutes: number;
+  totalMinutes: number;
+}
+
+const SESSION_JOB_RE = /^pa-(job-[a-z0-9]+-[a-z0-9]+)-\d+$/;
+
+export function jobIdFromSessionName(name: string): string | undefined {
+  return SESSION_JOB_RE.exec(name)?.[1];
+}
+
+/** 以台北時間(UTC+8)取日期 YYYY-MM-DD(使用者在台灣,「哪一天」以當地日界線為準)。 */
+export function taipeiDate(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  return new Date(t + 8 * 3_600_000).toISOString().slice(0, 10);
+}
+
+export interface DailyAppCost {
+  appId: string;
+  totalUsd: number;
+  modelUsd: number;
+  deviceUsd: number;
+  deviceMinutes: number;
+  runs: number;
+}
+
+export interface DailyPoint {
+  date: string;
+  totalUsd: number;
+  modelUsd: number;
+  deviceUsd: number;
+  runs: number;
+  /** appId → 當日費用(模型 + 裝置)。 */
+  byApp: Record<string, number>;
+}
+
+export interface DailyCost {
+  /** 統計區間(台北時間,含頭尾)。 */
+  from: string;
+  to: string;
+  days: DailyPoint[];
+  /** 依區間總額排序(高 → 低)。 */
+  byApp: DailyAppCost[];
+  totals: { totalUsd: number; modelUsd: number; deviceUsd: number; deviceMinutes: number; runs: number };
+  /** Device Farm 資料是否取得(失敗時裝置費用為 0 並附說明)。 */
+  deviceDataAvailable: boolean;
+  /** 非任務的 Device Farm 用量(手動測試等;僅管理員可見)。 */
+  unattributed?: { deviceUsd: number; deviceMinutes: number; sessions: number };
+  pricing: { deviceFarmUsdPerMinute: number };
+  note?: string;
+}
+
+/**
+ * 每日 × 應用費用:每個任務 = 模型費用(token × 單價,billableSpendUsd)+ Device Farm 實際計量分鐘 × 單價。
+ * 依任務建立時間(台北時間)歸日,依 appId 歸屬應用。區間內沒有任務的日子也列出(值為 0),柱狀圖才連續。
+ */
+export function buildDailyCost(
+  tasks: TaskListItem[],
+  sessions: DeviceSessionUsage[] | null,
+  opts: { days?: number; now?: Date; includeUnattributed?: boolean } = {},
+): DailyCost {
+  const nDays = Math.max(1, Math.min(366, Math.floor(opts.days ?? 30)));
+  const now = opts.now ?? new Date();
+  const to = taipeiDate(now.toISOString());
+  const fromMs = Date.parse(`${to}T00:00:00Z`) - (nDays - 1) * 86_400_000;
+  const from = new Date(fromMs).toISOString().slice(0, 10);
+
+  const minutesByJob = new Map<string, number>();
+  let unattrMin = 0;
+  let unattrSessions = 0;
+  for (const s of sessions ?? []) {
+    if (s.jobId) minutesByJob.set(s.jobId, (minutesByJob.get(s.jobId) ?? 0) + s.meteredMinutes);
+    else {
+      const d = s.created ? taipeiDate(s.created) : '';
+      if (d && d >= from && d <= to) { unattrMin += s.meteredMinutes; unattrSessions++; }
+    }
+  }
+
+  const dayMap = new Map<string, DailyPoint>();
+  for (let i = 0; i < nDays; i++) {
+    const date = new Date(fromMs + i * 86_400_000).toISOString().slice(0, 10);
+    dayMap.set(date, { date, totalUsd: 0, modelUsd: 0, deviceUsd: 0, runs: 0, byApp: {} });
+  }
+  const appMap = new Map<string, DailyAppCost>();
+  for (const t of tasks) {
+    const date = taipeiDate(t.createdAt);
+    const day = dayMap.get(date);
+    if (!day) continue;
+    const model = typeof t.billableSpendUsd === 'number' ? t.billableSpendUsd : 0;
+    const minutes = minutesByJob.get(t.jobId) ?? 0;
+    const device = minutes * DEVICE_FARM_USD_PER_MIN;
+    const total = model + device;
+    day.modelUsd += model;
+    day.deviceUsd += device;
+    day.totalUsd += total;
+    day.runs += 1;
+    day.byApp[t.appId] = (day.byApp[t.appId] ?? 0) + total;
+    const a = appMap.get(t.appId) ?? { appId: t.appId, totalUsd: 0, modelUsd: 0, deviceUsd: 0, deviceMinutes: 0, runs: 0 };
+    a.totalUsd += total;
+    a.modelUsd += model;
+    a.deviceUsd += device;
+    a.deviceMinutes += minutes;
+    a.runs += 1;
+    appMap.set(t.appId, a);
+  }
+
+  const days = [...dayMap.values()].map((d) => ({
+    ...d,
+    totalUsd: round4(d.totalUsd),
+    modelUsd: round4(d.modelUsd),
+    deviceUsd: round4(d.deviceUsd),
+    byApp: Object.fromEntries(Object.entries(d.byApp).map(([k, v]) => [k, round4(v)])),
+  }));
+  const byApp = [...appMap.values()]
+    .map((a) => ({ ...a, totalUsd: round4(a.totalUsd), modelUsd: round4(a.modelUsd), deviceUsd: round4(a.deviceUsd), deviceMinutes: round2(a.deviceMinutes) }))
+    .sort((a, b) => b.totalUsd - a.totalUsd);
+  const sum = (k: 'totalUsd' | 'modelUsd' | 'deviceUsd' | 'deviceMinutes' | 'runs') => byApp.reduce((s, a) => s + a[k], 0);
+
+  return {
+    from,
+    to,
+    days,
+    byApp,
+    totals: { totalUsd: round2(sum('totalUsd')), modelUsd: round2(sum('modelUsd')), deviceUsd: round2(sum('deviceUsd')), deviceMinutes: round2(sum('deviceMinutes')), runs: sum('runs') },
+    deviceDataAvailable: sessions !== null,
+    ...(opts.includeUnattributed && sessions !== null && unattrSessions > 0
+      ? { unattributed: { deviceUsd: round2(unattrMin * DEVICE_FARM_USD_PER_MIN), deviceMinutes: round2(unattrMin), sessions: unattrSessions } }
+      : {}),
+    pricing: { deviceFarmUsdPerMinute: DEVICE_FARM_USD_PER_MIN },
+  };
 }
 
 /** 由 listJobs 結果彙整系統內任務估算成本(不需額外 S3 讀取)。 */
@@ -121,6 +272,10 @@ export interface RealCostOptions {
   /** 只算本專案:用此 tag 篩選成本(預設 project=playagent-checker)。 */
   projectTagKey?: string;
   projectTagValue?: string;
+  /** 以服務名稱另外納入(無法貼標)的服務;預設 ['AWS Device Farm']。 */
+  includeServices?: string[];
+  /** 每日明細天數(預設 30)。 */
+  dailyDays?: number;
   now?: Date;
 }
 
@@ -145,10 +300,19 @@ export async function getRealCost(
   const projectKey = opts.projectTagKey ?? 'project';
   const projectValue = opts.projectTagValue ?? 'playagent-checker';
   const TimePeriod = { Start: start, End: end };
-  // 只算本專案:以 project 標籤 Filter(全帳號 → 本專案)。三個查詢共用。
-  const Filter = { Tags: { Key: projectKey, Values: [projectValue] } };
+  // 只算本專案:project 標籤 OR 無法貼標但只有本專案在用的服務(Device Farm 的 session 由 runner
+  // 動態建立,不帶 CDK 標籤;不納入的話真機費用——本專案最大宗的成本——完全不會出現在帳單頁)。
+  const includedServices = opts.includeServices ?? ['AWS Device Farm'];
+  const tagFilter = { Tags: { Key: projectKey, Values: [projectValue] } };
+  const Filter = includedServices.length
+    ? { Or: [tagFilter, { Dimensions: { Key: 'SERVICE' as const, Values: includedServices } }] }
+    : tagFilter;
+  // 每日明細:近 dailyDays 天(預設 30;Cost Explorer End 為排他)。
+  const nowD = opts.now ?? new Date();
+  const dailyEnd = ymd(new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate() + 1)));
+  const dailyStart = ymd(new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate() + 1 - (opts.dailyDays ?? 30))));
 
-  const [byServiceResp, byComponentResp, byMonthResp] = await Promise.all([
+  const [byServiceResp, byComponentResp, byMonthResp, byDayResp] = await Promise.all([
     client.send(
       new GetCostAndUsageCommand({
         TimePeriod,
@@ -175,7 +339,24 @@ export async function getRealCost(
         Filter,
       }),
     ),
+    client.send(
+      new GetCostAndUsageCommand({
+        TimePeriod: { Start: dailyStart, End: dailyEnd },
+        Granularity: 'DAILY',
+        Metrics: ['UnblendedCost'],
+        Filter,
+        GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+      }),
+    ),
   ]);
+  const byDay = (byDayResp.ResultsByTime ?? []).map((r) => {
+    const bySvc: Record<string, number> = {};
+    for (const g of r.Groups ?? []) {
+      const v = Number(g.Metrics?.['UnblendedCost']?.Amount ?? '0');
+      if (v > 0) bySvc[g.Keys?.[0] ?? '(未知)'] = round4(v);
+    }
+    return { date: r.TimePeriod?.Start ?? '', totalUsd: round4(Object.values(bySvc).reduce((a, b) => a + b, 0)), byService: bySvc };
+  });
 
   // 依服務 / 依 component:各月 group 累加。
   const svc = new Map<string, number>();
@@ -219,7 +400,9 @@ export async function getRealCost(
     byService: toBuckets(svc),
     byComponent: toBuckets(comp),
     byMonth,
+    byDay,
     projectFilter: { key: projectKey, value: projectValue },
+    ...(includedServices.length ? { includedServices } : {}),
   };
 }
 
