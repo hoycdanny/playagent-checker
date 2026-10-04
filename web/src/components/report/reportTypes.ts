@@ -184,6 +184,8 @@ export interface StructuredReport {
     testEngineVersion?: string;
     knowledgeBaseVersions: string[];
     testPlanVersion?: string;
+    /** 執行時的測試案例版本號(不可變)。 */
+    caseVersion?: string;
   };
   overallStatus: OverallStatus;
   statusReason: L10n;
@@ -219,7 +221,7 @@ export interface StructuredReport {
   }>;
   mechanics: Array<{ id: string; label: L10n; tested: boolean; pass: number; fail: number; steps: number }>;
   testCase: {
-    id: string; name: string; category: string; module?: string; priority?: string; severity?: string;
+    id: string; name: string; version?: string; category: string; module?: string; priority?: string; severity?: string;
     precondition?: string; input?: string; testSteps?: string; expectedResult?: string; actualResult?: string;
     result: OverallStatus; startTime?: string; endTime?: string; durationMs?: number; aiGenerated: boolean;
     aiConfidence?: number; agentModel?: string; vlmModel?: string; retryCount: number; recoveryCount: number;

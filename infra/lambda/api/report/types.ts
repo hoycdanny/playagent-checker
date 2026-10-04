@@ -500,6 +500,8 @@ export interface MechanicResult {
 export interface TestCaseDetail {
   id: string;
   name: string;
+  /** 執行時的案例版本號。 */
+  version?: string;
   category: string;
   module?: string;
   priority?: string;
@@ -542,6 +544,8 @@ export interface ReportHeader {
   testEngineVersion?: string;
   knowledgeBaseVersions: string[];
   testPlanVersion?: string;
+  /** 執行時的測試案例版本號(不可變,YYYY-MMDD-HHmm-SSss)。 */
+  caseVersion?: string;
 }
 
 export interface StructuredReport {

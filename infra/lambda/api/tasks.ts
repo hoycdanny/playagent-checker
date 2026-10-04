@@ -64,6 +64,10 @@ export interface JobRecord {
   kbSnapshot?: KbSnapshot[];
   /** 操作行為(控制方案)快照:案例指定或依類型建議;runner 據此限定手勢與注入操作說明。 */
   controls?: JobControls;
+  /** 本次執行所用的案例版本(不可變,YYYY-MMDD-HHmm-SSss);報告/溯源依此讀取當時的案例內容。 */
+  caseVersion?: string;
+  /** 該版本的案例名稱快照。 */
+  caseName?: string;
   createdAt: string;
 }
 
@@ -119,6 +123,8 @@ interface SubmitInput {
   subagentModel?: string;
   /** 選用的共用知識庫 id(可多選,Slot + RTP 疊加)。 */
   knowledgeBaseIds?: string[];
+  /** 指定執行的案例版本;未指定則用案例目前使用中的版本。 */
+  caseVersion?: string;
   /** 步數上限;未指定或 <=0 代表「無上限」。 */
   maxSteps?: number;
   /** 預算上限(美元);未指定或 <=0 代表「無上限」。 */
@@ -178,7 +184,16 @@ export function validateSubmit(body: unknown): SubmitInput {
     backend === 'devicefarm' && typeof b['osVersion'] === 'string' && b['osVersion'] !== ''
       ? (b['osVersion'] as string)
       : undefined;
+  // 指定案例版本(可選;不帶則用案例目前使用中的版本)。
+  const rawCaseVersion = b['caseVersion'];
+  if (rawCaseVersion !== undefined && rawCaseVersion !== null && rawCaseVersion !== '') {
+    if (typeof rawCaseVersion !== 'string' || !/^\d{4}-\d{4}-\d{4}-\d{4}$/.test(rawCaseVersion)) {
+      throw new ValidationError('caseVersion 格式不正確(YYYY-MMDD-HHmm-SSss)');
+    }
+  }
+  const caseVersion = typeof rawCaseVersion === 'string' && rawCaseVersion !== '' ? rawCaseVersion : undefined;
   return {
+    ...(caseVersion ? { caseVersion } : {}),
     backend: backend as Backend,
     appId,
     caseId,
@@ -212,7 +227,7 @@ export async function createJob(
   tenantId: string,
   input: SubmitInput,
   artifactVersion?: string,
-  extra?: { artifactKey?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls },
+  extra?: { artifactKey?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string },
 ): Promise<JobRecord> {
   const jobId = newJobId();
   const record: JobRecord = {
@@ -240,6 +255,8 @@ export async function createJob(
     ...(extra?.genres && extra.genres.length > 0 ? { genres: extra.genres } : {}),
     ...(extra?.kbSnapshot && extra.kbSnapshot.length > 0 ? { kbSnapshot: extra.kbSnapshot } : {}),
     ...(extra?.controls && extra.controls.ids.length > 0 ? { controls: extra.controls } : {}),
+    ...(extra?.caseVersion ? { caseVersion: extra.caseVersion } : {}),
+    ...(extra?.caseName ? { caseName: extra.caseName } : {}),
     ...(input.knowledgeBaseIds && input.knowledgeBaseIds.length > 0
       ? { knowledgeBaseIds: input.knowledgeBaseIds }
       : {}),
@@ -284,6 +301,10 @@ export interface TaskListItem {
   deviceModel?: string;
   /** 結束時間(報告產生時間;無報告則取最後狀態更新)。 */
   finishedAt?: string;
+  /** 執行時的案例版本號(功能上線前的舊任務無此欄位)。 */
+  caseVersion?: string;
+  /** 執行時的案例名稱快照。 */
+  caseName?: string;
 }
 
 /** 讀某物件 JSON(不存在回 null)。 */
@@ -424,6 +445,8 @@ export async function listJobs(
         ...((report?.task ?? job.caseTask) ? { task: String(report?.task ?? job.caseTask).slice(0, 200) } : {}),
         ...((report?.deviceModel ?? job.deviceModel) ? { deviceModel: report?.deviceModel ?? job.deviceModel } : {}),
         ...((report?.generatedAt ?? status?.updatedAt) ? { finishedAt: report?.generatedAt ?? status?.updatedAt } : {}),
+        ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
+        ...(job.caseName ? { caseName: job.caseName } : {}),
       };
       return item;
     }),

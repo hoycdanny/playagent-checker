@@ -7,6 +7,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import AppBadge, { useAppLookup } from '../components/AppRef.tsx';
 import TaskIcon from '../components/TaskIcon.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
+import { CaseVersionBadge } from '../components/cases/CaseVersions.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
@@ -31,6 +32,9 @@ interface ReportItem {
   message?: string;
   task?: string;
   deviceModel?: string;
+  /** 執行時的案例版本號 / 名稱快照。 */
+  caseVersion?: string;
+  caseName?: string;
 }
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
@@ -115,7 +119,7 @@ export default function ReportsPage() {
       if (backendF !== 'all' && x.backend !== backendF) return false;
       if (rangeF !== 'all' && RANGES[rangeF] && now - Date.parse(x.createdAt) > RANGES[rangeF]!) return false;
       if (!needle) return true;
-      const hay = [x.jobId, lookup(x.appId)?.name ?? x.appId, x.task, x.message, x.deviceModel, x.caseId, x.seatModels?.vlm, x.seatModels?.agent]
+      const hay = [x.jobId, lookup(x.appId)?.name ?? x.appId, x.task, x.message, x.deviceModel, x.caseId, x.caseVersion, x.caseName, x.seatModels?.vlm, x.seatModels?.agent]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
@@ -361,6 +365,12 @@ export default function ReportsPage() {
                       {x.task && <span className="rpts__task">{x.task}</span>}
                       {x.message && <span className="rpts__message">{x.message}</span>}
                     </Link>
+                    {x.caseVersion && (
+                      <span className="rpts__version">
+                        {x.caseName ? <span className="rpts__version-name">{x.caseName}</span> : null}
+                        <CaseVersionBadge version={x.caseVersion} />
+                      </span>
+                    )}
 
                     <dl className="rpts__meta">
                       <div><dt>{t('reports.col.steps')}</dt><dd>{x.stepCount ?? '—'}</dd></div>

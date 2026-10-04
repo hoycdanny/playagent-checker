@@ -6,6 +6,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
 import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
+import { CaseVersionBadge, CaseVersions } from '../components/cases/CaseVersions.tsx';
 import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import TasksTable from '../components/TasksTable.tsx';
@@ -29,6 +30,8 @@ interface CaseSummary {
   id: string;
   app: string;
   name: string;
+  /** 目前使用中的版本號。 */
+  version?: string;
 }
 interface TaskItem {
   jobId: string;
@@ -592,6 +595,18 @@ export default function AppWorkspacePage() {
                   setCaseYaml((y) => applyControls(y, ids));
                 }}
               />
+              {editingCaseId && (
+                <CaseVersions
+                  app={appId}
+                  caseId={editingCaseId}
+                  onActivated={(v) => {
+                    setCaseName(v.name);
+                    setCaseYaml(v.yaml);
+                    setCaseControls(readControls(v.yaml));
+                    loadCases();
+                  }}
+                />
+              )}
               <div className="ws__form-actions">
                 <button
                   type="button"
@@ -625,6 +640,7 @@ export default function AppWorkspacePage() {
               {cases.map((c) => (
                 <li key={c.id} className="listpage__item cases__item">
                   <span className="cases__item-name">{c.name}</span>
+                  <CaseVersionBadge version={c.version} />
                   <span style={{ marginLeft: 'auto' }}>
                     <CaseTrendBadge app={c.app} caseId={c.id} />
                   </span>

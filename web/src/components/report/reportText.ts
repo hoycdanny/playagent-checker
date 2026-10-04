@@ -195,6 +195,8 @@ const T = {
   filteredBy: ['篩選中', 'Filtered by'],
   clearFilter: ['清除', 'Clear'],
   notTested: ['未測', 'Not tested'],
+  caseVersion: ['案例版本', 'Test Case Version'],
+  caseVersionLegacy: ['(版本功能上線前執行,未記錄)', '(run before versioning; not recorded)'],
 } as const;
 
 export type TextKey = keyof typeof T;

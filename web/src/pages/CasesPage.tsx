@@ -7,6 +7,7 @@ import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
 import AppBadge, { type AppRef } from '../components/AppRef.tsx';
 import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
 import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
+import { CaseVersionBadge, CaseVersions } from '../components/cases/CaseVersions.tsx';
 import './ListPage.css';
 import './CasesPage.css';
 import './TasksPage.css';
@@ -16,6 +17,8 @@ interface CaseSummary {
   id: string;
   app: string;
   name: string;
+  /** 目前使用中的版本號。 */
+  version?: string;
 }
 
 type Mode = 'nl' | 'yaml';
@@ -354,6 +357,20 @@ export default function CasesPage() {
             </p>
           )}
 
+          {editingId && (
+            <CaseVersions
+              app={appId}
+              caseId={editingId}
+              onActivated={(v) => {
+                setName(v.name);
+                setYaml(v.yaml);
+                setControls(readControls(v.yaml));
+                setMode('yaml');
+                casesQuery.refetch();
+              }}
+            />
+          )}
+
           <div className="cases__actions">
             <button
               type="button"
@@ -414,6 +431,7 @@ export default function CasesPage() {
                 }}
               />
               <span className="cases__item-name">{c.name}</span>
+              <CaseVersionBadge version={c.version} />
               <AppBadge app={appById.get(c.app)} fallbackId={c.app} />
               <span className="cases__item-trend">
                 <CaseTrendBadge app={c.app} caseId={c.id} />

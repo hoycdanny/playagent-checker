@@ -208,3 +208,7 @@
   .rpts__time { grid-area: time; flex-direction: row; gap: var(--space-2); }
   .rpts__actions { grid-area: actions; }
 }
+
+/* 案例版本(執行時快照) */
+.rpts__version { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--text-tertiary); min-width: 0; }
+.rpts__version-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
