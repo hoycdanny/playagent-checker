@@ -14,6 +14,7 @@ import {
   StartBuildCommand, BatchGetBuildsCommand,
 } from '@aws-sdk/client-codebuild';
 import { IAMClient, GetRoleCommand } from '@aws-sdk/client-iam';
+import { packSource } from './packSource.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = join(HERE, '..');           // agent/
@@ -34,12 +35,13 @@ async function main() {
   const roleArn = (await iam.send(new GetRoleCommand({ RoleName: ROLE_NAME }))).Role.Arn;
 
   // 打包 agent/ 需要的檔(buildspec 放最上層當 CodeBuild source root)。
-  const zip = '/tmp/web-runner-src.zip';
-  sh('rm', ['-f', zip]);
-  // buildspec.web.yml 要在 zip 根,改名 buildspec.yml。
-  sh('cp', [join(HERE, 'buildspec.web.yml'), join(AGENT_DIR, 'buildspec.yml')]);
-  sh('bash', ['-c', `cd "${AGENT_DIR}" && zip -q "${zip}" *.mjs Dockerfile.web web-runner.package.json buildspec.yml`]);
-  sh('rm', ['-f', join(AGENT_DIR, 'buildspec.yml')]);
+  // buildspec.web.yml 放 zip 根並改名 buildspec.yml(跨平台打包,Windows 無 zip/bash 也可)。
+  const zip = packSource({
+    agentDir: AGENT_DIR,
+    buildspecPath: join(HERE, 'buildspec.web.yml'),
+    extraFiles: ['Dockerfile.web', 'web-runner.package.json'],
+    zipName: 'web-runner-src.zip',
+  });
   sh('aws', ['s3', 'cp', zip, `s3://${BUCKET}/${SRC_KEY}`, '--region', REGION, '--only-show-errors']);
   log('web runner source zip 上傳 → s3://' + `${BUCKET}/${SRC_KEY}`);
 

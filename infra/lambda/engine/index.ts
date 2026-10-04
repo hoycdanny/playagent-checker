@@ -14,7 +14,11 @@ import {
   type Locality,
 } from '../api/knowledge.js';
 import { composeKnowledgeBases, getKnowledgeBase } from '../api/knowledgeBases.js';
+import { readNavigationSummary } from '../api/memoryStructure.js';
 import { retrieveFromKb } from '../api/bedrockKb.js';
+import { applyExclude, mergeProfiles } from '../api/report/profiles.js';
+import { mergeSpecs, specFromKb } from '../api/report/reportSpec.js';
+import { buildControlsProtocol, sanitizeControls } from '../api/controlSchemes.js';
 import {
   defaultSeatSelection,
   resolveExecutionConfig,
@@ -134,6 +138,8 @@ async function readJobMeta(
   deviceArn?: string;
   deviceModel?: string;
   osVersion?: string;
+  genres: string[];
+  controls?: { ids: string[]; source: 'case' | 'genre' };
 } | null> {
   try {
     const res = await s3.send(
@@ -153,6 +159,8 @@ async function readJobMeta(
       deviceArn?: string;
       deviceModel?: string;
       osVersion?: string;
+      genres?: string[];
+      controls?: { ids?: unknown; source?: string };
     };
     return {
       appId: job.appId ?? '',
@@ -166,6 +174,10 @@ async function readJobMeta(
       ...(job.deviceArn ? { deviceArn: job.deviceArn } : {}),
       ...(job.deviceModel ? { deviceModel: job.deviceModel } : {}),
       ...(job.osVersion ? { osVersion: job.osVersion } : {}),
+      genres: Array.isArray(job.genres) ? job.genres.filter((g): g is string => typeof g === 'string') : [],
+      ...(job.controls
+        ? { controls: { ids: sanitizeControls(job.controls.ids), source: job.controls.source === 'case' ? ('case' as const) : ('genre' as const) } }
+        : {}),
     };
   } catch {
     return null;
@@ -186,6 +198,8 @@ async function assembleAgentContext(
   locality: Locality,
   knowledgeBaseIds: string[],
   caseTask: string,
+  genres: string[] = [],
+  controlsSnap?: { ids: string[]; source: 'case' | 'genre' },
 ): Promise<void> {
   if (!appId) return;
   const [knowledge, memory, kbMarkdown, kbReference, credInfo] = await Promise.all([
@@ -198,7 +212,13 @@ async function assembleAgentContext(
     // App 憑證:遮蔽 key(只名稱)+ 可見憑證(連值,供 AI 在下拉/清單點對)。
     readAppCredentialInfo(tenantId, appId).catch(() => ({ maskedKeys: [], visible: [] })),
   ]);
-  let context = composeContext(knowledge, memory);
+  // 導覽圖(跨測試累積的畫面流程):已知畫面 + 已驗證/常失敗的操作路徑,引導 agent 少走冤枉路。
+  // 屬統計觀察(Memory),優先序低於知識,畫面仍以截圖為準。
+  const navSummary = await readNavigationSummary(s3, bucket, tenantId, appId).catch(() => '');
+  const memoryWithNav = [memory.trim(), navSummary.trim() ? `## 畫面導覽圖(先前測試累積)\n${navSummary.trim()}` : '']
+    .filter(Boolean)
+    .join('\n\n');
+  let context = composeContext(knowledge, memoryWithNav);
   // 注入順序/優先序:手寫 App 知識 > 知識庫 Markdown > KB 檢索片段 > 記憶。
   if (kbMarkdown.trim()) {
     const kbBlock = `# KNOWLEDGE BASES (selected reusable knowledge)\n${kbMarkdown.trim()}`;
@@ -230,7 +250,12 @@ async function assembleAgentContext(
     const credBlock = lines.join('\n');
     context = context.trim() ? `${context}\n\n${credBlock}` : credBlock;
   }
-  if (!context.trim()) return;
+  // 證據協議(由類型知識庫 + KB 報告規格決定):runner 依此要求 AI 每步回報
+  // 模組/機制標註與畫面觀測值,報告引擎再用程式計算指標(數字不由 LLM 決定)。
+  const evidence = await buildEvidenceProtocol(genres, knowledgeBaseIds).catch(() => null);
+  // 操作行為(控制方案):runner 據此注入操作說明、限定手勢、決定搖桿預設位置。
+  const controls = controlsSnap ? buildControlsProtocol(sanitizeControls(controlsSnap.ids), controlsSnap.source) : null;
+  if (!context.trim() && !evidence && !controls) return;
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -247,11 +272,43 @@ async function assembleAgentContext(
         credentialKeys: [...credInfo.maskedKeys, ...credInfo.visible.map((c) => c.key)].sort(),
         knowledgeBaseIds,
         context,
+        ...(evidence ? { evidence } : {}),
+        ...(controls ? { controls } : {}),
         assembledAt: new Date().toISOString(),
       }),
       ContentType: 'application/json',
     }),
   );
+}
+
+/**
+ * 證據協議:合併類型 profile(GLOBAL + genres)與 KB 報告規格,輸出 runner 需要的
+ * 模組/機制/觀測欄位清單(只含 id/簡短標籤/提示,控制 prompt 長度)。
+ */
+async function buildEvidenceProtocol(
+  genres: string[],
+  knowledgeBaseIds: string[],
+): Promise<{
+  profiles: string[];
+  modules: Array<{ id: string; label: string }>;
+  mechanics: Array<{ id: string; label: string }>;
+  observe: Array<{ key: string; hint: string; type: string }>;
+}> {
+  const kbs = (await Promise.all(knowledgeBaseIds.map((id) => getKnowledgeBase(sharedS3, BUCKET, id).catch(() => null))))
+    .filter((k): k is NonNullable<typeof k> => k !== null);
+  // 與報告引擎一致:類別型知識庫綁定的類型也帶入 profile;再套用知識庫的停用清單。
+  const allGenres = [...new Set([...genres, ...kbs.map((k) => k.genre).filter((g): g is string => Boolean(g))])];
+  const spec = mergeSpecs(kbs.map((k) => specFromKb(k)));
+  const merged = applyExclude(mergeProfiles(allGenres), spec.exclude);
+  const modules = [...merged.modules, ...spec.modules.filter((m) => !merged.modules.some((x) => x.id === m.id))];
+  // 知識庫自訂觀測欄位放前面(針對這款遊戲,比通用欄位重要;後面會截到 8 個)。
+  const observe = [...spec.observe, ...merged.observe.filter((o) => !spec.observe.some((x) => x.key === o.key))];
+  return {
+    profiles: merged.sources.map((s) => `${s.id}-v${s.version}`),
+    modules: modules.map((m) => ({ id: m.id, label: m.label.zh })),
+    mechanics: merged.mechanics.map((m) => ({ id: m.id, label: m.label.zh })),
+    observe: observe.slice(0, 8).map((o) => ({ key: o.key, hint: o.hint, type: o.type })),
+  };
 }
 
 /**
@@ -335,6 +392,8 @@ export async function handler(event: EngineEvent): Promise<void> {
         meta.locality,
         meta.knowledgeBaseIds,
         meta.caseTask,
+        meta.genres,
+        meta.controls,
       );
     }
   } catch (ctxErr) {

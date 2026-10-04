@@ -67,3 +67,72 @@
 .sg-canvas .react-flow__minimap {
   background: var(--surface-raised);
 }
+
+/* 起始畫面 / 別名 / 模組 */
+.sg-node { width: 160px; }
+.sg-node--root { border-color: #ff2d95; box-shadow: 0 0 0 2px color-mix(in srgb, #ff2d95 35%, transparent); }
+.sg-node__thumb { position: relative; height: 110px; }
+.sg-node__root {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #ff2d95;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.sg-node__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 6px 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+.sg-node__alias { color: var(--text-secondary); }
+.sg-node__module {
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+/* 載入/過場節點:小膠囊 */
+.sg-node--transient {
+  width: 120px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-style: dashed;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--surface);
+}
+.sg-node--transient small { color: var(--text-tertiary); }
+
+/* 圖上方工具列 */
+.sg-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.sg-toolbar label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.sg-toolbar input[type='number'] {
+  width: 56px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+.sg-legend { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--text-tertiary); }
+.sg-legend__line { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-left: 8px; }
+.sg-legend__line--dash { background: repeating-linear-gradient(90deg, #8a919e 0 5px, transparent 5px 9px); }

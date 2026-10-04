@@ -527,3 +527,33 @@
   color: var(--text-primary);
   cursor: pointer;
 }
+
+/* 次要遊戲類型 */
+.apps__genre-chips {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.apps__genre-remove {
+  margin-left: var(--space-1);
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.apps__genre-remove:hover {
+  color: var(--status-fail);
+}
+
+.apps__genre--secondary {
+  opacity: 0.8;
+  border-style: dashed;
+}

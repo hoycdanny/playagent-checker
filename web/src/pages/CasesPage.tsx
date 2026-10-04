@@ -5,6 +5,8 @@ import { useQuery } from '../api/useQuery.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
 import AppBadge, { type AppRef } from '../components/AppRef.tsx';
+import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
+import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
 import './ListPage.css';
 import './CasesPage.css';
 import './TasksPage.css';
@@ -34,6 +36,8 @@ export default function CasesPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [yaml, setYaml] = useState('');
+  // 操作行為(undefined = 未指定,執行時用 App 類型建議);與 YAML 的 controls: 欄位雙向同步。
+  const [controls, setControls] = useState<string[] | undefined>(undefined);
   const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +57,7 @@ export default function CasesPage() {
     setName('');
     setDescription('');
     setYaml('');
+    setControls(undefined);
     setBaseYaml(null);
     setError(null);
   }
@@ -69,6 +74,7 @@ export default function CasesPage() {
       setAppId(app);
       setName(nm);
       setYaml(decoded);
+      setControls(readControls(decoded));
       setBaseYaml(decoded);
       setMode('nl'); // 停在自然語言分頁,讓使用者輸入微調指令做範本感知編修
       setShowForm(true);
@@ -104,6 +110,7 @@ export default function CasesPage() {
         `/cases/${encodeURIComponent(c.app)}/${encodeURIComponent(c.id)}`,
       );
       setYaml(detail.yaml);
+      setControls(readControls(detail.yaml));
     } catch {
       setError(t('page.loadError'));
     }
@@ -167,8 +174,9 @@ export default function CasesPage() {
         // 有範本基礎時走「範本感知編修」(後端據此以既有範本為基礎修改)。
         ...(baseYaml ? { baseYaml } : {}),
       });
-      setYaml(res.yaml);
-      setBaseYaml(res.yaml); // 編修後的結果成為下一輪微調的新基礎
+      const drafted = applyControls(res.yaml, controls);
+      setYaml(drafted);
+      setBaseYaml(drafted); // 編修後的結果成為下一輪微調的新基礎
       setMode('yaml'); // 草擬完成後切到 YAML 供審閱/修改
     } catch {
       setError(t('cases.draftError'));
@@ -189,10 +197,10 @@ export default function CasesPage() {
       if (editingId) {
         await apiPut(
           `/cases/${encodeURIComponent(appId)}/${encodeURIComponent(editingId)}`,
-          { name, yaml },
+          { name, yaml: applyControls(yaml, controls) },
         );
       } else {
-        await apiPost('/cases', { app: appId, name, yaml });
+        await apiPost('/cases', { app: appId, name, yaml: applyControls(yaml, controls) });
       }
       setShowForm(false);
       resetForm();
@@ -322,11 +330,23 @@ export default function CasesPage() {
                 className="cases__textarea cases__textarea--mono"
                 rows={12}
                 value={yaml}
-                onChange={(e) => setYaml(e.target.value)}
+                onChange={(e) => {
+                  setYaml(e.target.value);
+                  setControls(readControls(e.target.value));
+                }}
                 spellCheck={false}
               />
             </label>
           )}
+
+          <ControlSchemePicker
+            value={controls}
+            genre={appById.get(appId)?.genre}
+            onChange={(ids) => {
+              setControls(ids);
+              setYaml((y) => applyControls(y, ids));
+            }}
+          />
 
           {error && (
             <p className="cases__error" role="alert">

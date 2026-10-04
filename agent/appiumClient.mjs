@@ -12,6 +12,23 @@ import { attach, remote } from 'webdriverio';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 按住時長夾在 200–8000ms。 */
+function clampHold(v, dflt) {
+  const n = Number(v);
+  return Math.max(200, Math.min(8000, Number.isFinite(n) ? Math.round(n) : dflt));
+}
+
+/** 方向字串 → 位移(截圖像素);無方向 = 原地按住。 */
+function dirOffset(dir, mag) {
+  const d = String(dir ?? '').toLowerCase();
+  let dx = 0, dy = 0;
+  if (d.includes('up')) dy -= mag;
+  if (d.includes('down')) dy += mag;
+  if (d.includes('left')) dx -= mag;
+  if (d.includes('right')) dx += mag;
+  return [dx, dy];
+}
+
 function connectionOptions(url) {
   const parsed = new URL(url);
   return {
@@ -166,7 +183,7 @@ export class AppiumClient {
         await this.#swipe(sx, sy, ex, ey, cmd.durationMs ?? 500);
         break;
       }
-      // move:虛擬搖桿「持續移動」手勢。割草/動作遊戲(如倖存者/Vampire-Survivors-like)
+      // move:虛擬搖桿「持續移動」手勢。割草/動作遊戲
       // 的走位不是「從 A 滑到 B 放開」,而是「在搖桿上按住不放、朝某方向壓住、維持數秒」。
       // 語意(2026-10-01 真人錄屏驗證修正):錄屏逐帧比對確認這是標準「連續拖拽式」虛擬
       // 搖桿——手指全程按住不放,搖桿白球即時跟隨手指目前位置偏移,角色朝偏移方向持續走;
@@ -205,6 +222,78 @@ export class AppiumClient {
         await this.#holdMove(sx, sy, ex, ey, holdMs);
         break;
       }
+      // kite:runner 內部用的「繞圈走位」(割草類戰鬥自動走位,不開放給 AI)。
+      // 按住搖桿中心 → 推到圓周 → 沿圓周持續轉動 holdMs → 放開;角色會繞大圈遛怪、持續撿經驗。
+      case 'kite': {
+        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) * 0.495);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.821);
+        const r = Math.round(Math.min(this.#shotW || 1080, this.#shotH || 2340) * 0.18);
+        const holdMs = clampHold(cmd.holdMs, 6000);
+        const segs = 12;
+        const dirSign = cmd.clockwise ? 1 : -1;
+        const a0 = Number.isFinite(cmd.start) ? cmd.start : 0;
+        const pt = (a) => this.#toWindow(Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a)));
+        const [sx, sy] = this.#toWindow(cx, cy);
+        let chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ x: sx, y: sy, duration: 0 }).down({ button: 0 });
+        const [fx, fy] = pt(a0);
+        chain = chain.move({ x: fx, y: fy, duration: 150 });
+        // 繞 1 圈(2π)分 segs 段;每段移動耗時 = holdMs/segs(手指一直按著,事件流不中斷)。
+        for (let k = 1; k <= segs; k++) {
+          const [px, py] = pt(a0 + dirSign * (2 * Math.PI * k) / segs);
+          chain = chain.move({ x: px, y: py, duration: Math.round(holdMs / segs) });
+        }
+        await chain.up({ button: 0 }).perform();
+        await this.#driver.releaseActions().catch(() => {});
+        break;
+      }
+      // hold:單指長按(蓄力、賽車轉向/油門、節奏長音符)。
+      case 'hold': {
+        const [hx, hy] = this.#toWindow(
+          Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) / 2),
+          Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) / 2),
+        );
+        const holdMs = clampHold(cmd.holdMs, 1000);
+        await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ x: hx, y: hy, duration: 0 }).down({ button: 0 }).pause(holdMs).up({ button: 0 }).perform();
+        await this.#driver.releaseActions().catch(() => {});
+        break;
+      }
+      // combo:雙指同時操作 —— 左手按住(搖桿朝 dir 拖曳,或原地按住方向鍵)holdMs,
+      // 期間右手在 (tx,ty) 點 taps 次(邊走邊打 / 邊轉彎邊開氮氣)。W3C 多 pointer 同步執行。
+      case 'combo': {
+        const holdMs = clampHold(cmd.holdMs, 1500);
+        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) * 0.18);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.72);
+        const [dx, dy] = dirOffset(cmd.dir, Math.round(Math.min(this.#shotW || 1080, this.#shotH || 2340) * 0.12));
+        const [sx, sy] = this.#toWindow(cx, cy);
+        const [ex, ey] = this.#toWindow(cx + dx, cy + dy);
+        const tx0 = Number.isFinite(cmd.tx) ? Math.round(cmd.tx) : Math.round((this.#shotW ?? 0) * 0.85);
+        const ty0 = Number.isFinite(cmd.ty) ? Math.round(cmd.ty) : Math.round((this.#shotH ?? 0) * 0.75);
+        const [tx, ty] = this.#toWindow(tx0, ty0);
+        const taps = Math.max(1, Math.min(5, Math.round(Number(cmd.taps) || 1)));
+        await this.#multiTouchCombo({ sx, sy, ex, ey, tx, ty, holdMs, taps });
+        break;
+      }
+      // pinch:雙指縮放(out=兩指張開放大,in=兩指合攏縮小)。
+      case 'pinch': {
+        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) / 2);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) / 2);
+        const short = Math.min(this.#shotW || 1080, this.#shotH || 2340);
+        const near = Math.round(short * 0.06), far = Math.round(short * 0.28);
+        const out = String(cmd.scale ?? 'out').toLowerCase() !== 'in';
+        const [from, to] = out ? [near, far] : [far, near];
+        const p = (d) => [this.#toWindow(cx - d, cy - d), this.#toWindow(cx + d, cy + d)];
+        const [[a1x, a1y], [b1x, b1y]] = p(from);
+        const [[a2x, a2y], [b2x, b2y]] = p(to);
+        const f1 = this.#driver.action('pointer', { id: 'finger1', parameters: { pointerType: 'touch' } })
+          .move({ x: a1x, y: a1y, duration: 0 }).down({ button: 0 }).pause(50).move({ x: a2x, y: a2y, duration: 500 }).up({ button: 0 });
+        const f2 = this.#driver.action('pointer', { id: 'finger2', parameters: { pointerType: 'touch' } })
+          .move({ x: b1x, y: b1y, duration: 0 }).down({ button: 0 }).pause(50).move({ x: b2x, y: b2y, duration: 500 }).up({ button: 0 });
+        await this.#driver.actions([f1, f2]);
+        await this.#driver.releaseActions().catch(() => {});
+        break;
+      }
       case 'type':
         await this.#typeText(cmd.text ?? '');
         break;
@@ -224,6 +313,16 @@ export class AppiumClient {
     }
   }
 
+  /** 關閉並重新開啟 app(卡在載入/登入回調時脫困用)。 */
+  async restartApp(pkg) {
+    await this.#withEndpointRecovery(async () => {
+      try { await this.#driver.terminateApp(pkg); }
+      catch { try { await this.#driver.execute('mobile: terminateApp', { appId: pkg }); } catch { /* 盡力 */ } }
+    });
+    await sleep(2000);
+    await this.launchPackage(pkg);
+  }
+
   /** 按包名啟動 app(activateApp 自動解析 launcher)。 */
   async launchPackage(pkg) {
     await this.#withEndpointRecovery(async () => {
@@ -241,6 +340,9 @@ export class AppiumClient {
    * 回 true 表示「本來就在前景」,false 表示「做了重新啟動」(呼叫端可據此多等一下載入)。
    * queryAppState:4=前景執行中,3=背景,其它=未執行/不在前景。
    */
+  /** 最近一次 ensureForeground 查到的 queryAppState(1=未執行→疑似閃退;2/3=背景→跳到其他 App)。 */
+  lastAppState = 4;
+
   async ensureForeground(pkg) {
     if (!pkg) return true;
     return this.#withEndpointRecovery(async () => {
@@ -250,6 +352,7 @@ export class AppiumClient {
       } catch {
         try { state = await this.#driver.execute('mobile: queryAppState', { appId: pkg }); } catch { state = 4; }
       }
+      this.lastAppState = typeof state === 'number' ? state : 4;
       if (state === 4) return true; // 已在前景
       try { await this.#driver.activateApp(pkg); }
       catch { try { await this.#driver.execute('mobile: activateApp', { appId: pkg }); } catch { /* 盡力 */ } }
@@ -303,6 +406,35 @@ export class AppiumClient {
       .move({ x: x2, y: y2, duration: 150 }) // 150ms 把搖桿壓到方向底(模擬手指滑過去)
       .pause(holdMs) // 按住不放,維持在終點位置,讓角色持續朝該方向走 holdMs
       .up({ button: 0 }).perform();
+    await this.#driver.releaseActions().catch(() => {});
+  }
+
+  /**
+   * 雙指同步:finger1 按住(可拖向搖桿方向)維持 holdMs;finger2 在按住期間平均點 taps 次。
+   * 兩條 pointer 時間軸以 W3C actions 同時執行(Android UiAutomator2 支援多點觸控)。
+   * 多 pointer 失敗時退回「先按住移動、再點右手鍵」的序列操作,至少兩個動作都有送到。
+   */
+  async #multiTouchCombo({ sx, sy, ex, ey, tx, ty, holdMs, taps }) {
+    const lead = 150;
+    const press = 80;
+    const gap = Math.max(60, Math.floor((holdMs - lead - taps * press) / taps));
+    const f1 = this.#driver.action('pointer', { id: 'finger1', parameters: { pointerType: 'touch' } })
+      .move({ x: sx, y: sy, duration: 0 }).down({ button: 0 })
+      .move({ x: ex, y: ey, duration: lead })
+      .pause(holdMs)
+      .up({ button: 0 });
+    let f2 = this.#driver.action('pointer', { id: 'finger2', parameters: { pointerType: 'touch' } })
+      .pause(lead + 50);
+    for (let k = 0; k < taps; k++) {
+      f2 = f2.move({ x: tx, y: ty, duration: 0 }).down({ button: 0 }).pause(press).up({ button: 0 });
+      if (k < taps - 1) f2 = f2.pause(gap);
+    }
+    try {
+      await this.#driver.actions([f1, f2]);
+    } catch {
+      await this.#holdMove(sx, sy, ex, ey, holdMs);
+      for (let k = 0; k < taps; k++) await this.#tapWithFallback(tx, ty);
+    }
     await this.#driver.releaseActions().catch(() => {});
   }
 
@@ -369,6 +501,44 @@ export class AppiumClient {
 
   #stopKeepAlive() {
     if (this.#keepAliveTimer !== null) { clearInterval(this.#keepAliveTimer); this.#keepAliveTimer = null; }
+  }
+
+  /**
+   * 效能取樣(Android UiAutomator2 `mobile: getPerformanceData`):回 { cpuPct?, memMB? }。
+   * cpuinfo → user+kernel %;memoryinfo → totalPss(KB)換算 MB。取不到(iOS/驅動不支援)回 null,
+   * 報告會標示「未收集」而非 0。盡力而為,不擋主流程。
+   */
+  async perfSample(pkg) {
+    if (!pkg || this.#capabilities?.platformName === 'iOS') return null;
+    const read = async (dataType) => {
+      try {
+        return await this.#driver.execute('mobile: getPerformanceData', { packageName: pkg, dataType });
+      } catch {
+        try { return await this.#driver.getPerformanceData(pkg, dataType, 5); } catch { return null; }
+      }
+    };
+    // 回傳格式為 [[欄位名...], [值...]](值為字串)。
+    const zip = (rows) => {
+      if (!Array.isArray(rows) || rows.length < 2 || !Array.isArray(rows[0])) return null;
+      const out = {};
+      rows[0].forEach((k, i) => { const v = Number(rows[1]?.[i]); if (Number.isFinite(v)) out[String(k)] = v; });
+      return out;
+    };
+    const out = {};
+    const cpu = zip(await read('cpuinfo'));
+    if (cpu && (cpu.user !== undefined || cpu.kernel !== undefined)) out.cpuPct = Math.round(((cpu.user ?? 0) + (cpu.kernel ?? 0)) * 10) / 10;
+    const mem = zip(await read('memoryinfo'));
+    if (mem && mem.totalPss !== undefined) out.memMB = Math.round((mem.totalPss / 1024) * 10) / 10;
+    return Object.keys(out).length ? out : null;
+  }
+
+  /**
+   * Android `mobile: shell`(= adb shell,Device Farm 端點允許)。command 為完整 shell 指令字串。
+   * 呼叫端負責不把未驗證的輸入拼進指令(見 perfMonitor 的套件名白名單)。
+   */
+  async shell(command, timeoutMs = 20000) {
+    if (this.#capabilities?.platformName === 'iOS') throw new Error('iOS 不支援 mobile: shell');
+    return this.#withEndpointRecovery(() => this.#driver.execute('mobile: shell', { command, args: [], timeout: timeoutMs }));
   }
 
   async quit() {

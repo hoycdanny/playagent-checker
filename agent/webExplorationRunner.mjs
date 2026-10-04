@@ -23,6 +23,8 @@ import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
+import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
+import { upsertPage, recordTransition, recordMiss, compactStructure } from './memoryGraph.mjs';
 
 const START_URL = process.env.PA_URL || 'https://example.com';
 const JOB = process.env.PA_JOB;
@@ -42,6 +44,8 @@ const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
 const [VP_W, VP_H] = (process.env.PA_VIEWPORT || '1280x800').split('x').map((n) => Number(n) || 0);
 const CONSEC_FAIL_LIMIT = 3;
+// runner 版本(寫進報告表頭 Test Engine Version)。
+const RUNNER_VERSION = 'web-runner/2.0 (evidence-v1)';
 
 const s3 = new S3Client({ region: DATA_REGION });
 const bedrock = new BedrockRuntimeClient({ region: DATA_REGION });
@@ -65,7 +69,7 @@ async function writeStatus(state, message, steps) {
 }
 
 // ── VLM 決策(對齊 explorationRunner,但 prompt 改成「網頁」語意)──
-function buildSystemPrompt(knowledge) {
+function buildSystemPrompt(knowledge, evidence) {
   const base =
     `你是專業網頁應用測試工程師,正在用瀏覽器測試一個網站/網頁遊戲。每一步你會看到一張最新的網頁截圖。` +
     `【座標規則|最重要】座標一律用「你看到的這張截圖的絕對像素」:左上角是 (0,0),往右 x 變大、往下 y 變大,` +
@@ -84,7 +88,8 @@ function buildSystemPrompt(knowledge) {
     `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe(捲動)需 x,y,x2,y2;type 需 text;done 只在真正完成目標或完全無法進行時用。` +
     `screen 用精確畫面名描述當前畫面(如「首頁」「登入」「遊戲主畫面」「結算」),不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
-  return k ? base + `\n\n這款應用「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 4000)}` : base;
+  const withEvidence = base + evidencePromptSection(evidence, { subject: '網頁/遊戲' });
+  return k ? withEvidence + `\n\n這款應用「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 4000)}` : withEvidence;
 }
 function makeUserTurn(images, text, fmt = 'png') {
   const mediaType = fmt === 'jpeg' ? 'image/jpeg' : 'image/png';
@@ -112,8 +117,9 @@ function channelFor(modelId) {
 }
 function parseCmd(out) {
   const m = /\{[\s\S]*\}/.exec(out || '');
-  try { return m ? JSON.parse(m[0]) : { action: 'done', thinking: '無法解析回應' }; }
-  catch { return { action: 'done', thinking: '無法解析回應 JSON' }; }
+  // 解析失敗 ≠ 模型宣告完成:回 wait 重試(對齊真機 runner;舊版回 done 會被誤判為 pass)。
+  try { return m ? JSON.parse(m[0]) : { action: 'wait', duration: 3, thinking: '無法解析回應,等待後重試', parseFailed: true }; }
+  catch { return { action: 'wait', duration: 3, thinking: '無法解析回應 JSON,等待後重試', parseFailed: true }; }
 }
 function toConverseMessages(messages) {
   return messages.map((m) => ({
@@ -192,16 +198,19 @@ async function main() {
 
   // 讀注入知識(engine 已組 context.json)。
   let knowledge = '';
+  let evidence = null; // 證據協議(由類型知識庫決定)
   try {
     const ctx = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/context.json` }))).Body.transformToString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
+    if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
   } catch { /* 無則略過 */ }
 
-  const system = buildSystemPrompt(knowledge);
+  const system = buildSystemPrompt(knowledge, evidence);
   const messages = [];
   const steps = [];
-  const struct = await loadStructure();
-  let prevPageId = null, prevAction = null;
+  // 載入時先收斂舊格式的雜亂資料,之後以新規則增量更新(見 memoryGraph.mjs)。
+  const struct = compactStructure(await loadStructure());
+  let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let consecFail = 0;
   let finalState = 'fail';
   let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
@@ -209,6 +218,7 @@ async function main() {
   let lastPhash = null, stuckCount = 0;
   const screenSeen = new Map();
   const LOOP_ABORT_LIMIT = 8;
+  let consecParseFail = 0;
 
   await writeStatus('running', 'AI 網頁探索執行中', 0);
 
@@ -256,7 +266,9 @@ async function main() {
     const turnText = (i === 0 ? `第一張畫面(網址 ${client.currentUrl()})。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint;
     messages.push(makeUserTurn([ds.b64], turnText, visionFmt));
 
+    const tVlm = Date.now();
     const { cmd, usage, rawText, trace } = await decide(system, messages);
+    const vlmMs = Date.now() - tVlm;
     messages.push(makeAssistantTurn(rawText));
     if (usage) { tok.input += usage.input; tok.output += usage.output; }
 
@@ -298,21 +310,23 @@ async function main() {
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,
       ...(annotatedKey ? { annotatedKey } : {}),
       durationMs: Date.now() - t0, ...(usage ? { tokens: usage } : {}),
+      // ── 證據(報告引擎以程式計算指標)──
+      at: new Date(t0).toISOString(),
+      vlmMs,
+      ...(i > 0 && curPhash ? { screenChanged } : {}),
+      ...evidenceFields(cmd, cmd.action),
+      ...(cmd.parseFailed ? { parseFailed: true } : {}),
+      ...(trace && trace.ok === false ? { modelError: true } : {}),
     };
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
 
     // 記憶地圖:建/更新畫面節點 + 轉移邊。
-    const pid = pageIdFromName(screenName, i);
-    if (!struct.pages[pid]) {
-      struct.pages[pid] = { id: pid, name: screenName, pHash: '', screenshotRef: `screenshots/${pid}.png`, knownControlLabels: [], visitCount: 1, hitCount: 1, firstSeenAt: new Date().toISOString(), lastSeenAt: new Date().toISOString() };
-      await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
-    } else { struct.pages[pid].visitCount++; struct.pages[pid].lastSeenAt = new Date().toISOString(); }
-    if (struct.rootPageId === null) struct.rootPageId = pid;
-    if (prevPageId && prevPageId !== pid) {
-      const label = prevAction || '';
-      const edge = struct.edges.find((e) => e.fromPageId === prevPageId && e.toPageId === pid && (e.trigger?.label || '') === label);
-      if (edge) edge.hitCount++; else struct.edges.push({ fromPageId: prevPageId, toPageId: pid, trigger: { kind: 'tap', label }, hitCount: 1, missCount: 0 });
+    const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
+    if (isNew) await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    if (prevPageId && pid) {
+      if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget });
+      else if (!screenChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
     }
     struct.lastUpdatedAt = new Date().toISOString();
     await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
@@ -342,6 +356,11 @@ async function main() {
     screenSeen.set(screenName, seen);
     if (seen >= LOOP_ABORT_LIMIT) { finalState = 'fail'; finalMsg = `偵測到死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進,提早結束。`; break; }
 
+    // 連續解析失敗 = 模型輸出異常(AI 測試失敗),中止並明確回報。
+    consecParseFail = cmd.parseFailed ? consecParseFail + 1 : 0;
+    if (consecParseFail >= 10) { finalState = 'error'; finalMsg = `VLM 連續 ${consecParseFail} 次回應無法解析為有效動作 —— 模型輸出格式異常,已中止(避免誤判為完成)。`; break; }
+    // 模型呼叫失敗時 decide() 回 done:這是 AI 測試代理失敗,不可判 pass。
+    if (cmd.action === 'done' && trace && trace.ok === false) { finalState = 'error'; finalMsg = String(cmd.thinking || '模型呼叫失敗'); break; }
     if (cmd.action === 'done') { finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break; }
     // 實際操作用視埠像素座標。
     const deviceCmd = { ...cmd };
@@ -355,7 +374,10 @@ async function main() {
       catch (e) { console.warn('[secrets] type 替換例外(用原文):', e?.message || e); }
     }
     try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
-    prevPageId = pid; prevAction = cmd.action;
+    // 導覽圖:AI 沒給畫面名時沿用上一個已知畫面;該步只是 wait 則不覆蓋真正造成轉場的動作。
+    prevAction = cmd.action; // 給 prompt 用
+    if (pid) { prevPageId = pid; navAction = cmd.action; prevTarget = typeof cmd.target === 'string' ? cmd.target : ''; }
+    else if (cmd.action !== 'wait') { navAction = cmd.action; prevTarget = ''; }
     await sleep(2500);
   }
 
@@ -364,7 +386,7 @@ async function main() {
   await stopScreencast().catch(() => {});
 
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
-  const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
+  const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, runnerVersion: RUNNER_VERSION, ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}), stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);
   await client.quit().catch(() => {});

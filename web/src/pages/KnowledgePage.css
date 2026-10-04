@@ -354,3 +354,259 @@
   font-size: 13px;
   cursor: pointer;
 }
+
+/* ── 樣板 / 我的知識庫 ─────────────────────────── */
+.kb__intro {
+  margin: var(--space-1) 0 0;
+  max-width: 72ch;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.kb__form-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.kb__form-sub {
+  margin-left: var(--space-2);
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+.kb__readonly {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--brand) 40%, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.kb__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.kb__section > legend {
+  padding: 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.kb__section:disabled .kb__field input,
+.kb__section:disabled .kb__field select {
+  opacity: 0.85;
+  cursor: default;
+}
+
+.kb__genre-static {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) 0;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* 分頁列 */
+.kb__tabs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.kb__tabs {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.kb__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+.kb__tab:hover {
+  color: var(--text-primary);
+}
+.kb__tab.is-active {
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-weight: 600;
+}
+.kb__tab:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.kb__tab-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 16%, transparent);
+  font-size: 11px;
+  text-align: center;
+}
+.kb__search {
+  flex: 1 1 220px;
+  max-width: 360px;
+}
+.kb__search input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+.kb__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+/* 卡片變化 */
+.kb__card--template {
+  border-top: 3px solid var(--brand);
+}
+.kb__card--archived {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.kb__card-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.kb__usage-badge,
+.kb__archived-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px var(--space-2);
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.kb__usage-badge {
+  color: var(--status-error);
+}
+.kb__archived-badge {
+  color: var(--status-cancelled);
+}
+.kb__based {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.kb__stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.kb__stats b {
+  color: var(--text-primary);
+}
+.kb__spec-preview {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+}
+.kb__card-btn--primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-weight: 600;
+}
+.kb__card-btn--primary:hover:not(:disabled) {
+  background: var(--brand-hover);
+  border-color: var(--brand-hover);
+}
+
+/* 使用中(防呆)對話框 */
+.kb__modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 45%);
+}
+.kb__modal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: min(560px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  padding: var(--space-6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 30%);
+}
+.kb__modal h3 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--status-fail);
+}
+.kb__modal h4 {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.kb__modal p {
+  margin: 0;
+  line-height: 1.5;
+}
+.kb__modal-name {
+  font-weight: 600;
+}
+.kb__modal-list {
+  margin: 0;
+  padding-left: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.kb__modal-list small {
+  color: var(--text-tertiary);
+}

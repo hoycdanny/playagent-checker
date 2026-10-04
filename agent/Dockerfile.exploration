@@ -28,7 +28,7 @@ COPY exploration-runner.package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
 # 複製 runner 與其模組。
-COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs ./
+COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs perfMonitor.mjs ./
 
 # 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_APPIUM_URL / PA_JOB / ...)。
 CMD ["node", "explorationRunner.mjs"]

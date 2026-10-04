@@ -124,6 +124,12 @@ export default function TaskDetailPage() {
           ← {t('detail.back')}
         </Link>
         <div className="detail__topline-right">
+          {/* 任務結束後直接進結構化測試報告(判定明細、截圖、修正建議)。 */}
+          {jobId && TERMINAL_STATES.has(state) && state !== 'cancelled' && (
+            <Link to={`/reports/${jobId}`} className="detail__report-link">
+              {t('detail.viewReport')} →
+            </Link>
+          )}
           <button
             type="button"
             className={`detail__logs-btn ${showLogs ? 'detail__logs-btn--on' : ''}`}

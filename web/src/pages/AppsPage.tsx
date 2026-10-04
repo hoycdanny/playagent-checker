@@ -25,6 +25,8 @@ interface AppRecord {
   platform: Platform;
   identifier?: string;
   genre?: Genre;
+  /** 次要類型(如 RPG + Action);報告引擎合併各類型 profile。 */
+  secondaryGenres?: Genre[];
   version?: string;
   artifactId?: string;
   iconArtifactId?: string;
@@ -60,6 +62,7 @@ interface FormState {
   platform: Platform;
   identifier: string;
   genre: '' | Genre;
+  secondaryGenres: Genre[];
   version: string;
   notes: string;
   defaultKnowledgeBaseIds: string[];
@@ -75,10 +78,14 @@ const EMPTY_FORM: FormState = {
   platform: 'android',
   identifier: '',
   genre: '',
+  secondaryGenres: [],
   version: '',
   notes: '',
   defaultKnowledgeBaseIds: [],
 };
+
+/** 次要類型上限(對齊後端 SECONDARY_GENRES_MAX)。 */
+const SECONDARY_GENRES_MAX = 3;
 
 /** 遊戲類型下拉選項(帶 SVG 圖示)。 */
 function genreOptions(t: (k: MessageKey) => string): IconSelectOption[] {
@@ -95,9 +102,9 @@ export default function AppsPage() {
     'apps',
     () => apiGet<ListResponse<AppRecord>>('/apps'),
   );
-  const kbQuery = useQuery<ListResponse<{ id: string; name: string }>>(
+  const kbQuery = useQuery<ListResponse<{ id: string; name: string; archived?: boolean }>>(
     'knowledge-bases',
-    () => apiGet<ListResponse<{ id: string; name: string }>>('/knowledge-bases'),
+    () => apiGet<ListResponse<{ id: string; name: string; archived?: boolean }>>('/knowledge-bases'),
   );
   const kbs = kbQuery.data?.items ?? [];
 
@@ -193,6 +200,7 @@ export default function AppsPage() {
       platform: app.platform,
       identifier: app.identifier ?? '',
       genre: app.genre ?? '',
+      secondaryGenres: app.secondaryGenres ?? [],
       version: app.version ?? '',
       notes: app.notes ?? '',
       defaultKnowledgeBaseIds: app.defaultKnowledgeBaseIds ?? [],
@@ -252,6 +260,7 @@ export default function AppsPage() {
         platform: form.platform,
         identifier: form.identifier,
         genre: form.genre, // '' 代表清除/不設定
+        secondaryGenres: form.secondaryGenres.filter((g) => g !== form.genre),
         version: form.version,
         notes: form.notes,
         defaultKnowledgeBaseIds: form.defaultKnowledgeBaseIds,
@@ -346,6 +355,40 @@ export default function AppsPage() {
                 placeholder={t('apps.genrePlaceholder')}
                 ariaLabel={t('apps.genre')}
               />
+            </div>
+
+            <div className="apps__field">
+              <span className="apps__label">{t('apps.secondaryGenres')}</span>
+              {form.secondaryGenres.length > 0 && (
+                <ul className="apps__genre-chips">
+                  {form.secondaryGenres.map((g) => (
+                    <li key={g} className="apps__genre">
+                      <GenreIcon genre={g} size={13} />
+                      {t(genreLabelKey(g))}
+                      <button
+                        type="button"
+                        className="apps__genre-remove"
+                        aria-label={`${t('apps.secondaryGenresRemove')} ${t(genreLabelKey(g))}`}
+                        onClick={() => setForm({ ...form, secondaryGenres: form.secondaryGenres.filter((x) => x !== g) })}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {form.secondaryGenres.length < SECONDARY_GENRES_MAX && (
+                <IconSelect
+                  value=""
+                  options={genreOptions(t).filter((o) => o.value !== form.genre && !form.secondaryGenres.includes(o.value as Genre))}
+                  onChange={(v) => {
+                    if (v) setForm({ ...form, secondaryGenres: [...form.secondaryGenres, v as Genre] });
+                  }}
+                  placeholder={t('apps.secondaryGenresAdd')}
+                  ariaLabel={t('apps.secondaryGenres')}
+                />
+              )}
+              <span className="apps__hint">{t('apps.secondaryGenresHint')}</span>
             </div>
 
             <label className="apps__field">
@@ -494,7 +537,7 @@ export default function AppsPage() {
             <div className="apps__field">
               <span className="apps__label">{t('apps.defaultKnowledgeBases')}</span>
               <div className="apps__kb-list">
-                {kbs.map((kb) => (
+                {kbs.filter((kb) => !kb.archived || form.defaultKnowledgeBaseIds.includes(kb.id)).map((kb) => (
                   <label key={kb.id} className="apps__kb-option">
                     <input
                       type="checkbox"
@@ -648,6 +691,12 @@ function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
                 {t(genreLabelKey(app.genre))}
               </span>
             )}
+            {(app.secondaryGenres ?? []).map((g) => (
+              <span key={g} className="apps__genre apps__genre--secondary" title={t(genreLabelKey(g))}>
+                <GenreIcon genre={g} size={13} />
+                {t(genreLabelKey(g))}
+              </span>
+            ))}
           </div>
         </div>
       </Link>

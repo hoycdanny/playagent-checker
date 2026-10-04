@@ -11,6 +11,7 @@
  */
 
 import type { KnowledgeBaseRecord } from './knowledgeBases.js';
+import { describeProfile, getGenreProfile } from './report/profiles.js';
 
 /** 內建知識庫的固定建立時間(穩定排序用;比使用者項舊,排在列表後段)。 */
 const BUILTIN_TS = '2024-01-01T00:00:00.000Z';
@@ -775,9 +776,9 @@ const BUILTIN_DEFS: BuiltinDef[] = [
   },
   {
     genre: 'survivor',
-    name: '倖存者/割草',
-    description: '虛擬搖桿走位、移動即戰鬥、自動攻擊、撐時間存活與升級等「倖存者(Vampire-Survivors-like)割草」通用概念與測試要點。',
-    markdown: `# Survivor / 割草(Vampire-Survivors-like)遊戲測試知識
+    name: '割草',
+    description: '虛擬搖桿走位、移動即戰鬥、自動攻擊、撐時間存活與升級等「割草」類遊戲通用概念與測試要點。',
+    markdown: `# 割草類遊戲測試知識
 
 ## 這類遊戲的核心特徵(先辨識你在不在遊戲進行畫面)
 - **移動即戰鬥**:角色會「自動攻擊」附近敵人,玩家唯一要做的是「走位」——用虛擬搖桿(按住螢幕拖曳)控制角色朝某方向持續移動,躲避成群逼近的敵人。
@@ -832,6 +833,9 @@ export function builtinKnowledgeBases(): KnowledgeBaseRecord[] {
     genre: d.genre,
     markdown: d.markdown,
     builtin: true,
+    // 版本與報告規格來自同 genre 的 GenreProfile(知識庫 = Agent 知識 + 報告規格)。
+    ...(getGenreProfile(d.genre) ? { version: getGenreProfile(d.genre)!.version } : {}),
+    ...(describeProfile(d.genre) ? { reportProfile: describeProfile(d.genre) } : {}),
     createdAt: BUILTIN_TS,
   }));
 }

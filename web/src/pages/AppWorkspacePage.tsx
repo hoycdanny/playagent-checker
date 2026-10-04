@@ -4,6 +4,8 @@ import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
+import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
+import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
 import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import TasksTable from '../components/TasksTable.tsx';
@@ -116,6 +118,7 @@ export default function AppWorkspacePage() {
   const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
   const [caseName, setCaseName] = useState('');
   const [caseYaml, setCaseYaml] = useState('');
+  const [caseControls, setCaseControls] = useState<string[] | undefined>(undefined);
   const [caseDesc, setCaseDesc] = useState('');
   const [drafting, setDrafting] = useState(false);
   const [savingCase, setSavingCase] = useState(false);
@@ -149,7 +152,7 @@ export default function AppWorkspacePage() {
   const [devicePickerOpen, setDevicePickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [taskError, setTaskError] = useState<string | null>(null);
-  const [kbs, setKbs] = useState<{ id: string; name: string }[]>([]);
+  const [kbs, setKbs] = useState<{ id: string; name: string; archived?: boolean }[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
 
   // App 測試憑證(存 Secrets Manager;前端只拿得到 {key, visible},拿不到值)。
@@ -225,7 +228,7 @@ export default function AppWorkspacePage() {
     )
       .then((o) => setMemStats(o.stats))
       .catch(() => setMemStats(null));
-    apiGet<ListResponse<{ id: string; name: string }>>('/knowledge-bases')
+    apiGet<ListResponse<{ id: string; name: string; archived?: boolean }>>('/knowledge-bases')
       .then((r) => setKbs(r.items))
       .catch(() => {});
     // VLM 模型清單(判畫面座標的 VLM Seat 可選模型);真機/Web 探索用。
@@ -284,7 +287,7 @@ export default function AppWorkspacePage() {
         description: caseDesc,
         appId,
       });
-      setCaseYaml(res.yaml);
+      setCaseYaml(applyControls(res.yaml, caseControls));
     } catch {
       /* 忽略,使用者可手寫 */
     } finally {
@@ -296,6 +299,7 @@ export default function AppWorkspacePage() {
     setEditingCaseId(null);
     setCaseName('');
     setCaseYaml('');
+    setCaseControls(undefined);
     setCaseDesc('');
   }
 
@@ -314,6 +318,7 @@ export default function AppWorkspacePage() {
         `/cases/${encodeURIComponent(appId)}/${encodeURIComponent(c.id)}`,
       );
       setCaseYaml(detail.yaml);
+      setCaseControls(readControls(detail.yaml));
     } catch {
       /* 忽略,使用者可重寫 */
     }
@@ -336,10 +341,10 @@ export default function AppWorkspacePage() {
       if (editingCaseId) {
         await apiPut(
           `/cases/${encodeURIComponent(appId)}/${encodeURIComponent(editingCaseId)}`,
-          { name: caseName, yaml: caseYaml },
+          { name: caseName, yaml: applyControls(caseYaml, caseControls) },
         );
       } else {
-        await apiPost('/cases', { app: appId, name: caseName, yaml: caseYaml });
+        await apiPost('/cases', { app: appId, name: caseName, yaml: applyControls(caseYaml, caseControls) });
       }
       setShowCaseForm(false);
       resetCaseForm();
@@ -572,10 +577,21 @@ export default function AppWorkspacePage() {
                   className="ws__textarea ws__mono"
                   rows={10}
                   value={caseYaml}
-                  onChange={(e) => setCaseYaml(e.target.value)}
+                  onChange={(e) => {
+                    setCaseYaml(e.target.value);
+                    setCaseControls(readControls(e.target.value));
+                  }}
                   spellCheck={false}
                 />
               </label>
+              <ControlSchemePicker
+                value={caseControls}
+                {...(app?.genre ? { genre: app.genre } : {})}
+                onChange={(ids) => {
+                  setCaseControls(ids);
+                  setCaseYaml((y) => applyControls(y, ids));
+                }}
+              />
               <div className="ws__form-actions">
                 <button
                   type="button"
@@ -798,7 +814,7 @@ export default function AppWorkspacePage() {
                 <div className="ws__field">
                   <span className="ws__label">{t('tasks.knowledgeBases')}</span>
                   <div className="ws__kb-list">
-                    {kbs.map((kb) => (
+                    {kbs.filter((kb) => !kb.archived || selectedKbIds.includes(kb.id)).map((kb) => (
                       <label key={kb.id} className="ws__kb-option">
                         <input
                           type="checkbox"

@@ -64,8 +64,10 @@ const PREFERRED_DEFAULTS: Record<Seat, string> = {
   // - agent(控制遊戲):MiniMax M2.1 —— 2026 開源 agentic 頂尖,決策/工具呼叫強,單價低。
   // - subagent(子代理):Nova Micro —— 子任務不需重推理,取最省(混合單價 ~$0.06,較 V3.2 省逾 9 成)。
   // id 為可直接呼叫的最終形式:UI-TARS 走 SageMaker(id 'uitars'),MiniMax 走原始 id,Amazon 走 us. 前綴。
-  vlm: 'uitars',
-  agent: 'minimax.minimax-m2.1',
+  // 2026-10-03:改為團隊指定的預設組合(與前端 web/src/components/modelRecommend.ts DEFAULT_MODELS 一致):
+  // 控制遊戲 Nova Lite / 分析畫面 Kimi K3 / 子代理 Nova Micro。
+  vlm: 'us.moonshotai.kimi-k3',
+  agent: 'us.amazon.nova-lite-v1:0',
   subagent: 'us.amazon.nova-micro-v1:0',
 };
 
