@@ -1,6 +1,7 @@
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
 import { compactStructure, summarizeForAgent } from '../../../agent/memoryGraph.mjs';
+import { applyEdits, edgeKey, type EditsLike } from '../../../agent/operatorMemory.mjs';
 
 /** 讀某 App 的導覽圖並轉成給 agent 的精簡文字(已知畫面 + 可靠路徑)。無資料回空字串。 */
 export async function readNavigationSummary(
@@ -9,8 +10,13 @@ export async function readNavigationSummary(
   tenantId: string,
   app: string,
 ): Promise<string> {
-  const raw = await readJson<unknown>(s3, bucket, `${memPrefix(tenantId, app)}/structure.json`);
-  return raw ? summarizeForAgent(raw) : '';
+  const [raw, edits] = await Promise.all([
+    readJson<unknown>(s3, bucket, `${memPrefix(tenantId, app)}/structure.json`),
+    readJson<EditsLike>(s3, bucket, `${memPrefix(tenantId, app)}/edits.json`),
+  ]);
+  if (!raw) return '';
+  // 使用者在記憶地圖刪掉/改名的畫面與路徑,摘要給 AI 時也要反映(刪掉的錯誤路徑不再當成「已驗證」)。
+  return summarizeForAgent(applyEdits(compactStructure(raw), edits));
 }
 
 /**
@@ -27,6 +33,9 @@ export interface MemPage {
   module?: string;
   /** 載入/過場類畫面(收斂成單一「載入中」節點)。 */
   transient?: boolean;
+  /** 使用者在記憶地圖改過名(autoName = AI 自動命名)。 */
+  renamed?: boolean;
+  autoName?: string;
   pHash: string;
   screenshotRef: string;
   knownControlLabels: string[];
@@ -79,15 +88,41 @@ export async function readMemoryOverview(
 ): Promise<{
   structure: MemStructure;
   stats: { pages: number; edges: number; controls: number; totalRuns: number };
+  edits: EditsLike;
+  /** 被使用者刪掉的畫面/路徑(帶顯示名稱,供記憶地圖「已刪除」清單還原)。 */
+  deleted: {
+    pages: Array<{ id: string; name: string }>;
+    edges: Array<{ key: string; from: string; to: string; label?: string }>;
+  };
 }> {
   const prefix = memPrefix(tenantId, app);
-  const raw = await readJson<MemStructure>(s3, bucket, `${prefix}/structure.json`);
+  const [raw, editsRaw] = await Promise.all([
+    readJson<MemStructure>(s3, bucket, `${prefix}/structure.json`),
+    readJson<EditsLike>(s3, bucket, `${prefix}/edits.json`),
+  ]);
+  const edits: EditsLike = { renames: editsRaw?.renames ?? {}, deletedPages: editsRaw?.deletedPages ?? [], deletedEdges: editsRaw?.deletedEdges ?? [] };
   // 讀取時以新規則收斂(合併 AI 不同命名的同一畫面、去自環/wait 邊、合併重複邊),
   // 舊資料也能直接顯示成乾淨的畫面流程圖;runner 下次執行會把收斂結果寫回。
-  const structure: MemStructure = raw
-    ? (compactStructure(raw) as unknown as MemStructure)
+  // 再套上使用者在記憶地圖的手動編修(改名/刪畫面/刪路徑)。
+  const compact = raw ? (compactStructure(raw) as unknown as MemStructure) : null;
+  const structure: MemStructure = compact
+    ? (applyEdits(compact, edits) as unknown as MemStructure)
     : { schemaVersion: 2, appName: app, rootPageId: null, pages: {}, edges: [], lastUpdatedAt: null };
   const meta = (await readJson<{ totalRuns?: number }>(s3, bucket, `${prefix}/meta.json`)) ?? {};
+
+  // 已刪除清單:以收斂後(未套編修)的原始結構找回名稱;已不存在的 id 照樣列出(仍可還原)。
+  const nameOf = (id: string) => edits.renames?.[id] ?? compact?.pages[id]?.name ?? id;
+  const deletedPages = (edits.deletedPages ?? []).map((id) => ({ id, name: nameOf(id) }));
+  const deletedEdges = (edits.deletedEdges ?? []).map((key) => {
+    const e = compact?.edges.find((x) => edgeKey(x) === key);
+    const [from = '', to = '', , target = ''] = key.split('>');
+    return {
+      key,
+      from: nameOf(e?.fromPageId ?? from),
+      to: nameOf(e?.toPageId ?? to),
+      ...((e?.trigger?.label ?? target) ? { label: e?.trigger?.label ?? target } : {}),
+    };
+  });
 
   const pages = Object.values(structure.pages);
   const controlSet = new Set<string>();
@@ -101,6 +136,8 @@ export async function readMemoryOverview(
       controls: controlSet.size,
       totalRuns: meta.totalRuns ?? 0,
     },
+    edits,
+    deleted: { pages: deletedPages, edges: deletedEdges },
   };
 }
 

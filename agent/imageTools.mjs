@@ -9,7 +9,7 @@
  *
  * 全部走本地暫存檔 + execFileSync,失敗都優雅回退(不擋主流程)。
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -24,6 +24,32 @@ const FONT_PATH = FONT_CANDIDATES.find((p) => existsSync(p)) || null;
 /** 有字型才回 ['-font', path];否則空陣列(呼叫端據此略過文字標籤)。 */
 function fontArgs() {
   return FONT_PATH ? ['-font', FONT_PATH] : [];
+}
+
+/**
+ * 即時畫面幀壓縮:真機 PNG(1080×2400 約 2-3MB)→ 長邊 ≤ maxEdge 的 JPEG(約 50-100KB)。
+ * 非同步(stdin/stdout 管線),不阻塞 AI 主迴圈;失敗/逾時回 null(呼叫端改傳原 PNG)。
+ */
+export function liveJpeg(pngBuf, maxEdge = 720, quality = 60, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    let p;
+    try {
+      p = spawn('convert', ['png:-', '-resize', `${maxEdge}x${maxEdge}>`, '-quality', String(quality), 'jpg:-'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch { finish(null); return; }
+    const chunks = [];
+    const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* ignore */ } finish(null); }, timeoutMs);
+    p.stdout.on('data', (c) => chunks.push(c));
+    p.on('error', () => { clearTimeout(timer); finish(null); });
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      const out = Buffer.concat(chunks);
+      finish(code === 0 && out.length > 0 ? out : null);
+    });
+    p.stdin.on('error', () => { /* EPIPE:convert 提早結束,交給 close 處理 */ });
+    p.stdin.end(pngBuf);
+  });
 }
 
 /** 把 base64 PNG 落成暫存檔,回路徑。 */

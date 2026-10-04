@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
 import { apiGet, type ListResponse } from '../api/client.ts';
-import { modelLabel } from '../components/modelProvider.ts';
+import { modelLabel, providerOf, PROVIDER_LABEL } from '../components/modelProvider.ts';
+import { InfoIcon, type InfoIconName } from '../components/tasks/InfoIcon.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
+import { OperatorChat } from '../components/tasks/OperatorChat.tsx';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -46,7 +48,7 @@ function asText(v: unknown): string | undefined {
 export default function TaskDetailPage() {
   const { t } = useI18n();
   const { jobId } = useParams<{ jobId: string }>();
-  const { state, message, steps, meta, connected, loading } = useJobStream(jobId ?? null);
+  const { state, message, steps, meta, appId, connected, loading } = useJobStream(jobId ?? null);
 
   // 知識庫 id → 名稱對照(供「套用情境」以人類可讀名稱呈現)。
   const [kbNames, setKbNames] = useState<Map<string, string>>(new Map());
@@ -61,30 +63,44 @@ export default function TaskDetailPage() {
   const TERMINAL_STATES = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
   const isLive = !TERMINAL_STATES.has(state) && state !== 'queued';
   const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
-  const liveInFlight = useRef(false);
   useEffect(() => {
     if (!jobId || !isLive) {
       setLiveFrameUrl(null);
       return;
     }
+    // 依序抓幀:簽 URL → 背景預載(new Image)→ 載完才換上 <img> → 再抓下一幀。
+    // 直接每 250ms 換 src 的話,幀還沒下載完就被下一張取消,畫面會看似凍結(需手動刷新)。
     let cancelled = false;
-    const tick = async () => {
-      if (liveInFlight.current) return;
-      liveInFlight.current = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const MIN_INTERVAL_MS = 250; // ~4fps 上限
+    const preload = (url: string) =>
+      new Promise<boolean>((resolve) => {
+        const img = new Image();
+        const t = setTimeout(() => resolve(false), 8000);
+        img.onload = () => { clearTimeout(t); resolve(true); };
+        img.onerror = () => { clearTimeout(t); resolve(false); };
+        img.src = url;
+      });
+    const loop = async () => {
+      const started = Date.now();
+      let ok = false;
       try {
         const { url } = await apiGet<{ url: string }>(`/tasks/${jobId}/live-frame`);
-        if (!cancelled && url) setLiveFrameUrl(url);
+        if (url && !cancelled && (await preload(url)) && !cancelled) {
+          setLiveFrameUrl(url);
+          ok = true;
+        }
       } catch {
         /* 幀尚未產生/暫時失敗:保留上一幀,不清空 */
-      } finally {
-        liveInFlight.current = false;
       }
+      if (cancelled) return;
+      const wait = ok ? Math.max(0, MIN_INTERVAL_MS - (Date.now() - started)) : 1500;
+      timer = setTimeout(() => void loop(), wait);
     };
-    void tick();
-    const timer = setInterval(() => void tick(), 250); // ~4fps
+    void loop();
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer) clearTimeout(timer);
     };
   }, [jobId, isLive]);
 
@@ -116,6 +132,10 @@ export default function TaskDetailPage() {
     .reverse()
     .find((s) => s.annotatedUrl || s.screenshotUrl);
   const liveUrl = asText(latestShot?.annotatedUrl) ?? asText(latestShot?.screenshotUrl);
+  // 最新一步的畫面名稱:即時指令「記住」時當作提示的畫面範圍。
+  const latestScreen = asText([...steps].reverse().find((s) => s.screen)?.screen);
+  // 終局後仍顯示指令紀錄(若本次有下過指令)。
+  const hasCommands = steps.some((s) => Array.isArray(s.operatorCommands) && s.operatorCommands.length > 0);
 
   return (
     <section className="listpage listpage--wide detail">
@@ -183,13 +203,13 @@ export default function TaskDetailPage() {
             <dl className="detail__info-grid">
               {meta!.task && (
                 <div className="detail__info-row">
-                  <dt>{t('detail.scenario')}</dt>
+                  <dt><InfoIcon name="target" className="detail__dt-icon" />{t('detail.scenario')}</dt>
                   <dd>{meta!.task}</dd>
                 </div>
               )}
               {kbLabels.length > 0 && (
                 <div className="detail__info-row">
-                  <dt>{t('detail.knowledgeBases')}</dt>
+                  <dt><InfoIcon name="book" className="detail__dt-icon" />{t('detail.knowledgeBases')}</dt>
                   <dd>
                     <ul className="detail__info-tags">
                       {kbLabels.map((label, i) => (
@@ -204,35 +224,46 @@ export default function TaskDetailPage() {
               {/* 執行裝置:Device Farm 真機任務才會有機型;顯示實際跑在哪台實體裝置上 */}
               {meta!.deviceModel && (
                 <div className="detail__info-row">
-                  <dt>{t('detail.ranOnDevice')}</dt>
+                  <dt><InfoIcon name="phone" className="detail__dt-icon" />{t('detail.ranOnDevice')}</dt>
                   <dd>{meta!.deviceModel}</dd>
                 </div>
               )}
-              {/* 使用模型:依三個角色分行,各標明分工說明,讓人一看就懂哪顆做什麼 */}
+              {/* 使用模型:精簡成 icon 晶片(角色 + 模型);分工說明與完整 model id 在滑鼠移過/鍵盤聚焦時顯示 */}
               {(() => {
                 const seatModel = (seat: string): string | undefined =>
                   meta!.seats.find((s) => s.seat === seat)?.modelId ??
                   (seat === 'vlm' ? meta!.vlmModel : undefined);
-                const roles: Array<{ seat: string; label: string; hint: string }> = [
-                  { seat: 'agent', label: t('detail.roleAgent'), hint: t('detail.roleAgentHint') },
-                  { seat: 'vlm', label: t('detail.roleVlm'), hint: t('detail.roleVlmHint') },
-                  { seat: 'subagent', label: t('detail.roleSubagent'), hint: t('detail.roleSubagentHint') },
+                const roles: Array<{ seat: string; icon: InfoIconName; label: string; hint: string }> = [
+                  { seat: 'agent', icon: 'gamepad', label: t('detail.roleAgent'), hint: t('detail.roleAgentHint') },
+                  { seat: 'vlm', icon: 'eye', label: t('detail.roleVlm'), hint: t('detail.roleVlmHint') },
+                  { seat: 'subagent', icon: 'sparkle', label: t('detail.roleSubagent'), hint: t('detail.roleSubagentHint') },
                 ];
                 const rows = roles.filter((r) => seatModel(r.seat));
                 if (rows.length === 0) return null;
                 return (
                   <div className="detail__info-row">
-                    <dt>{t('detail.models')}</dt>
+                    <dt><InfoIcon name="cpu" className="detail__dt-icon" />{t('detail.models')}</dt>
                     <dd>
                       <ul className="detail__roles">
                         {rows.map((r) => {
                           const modelId = seatModel(r.seat)!;
+                          const provider = providerOf(modelId);
+                          const tipId = `role-tip-${r.seat}`;
                           return (
                             <li key={r.seat} className="detail__role">
-                              <span className="detail__role-label">{r.label}</span>
-                              <span className="detail__role-hint">{r.hint}</span>
-                              <span className="detail__role-model" title={modelId}>
-                                {modelLabel(modelId)}
+                              <span className="detail__role-chip" tabIndex={0} aria-describedby={tipId}>
+                                <span className={`detail__role-icon detail__role-icon--${r.seat}`}>
+                                  <InfoIcon name={r.icon} size={15} />
+                                </span>
+                                <span className="detail__role-label">{r.label}</span>
+                                <span className="detail__role-model">{modelLabel(modelId)}</span>
+                              </span>
+                              <span role="tooltip" id={tipId} className="detail__role-tip">
+                                <b>{r.label}</b>
+                                <span>{r.hint}</span>
+                                <span className="detail__role-tip-id">
+                                  {PROVIDER_LABEL[provider]} · {modelId}
+                                </span>
                               </span>
                             </li>
                           );
@@ -244,7 +275,7 @@ export default function TaskDetailPage() {
               })()}
               {meta!.billableSpendUsd !== undefined && (
                 <div className="detail__info-row">
-                  <dt>{t('detail.cost')}</dt>
+                  <dt><InfoIcon name="coin" className="detail__dt-icon" />{t('detail.cost')}</dt>
                   <dd className="detail__info-cost">
                     {fmtUsd(meta!.billableSpendUsd)}
                     {meta!.spendEstimated ? `(${t('detail.costEstimated')})` : ''}
@@ -258,7 +289,7 @@ export default function TaskDetailPage() {
               )}
               {meta!.tokens && (
                 <div className="detail__info-row">
-                  <dt>{t('detail.tokens')}</dt>
+                  <dt><InfoIcon name="hash" className="detail__dt-icon" />{t('detail.tokens')}</dt>
                   <dd className="detail__info-mono">
                     ↑ {meta!.tokens.input.toLocaleString()} · ↓{' '}
                     {meta!.tokens.output.toLocaleString()}
@@ -378,6 +409,15 @@ export default function TaskDetailPage() {
           ) : (
             <div className="detail__no-live">{t('detail.noLiveView')}</div>
           )}
+          {/* 測試人員即時指令:看著即時畫面直接告訴 AI 怎麼做(下一步生效,可記進應用記憶)。 */}
+          {jobId && (isLive || hasCommands) && (
+            <OperatorChat
+              jobId={jobId}
+              isLive={isLive}
+              {...(latestScreen ? { currentScreen: latestScreen } : {})}
+              {...(appId ? { appId } : {})}
+            />
+          )}
         </div>
 
         {/* 右:Trace 步驟串流 */}
@@ -390,14 +430,20 @@ export default function TaskDetailPage() {
           ) : steps.length === 0 ? (
             <p className="detail__no-steps">{t('detail.noSteps')}</p>
           ) : (
-            <ol className="detail__steps">
-              {steps.map((s) => {
+            <ol className="detail__steps" reversed>
+              {/* 由新到舊:最新一步在最上面,執行中不必一直往下捲 */}
+              {[...steps].reverse().map((s) => {
                 const thumb = asText(s.annotatedUrl) ?? asText(s.screenshotUrl);
                 const screenText = asText(s.screen);
                 const actionText = asText(s.action);
                 const thinkingText = asText(s.thinking);
                 const urlText = asText(s.url);
                 const titleText = asText(s.observedTitle);
+                const opCmds = Array.isArray(s.operatorCommands)
+                  ? (s.operatorCommands as Array<{ id?: unknown; text?: unknown }>)
+                      .map((c) => asText(c?.text))
+                      .filter((x): x is string => !!x)
+                  : [];
                 return (
                   <li key={s.index} className="detail__step">
                     <div className="detail__step-head">
@@ -423,6 +469,11 @@ export default function TaskDetailPage() {
                         </a>
                       )}
                       <div className="detail__step-text">
+                        {opCmds.map((txt, k) => (
+                          <div key={k} className="detail__step-opcmd">
+                            <span aria-hidden="true">💬</span> {txt}
+                          </div>
+                        ))}
                         {thinkingText && (
                           <div className="detail__step-think">{thinkingText}</div>
                         )}

@@ -1,8 +1,17 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { apiGet, apiPost, type ListResponse } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
+import { reportLang } from '../components/report/reportText.ts';
+import {
+  DeletedPanel,
+  HintsPanel,
+  PageDrawer,
+  mt,
+  useMemoryHints,
+  type DeletedInfo,
+} from '../components/memory/MemoryEditor.tsx';
 import './ListPage.css';
 import './MemoryPage.css';
 
@@ -21,6 +30,9 @@ interface MemPage {
   aliases?: Record<string, number>;
   module?: string;
   transient?: boolean;
+  /** 使用者在記憶地圖改過名(autoName = AI 原始命名)。 */
+  renamed?: boolean;
+  autoName?: string;
 }
 interface MemEdge {
   fromPageId: string;
@@ -32,6 +44,8 @@ interface MemEdge {
 interface MemOverview {
   structure: { pages: Record<string, MemPage>; edges: MemEdge[]; rootPageId?: string | null; lastUpdatedAt: string | null };
   stats: { pages: number; edges: number; controls: number; totalRuns: number };
+  edits?: { renames?: Record<string, string>; deletedPages?: string[]; deletedEdges?: string[] };
+  deleted?: DeletedInfo;
 }
 
 interface ScenarioStep { screen: string; action: string | null }
@@ -47,9 +61,21 @@ interface ScenarioTemplate {
 type ViewMode = 'grid' | 'graph';
 
 export default function MemoryPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const lang = reportLang(locale);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [apps, setApps] = useState<AppRecord[]>([]);
-  const [appId, setAppId] = useState('');
+  const [appId, setAppIdState] = useState('');
+  const [openPageId, setOpenPageId] = useState<string | null>(null);
+  const hintsApi = useMemoryHints(appId);
+  // 選擇的 App 同步到網址(?app=),讓測試頁的「管理應用記憶」連結可直接帶到對應 App。
+  function setAppId(id: string) {
+    setAppIdState(id);
+    setOpenPageId(null);
+    const next = new URLSearchParams(searchParams);
+    if (id) next.set('app', id); else next.delete('app');
+    setSearchParams(next, { replace: true });
+  }
   const [overview, setOverview] = useState<MemOverview | null>(null);
   const [shots, setShots] = useState<Record<string, string>>({});
   const [view, setView] = useState<ViewMode>('grid');
@@ -61,7 +87,9 @@ export default function MemoryPage() {
     apiGet<ListResponse<AppRecord>>('/apps')
       .then((r) => {
         setApps(r.items);
-        if (r.items[0]) setAppId(r.items[0].id);
+        const wanted = searchParams.get('app');
+        const pick = r.items.find((a) => a.id === wanted) ?? r.items[0];
+        if (pick) setAppIdState(pick.id);
       })
       .catch(() => {});
   }, []);
@@ -84,13 +112,17 @@ export default function MemoryPage() {
 
   const [clearing, setClearing] = useState(false);
 
-  const loadOverview = useCallback(() => {
+  // quiet = 編修後重抓:不顯示骨架、不重抓已有的截圖(避免畫面閃爍)。
+  const loadOverview = useCallback((quiet = false) => {
     if (!appId) return;
-    setLoading(true);
-    setShots({});
+    if (!quiet) {
+      setLoading(true);
+      setShots({});
+    }
     apiGet<MemOverview>(`/memory?app=${encodeURIComponent(appId)}`)
       .then(async (o) => {
         setOverview(o);
+        if (quiet) return;
         // 為每個 page 取截圖 presigned URL(並行,少量)。
         const pages = Object.values(o.structure.pages);
         const entries = await Promise.all(
@@ -107,9 +139,10 @@ export default function MemoryPage() {
         );
         setShots(Object.fromEntries(entries.filter(([, u]) => u)));
       })
-      .catch(() => setOverview(null))
-      .finally(() => setLoading(false));
+      .catch(() => { if (!quiet) setOverview(null); })
+      .finally(() => { if (!quiet) setLoading(false); });
   }, [appId]);
+  const refreshQuiet = useCallback(() => loadOverview(true), [loadOverview]);
 
   useEffect(() => {
     loadOverview();
@@ -139,6 +172,13 @@ export default function MemoryPage() {
   const edges = overview?.structure.edges ?? [];
   const maxVisits = Math.max(1, ...pages.map((p) => p.visitCount));
   const stats = overview?.stats;
+  const pageOptions = [...pages].sort((a, b) => a.name.localeCompare(b.name)).map((p) => ({ id: p.id, name: p.name }));
+  const pageName = (id: string) => overview?.structure.pages[id]?.name ?? id;
+  const openPage = openPageId ? pagesWithShots.find((p) => p.id === openPageId) : undefined;
+  const hintCount = (p: MemPage) => {
+    const names = new Set([p.name, p.autoName, ...Object.keys(p.aliases ?? {})].filter(Boolean));
+    return hintsApi.hints.filter((h) => h.enabled && (h.pageId === p.id || (!h.pageId && h.screen && names.has(h.screen)))).length;
+  };
 
   return (
     <section className="listpage listpage--wide memory">
@@ -181,6 +221,9 @@ export default function MemoryPage() {
           <div className="memory__vital"><b>{stats.totalRuns}</b><span>{t('memory.statRuns')}</span></div>
         </div>
       )}
+
+      {/* 應用記憶:使用者教 AI 的經驗(即時指令勾「記住」或手動新增),每次測試注入 prompt */}
+      {appId && <HintsPanel lang={lang} api={hintsApi} pages={pageOptions} />}
 
       {/* 場景範本:由記憶地圖可達路徑生成,供一鍵建立測試案例(步驟 4) */}
       {templates.length > 0 && (
@@ -228,25 +271,40 @@ export default function MemoryPage() {
           </div>
 
           {view === 'grid' ? (
+            <>
+            <p className="memory__hint">{mt('gridHint', lang)}</p>
             <div className="memory__grid">
-              {pagesWithShots.map((p) => (
-                <figure key={p.id} className="memory__card">
-                  <div className="memory__card-heat" style={{ width: `${Math.max(8, (p.visitCount / maxVisits) * 100)}%` }} />
-                  <div className="memory__card-thumb">
-                    {p.screenshotUrl ? <img src={p.screenshotUrl} alt={p.name} loading="lazy" /> : <div className="memory__card-noimg" />}
-                  </div>
-                  <figcaption>
-                    <span className="memory__card-name">{p.name}</span>
-                    <span className="memory__card-meta">{p.visitCount} {t('memory.visits')}</span>
-                    {Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).length > 0 && (
-                      <span className="memory__card-meta" title={Object.keys(p.aliases ?? {}).join('、')}>
-                        {t('memory.graphAliases')}: {Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).slice(0, 3).join('、')}
-                      </span>
-                    )}
-                  </figcaption>
-                </figure>
-              ))}
+              {pagesWithShots.map((p) => {
+                const nHints = hintCount(p);
+                return (
+                  <figure key={p.id} className="memory__card">
+                    <button
+                      type="button"
+                      className="memory__card-btn"
+                      onClick={() => setOpenPageId(p.id)}
+                      aria-haspopup="dialog"
+                      aria-label={`${mt('edit', lang)}: ${p.name}`}
+                    >
+                      <div className="memory__card-heat" style={{ width: `${Math.max(8, (p.visitCount / maxVisits) * 100)}%` }} />
+                      <div className="memory__card-thumb">
+                        {p.screenshotUrl ? <img src={p.screenshotUrl} alt="" loading="lazy" /> : <div className="memory__card-noimg" />}
+                      </div>
+                      <figcaption>
+                        <span className="memory__card-name">{p.name}</span>
+                        <span className="memory__card-meta">{p.visitCount} {t('memory.visits')}</span>
+                        {Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).length > 0 && (
+                          <span className="memory__card-meta" title={Object.keys(p.aliases ?? {}).join('、')}>
+                            {t('memory.graphAliases')}: {Object.keys(p.aliases ?? {}).filter((n) => n !== p.name).slice(0, 3).join('、')}
+                          </span>
+                        )}
+                        {nHints > 0 && <span className="memory__card-tag">💡 {nHints} · {mt('pageNotes', lang)}</span>}
+                      </figcaption>
+                    </button>
+                  </figure>
+                );
+              })}
             </div>
+            </>
           ) : (
             <>
               <p className="memory__hint">{t('memory.graphHint')}</p>
@@ -256,6 +314,25 @@ export default function MemoryPage() {
             </>
           )}
         </>
+      )}
+
+      {/* 已刪除的畫面/路徑(可還原) */}
+      {appId && overview?.deleted && (
+        <DeletedPanel lang={lang} appId={appId} deleted={overview.deleted} onEdited={refreshQuiet} />
+      )}
+
+      {/* 單一畫面編修抽屜 */}
+      {appId && openPage && (
+        <PageDrawer
+          lang={lang}
+          appId={appId}
+          page={openPage}
+          edges={edges}
+          pageName={pageName}
+          api={hintsApi}
+          onClose={() => setOpenPageId(null)}
+          onEdited={refreshQuiet}
+        />
       )}
     </section>
   );

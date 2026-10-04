@@ -26,8 +26,9 @@
  * 架構:重活(讀數百 MB APK、上傳 Device Farm、等真機 session RUNNING)都在此 Fargate
  * 容器內做——engine Lambda 512MB/5 分無法承載。engine 只負責起這個 task。
  */
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor } from './operatorMemory.mjs';
 import {
   DeviceFarmClient,
   StopRemoteAccessSessionCommand,
@@ -35,7 +36,7 @@ import {
 import { AppiumClient } from './appiumClient.mjs';
 import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
 import { setupDeviceFarmSession } from './deviceFarmSetup.mjs';
-import { magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
+import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
@@ -575,15 +576,24 @@ async function main() {
   } catch {
     const [gw, gh] = await client.getScreenSize().catch(() => [1080, 1920]); w = gw; h = gh;
   }
-  const system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls);
+  // 應用記憶:使用者教過 AI 的經驗(hints.json)+ 記憶地圖手動編修(edits.json)。
+  const S3CMDS = { ListObjectsV2Command, GetObjectCommand, PutObjectCommand };
+  const appMemory = await loadAppMemory({ s3, bucket: BUCKET, memPrefix: MEM_PREFIX, cmds: S3CMDS });
+  if (appMemory.hints.length) console.log(`應用記憶:載入 ${appMemory.hints.length} 條使用者教學`);
+  // 測試人員即時指令通道(聊天室 → commands/*.json,每步輪詢)。
+  const operator = createOperatorChannel({ s3, bucket: BUCKET, jobPrefix: PREFIX, cmds: S3CMDS });
+  // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新;
+  // 使用者在記憶地圖刪掉的畫面/路徑先移除(只套刪除,改名留在讀取端)。
+  const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false });
+  const system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
+    + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
   console.log('ImageMagick 座標校正', MAGICK ? '啟用' : '不可用(裸座標)');
   console.log('定位模型', USE_UITARS ? `UI-TARS(SageMaker endpoint=${process.env.PA_UITARS_ENDPOINT})` : `Bedrock VLM(${VLM})`);
   const messages = [];
   const steps = [];
-  // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新。
-  const struct = compactStructure(await loadStructure());
   // prevAction:給 prompt 的上一步動作;navAction/prevTarget:導覽圖「造成轉場的動作/目標」。
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
+  let prevScreen = ''; // 上一步 AI 標的畫面名(記憶提醒 / 指令回執用)
   let consecFail = 0;
   // 無上限時不會「達步數上限」;若真的迴圈自然結束(理論上只有有限步才會),訊息才用步數上限。
   let finalState = 'fail';
@@ -638,7 +648,10 @@ async function main() {
     liveBusy = true;
     try {
       const b64 = await client.takeScreenshot();
-      await s3put(LIVE_KEY, Buffer.from(b64, 'base64'), 'image/png');
+      const png = Buffer.from(b64, 'base64');
+      // 原圖 PNG 太大(數 MB),前端來不及下載下一幀就被換掉 → 畫面看似凍結。壓成小 JPEG 再上傳。
+      const jpg = MAGICK ? await liveJpeg(png) : null;
+      await s3put(LIVE_KEY, jpg ?? png, jpg ? 'image/jpeg' : 'image/png');
     } catch { /* 幀丟失不影響 */ }
     finally { liveBusy = false; }
   }, 400);
@@ -713,7 +726,16 @@ async function main() {
     const stuckNote = (stuckCount >= 2)
       ? `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化 —— 你先前點的位置不是可互動按鈕。請「換一個明顯不同的位置」,對準畫面上最大最醒目的主按鈕(通常在中下段,文字如 Play now / START / 開始 / 進入),把座標對到那顆按鈕的正中心,不要再點同一處或空白處。`
       : (i > 0 && !screenChanged ? '上一步後畫面沒變(可能無效),換個位置或做法。' : '');
-    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + controlNote;
+    // 測試人員即時指令(聊天室):新指令最高優先注入本回合;先前指令持續提醒。
+    const newCmds = await operator.poll();
+    for (const c of newCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
+    // 回到某畫面時,提醒使用者教過的該畫面操作(system 裡的長清單之外,再於當下強調一次)。
+    const scoped = screenHintsFor(appMemory.hints, { screen: prevScreen, pageId: prevPageId });
+    const memoryNote = scoped.length
+      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過:${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
+      : '';
+    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + controlNote
+      + memoryNote + operatorTurnNote(newCmds, operator.active);
     controlNote = '';
     messages.push(makeUserTurn([visionShot], turnText, visionFmt));
     // UI-TARS(SageMaker):單幀 GUI grounding,座標直接落在 cw×ch smart-resize 幀;否則走 Bedrock 通用 VLM。
@@ -730,8 +752,12 @@ async function main() {
           ...(controls?.joystick ? { x: Math.round(origW * controls.joystick.x), y: Math.round(origH * controls.joystick.y) } : {}) })
         .catch((e) => console.warn('[autopilot] kite 失敗', e?.message || e));
     }
+    // UI-TARS 只看 instruction(不吃 system/回合文字):把測試人員指令與畫面記憶併進 instruction。
+    const uitarsInstr = operator.active.length || scoped.length
+      ? `${TASK}\n\nTester instructions (highest priority, follow now):\n${[...operator.active.slice(-3).map((c) => c.text), ...scoped.slice(0, 3).map((h) => h.text)].map((t) => `- ${t}`).join('\n')}`
+      : TASK;
     let decided = USE_UITARS
-      ? await decideUitars(TASK, messages, cw, ch)
+      ? await decideUitars(uitarsInstr, messages, cw, ch)
       : await decide(system, messages);
     // 解析失敗(模型吐亂碼/空字串)時立即重問,最多 2 次;不浪費一個步驟、也不讓連續失敗計數誤殺任務。
     for (let r = 0; r < 2 && decided.cmd.parseFailed && decided.trace?.ok !== false && !USE_UITARS; r++) {
@@ -831,6 +857,8 @@ async function main() {
     // 允許 AI 的 back/launch 脫困,並由 runner 主動重啟 App(實測 AI 的 launch 一直被改成 wait,永遠出不去)。
     // 不看 pHash:Config Ready 這類畫面有持續動畫,「畫面有變」不代表流程有進展。
     loadingStreak = looksLoading ? loadingStreak + 1 : 0;
+    // 本步有測試人員指令:AI 正照人的指示操作,runner 的自動覆寫(強制等待/脫困/強制走位)讓路。
+    const operatorDirected = newCmds.length > 0;
     const allowRecovery = loadingStreak >= LOADING_RECOVER_AFTER && (cmd.action === 'back' || cmd.action === 'launch');
     if (looksLoading && loadingStreak >= LOADING_RESTART_AFTER && effectivePkg && appRestarts < 3) {
       appRestarts++;
@@ -842,7 +870,7 @@ async function main() {
       cmd.override = 'app_restart';
       escapeOverride = true;
       controlNote = '【系統】遊戲剛被重新啟動,請從第一個畫面重新依知識庫流程進入。';
-    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery) {
+    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery && !operatorDirected) {
       const origAction = cmd.action;
       cmd.action = 'wait'; cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 3;
       cmd.thinking = `偵測到載入/開場動畫畫面(無可互動元素),強制改為等待,不亂點。原動作:${origAction}。` + String(cmd.thinking || '');
@@ -900,7 +928,7 @@ async function main() {
     // 2026-10-04:不再要求高信心才放行——實測大廳機台列表空白時,AI 想點分類/展開鈕卻被
     // 「先等待」連續蓋掉 20 步。非載入畫面一律讓 AI 自己換位置嘗試,耐心期過後才進 runner 脫困輪換。
     const letAiTry = !looksLoading && cmd.action !== 'wait' && stuckCount < 20;
-    if (stuckCount >= 3 && !looksSlotSpin && !letAiTry) {
+    if (stuckCount >= 3 && !looksSlotSpin && !letAiTry && !operatorDirected) {
       // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
       //     配合此處額外 wait 動作,等於給數十秒到 1-2 分鐘讓安裝/載入完成),不亂點。
       const STUCK_WAIT_STEPS = 20; // 卡住的前 20 輪(約 60-100s)只等待,不亂點
@@ -1015,9 +1043,14 @@ async function main() {
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),
       ...(foregroundLost ? { foregroundLost: true, ...(appState !== undefined ? { appState } : {}) } : {}),
-      ...(perf ? { perf } : {}) };
+      ...(perf ? { perf } : {}),
+      ...(newCmds.length ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}) };
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+    // 指令回執:AI 這一步怎麼回應(聊天室顯示)。
+    for (const c of newCmds) {
+      await operator.ack(c, { status: 'applied', step: i, action: cmd.action, screen: screenName, reply: String(cmd.thinking || '').slice(0, 400) });
+    }
 
     // 增量記憶地圖:建/更新當前畫面節點 + 從上一畫面的轉移邊,即時寫回供前端重繪。
     // 畫面身分用「視覺指紋 + 正規化名稱 + 模組」判斷(見 memoryGraph.mjs),AI 換說法不會長出重複節點。
@@ -1113,7 +1146,7 @@ async function main() {
     // 測試腳本指定了操作方式時,只有「下方中央搖桿」(割草類)才啟用強制走位;
     // 其他類型(如左搖桿+技能、賽車)不可把 tap 改寫成 move,否則會破壞技能/轉向操作。
     const battleMoveEnabled = !controls || controls.battleMove;
-    if (battleMoveEnabled && inBattle && !isPopup && (cmd.action === 'tap' || cmd.action === 'swipe' || cmd.action === 'wait')) {
+    if (battleMoveEnabled && inBattle && !isPopup && !operatorDirected && (cmd.action === 'tap' || cmd.action === 'swipe' || cmd.action === 'wait')) {
       const dirs = ['up', 'right', 'down', 'left', 'upright', 'downleft', 'upleft', 'downright'];
       const forcedDir = dirs[battleMoveTick % dirs.length];
       battleMoveTick++;
@@ -1162,6 +1195,7 @@ async function main() {
     // 導覽圖用的「上一畫面/上一動作」:AI 沒給畫面名(pid=null,如解析失敗)時沿用上一個已知畫面,
     // 且該步若只是 wait 不覆蓋真正造成轉場的動作(如先 tap Slots → 解析失敗 wait → 機台選擇)。
     prevAction = cmd.action; // 給 prompt 用:上一步實際執行的動作
+    if (cmd.screen) prevScreen = screenName;
     if (pid) {
       prevPageId = pid; navAction = cmd.action;
       // runner 覆寫了動作時,AI 的 target 不代表實際操作的元件。

@@ -203,6 +203,17 @@
   object-fit: cover;
 }
 
+/* 測試人員即時指令(此步生效) */
+.detail__step-opcmd {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--accent, #6366f1) 14%, transparent);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 /* AI 思考文字 */
 .detail__step-think {
   color: var(--text-secondary);
@@ -309,47 +320,119 @@
   color: var(--text-secondary);
 }
 
-/* 使用模型:三角色分工列表 */
+/* 欄位標題前的小 icon */
+.detail__info-row dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.detail__dt-icon {
+  flex: 0 0 auto;
+  color: var(--brand);
+}
+
+/* 使用模型:三角色 icon 晶片;分工說明在 hover / focus 顯示 */
 .detail__roles {
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
 .detail__role {
-  display: grid;
-  grid-template-columns: 88px 1fr auto;
-  align-items: baseline;
-  gap: var(--space-2) var(--space-3);
+  position: relative;
 }
 
+.detail__role-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  cursor: help;
+  white-space: nowrap;
+}
+.detail__role-chip:hover,
+.detail__role-chip:focus-visible {
+  border-color: var(--brand);
+  outline: none;
+}
+.detail__role-chip:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+
+.detail__role-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--brand);
+}
+.detail__role-icon--vlm { background: #0ea5e9; }
+.detail__role-icon--subagent { background: #8b5cf6; }
+
 .detail__role-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.detail__role-model {
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
-.detail__role-hint {
+.detail__role-tip {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  top: calc(100% + 6px);
+  width: max-content;
+  max-width: 300px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: 12px;
-  color: var(--text-tertiary);
-  line-height: 1.4;
-}
-
-.detail__role-model {
-  font-size: 13px;
+  line-height: 1.5;
   color: var(--text-secondary);
-  white-space: nowrap;
-  cursor: default;
+  white-space: normal;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease, visibility 0.12s;
+  pointer-events: none;
 }
-
-@media (max-width: 720px) {
-  .detail__role {
-    grid-template-columns: 1fr;
-    gap: 2px;
-  }
+.detail__role-tip b {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.detail__role-tip-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+.detail__role:hover .detail__role-tip,
+.detail__role-chip:focus-visible + .detail__role-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail__role-tip { transition: none; }
 }
 
 .detail__info-cost {

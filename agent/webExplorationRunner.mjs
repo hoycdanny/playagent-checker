@@ -18,8 +18,9 @@
  *   PA_MAXSTEPS 步數上限(預設 30)
  *   PA_VIEWPORT (選)WxH,預設 1280x800
  */
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor } from './operatorMemory.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -205,12 +206,17 @@ async function main() {
     if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
   } catch { /* 無則略過 */ }
 
-  const system = buildSystemPrompt(knowledge, evidence);
+  // 應用記憶(使用者教過 AI 的經驗 + 記憶地圖編修)與測試人員即時指令通道(見 operatorMemory.mjs)。
+  const S3CMDS = { ListObjectsV2Command, GetObjectCommand, PutObjectCommand };
+  const appMemory = await loadAppMemory({ s3, bucket: BUCKET, memPrefix: MEM_PREFIX, cmds: S3CMDS });
+  const operator = createOperatorChannel({ s3, bucket: BUCKET, jobPrefix: PREFIX, cmds: S3CMDS });
   const messages = [];
   const steps = [];
-  // 載入時先收斂舊格式的雜亂資料,之後以新規則增量更新(見 memoryGraph.mjs)。
-  const struct = compactStructure(await loadStructure());
+  // 載入時先收斂舊格式的雜亂資料,之後以新規則增量更新(見 memoryGraph.mjs);套用使用者刪除的畫面/路徑。
+  const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false });
+  const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
+  let prevScreen = '';
   let consecFail = 0;
   let finalState = 'fail';
   let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
@@ -263,7 +269,14 @@ async function main() {
     const dimHint =
       `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高)。座標請用「這張圖的絕對像素」:左上 (0,0),右下 (${cw},${ch})。把座標對到元件本身的正中心。` +
       (stuckCount >= 2 ? `【注意】畫面已連續 ${stuckCount + 1} 步沒變化——換一個明顯不同的位置或改用 swipe 捲動。` : (i > 0 && !screenChanged ? '上一步後畫面沒變,換個位置或做法。' : ''));
-    const turnText = (i === 0 ? `第一張畫面(網址 ${client.currentUrl()})。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint;
+    const newCmds = await operator.poll();
+    for (const c of newCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
+    const scoped = screenHintsFor(appMemory.hints, { screen: prevScreen, pageId: prevPageId });
+    const memoryNote = scoped.length
+      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過:${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
+      : '';
+    const turnText = (i === 0 ? `第一張畫面(網址 ${client.currentUrl()})。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint
+      + memoryNote + operatorTurnNote(newCmds, operator.active);
     messages.push(makeUserTurn([ds.b64], turnText, visionFmt));
 
     const tVlm = Date.now();
@@ -317,9 +330,13 @@ async function main() {
       ...evidenceFields(cmd, cmd.action),
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),
+      ...(newCmds.length ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}),
     };
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+    for (const c of newCmds) {
+      await operator.ack(c, { status: 'applied', step: i, action: cmd.action, screen: screenName, reply: String(cmd.thinking || '').slice(0, 400) });
+    }
 
     // 記憶地圖:建/更新畫面節點 + 轉移邊。
     const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
@@ -376,6 +393,7 @@ async function main() {
     try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
     // 導覽圖:AI 沒給畫面名時沿用上一個已知畫面;該步只是 wait 則不覆蓋真正造成轉場的動作。
     prevAction = cmd.action; // 給 prompt 用
+    if (cmd.screen) prevScreen = screenName;
     if (pid) { prevPageId = pid; navAction = cmd.action; prevTarget = typeof cmd.target === 'string' ? cmd.target : ''; }
     else if (cmd.action !== 'wait') { navAction = cmd.action; prevTarget = ''; }
     await sleep(2500);
