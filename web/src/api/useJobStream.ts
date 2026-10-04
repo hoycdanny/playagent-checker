@@ -42,6 +42,11 @@ export interface TaskMeta {
   budgetUsd?: number;
   billableSpendUsd?: number;
   spendEstimated?: boolean;
+  /** 完整測試腳本(案例 task 原文)。 */
+  script?: string;
+  caseName?: string;
+  caseVersion?: string;
+  maxSteps?: number;
 }
 
 export interface JobDetail {

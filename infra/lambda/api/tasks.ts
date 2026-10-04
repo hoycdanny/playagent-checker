@@ -583,6 +583,13 @@ export interface TaskMeta {
   billableSpendUsd?: number;
   /** billableSpendUsd 是否為前端/後端由 token 估出(而非引擎直接記錄)。 */
   spendEstimated?: boolean;
+  /** 本次執行的完整測試腳本(案例 task 原文;執行中即可顯示,不必等報告)。 */
+  script?: string;
+  /** 案例名稱 / 版本快照。 */
+  caseName?: string;
+  caseVersion?: string;
+  /** 步數上限(未設 = 無上限)。 */
+  maxSteps?: number;
 }
 
 /**
@@ -647,6 +654,10 @@ async function buildTaskMeta(
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
     ...(billableSpendUsd !== undefined ? { billableSpendUsd } : {}),
     ...(spendEstimated ? { spendEstimated: true } : {}),
+    ...((job.caseTask ?? report?.task) ? { script: String(job.caseTask ?? report?.task).slice(0, 8000) } : {}),
+    ...(job.caseName ? { caseName: job.caseName } : {}),
+    ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
+    ...(typeof job.maxSteps === 'number' && job.maxSteps > 0 ? { maxSteps: job.maxSteps } : {}),
   };
 }
 

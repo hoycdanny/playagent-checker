@@ -2,11 +2,13 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
 import { apiGet, type ListResponse } from '../api/client.ts';
-import { modelLabel, providerOf, PROVIDER_LABEL } from '../components/modelProvider.ts';
-import { InfoIcon, type InfoIconName } from '../components/tasks/InfoIcon.tsx';
+import { modelLabel } from '../components/modelProvider.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import { OperatorChat } from '../components/tasks/OperatorChat.tsx';
+import { ScriptPanel } from '../components/tasks/ScriptPanel.tsx';
+import { TaskInfoStrip } from '../components/tasks/TaskInfoStrip.tsx';
+import { reportLang, type RLang } from '../components/report/reportText.ts';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -45,12 +47,23 @@ function asText(v: unknown): string | undefined {
   try { return JSON.stringify(v); } catch { return String(v); }
 }
 
+/** 本頁新增文案(zh/en)。 */
+const PT = {
+  progress: ['第 {n} 步', 'Step {n}'],
+  limit: ['上限 {m}', 'of {m}'],
+  newestFirst: ['最新在上', 'Newest first'],
+  current: ['目前', 'Now'],
+  stepCount: ['{n} 步', '{n} steps'],
+} as const;
+const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
+
 export default function TaskDetailPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const lang = reportLang(locale);
   const { jobId } = useParams<{ jobId: string }>();
   const { state, message, steps, meta, appId, connected, loading } = useJobStream(jobId ?? null);
 
-  // 知識庫 id → 名稱對照(供「套用情境」以人類可讀名稱呈現)。
+  // 知識庫 id → 名稱對照(供資訊列以人類可讀名稱呈現)。
   const [kbNames, setKbNames] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     apiGet<ListResponse<KbSummary>>('/knowledge-bases')
@@ -58,7 +71,7 @@ export default function TaskDetailPage() {
       .catch(() => {});
   }, []);
 
-  // 即時畫面串流:任務執行中(非終局)以 ~4fps 輪詢 live-frame,拿短效 presigned URL 換 <img>。
+  // 即時畫面串流:任務執行中(非終局)輪詢 live-frame,拿短效 presigned URL 換 <img>。
   // runner 持續覆寫同一 live 幀;URL 每次不同以繞過快取。任務終局即停止輪詢。
   const TERMINAL_STATES = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
   const isLive = !TERMINAL_STATES.has(state) && state !== 'queued';
@@ -76,9 +89,9 @@ export default function TaskDetailPage() {
     const preload = (url: string) =>
       new Promise<boolean>((resolve) => {
         const img = new Image();
-        const t = setTimeout(() => resolve(false), 8000);
-        img.onload = () => { clearTimeout(t); resolve(true); };
-        img.onerror = () => { clearTimeout(t); resolve(false); };
+        const tm = setTimeout(() => resolve(false), 8000);
+        img.onload = () => { clearTimeout(tm); resolve(true); };
+        img.onerror = () => { clearTimeout(tm); resolve(false); };
         img.src = url;
       });
     const loop = async () => {
@@ -126,19 +139,21 @@ export default function TaskDetailPage() {
     if (next && logs === null) void loadLogs();
   }
 
-  // 即時畫面:取「最新一張有截圖的步驟」當作即時畫面(devicefarm/emulator runner 每步都推截圖到 S3,
-  // API 已附 presigned URL)。Web 後端無截圖,則回退顯示說明。
+  // 即時畫面回退:取「最新一張有截圖的步驟」(live 幀尚未產生或任務已結束時顯示)。
   const latestShot = [...steps]
     .reverse()
     .find((s) => s.annotatedUrl || s.screenshotUrl);
   const liveUrl = asText(latestShot?.annotatedUrl) ?? asText(latestShot?.screenshotUrl);
-  // 最新一步的畫面名稱:即時指令「記住」時當作提示的畫面範圍。
+  const latestStep = steps[steps.length - 1];
+  // 最新一步的畫面名稱:即時指令「記住」時當作提示的畫面範圍,也顯示在即時畫面下方。
   const latestScreen = asText([...steps].reverse().find((s) => s.screen)?.screen);
   // 終局後仍顯示指令紀錄(若本次有下過指令)。
   const hasCommands = steps.some((s) => Array.isArray(s.operatorCommands) && s.operatorCommands.length > 0);
+  const showChat = !!jobId && (isLive || hasCommands);
+  const stepNo = latestStep ? latestStep.index + 1 : 0;
 
   return (
-    <section className="listpage listpage--wide detail">
+    <section className="listpage detail">
       <div className="detail__topline">
         <Link to="/tasks" className="detail__back">
           ← {t('detail.back')}
@@ -166,12 +181,23 @@ export default function TaskDetailPage() {
         </div>
       </div>
 
-      <header className="listpage__header">
-        <h1 className="listpage__title">{t('detail.title')}</h1>
+      {/* 標題列:狀態 + 進度 + 精簡任務資訊(細節 hover 才顯示),把版面留給即時畫面與執行軌跡 */}
+      <header className="detail__head">
+        <div className="detail__head-row">
+          <h1 className="detail__title">{t('detail.title')}</h1>
+          <span className={`detail__pill detail__pill--${state}`}>{t(`state.${state}` as MessageKey)}</span>
+          {stepNo > 0 && (
+            <span className="detail__progress">
+              {pt('progress', lang).replace('{n}', String(stepNo))}
+              {meta?.maxSteps ? ` · ${pt('limit', lang).replace('{m}', String(meta.maxSteps))}` : ''}
+            </span>
+          )}
+          <TaskInfoStrip meta={meta} kbNames={kbNames} />
+        </div>
         {/* 終局狀態以 ARIA live region 通報(Req 11.3) */}
         <p className="detail__state" role="status" aria-live="polite">
-          {t(`state.${state}` as MessageKey)}
-          {message ? ` — ${message}` : ''}
+          <span className="visually-hidden">{t(`state.${state}` as MessageKey)}{message ? ' — ' : ''}</span>
+          {message ?? ''}
         </p>
         {/* 成因引導(Req 12.3):fail → 被測 App/案例;error → 環境/基礎設施 */}
         {state === 'fail' && (
@@ -181,125 +207,6 @@ export default function TaskDetailPage() {
           <p className="detail__triage detail__triage--error">{t('trend.triageError')}</p>
         )}
       </header>
-
-      {/* 任務資訊:套用情境(任務描述 + 知識庫)、使用模型、花費(Req 6.4/7.5)。 */}
-      <section className="detail__info">
-        <h2 className="detail__panel-title">{t('detail.info')}</h2>
-        {(() => {
-          const hasInfo =
-            meta &&
-            (meta.task ||
-              meta.knowledgeBaseIds.length > 0 ||
-              meta.vlmModel ||
-              meta.seats.length > 0 ||
-              meta.billableSpendUsd !== undefined ||
-              meta.tokens);
-          if (!hasInfo) {
-            return <p className="detail__no-steps">{t('detail.noInfo')}</p>;
-          }
-          const kbLabels = meta!.knowledgeBaseIds.map((id) => kbNames.get(id) ?? id);
-          const fmtUsd = (n: number) => `$${n.toFixed(2)}`;
-          return (
-            <dl className="detail__info-grid">
-              {meta!.task && (
-                <div className="detail__info-row">
-                  <dt><InfoIcon name="target" className="detail__dt-icon" />{t('detail.scenario')}</dt>
-                  <dd>{meta!.task}</dd>
-                </div>
-              )}
-              {kbLabels.length > 0 && (
-                <div className="detail__info-row">
-                  <dt><InfoIcon name="book" className="detail__dt-icon" />{t('detail.knowledgeBases')}</dt>
-                  <dd>
-                    <ul className="detail__info-tags">
-                      {kbLabels.map((label, i) => (
-                        <li key={`${label}-${i}`} className="detail__info-tag">
-                          {label}
-                        </li>
-                      ))}
-                    </ul>
-                  </dd>
-                </div>
-              )}
-              {/* 執行裝置:Device Farm 真機任務才會有機型;顯示實際跑在哪台實體裝置上 */}
-              {meta!.deviceModel && (
-                <div className="detail__info-row">
-                  <dt><InfoIcon name="phone" className="detail__dt-icon" />{t('detail.ranOnDevice')}</dt>
-                  <dd>{meta!.deviceModel}</dd>
-                </div>
-              )}
-              {/* 使用模型:精簡成 icon 晶片(角色 + 模型);分工說明與完整 model id 在滑鼠移過/鍵盤聚焦時顯示 */}
-              {(() => {
-                const seatModel = (seat: string): string | undefined =>
-                  meta!.seats.find((s) => s.seat === seat)?.modelId ??
-                  (seat === 'vlm' ? meta!.vlmModel : undefined);
-                const roles: Array<{ seat: string; icon: InfoIconName; label: string; hint: string }> = [
-                  { seat: 'agent', icon: 'gamepad', label: t('detail.roleAgent'), hint: t('detail.roleAgentHint') },
-                  { seat: 'vlm', icon: 'eye', label: t('detail.roleVlm'), hint: t('detail.roleVlmHint') },
-                  { seat: 'subagent', icon: 'sparkle', label: t('detail.roleSubagent'), hint: t('detail.roleSubagentHint') },
-                ];
-                const rows = roles.filter((r) => seatModel(r.seat));
-                if (rows.length === 0) return null;
-                return (
-                  <div className="detail__info-row">
-                    <dt><InfoIcon name="cpu" className="detail__dt-icon" />{t('detail.models')}</dt>
-                    <dd>
-                      <ul className="detail__roles">
-                        {rows.map((r) => {
-                          const modelId = seatModel(r.seat)!;
-                          const provider = providerOf(modelId);
-                          const tipId = `role-tip-${r.seat}`;
-                          return (
-                            <li key={r.seat} className="detail__role">
-                              <span className="detail__role-chip" tabIndex={0} aria-describedby={tipId}>
-                                <span className={`detail__role-icon detail__role-icon--${r.seat}`}>
-                                  <InfoIcon name={r.icon} size={15} />
-                                </span>
-                                <span className="detail__role-label">{r.label}</span>
-                                <span className="detail__role-model">{modelLabel(modelId)}</span>
-                              </span>
-                              <span role="tooltip" id={tipId} className="detail__role-tip">
-                                <b>{r.label}</b>
-                                <span>{r.hint}</span>
-                                <span className="detail__role-tip-id">
-                                  {PROVIDER_LABEL[provider]} · {modelId}
-                                </span>
-                              </span>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </dd>
-                  </div>
-                );
-              })()}
-              {meta!.billableSpendUsd !== undefined && (
-                <div className="detail__info-row">
-                  <dt><InfoIcon name="coin" className="detail__dt-icon" />{t('detail.cost')}</dt>
-                  <dd className="detail__info-cost">
-                    {fmtUsd(meta!.billableSpendUsd)}
-                    {meta!.spendEstimated ? `(${t('detail.costEstimated')})` : ''}
-                    <span className="detail__info-budget">
-                      {' / '}
-                      {t('detail.budget')}{' '}
-                      {meta!.budgetUsd !== undefined ? fmtUsd(meta!.budgetUsd) : t('tasks.unlimited')}
-                    </span>
-                  </dd>
-                </div>
-              )}
-              {meta!.tokens && (
-                <div className="detail__info-row">
-                  <dt><InfoIcon name="hash" className="detail__dt-icon" />{t('detail.tokens')}</dt>
-                  <dd className="detail__info-mono">
-                    ↑ {meta!.tokens.input.toLocaleString()} · ↓{' '}
-                    {meta!.tokens.output.toLocaleString()}
-                  </dd>
-                </div>
-              )}
-            </dl>
-          );
-        })()}
-      </section>
 
       {/* 模型互動 Log:每步完整記錄(模型/請求摘要/原始回應/token/錯誤),供除錯。 */}
       {showLogs && (
@@ -383,46 +290,63 @@ export default function TaskDetailPage() {
         </section>
       )}
 
-      <div className="detail__panels">
-        {/* 左:即時畫面。執行中優先顯示即時串流幀(~4fps 輪詢);否則回退最新步驟截圖。 */}
-        <div className="detail__panel">
-          <h2 className="detail__panel-title">
+      {/* 主區三欄:即時畫面 | 下指令 + 測試腳本 | 執行軌跡(窄螢幕自動改兩欄 / 單欄) */}
+      <div className="detail__layout">
+        {/* 即時畫面:執行中顯示串流幀;否則回退最新步驟截圖。 */}
+        <section className="detail__col detail__col--live" aria-labelledby="detail-live-title">
+          <h2 id="detail-live-title" className="detail__panel-title">
             {t('detail.liveView')}
             {isLive && liveFrameUrl && <span className="detail__live-badge">{t('detail.liveBadge')}</span>}
           </h2>
           {isLive && liveFrameUrl ? (
-            <figure className="detail__live-shot">
-              {/* 即時串流幀:每次 URL 不同以更新畫面 */}
-              <img src={liveFrameUrl} alt={t('detail.liveView')} />
-              <figcaption className="detail__live-cap">{t('detail.liveStreaming')}</figcaption>
+            <figure className="detail__screen">
+              <img src={liveFrameUrl} alt={latestScreen ?? t('detail.liveView')} />
             </figure>
           ) : liveUrl ? (
-            <figure className="detail__live-shot">
+            <figure className="detail__screen">
               <img src={liveUrl} alt={asText(latestShot?.screen) ?? t('detail.liveView')} />
-              {asText(latestShot?.screen) && (
-                <figcaption className="detail__live-cap">
-                  {t('detail.step')} {latestShot?.index}
-                  {` · ${asText(latestShot?.screen)}`}
-                </figcaption>
-              )}
             </figure>
           ) : (
             <div className="detail__no-live">{t('detail.noLiveView')}</div>
           )}
-          {/* 測試人員即時指令:看著即時畫面直接告訴 AI 怎麼做(下一步生效,可記進應用記憶)。 */}
-          {jobId && (isLive || hasCommands) && (
+          {/* 目前畫面 + 最新動作(看畫面時不必轉頭看軌跡) */}
+          {latestStep && (
+            <div className="detail__now">
+              <span className="detail__now-label">{pt('current', lang)}</span>
+              {latestScreen && <span className="detail__now-screen">{latestScreen}</span>}
+              {asText(latestStep.action) && <span className="detail__step-action">{asText(latestStep.action)}</span>}
+            </div>
+          )}
+        </section>
+
+        {/* 中:下指令(執行中的主要操作)+ 測試腳本 */}
+        <div className="detail__col detail__col--ops">
+          {showChat && (
             <OperatorChat
-              jobId={jobId}
+              jobId={jobId!}
               isLive={isLive}
               {...(latestScreen ? { currentScreen: latestScreen } : {})}
               {...(appId ? { appId } : {})}
             />
           )}
+          <ScriptPanel
+            lang={lang}
+            {...(meta?.script ?? meta?.task ? { script: meta?.script ?? meta?.task } : {})}
+            {...(meta?.caseName ? { caseName: meta.caseName } : {})}
+            {...(meta?.caseVersion ? { caseVersion: meta.caseVersion } : {})}
+          />
         </div>
 
-        {/* 右:Trace 步驟串流 */}
-        <div className="detail__panel">
-          <h2 className="detail__panel-title">{t('detail.trace')}</h2>
+        {/* 右:執行軌跡(由新到舊) */}
+        <section className="detail__col detail__col--trace" aria-labelledby="detail-trace-title">
+          <h2 id="detail-trace-title" className="detail__panel-title">
+            {t('detail.trace')}
+            {steps.length > 0 && (
+              <span className="detail__panel-sub">
+                {pt('stepCount', lang).replace('{n}', String(steps.length))} · {pt('newestFirst', lang)}
+              </span>
+            )}
+          </h2>
           {loading && steps.length === 0 ? (
             <div className="listpage__skeleton" aria-hidden="true">
               <div className="listpage__skeleton-row" />
@@ -431,8 +355,7 @@ export default function TaskDetailPage() {
             <p className="detail__no-steps">{t('detail.noSteps')}</p>
           ) : (
             <ol className="detail__steps" reversed>
-              {/* 由新到舊:最新一步在最上面,執行中不必一直往下捲 */}
-              {[...steps].reverse().map((s) => {
+              {[...steps].reverse().map((s, k) => {
                 const thumb = asText(s.annotatedUrl) ?? asText(s.screenshotUrl);
                 const screenText = asText(s.screen);
                 const actionText = asText(s.action);
@@ -445,53 +368,34 @@ export default function TaskDetailPage() {
                       .filter((x): x is string => !!x)
                   : [];
                 return (
-                  <li key={s.index} className="detail__step">
-                    <div className="detail__step-head">
-                      <span className="detail__step-idx">
-                        {t('detail.step')} {s.index}
-                      </span>
-                      {screenText && (
-                        <span className="detail__step-screen">{screenText}</span>
-                      )}
-                      {actionText && (
-                        <span className="detail__step-action">{actionText}</span>
-                      )}
-                    </div>
-                    <div className="detail__step-body">
-                      {thumb && (
-                        <a
-                          href={thumb}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="detail__step-thumb"
-                        >
-                          <img src={thumb} alt={screenText ?? `step ${s.index}`} loading="lazy" />
-                        </a>
-                      )}
-                      <div className="detail__step-text">
-                        {opCmds.map((txt, k) => (
-                          <div key={k} className="detail__step-opcmd">
-                            <span aria-hidden="true">💬</span> {txt}
-                          </div>
-                        ))}
-                        {thinkingText && (
-                          <div className="detail__step-think">{thinkingText}</div>
-                        )}
-                        {urlText && <div className="detail__step-url">{urlText}</div>}
-                        {typeof s.httpStatus === 'number' && (
-                          <div>HTTP {s.httpStatus}</div>
-                        )}
-                        {titleText && (
-                          <div className="detail__step-title">{titleText}</div>
-                        )}
+                  <li key={s.index} className={`detail__step ${k === 0 ? 'detail__step--latest' : ''}`}>
+                    {thumb && (
+                      <a href={thumb} target="_blank" rel="noreferrer" className="detail__step-thumb">
+                        <img src={thumb} alt={screenText ?? `step ${s.index}`} loading="lazy" />
+                      </a>
+                    )}
+                    <div className="detail__step-text">
+                      <div className="detail__step-head">
+                        <span className="detail__step-idx">#{s.index}</span>
+                        {screenText && <span className="detail__step-screen">{screenText}</span>}
+                        {actionText && <span className="detail__step-action">{actionText}</span>}
                       </div>
+                      {opCmds.map((txt, j) => (
+                        <div key={j} className="detail__step-opcmd">
+                          <span aria-hidden="true">💬</span> {txt}
+                        </div>
+                      ))}
+                      {thinkingText && <div className="detail__step-think">{thinkingText}</div>}
+                      {urlText && <div className="detail__step-url">{urlText}</div>}
+                      {typeof s.httpStatus === 'number' && <div>HTTP {s.httpStatus}</div>}
+                      {titleText && <div className="detail__step-title">{titleText}</div>}
                     </div>
                   </li>
                 );
               })}
             </ol>
           )}
-        </div>
+        </section>
       </div>
     </section>
   );
