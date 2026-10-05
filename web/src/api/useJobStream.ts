@@ -149,6 +149,13 @@ export function useJobStream(jobId: string | null): JobStream {
     };
 
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    // WS 推來的 step 是 S3 原始 JSON(只有 screenshotKey,沒有 presigned URL)→ 圖片要重整才出現。
+    // 收到新 step 後(去抖)補讀一次 API,拿到附 presigned URL 的版本覆蓋。
+    let enrichTimer: ReturnType<typeof setTimeout> | undefined;
+    const scheduleEnrich = () => {
+      if (enrichTimer) clearTimeout(enrichTimer);
+      enrichTimer = setTimeout(() => { if (!closedRef.current) void replay(); }, 700);
+    };
 
     const connect = () => {
       const tokens = loadTokens();
@@ -171,7 +178,11 @@ export function useJobStream(jobId: string | null): JobStream {
             type: string;
             data: unknown;
           };
-          if (msg.type === 'step') mergeStep(msg.data as Step);
+          if (msg.type === 'step') {
+            const st = msg.data as Step;
+            mergeStep(st);
+            if (!st.screenshotUrl && !st.annotatedUrl) scheduleEnrich();
+          }
           if (msg.type === 'status') {
             const d = msg.data as { state: string; message?: string; boot?: BootProgress; updatedAt?: string };
             setState(d.state);
@@ -197,10 +208,18 @@ export function useJobStream(jobId: string | null): JobStream {
 
     // 先補讀一次(即使 WS 尚未連上也能顯示現況),再連線。
     void replay().then(connect);
+    // 保底輪詢:WS 沒連上(或被代理擋掉)時每 5 秒補讀一次,任務終局即停止。
+    const fallbackTimer = setInterval(() => {
+      if (closedRef.current || TERMINAL.has(stateRef.current)) return;
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      void replay();
+    }, 5000);
 
     return () => {
       closedRef.current = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (enrichTimer) clearTimeout(enrichTimer);
+      clearInterval(fallbackTimer);
       wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

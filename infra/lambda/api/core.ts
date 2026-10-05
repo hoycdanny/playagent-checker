@@ -60,6 +60,7 @@ import {
 } from './tasks.js';
 import { writeStatus, readStatus } from './status.js';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { listMediaSegments, readAudioLevels } from './liveMedia.js';
 import { generateInsights } from './report/insights.js';
 import { CATALOG, modelsForSeat, type Seat } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
@@ -1072,6 +1073,27 @@ export async function handleRequest(
           const s3 = await deps.getTenantS3(tenant.tenantId);
           const url = await createDownloadUrl(s3, deps.bucket, liveFrameKey(tenant.tenantId, jobId));
           return json(200, { url });
+        }
+        // 動態路由:GET /tasks/{id}/audio-levels(遊戲音效音量時間軸,供執行軌跡標出每步有無音效)
+        const levelsMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/audio-levels$/.exec(req.path);
+        if (levelsMatch) {
+          const jobId = levelsMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          return json(200, await readAudioLevels(s3, deps.bucket, tenant.tenantId, jobId));
+        }
+        // 動態路由:GET /tasks/{id}/live-video|live-audio?after=<檔名>(即時影片 / 含音效段落,依序播放)
+        const mediaMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/live-(video|audio)$/.exec(req.path);
+        if (mediaMatch) {
+          const jobId = mediaMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const after = req.query?.['after'];
+          const res = await listMediaSegments(s3, deps.bucket, tenant.tenantId, jobId, mediaMatch[2] === 'audio' ? 'audio' : 'live', {
+            ...(after ? { after } : {}),
+            latest: mediaMatch[2] === 'audio' ? 1 : 2,
+          });
+          return json(200, res);
         }
         // 動態路由:GET /tasks/{id}/logs(每步完整互動 log:模型/請求摘要/原始回應/錯誤,供除錯)
         const logsMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/logs$/.exec(req.path);

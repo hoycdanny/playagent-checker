@@ -36,6 +36,8 @@ import {
 import { AppiumClient } from './appiumClient.mjs';
 import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
 import { setupDeviceFarmSession } from './deviceFarmSetup.mjs';
+import { createLiveVideo, recordSize } from './liveVideo.mjs';
+import { createMediaAudio } from './mediaAudio.mjs';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -667,10 +669,31 @@ async function main() {
   // Appium 單一 session 不可並發:用 in-flight 旗標,若主迴圈或上一張仍在截圖就跳過這輪。
   // 真機 takeScreenshot 是 WebDriver 往返(較慢),故頻率保守(每 400ms 嘗試一次)。
   const LIVE_KEY = `${PREFIX}/live`;
+  // 即時影片(screenrecord 2 秒分段,30+ fps):Android 才有;啟動失敗就只用截圖輪播。
+  let liveVideo = null;
+  if (PLATFORM !== 'ios' && process.env.PA_LIVE_VIDEO !== '0') {
+    try {
+      liveVideo = createLiveVideo({ client, put: s3put, prefix: PREFIX, size: recordSize(w, h), log: (m) => console.log(m) });
+      await liveVideo.start();
+    } catch (e) {
+      console.warn('[live-video] 無法啟動,改用截圖輪播:', e?.message || e);
+      liveVideo = null;
+    }
+  }
+  // 遊戲音效錄製(MediaProjection 分段,含聲音)+ 音量時間軸(判斷「金幣彈出有沒有音效」)。
+  let mediaAudio = null;
+  if (PLATFORM !== 'ios' && process.env.PA_AUDIO !== '0') {
+    mediaAudio = createMediaAudio({ client, put: s3put, prefix: PREFIX, chunkSec: Number(process.env.PA_AUDIO_CHUNK_SEC) || 20, log: (m) => console.log(m) });
+    mediaAudio.start();
+  }
   let liveBusy = false;
+  let liveLastShotAt = 0;
   const liveTimer = setInterval(async () => {
     if (liveBusy) return;
+    // 影片串流正常時,截圖幀只當備援/封面(每 5 秒一張),把 Appium 時間留給 AI 與影片。
+    if (liveVideo?.healthy() && Date.now() - liveLastShotAt < 5000) return;
     liveBusy = true;
+    liveLastShotAt = Date.now();
     try {
       const b64 = await client.takeScreenshot();
       const png = Buffer.from(b64, 'base64');
@@ -1234,6 +1257,8 @@ async function main() {
 
   // 停止即時串流(先停,避免 quit session 後仍嘗試截圖)。
   clearInterval(liveTimer);
+  if (liveVideo) await liveVideo.stop();
+  if (mediaAudio) await mediaAudio.stop();
   // 等待可能仍在飛行中的最後一張 live 截圖結束,避免對已關閉 session 發請求。
   for (let w2 = 0; liveBusy && w2 < 20; w2++) await sleep(50);
   // 效能監測收尾:讀最終耗電、還原電池「未接電」模擬與 timestats(必須在 quit session 前)。

@@ -541,6 +541,16 @@ export class AppiumClient {
     return this.#withEndpointRecovery(() => this.#driver.execute('mobile: shell', { command, args: [], timeout: timeoutMs }));
   }
 
+  /** 從裝置拉檔(base64)。Android 用於即時影片段落。 */
+  async pullFile(path) {
+    return this.#withEndpointRecovery(() => this.#driver.pullFile(path));
+  }
+
+  /** 執行任意 `mobile:` 擴充指令(如 MediaProjection 錄影)。 */
+  async mobile(name, args = {}) {
+    return this.#withEndpointRecovery(() => this.#driver.execute(`mobile: ${name}`, args));
+  }
+
   async quit() {
     this.#stopKeepAlive();
     try { await this.#withEndpointRecovery(() => this.#driver.deleteSession()); } catch { /* 忽略 */ }

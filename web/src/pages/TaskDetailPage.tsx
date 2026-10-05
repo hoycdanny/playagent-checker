@@ -10,6 +10,9 @@ import { ScriptPanel } from '../components/tasks/ScriptPanel.tsx';
 import { TaskInfoStrip } from '../components/tasks/TaskInfoStrip.tsx';
 import { BootTimeline } from '../components/tasks/BootTimeline.tsx';
 import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
+import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
+import { StepSound } from '../components/tasks/StepSound.tsx';
+import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
 import './ListPage.css';
 import './TaskDetailPage.css';
@@ -89,7 +92,8 @@ export default function TaskDetailPage() {
     // 直接每 250ms 換 src 的話,幀還沒下載完就被下一張取消,畫面會看似凍結(需手動刷新)。
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const MIN_INTERVAL_MS = 250; // ~4fps 上限
+    // 截圖幀只是影片段落的備援(web 後端仍以截圖串流為主),約 2fps。
+    const MIN_INTERVAL_MS = 500;
     const preload = (url: string) =>
       new Promise<boolean>((resolve) => {
         const img = new Image();
@@ -155,6 +159,9 @@ export default function TaskDetailPage() {
   const hasCommands = steps.some((s) => Array.isArray(s.operatorCommands) && s.operatorCommands.length > 0);
   const showChat = !!jobId && (isLive || hasCommands);
   const stepNo = latestStep ? latestStep.index + 1 : 0;
+  // 遊戲音效音量時間軸(Device Farm 真機才有):標出每一步有沒有音效。
+  const audioLevels = useAudioLevels(jobId, isLive, backend === 'devicefarm');
+  const hasAudio = !!audioLevels && audioLevels.chunks.length > 0;
 
   return (
     <section className="listpage detail">
@@ -300,7 +307,7 @@ export default function TaskDetailPage() {
         <section className="detail__col detail__col--live" aria-labelledby="detail-live-title">
           <h2 id="detail-live-title" className="detail__panel-title">
             {t('detail.liveView')}
-            {isLive && liveFrameUrl && <span className="detail__live-badge">{t('detail.liveBadge')}</span>}
+            {isLive && (liveFrameUrl || latestStep) && <span className="detail__live-badge">{t('detail.liveBadge')}</span>}
           </h2>
           {/* 啟動時間軸:Device Farm 開機各階段 + 啟動/執行計時 */}
           <BootTimeline
@@ -311,10 +318,16 @@ export default function TaskDetailPage() {
             {...(updatedAt ? { updatedAt } : {})}
             {...(backend ? { backend } : {})}
           />
-          {isLive && liveFrameUrl ? (
-            <figure className="detail__screen">
-              <img src={liveFrameUrl} alt={latestScreen ?? t('detail.liveView')} />
-            </figure>
+          {isLive && jobId && (liveFrameUrl || liveUrl || latestStep) ? (
+            // 即時影片(2 秒分段、30+ fps);聲音開啟時改播含音效段落。點畫面 → 新視窗(雙螢幕)。
+            <LiveScreen
+              jobId={jobId}
+              isLive={isLive}
+              fallbackUrl={liveFrameUrl ?? liveUrl ?? null}
+              alt={latestScreen ?? t('detail.liveView')}
+              lang={lang}
+              {...(audioLevels?.state ? { audioState: audioLevels.state } : {})}
+            />
           ) : liveUrl ? (
             <figure className="detail__screen">
               <img src={liveUrl} alt={asText(latestShot?.screen) ?? t('detail.liveView')} />
@@ -402,6 +415,15 @@ export default function TaskDetailPage() {
                         <span className="detail__step-idx">#{s.index}</span>
                         {screenText && <span className="detail__step-screen">{screenText}</span>}
                         {actionText && <span className="detail__step-action">{actionText}</span>}
+                        {hasAudio && typeof s.at === 'string' && (() => {
+                          // 這一步的時間窗:本步開始 → 下一步開始(最新一步用本步耗時)。
+                          const from = Date.parse(s.at as string);
+                          const next = steps.find((x) => x.index === s.index + 1);
+                          const to = next && typeof next.at === 'string'
+                            ? Date.parse(next.at as string)
+                            : from + (typeof s.durationMs === 'number' ? (s.durationMs as number) : 8000);
+                          return <StepSound s={soundInWindow(audioLevels, from, to)} lang={lang} />;
+                        })()}
                       </div>
                       {opCmds.map((txt, j) => (
                         <div key={j} className="detail__step-opcmd">

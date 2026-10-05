@@ -616,16 +616,17 @@
   overflow-y: auto;
 }
 
+/* 欄內各區塊不可被 flex 壓縮(否則腳本展開時會疊到聊天室的範例按鈕上),超出由欄位捲動 */
+.detail__col--ops > * {
+  flex-shrink: 0;
+}
 .detail__col--ops .opchat {
   margin: 0;
   padding: 0;
   border-top: none;
-  flex: 1 1 auto;
-  min-height: 300px;
 }
 .detail__col--ops .opchat__list {
-  flex: 1 1 auto;
-  max-height: none;
+  max-height: 46vh;
   min-height: 140px;
 }
 
@@ -984,4 +985,37 @@
     grid-template-columns: 1fr;
     gap: 2px;
   }
+}
+
+/* 每步音效小波形(StepSound) */
+.dsound {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  cursor: help;
+  white-space: nowrap;
+}
+.dsound svg rect {
+  fill: currentColor;
+}
+.dsound.is-on {
+  color: var(--status-running);
+}
+.dsound.is-fx {
+  color: var(--brand);
+  font-weight: 600;
+}
+.dsound.is-silent {
+  color: var(--status-fail);
+}
+.dsound.is-none {
+  opacity: 0.6;
+}
+
+/* 即時畫面欄:播放器佔滿剩餘高度 */
+.detail__col--live .livescreen {
+  min-height: 0;
 }

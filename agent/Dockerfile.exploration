@@ -11,8 +11,9 @@ WORKDIR /app
 # imagemagick + 字型:座標校正三件套用。
 # unzip:偵測 XAPK(列 ZIP 內容找 .apk)。
 # default-jre-headless:跑 APKEditor.jar 合併 XAPK/split → universal APK(Device Farm 只吃單一 APK)。
+# ffmpeg:分析遊戲音效段落的音量時間軸(mediaAudio.mjs)。
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends imagemagick fonts-dejavu-core unzip default-jre-headless curl \
+  && apt-get install -y --no-install-recommends imagemagick fonts-dejavu-core unzip default-jre-headless curl ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
 # APKEditor:把 XAPK / split APK 合併成單一 universal APK。釘版本以求可重現建置。
@@ -28,7 +29,7 @@ COPY exploration-runner.package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
 # 複製 runner 與其模組。
-COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs perfMonitor.mjs ./
+COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs perfMonitor.mjs liveVideo.mjs mediaAudio.mjs ./
 
 # 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_APPIUM_URL / PA_JOB / ...)。
 CMD ["node", "explorationRunner.mjs"]
