@@ -1,0 +1,163 @@
+/* 即時畫面 + 精簡控制列 */
+.livescreen {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.livescreen__stage {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+}
+
+.livescreen__click {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  max-height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+.livescreen__click:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+  border-radius: 14px;
+}
+
+.liveplayer {
+  position: relative;
+  display: grid;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 9 / 20;
+  height: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.18);
+}
+.liveplayer > * {
+  grid-area: 1 / 1;
+}
+.liveplayer__video,
+.liveplayer__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+.liveplayer__video {
+  visibility: hidden;
+}
+.liveplayer__video.is-front {
+  visibility: visible;
+}
+
+.livescreen__note {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.livescreen__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+}
+.livescreen__spacer {
+  flex: 1;
+}
+
+.livescreen__mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.livescreen__mode::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+.livescreen__mode.is-live::before { background: var(--status-fail); }
+.livescreen__mode.is-sound { color: var(--brand); }
+.livescreen__mode.is-sound::before { background: var(--brand); }
+
+.livescreen__btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.livescreen__btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-strong, var(--border));
+}
+.livescreen__btn.is-on {
+  color: var(--brand);
+  border-color: var(--brand);
+}
+.livescreen__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.livescreen__btn:focus-visible,
+.livescreen__vol:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* 音量拖拉:細軌道,已填部分用品牌色 */
+.livescreen__vol {
+  width: 76px;
+  height: 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--brand) var(--vol, 0%), var(--border) var(--vol, 0%));
+  cursor: pointer;
+}
+.livescreen__vol::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--brand);
+}
+.livescreen__vol::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 2px solid var(--brand);
+}
+.livescreen__vol:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

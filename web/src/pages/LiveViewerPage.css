@@ -1,0 +1,55 @@
+/* 彈出式即時畫面:深色全視窗,只留畫面與少量控制 */
+.liveview {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: #0b0d12;
+  color: #e5e7eb;
+  box-sizing: border-box;
+}
+.liveview__top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  font-size: 12px;
+}
+.liveview__pill {
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-weight: 700;
+  background: rgb(255 255 255 / 0.1);
+}
+.liveview__pill--running { color: #34d399; }
+.liveview__pill--pass { color: #4ade80; }
+.liveview__pill--fail,
+.liveview__pill--dead,
+.liveview__pill--error { color: #f87171; }
+.liveview__step {
+  color: #cbd5e1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.liveview__boot .dboot {
+  background: rgb(255 255 255 / 0.05);
+  border-color: rgb(255 255 255 / 0.12);
+}
+.liveview__screen .liveplayer {
+  box-shadow: none;
+}
+.liveview .livescreen__btn {
+  background: rgb(255 255 255 / 0.06);
+  border-color: rgb(255 255 255 / 0.16);
+  color: #e5e7eb;
+}
+.liveview .livescreen__mode { color: #94a3b8; }
+.liveview__msg {
+  margin: 0;
+  font-size: 12px;
+  color: #94a3b8;
+  text-align: center;
+}

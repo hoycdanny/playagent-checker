@@ -12,6 +12,7 @@ const AppWorkspacePage = lazy(() => import('./pages/AppWorkspacePage.tsx'));
 const CasesPage = lazy(() => import('./pages/CasesPage.tsx'));
 const TasksPage = lazy(() => import('./pages/TasksPage.tsx'));
 const TaskDetailPage = lazy(() => import('./pages/TaskDetailPage.tsx'));
+const LiveViewerPage = lazy(() => import('./pages/LiveViewerPage.tsx'));
 const ReportsPage = lazy(() => import('./pages/ReportsPage.tsx'));
 const ReportViewPage = lazy(() => import('./pages/ReportViewPage.tsx'));
 const DevicesPage = lazy(() => import('./pages/DevicesPage.tsx'));
@@ -33,15 +34,34 @@ export function App() {
 
   return (
     <HashRouter>
-      <div className="app-shell">
-        <TopBar />
-        <main className="app-shell__content" role="main">
-          <Suspense fallback={<div className="app-shell__loading" aria-hidden="true" />}>
-            <AppRoutes />
-          </Suspense>
-        </main>
-      </div>
+      <Shell />
     </HashRouter>
+  );
+}
+
+/** 一般頁面有導覽列;彈出式即時畫面(#/live/:jobId)只顯示畫面本身。 */
+function Shell() {
+  const location = useLocation();
+  if (location.pathname.startsWith('/live/')) {
+    return (
+      <Suspense fallback={null}>
+        <ErrorBoundary label="即時畫面">
+          <Routes>
+            <Route path="/live/:jobId" element={<LiveViewerPage />} />
+          </Routes>
+        </ErrorBoundary>
+      </Suspense>
+    );
+  }
+  return (
+    <div className="app-shell">
+      <TopBar />
+      <main className="app-shell__content" role="main">
+        <Suspense fallback={<div className="app-shell__loading" aria-hidden="true" />}>
+          <AppRoutes />
+        </Suspense>
+      </main>
+    </div>
   );
 }
 

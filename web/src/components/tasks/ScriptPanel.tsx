@@ -15,7 +15,7 @@ const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 /** 測試腳本:把案例 task 原文轉成編號條列,一眼看懂這次要測什麼。 */
 export function ScriptPanel({ script, caseName, caseVersion, lang }: { script?: string; caseName?: string; caseVersion?: string; lang: RLang }) {
   const parsed = useMemo(() => parseScript(script), [script]);
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false); // 預設收合:執行中專注在下指令與畫面
   const bodyId = 'detail-script-body';
 
   return (
