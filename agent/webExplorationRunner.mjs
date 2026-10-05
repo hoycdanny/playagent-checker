@@ -20,7 +20,7 @@
  */
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -284,7 +284,16 @@ async function main() {
     messages.push(makeUserTurn([ds.b64], turnText, visionFmt));
 
     const tVlm = Date.now();
-    const { cmd, usage, rawText, trace } = await decide(system, messages);
+    // 測試人員在即時畫面上點了位置 → 這一步直接點那裡(不靠 AI 猜座標)。
+    const pointCmd = [...newCmds].reverse().find((c) => c.point);
+    const { cmd, usage, rawText, trace } = pointCmd
+      ? (() => {
+          const px = Math.round(pointCmd.point.x * cw), py = Math.round(pointCmd.point.y * ch);
+          const label = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? pointCmd.text : '';
+          const op = { action: 'tap', x: px, y: py, ...(prevScreen ? { screen: prevScreen } : {}), thinking: `依測試人員在即時畫面上點選的位置直接點擊 (${px}, ${py})${label ? `(${label})` : ''}。`, operatorTap: true };
+          return { cmd: op, usage: null, rawText: JSON.stringify(op), trace: { modelId: 'operator', ok: true } };
+        })()
+      : await decide(system, messages);
     const vlmMs = Date.now() - tVlm;
     messages.push(makeAssistantTurn(rawText));
     if (usage) { tok.input += usage.input; tok.output += usage.output; }

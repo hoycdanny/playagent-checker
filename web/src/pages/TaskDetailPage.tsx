@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
-import { apiGet, type ListResponse } from '../api/client.ts';
+import { apiGet, apiPost, type ListResponse } from '../api/client.ts';
 import { modelLabel } from '../components/modelProvider.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
@@ -11,6 +11,7 @@ import { TaskInfoStrip } from '../components/tasks/TaskInfoStrip.tsx';
 import { BootTimeline } from '../components/tasks/BootTimeline.tsx';
 import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
+import type { PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
@@ -83,8 +84,14 @@ export default function TaskDetailPage() {
   const TERMINAL_STATES = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
   const isLive = !TERMINAL_STATES.has(state) && state !== 'queued';
   const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
-  // 遊戲畫面方向(依即時畫面實際比例):橫向遊戲時放寬即時畫面欄。
-  const [landscape, setLandscape] = useState(false);
+  // 測試人員在即時畫面上選的位置(可直接「讓 AI 點這裡」,或在聊天室加說明一起送)。
+  const [pickPoint, setPickPoint] = useState<PickPoint | null>(null);
+  async function sendPoint(p: PickPoint) {
+    if (!jobId) return;
+    await apiPost(`/tasks/${jobId}/commands`, { point: p, remember: false, ...(latestScreen ? { screen: latestScreen } : {}) });
+    setChatRefresh((n) => n + 1);
+  }
+  const [chatRefresh, setChatRefresh] = useState(0);
   useEffect(() => {
     if (!jobId || !isLive) {
       setLiveFrameUrl(null);
@@ -305,7 +312,7 @@ export default function TaskDetailPage() {
       )}
 
       {/* 主區三欄:即時畫面 | 下指令 + 測試腳本 | 執行軌跡(窄螢幕自動改兩欄 / 單欄) */}
-      <div className={`detail__layout ${landscape ? 'detail__layout--landscape' : ''}`}>
+      <div className="detail__layout">
         {/* 即時畫面:執行中顯示串流幀;否則回退最新步驟截圖。 */}
         <section className="detail__col detail__col--live" aria-labelledby="detail-live-title">
           <h2 id="detail-live-title" className="detail__panel-title">
@@ -329,7 +336,9 @@ export default function TaskDetailPage() {
               fallbackUrl={liveFrameUrl ?? liveUrl ?? null}
               alt={latestScreen ?? t('detail.liveView')}
               lang={lang}
-              onAspect={(a) => setLandscape(a > 1)}
+              point={pickPoint}
+              onPoint={setPickPoint}
+              onSendPoint={sendPoint}
               {...(audioLevels?.state ? { audioState: audioLevels.state } : {})}
             />
           ) : liveUrl ? (
@@ -367,6 +376,9 @@ export default function TaskDetailPage() {
               isLive={isLive}
               {...(latestScreen ? { currentScreen: latestScreen } : {})}
               {...(appId ? { appId } : {})}
+              point={pickPoint}
+              onClearPoint={() => setPickPoint(null)}
+              refreshKey={chatRefresh}
             />
           )}
           <ScriptPanel

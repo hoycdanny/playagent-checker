@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 import { apiGet } from '../../api/client.ts';
 
 /**
@@ -20,6 +20,30 @@ export interface LivePlayerState {
 /** 畫面寬高比(寬/高);> 1 = 橫向。 */
 const DEFAULT_ASPECT = 9 / 20;
 
+/** 畫面上的點選位置:相對畫面內容的比例(0–1)。 */
+export interface PickPoint { x: number; y: number }
+
+/**
+ * object-fit: contain 下,媒體內容在元素裡實際佔的矩形(扣掉上下或左右黑邊)。
+ * 回傳相對元素左上角的 px。
+ */
+export function containRect(boxW: number, boxH: number, mediaW: number, mediaH: number) {
+  if (!(boxW > 0 && boxH > 0 && mediaW > 0 && mediaH > 0)) return { left: 0, top: 0, width: boxW, height: boxH };
+  const s = Math.min(boxW / mediaW, boxH / mediaH);
+  const width = mediaW * s;
+  const height = mediaH * s;
+  return { left: (boxW - width) / 2, top: (boxH - height) / 2, width, height };
+}
+
+/** 點擊位置(相對元素 px)→ 畫面內容比例;點在黑邊上回 null。 */
+export function toContentPoint(px: number, py: number, boxW: number, boxH: number, mediaW: number, mediaH: number): PickPoint | null {
+  const r = containRect(boxW, boxH, mediaW, mediaH);
+  const x = (px - r.left) / r.width;
+  const y = (py - r.top) / r.height;
+  if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
+}
+
 export function LivePlayer({
   jobId,
   isLive,
@@ -31,6 +55,8 @@ export function LivePlayer({
   className,
   onState,
   onAspect,
+  onPick,
+  marker,
 }: {
   jobId: string;
   isLive: boolean;
@@ -41,8 +67,12 @@ export function LivePlayer({
   alt: string;
   className?: string;
   onState?: (s: LivePlayerState) => void;
-  /** 畫面方向/比例改變(橫豎切換)時通知,外層可據此調整版面。 */
+  /** 畫面方向/比例改變(橫豎切換)時通知(彈出視窗據此決定形狀)。 */
   onAspect?: (aspect: number) => void;
+  /** 指點模式:點畫面回報相對位置(0–1,以實際畫面內容為準,不含黑邊)。 */
+  onPick?: (p: PickPoint) => void;
+  /** 已選位置的標記。 */
+  marker?: PickPoint | null;
 }) {
   const [aspect, setAspect] = useState(DEFAULT_ASPECT);
   const aspectCb = useRef(onAspect);
@@ -177,11 +207,44 @@ export function LivePlayer({
 
   useEffect(() => { if (!playing) stateCb.current?.({ playing: false }); }, [playing]);
 
-  const landscape = aspect > 1;
+  // 外框固定(填滿容器),直向/橫向畫面都以 contain 置中;點選與標記都以「實際畫面內容」換算。
+  const boxRef = useRef<HTMLDivElement>(null);
+  const mediaSize = (): [number, number] => {
+    const v = vids[frontRef.current]?.current;
+    if (playing && v && v.videoWidth > 0) return [v.videoWidth, v.videoHeight];
+    const img = boxRef.current?.querySelector('img');
+    if (img && img.naturalWidth > 0) return [img.naturalWidth, img.naturalHeight];
+    return [aspect * 1000, 1000];
+  };
+  function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
+    if (!onPick || !boxRef.current) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = boxRef.current.getBoundingClientRect();
+    const [mw, mh] = mediaSize();
+    const p = toContentPoint(e.clientX - r.left, e.clientY - r.top, r.width, r.height, mw, mh);
+    if (p) onPick(p);
+  }
+  // 標記位置:畫面內容矩形內的比例 → 外框 px(重新渲染時依當下尺寸重算,縮放視窗也準)。
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!marker) return;
+    const onResize = () => force((n) => n + 1);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [marker]);
+  let markerStyle: CSSProperties | undefined;
+  if (marker && boxRef.current) {
+    const r = boxRef.current.getBoundingClientRect();
+    const [mw, mh] = mediaSize();
+    const c = containRect(r.width, r.height, mw, mh);
+    markerStyle = { left: c.left + marker.x * c.width, top: c.top + marker.y * c.height };
+  }
   return (
     <div
-      className={`liveplayer ${landscape ? 'is-landscape' : 'is-portrait'} ${className ?? ''}`}
-      style={{ aspectRatio: String(aspect) }}
+      ref={boxRef}
+      className={`liveplayer ${onPick ? 'is-picking' : ''} ${className ?? ''}`}
+      onClick={onPick ? handleClick : undefined}
     >
       {vids.map((r, i) => (
         <video
@@ -208,6 +271,7 @@ export function LivePlayer({
         />
       )}
       {playing && <span className="visually-hidden">{alt}</span>}
+      {markerStyle && <span className="liveplayer__marker" style={markerStyle} aria-hidden="true" />}
     </div>
   );
 }

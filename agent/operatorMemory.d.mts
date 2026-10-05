@@ -25,9 +25,11 @@ export function hintsPromptSection(hints: HintLike[], pageName?: (id: string) =>
 export function screenHintsFor<T extends HintLike>(hints: T[], ctx?: { screen?: string; pageId?: string }): T[];
 export function operatorTurnNote(newCmds: Array<{ id: string; text: string }>, activeCmds: Array<{ id: string; text: string }>): string;
 export function commandIdsFromKeys(keys: string[], prefix: string): string[];
+export const POINT_ONLY_TEXT: string;
+export function validPoint(p: unknown): { x: number; y: number } | null;
 
 /** runner 端:S3 指令通道(cmds = AWS SDK Command 建構子)。 */
-export interface OperatorCmd { id: string; text: string; hintId?: string }
+export interface OperatorCmd { id: string; text: string; hintId?: string; point?: { x: number; y: number } }
 export interface S3CommandCtors {
   ListObjectsV2Command?: new (input: any) => any;
   GetObjectCommand: new (input: any) => any;

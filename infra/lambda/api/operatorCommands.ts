@@ -22,6 +22,8 @@ export interface OperatorCommand {
   screen?: string;
   /** 勾選「記住」時建立的應用記憶 id。 */
   hintId?: string;
+  /** 測試人員在即時畫面上點選的位置(相對比例 0–1);runner 直接點這裡。 */
+  point?: { x: number; y: number };
 }
 
 export interface CommandAck {
@@ -45,15 +47,46 @@ export function newCommandId(now = Date.now()): string {
   return `cmd-${now.toString(36).padStart(10, '0')}${randomBytes(2).toString('hex')}`;
 }
 
-export function validateCommandBody(body: unknown): { text: string; remember: boolean; screen?: string } {
+/** 只點畫面、沒打字時的預設文字(與 agent/operatorMemory.mjs POINT_ONLY_TEXT 一致)。 */
+export const POINT_ONLY_TEXT = '點這個位置';
+
+export function validateCommandBody(body: unknown): {
+  text: string;
+  remember: boolean;
+  screen?: string;
+  point?: { x: number; y: number };
+  /** 只點了畫面、沒有打字(text 為預設值)。 */
+  pointOnly?: boolean;
+} {
   const b = (body ?? {}) as Record<string, unknown>;
+  const point = parsePoint(b['point']);
   const raw = b['text'];
-  if (typeof raw !== 'string') throw new CommandValidationError('text 必填');
-  const text = raw.replace(/\s+/g, ' ').trim();
-  if (!text) throw new CommandValidationError('指令不可為空');
+  if (raw !== undefined && typeof raw !== 'string') throw new CommandValidationError('text 必須是文字');
+  let text = (raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!text && !point) throw new CommandValidationError('指令不可為空');
+  const pointOnly = !text && !!point;
+  if (pointOnly) text = POINT_ONLY_TEXT;
   if (text.length > MAX_COMMAND_LEN) throw new CommandValidationError(`指令最多 ${MAX_COMMAND_LEN} 字`);
   const screen = typeof b['screen'] === 'string' ? b['screen'].trim().slice(0, 80) : '';
-  return { text, remember: b['remember'] !== false, ...(screen ? { screen } : {}) };
+  return {
+    text,
+    remember: b['remember'] !== false,
+    ...(screen ? { screen } : {}),
+    ...(point ? { point } : {}),
+    ...(pointOnly ? { pointOnly: true } : {}),
+  };
+}
+
+/** 畫面點選位置:相對比例 0–1(左上為 0,0)。格式不對 → 拒絕,而不是悄悄忽略。 */
+function parsePoint(v: unknown): { x: number; y: number } | undefined {
+  if (v === undefined || v === null) return undefined;
+  const p = v as Record<string, unknown>;
+  const x = Number(p['x']);
+  const y = Number(p['y']);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) {
+    throw new CommandValidationError('point 需為 {x,y},介於 0 到 1');
+  }
+  return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
 }
 
 async function listKeys(s3: S3Client, bucket: string, prefix: string): Promise<string[]> {

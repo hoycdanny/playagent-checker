@@ -1004,11 +1004,14 @@ export async function handleRequest(
           const id = newCommandId();
           // 勾「記住」:同時寫進這個應用的記憶,下次測試 AI 一開始就知道。
           let hintId: string | undefined;
-          if (input.remember && jobRec?.appId) {
+          // 只點了畫面沒打字 → 一次性的點擊,不寫進記憶(沒有可教的內容)。
+          if (input.remember && jobRec?.appId && !input.pointOnly) {
             // 載入/過場畫面不當記憶範圍(指令通常是針對「接下來那個畫面」),改存成全應用通用。
             const memScreen = input.screen && !isTransientScreenName(input.screen) ? input.screen : undefined;
+            // 有點畫面位置:把大約位置一起記下,下次 AI 知道那個按鈕在哪。
+            const pos = input.point ? `(位置約在畫面左起 ${Math.round(input.point.x * 100)}%、上起 ${Math.round(input.point.y * 100)}%)` : '';
             const hint = await addHint(s3, deps.bucket, tenant.tenantId, jobRec.appId, {
-              text: input.text,
+              text: `${input.text}${pos}`,
               ...(memScreen ? { screen: memScreen } : {}),
               source: 'operator',
               jobId,
@@ -1024,6 +1027,7 @@ export async function handleRequest(
             ...(tenant.email ? { createdBy: tenant.email } : {}),
             ...(input.screen ? { screen: input.screen } : {}),
             ...(hintId ? { hintId } : {}),
+            ...(input.point ? { point: input.point } : {}),
           };
           await writeCommand(s3, deps.bucket, tenant.tenantId, jobId, cmd);
           return json(201, cmd);
