@@ -17,6 +17,9 @@ export interface LivePlayerState {
   delaySec?: number;
 }
 
+/** 畫面寬高比(寬/高);> 1 = 橫向。 */
+const DEFAULT_ASPECT = 9 / 20;
+
 export function LivePlayer({
   jobId,
   isLive,
@@ -27,6 +30,7 @@ export function LivePlayer({
   alt,
   className,
   onState,
+  onAspect,
 }: {
   jobId: string;
   isLive: boolean;
@@ -37,7 +41,22 @@ export function LivePlayer({
   alt: string;
   className?: string;
   onState?: (s: LivePlayerState) => void;
+  /** 畫面方向/比例改變(橫豎切換)時通知,外層可據此調整版面。 */
+  onAspect?: (aspect: number) => void;
 }) {
+  const [aspect, setAspect] = useState(DEFAULT_ASPECT);
+  const aspectCb = useRef(onAspect);
+  aspectCb.current = onAspect;
+  /** 依實際畫面尺寸更新比例(只在變化明顯時更新,避免抖動)。 */
+  const measure = (w: number, h: number) => {
+    if (!(w > 0 && h > 0)) return;
+    const a = w / h;
+    setAspect((prev) => {
+      if (Math.abs(prev - a) / prev < 0.03) return prev;
+      aspectCb.current?.(a);
+      return a;
+    });
+  };
   const vids = [useRef<HTMLVideoElement>(null), useRef<HTMLVideoElement>(null)];
   const [front, setFront] = useState(0); // 目前顯示中的 <video>
   const [playing, setPlaying] = useState(false);
@@ -142,6 +161,7 @@ export function LivePlayer({
     setPlaying(true);
     // 有積壓時稍微加速追上。
     back.playbackRate = queue.current.length >= 2 ? 1.25 : 1;
+    measure(back.videoWidth, back.videoHeight);
     const t = Number(back.dataset['t']);
     if (Number.isFinite(t)) lastSegT.current = t;
     back.play().catch(() => { /* 自動播放被擋(含聲音時):保持靜音重試 */ back.muted = true; void back.play().catch(() => {}); });
@@ -157,8 +177,12 @@ export function LivePlayer({
 
   useEffect(() => { if (!playing) stateCb.current?.({ playing: false }); }, [playing]);
 
+  const landscape = aspect > 1;
   return (
-    <div className={`liveplayer ${className ?? ''}`}>
+    <div
+      className={`liveplayer ${landscape ? 'is-landscape' : 'is-portrait'} ${className ?? ''}`}
+      style={{ aspectRatio: String(aspect) }}
+    >
       {vids.map((r, i) => (
         <video
           key={i}
@@ -167,13 +191,22 @@ export function LivePlayer({
           playsInline
           muted
           preload="auto"
+          onLoadedMetadata={(e) => { if (i === frontRef.current) measure(e.currentTarget.videoWidth, e.currentTarget.videoHeight); }}
+          onResize={(e) => { if (i === frontRef.current) measure(e.currentTarget.videoWidth, e.currentTarget.videoHeight); }}
           onEnded={() => onEnded(i)}
           onCanPlay={() => { if (i !== frontRef.current) pump(); }}
           onError={() => { if (i !== frontRef.current) { backReady.current = false; pump(); } }}
           aria-hidden={!(playing && front === i)}
         />
       ))}
-      {!playing && fallbackUrl && <img className="liveplayer__img" src={fallbackUrl} alt={alt} />}
+      {!playing && fallbackUrl && (
+        <img
+          className="liveplayer__img"
+          src={fallbackUrl}
+          alt={alt}
+          onLoad={(e) => measure(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight)}
+        />
+      )}
       {playing && <span className="visually-hidden">{alt}</span>}
     </div>
   );

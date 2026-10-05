@@ -83,7 +83,11 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, log
     /** 最近 8 秒內有成功上傳 → 前端可用影片;否則 runner 應回退截圖輪播。 */
     healthy() { return active && Date.now() - lastOkAt < 8000; },
     async start() {
-      const loop = `while [ -d ${DIR} ]; do screenrecord --size ${size} --bit-rate 1000000 --time-limit 2 ${DIR}/s$(date +%s%3N).mp4; done`;
+      // 不指定 --size:screenrecord 每段開始時依「目前螢幕方向」決定寬高(橫向遊戲就錄成橫的)。
+      // 指定固定尺寸的話,橫向畫面會被縮成直式框裡的一條。每段 2 秒,轉向後下一段即自動更正。
+      // size 只在裝置不支援原生解析度編碼時當備援。
+      const rec = (extra) => `screenrecord ${extra}--bit-rate 1500000 --time-limit 2 ${DIR}/s$(date +%s%3N).mp4`;
+      const loop = `while [ -d ${DIR} ]; do ${rec('')} || ${rec(`--size ${size} `)}; done`;
       const out = await client.shell(`rm -rf ${DIR}; mkdir -p ${DIR}; nohup sh -c '${loop}' >/dev/null 2>&1 & echo started`, 10000);
       if (!/started/.test(String(out))) throw new Error(`screenrecord 迴圈啟動失敗:${String(out).slice(0, 200)}`);
       active = true;

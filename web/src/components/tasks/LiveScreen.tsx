@@ -34,9 +34,17 @@ function PopoutIcon() {
 }
 
 /** 開啟彈出播放視窗(可拖到第二個螢幕)。 */
-export function openLivePopout(jobId: string) {
-  const h = Math.min(980, window.screen.availHeight - 40);
-  const w = Math.round(h * 0.52);
+export function openLivePopout(jobId: string, aspect = 9 / 20) {
+  // 依目前畫面方向開對應形狀的視窗(橫向遊戲開橫的視窗);之後使用者可自行縮放。
+  let w: number;
+  let h: number;
+  if (aspect > 1) {
+    w = Math.min(1280, window.screen.availWidth - 40);
+    h = Math.min(window.screen.availHeight - 40, Math.round(w / aspect) + 90);
+  } else {
+    h = Math.min(980, window.screen.availHeight - 40);
+    w = Math.round((h - 90) * aspect) + 20;
+  }
   window.open(`${window.location.pathname}#/live/${encodeURIComponent(jobId)}`, `pa-live-${jobId}`, `popup=yes,width=${w},height=${h}`);
 }
 
@@ -54,6 +62,7 @@ export function LiveScreen({
   audioState,
   popout = true,
   className,
+  onAspect,
 }: {
   jobId: string;
   isLive: boolean;
@@ -64,9 +73,14 @@ export function LiveScreen({
   audioState?: string;
   popout?: boolean;
   className?: string;
+  /** 畫面比例(寬/高)變化:外層據此切換橫向/直向版面。 */
+  onAspect?: (aspect: number) => void;
 }) {
   const sound = useLiveSound();
   const [ps, setPs] = useState<LivePlayerState>({ playing: false });
+  const [aspect, setAspect] = useState(9 / 20);
+  const handleAspect = (a: number) => { setAspect(a); onAspect?.(a); };
+  const open = () => openLivePopout(jobId, aspect);
   const audioUsable = audioState !== 'unavailable';
   const withSound = sound.on && audioUsable;
   const mode = withSound ? 'audio' : 'live';
@@ -76,11 +90,11 @@ export function LiveScreen({
     <div className={`livescreen ${className ?? ''}`}>
       <div className="livescreen__stage">
         {popout ? (
-          <button type="button" className="livescreen__click" onClick={() => openLivePopout(jobId)} title={tx('popout', lang)} aria-label={tx('popout', lang)}>
-            <LivePlayer jobId={jobId} isLive={isLive} source={mode} muted={!withSound} volume={sound.volume} fallbackUrl={fallbackUrl ?? null} alt={alt} onState={setPs} />
+          <button type="button" className="livescreen__click" onClick={open} title={tx('popout', lang)} aria-label={tx('popout', lang)}>
+            <LivePlayer jobId={jobId} isLive={isLive} source={mode} muted={!withSound} volume={sound.volume} fallbackUrl={fallbackUrl ?? null} alt={alt} onState={setPs} onAspect={handleAspect} />
           </button>
         ) : (
-          <LivePlayer jobId={jobId} isLive={isLive} source={mode} muted={!withSound} volume={sound.volume} fallbackUrl={fallbackUrl ?? null} alt={alt} onState={setPs} />
+          <LivePlayer jobId={jobId} isLive={isLive} source={mode} muted={!withSound} volume={sound.volume} fallbackUrl={fallbackUrl ?? null} alt={alt} onState={setPs} onAspect={handleAspect} />
         )}
         {withSound && isLive && !ps.playing && <span className="livescreen__note">{tx('waitingAudio', lang)}</span>}
       </div>
@@ -117,7 +131,7 @@ export function LiveScreen({
             style={{ ['--vol' as string]: `${Math.round((withSound ? sound.volume : 0) * 100)}%` }}
           />
           {popout && (
-            <button type="button" className="livescreen__btn" onClick={() => openLivePopout(jobId)} title={tx('popout', lang)} aria-label={tx('popout', lang)}>
+            <button type="button" className="livescreen__btn" onClick={open} title={tx('popout', lang)} aria-label={tx('popout', lang)}>
               <PopoutIcon />
             </button>
           )}
