@@ -121,7 +121,9 @@ function cleanScreen(v: unknown): string | undefined {
 }
 /** 載入/過場/啟動類畫面名(不適合當記憶的畫面範圍:操作員的指令是針對下一個畫面)。 */
 export function isTransientScreenName(name: string): boolean {
-  return /載入|加載|讀取|下載|更新中|過場|啟動畫面|開場|loading|splash|downloading|updating/i.test(name);
+  // 「畫面 87」是 AI 回應無法解析時 runner 自動補的流水號名稱,不代表任何真實畫面,同樣不當範圍。
+  return /載入|加載|讀取|下載|更新中|過場|啟動畫面|開場|loading|splash|downloading|updating/i.test(name)
+    || /^\s*(畫面|screen)\s*#?\d+\s*$/i.test(name);
 }
 
 function cleanPage(v: unknown): string | undefined {

@@ -217,6 +217,7 @@ async function main() {
   const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let prevScreen = '';
+  let pendingCmds = []; // 尚未得到有效回應的測試人員指令
   let consecFail = 0;
   let finalState = 'fail';
   let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
@@ -269,11 +270,14 @@ async function main() {
     const dimHint =
       `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高)。座標請用「這張圖的絕對像素」:左上 (0,0),右下 (${cw},${ch})。把座標對到元件本身的正中心。` +
       (stuckCount >= 2 ? `【注意】畫面已連續 ${stuckCount + 1} 步沒變化——換一個明顯不同的位置或改用 swipe 捲動。` : (i > 0 && !screenChanged ? '上一步後畫面沒變,換個位置或做法。' : ''));
-    const newCmds = await operator.poll();
-    for (const c of newCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
+    const freshCmds = await operator.poll();
+    for (const c of freshCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
+    // 上一步回應無法解析的指令延續到這一步,仍以「剛下的指令」注入。
+    const newCmds = [...pendingCmds, ...freshCmds];
+    pendingCmds = [];
     const scoped = screenHintsFor(appMemory.hints, { screen: prevScreen, pageId: prevPageId });
     const memoryNote = scoped.length
-      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過:${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
+      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
       : '';
     const turnText = (i === 0 ? `第一張畫面(網址 ${client.currentUrl()})。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint
       + memoryNote + operatorTurnNote(newCmds, operator.active);
@@ -330,11 +334,12 @@ async function main() {
       ...evidenceFields(cmd, cmd.action),
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),
-      ...(newCmds.length ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}),
+      ...(newCmds.length && !cmd.parseFailed ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}),
     };
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
-    for (const c of newCmds) {
+    if (cmd.parseFailed && newCmds.length) pendingCmds = newCmds;
+    for (const c of cmd.parseFailed ? [] : newCmds) {
       await operator.ack(c, { status: 'applied', step: i, action: cmd.action, screen: screenName, reply: String(cmd.thinking || '').slice(0, 400) });
     }
 

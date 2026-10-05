@@ -120,6 +120,8 @@ test('isTransientScreenName: loading screens are not used as hint scope', () => 
   expect(isTransientScreenName('載入中')).toBe(true);
   expect(isTransientScreenName('Loading 33%')).toBe(true);
   expect(isTransientScreenName('老虎機主畫面')).toBe(false);
+  expect(isTransientScreenName('畫面 87')).toBe(true);
+  expect(isTransientScreenName('SELECT A GAME')).toBe(false);
 });
 
 describe('memory map edits (edits.json)', () => {
@@ -265,14 +267,33 @@ describe('operatorMemory pure helpers', () => {
     expect(screenHintsFor(hints, {})).toEqual([]);
   });
 
-  test('operatorTurnNote: new commands first, older ones as reminder', () => {
-    const c1 = { id: 'cmd-1', text: '點 SPIN' };
-    const c2 = { id: 'cmd-2', text: '關公告' };
+  test('operatorTurnNote: new command overrides conflicting older ones', () => {
+    const c1 = { id: 'cmd-1', text: '點擊 step by step' };
+    const c2 = { id: 'cmd-2', text: '改用 auto' };
+    const c3 = { id: 'cmd-3', text: '改點 free spins' };
     expect(operatorTurnNote([], [])).toBe('');
-    const note = operatorTurnNote([c2], [c1, c2]);
+    const note = operatorTurnNote([c3], [c1, c2, c3]);
     expect(note).toContain('最高優先');
-    expect(note).toContain('「關公告」');
-    expect(note).toContain('先前的指令仍有效:「點 SPIN」');
-    expect(operatorTurnNote([], [c1])).not.toContain('最高優先');
+    expect(note).toContain('「改點 free spins」');
+    expect(note).toContain('取代');
+    expect(note).toContain('較早的指令:「改用 auto」;「點擊 step by step」');
+    // 沒有新指令時:由新到舊,明確標出最新那則
+    const remind = operatorTurnNote([], [c1, c2, c3]);
+    expect(remind).not.toContain('最高優先');
+    expect(remind).toContain('最新「改點 free spins」');
+    expect(remind).toContain('只照最新');
+    // 延續中的指令物件不是同一個參考也要能辨識(以 id 比對)
+    expect(operatorTurnNote([{ ...c3 }], [c1, c3])).toContain('較早的指令:「點擊 step by step」');
+  });
+
+  test('hints are ordered by time: prompt old→new, screen reminders newest first', () => {
+    const hints = [
+      { id: 'h2', text: '改選 FREE SPINS', screen: '選擇畫面', updatedAt: '2026-10-05T02:00:00Z' },
+      { id: 'h1', text: '選 STEP BY STEP', screen: '選擇畫面', updatedAt: '2026-10-05T01:00:00Z' },
+    ];
+    const sec = hintsPromptSection(hints);
+    expect(sec.indexOf('STEP BY STEP')).toBeLessThan(sec.indexOf('FREE SPINS'));
+    expect(sec).toContain('只照最新那條');
+    expect(screenHintsFor(hints, { screen: '選擇畫面' }).map((h) => h.id)).toEqual(['h2', 'h1']);
   });
 });
