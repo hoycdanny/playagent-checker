@@ -13,6 +13,7 @@ interface CommandView {
   createdBy?: string;
   screen?: string;
   hintId?: string;
+  point?: { x: number; y: number };
   ack?: { status: 'received' | 'applied'; step?: number; reply?: string; action?: string; screen?: string; at?: string };
 }
 
@@ -35,6 +36,11 @@ const T = {
   onScreen: ['畫面', 'screen'],
   memoryLink: ['管理應用記憶', 'Manage app memory'],
   examples: ['範例', 'Examples'],
+  pointChip: ['已選畫面位置 {p} · 送出後 AI 會直接點這裡', 'Screen position {p} selected · the AI taps it when you send'],
+  pointPlaceholder: ['說明這個位置(可留空),例如「這是 SPIN,以後都點這」', 'Describe this spot (optional), e.g. “this is SPIN”'],
+  pointOnly: ['點這個位置', 'Tap this spot'],
+  clearPoint: ['取消選取的位置', 'Clear the selected position'],
+  pickTip: ['小技巧:直接點左邊的即時畫面,可以指定精確位置。', 'Tip: click the live screen to pick an exact spot.'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 const EXAMPLES: Record<RLang, string[]> = {
@@ -46,7 +52,17 @@ const EXAMPLES: Record<RLang, string[]> = {
  * 測試中的即時指令聊天室。送出 → POST /tasks/{id}/commands;每 2 秒輪詢回執(AI 收到/回應)。
  * 預設勾「記住」:指令同時寫進這個應用的記憶(記憶地圖可編修)。
  */
-export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: string; isLive: boolean; currentScreen?: string; appId?: string }) {
+export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onClearPoint, refreshKey }: {
+  jobId: string;
+  isLive: boolean;
+  currentScreen?: string;
+  appId?: string;
+  /** 在即時畫面上選的位置:送出時一起帶上,runner 直接點這裡。 */
+  point?: { x: number; y: number } | null;
+  onClearPoint?: () => void;
+  /** 外部(例:畫面上的「讓 AI 點這裡」)送出指令後遞增,觸發立即重抓。 */
+  refreshKey?: number;
+}) {
   const { locale } = useI18n();
   const lang = reportLang(locale);
   const [items, setItems] = useState<CommandView[]>([]);
@@ -73,6 +89,10 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: s
   }, [load, isLive, items.length, items.filter((c) => c.ack?.status === 'applied').length]);
 
   useEffect(() => {
+    if (refreshKey) void load();
+  }, [refreshKey, load]);
+
+  useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [items.length, items.map((c) => c.ack?.status).join()]);
@@ -80,13 +100,19 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: s
   async function send(e?: FormEvent) {
     e?.preventDefault();
     const t = text.trim();
-    if (!t || sending || !isLive) return;
+    if ((!t && !point) || sending || !isLive) return;
     setSending(true);
     setError(null);
     try {
-      const cmd = await apiPost<CommandView>(`/tasks/${jobId}/commands`, { text: t, remember, ...(currentScreen ? { screen: currentScreen } : {}) });
+      const cmd = await apiPost<CommandView>(`/tasks/${jobId}/commands`, {
+        ...(t ? { text: t } : {}),
+        remember,
+        ...(currentScreen ? { screen: currentScreen } : {}),
+        ...(point ? { point } : {}),
+      });
       setItems((prev) => [...prev, cmd]);
       setText('');
+      onClearPoint?.();
     } catch (err) {
       setError(`${tx('error', lang)}${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -122,7 +148,10 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: s
                 {c.screen && <span className="opchat__screen">{tx('onScreen', lang)}:{c.screen}</span>}
                 {c.hintId && <span className="opchat__tag">{tx('remembered', lang)}</span>}
               </div>
-              <p>{c.text}</p>
+              <p>
+                {c.point && <span className="opchat__pin">📍 {Math.round(c.point.x * 100)}%, {Math.round(c.point.y * 100)}% </span>}
+                {c.point && c.text === '點這個位置' ? tx('pointOnly', lang) : c.text}
+              </p>
             </div>
             <div className={`opchat__msg opchat__msg--ai ${c.ack?.status === 'applied' ? 'is-done' : 'is-wait'}`}>
               <div className="opchat__meta">
@@ -147,6 +176,12 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: s
 
       {isLive ? (
         <form className="opchat__form" onSubmit={send}>
+          {point && (
+            <div className="opchat__point" role="status">
+              <span>{tx('pointChip', lang).replace('{p}', `${Math.round(point.x * 100)}%, ${Math.round(point.y * 100)}%`)}</span>
+              <button type="button" className="opchat__point-x" onClick={onClearPoint} aria-label={tx('clearPoint', lang)}>✕</button>
+            </div>
+          )}
           <label className="visually-hidden" htmlFor={`opchat-${jobId}`}>{tx('title', lang)}</label>
           <textarea
             id={`opchat-${jobId}`}
@@ -154,7 +189,7 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: s
             rows={2}
             maxLength={500}
             value={text}
-            placeholder={tx('placeholder', lang)}
+            placeholder={point ? tx('pointPlaceholder', lang) : tx('placeholder', lang)}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
           />
@@ -163,10 +198,11 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId }: { jobId: s
               <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
               {tx('remember', lang)}
             </label>
-            <button type="submit" className="opchat__send" disabled={sending || !text.trim()}>
+            <button type="submit" className="opchat__send" disabled={sending || (!text.trim() && !point)}>
               {sending ? tx('sending', lang) : tx('send', lang)}
             </button>
           </div>
+          {!point && items.length === 0 && <p className="opchat__tip">{tx('pickTip', lang)}</p>}
           {!text && items.length === 0 && (
             <div className="opchat__examples" aria-label={tx('examples', lang)}>
               {EXAMPLES[lang].map((ex) => (

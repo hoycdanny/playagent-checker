@@ -28,7 +28,7 @@
  */
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
 import {
   DeviceFarmClient,
   StopRemoteAccessSessionCommand,
@@ -813,9 +813,27 @@ async function main() {
     const uitarsInstr = operator.active.length || scoped.length
       ? `${TASK}\n\nTester instructions (highest priority, follow now):\n${[...operator.active.slice(-3).map((c) => c.text), ...scoped.slice(0, 3).map((h) => h.text)].map((t) => `- ${t}`).join('\n')}`
       : TASK;
-    let decided = USE_UITARS
-      ? await decideUitars(uitarsInstr, messages, cw, ch)
-      : await decide(system, messages);
+    // 測試人員直接在即時畫面上點了位置:不靠 AI 猜座標,這一步就點那個點(最準)。
+    // point 是相對畫面的比例(0–1),換算到本步截圖(cw×ch)空間後走同一條點擊/標記鏈。
+    const pointCmd = [...newCmds].reverse().find((c) => c.point);
+    let decided;
+    if (pointCmd) {
+      const px = Math.round(pointCmd.point.x * cw);
+      const py = Math.round(pointCmd.point.y * ch);
+      const note = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? `(${pointCmd.text})` : '';
+      const opCmd = {
+        action: 'tap', x: px, y: py,
+        ...(prevScreen ? { screen: prevScreen } : {}),
+        thinking: `依測試人員在即時畫面上點選的位置直接點擊 (${px}, ${py})${note}。`,
+        target: pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? pointCmd.text : '測試人員指定位置',
+        operatorTap: true,
+      };
+      decided = { cmd: opCmd, usage: null, rawText: JSON.stringify(opCmd), trace: { modelId: 'operator', channel: 'operator', ok: true, request: {} } };
+    } else {
+      decided = USE_UITARS
+        ? await decideUitars(uitarsInstr, messages, cw, ch)
+        : await decide(system, messages);
+    }
     // 解析失敗(模型吐亂碼/空字串)時立即重問,最多 2 次;不浪費一個步驟、也不讓連續失敗計數誤殺任務。
     //   第 1 次:同模型,但只帶「本回合」(拿掉長對話歷史 —— 實測模型多半是被長歷史帶歪才開始吐亂碼)。
     //   第 2 次:換備援模型(VLM_FALLBACK),同樣只帶本回合。

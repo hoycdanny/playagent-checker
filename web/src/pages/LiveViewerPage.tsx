@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { apiGet } from '../api/client.ts';
+import { apiGet, apiPost } from '../api/client.ts';
+import type { PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { useJobStream } from '../api/useJobStream.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
@@ -20,6 +21,7 @@ export default function LiveViewerPage() {
   const { state, message, steps, boot, createdAt, updatedAt, backend } = useJobStream(jobId ?? null);
   const isLive = !TERMINAL.has(state) && state !== 'queued';
   const levels = useAudioLevels(jobId, isLive, true);
+  const [point, setPoint] = useState<PickPoint | null>(null);
 
   // 沒有影片段落時的截圖幀(與任務詳情頁同一來源)。
   const [frame, setFrame] = useState<string | null>(null);
@@ -57,6 +59,12 @@ export default function LiveViewerPage() {
         alt={last?.screen ? String(last.screen) : t('detail.liveView')}
         lang={lang}
         popout={false}
+        point={point}
+        onPoint={setPoint}
+        onSendPoint={async (p) => {
+          const screen = [...steps].reverse().find((s) => s.screen && !s.parseFailed)?.screen;
+          await apiPost(`/tasks/${jobId}/commands`, { point: p, remember: false, ...(screen ? { screen: String(screen) } : {}) });
+        }}
         {...(levels?.state ? { audioState: levels.state } : {})}
       />
       {!isLive && message && <p className="liveview__msg">{message}</p>}

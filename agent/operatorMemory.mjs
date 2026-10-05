@@ -80,10 +80,22 @@ export function screenHintsFor(hints, { screen, pageId } = {}) {
  *   (2026-10-05:測試人員先說 step by step、後改 auto、再改 free spins,舊版把三則並列成
  *   「仍有效」,模型無從判斷該照哪個)。
  */
+/** 指令顯示文字:畫面點選的指令附上大約位置,讓之後的步驟知道那個東西在哪。 */
+function cmdLabel(c) {
+  if (!c.point) return c.text;
+  const pos = `畫面位置約左起 ${Math.round(c.point.x * 100)}%、上起 ${Math.round(c.point.y * 100)}%`;
+  return c.text === POINT_ONLY_TEXT ? `點${pos}` : `${c.text}(${pos})`;
+}
+
 export function operatorTurnNote(newCmds, activeCmds) {
   let out = '';
   const ids = new Set(newCmds.map((c) => c.id));
-  const older = activeCmds.filter((c) => !ids.has(c.id)).slice(-4).reverse(); // 新 → 舊
+  // 只是「點一下這裡」的畫面點選已由 runner 直接執行,不再當成持續有效的指令提醒。
+  const older = activeCmds
+    .filter((c) => !ids.has(c.id) && !(c.point && c.text === POINT_ONLY_TEXT))
+    .slice(-4).reverse() // 新 → 舊
+    .map((c) => ({ ...c, text: cmdLabel(c) }));
+  newCmds = newCmds.map((c) => ({ ...c, text: cmdLabel(c) }));
   if (newCmds.length) {
     out += `\n【測試人員即時指令|最高優先|必須遵守】測試人員正在看即時畫面,剛剛對你下了指令:` +
       newCmds.map((c) => `「${c.text}」`).join(';') +
@@ -101,6 +113,17 @@ export function operatorTurnNote(newCmds, activeCmds) {
       `。互相矛盾時只照最新的;不矛盾的仍然有效。)`;
   }
   return out;
+}
+
+/** 測試人員只點了畫面、沒打字時的預設指令文字(runner 直接點擊,不另加說明)。 */
+export const POINT_ONLY_TEXT = '點這個位置';
+
+/** 畫面點選位置(相對比例 0–1);格式不對回 null。 */
+export function validPoint(p) {
+  if (!p || typeof p !== 'object') return null;
+  const x = Number(p.x), y = Number(p.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;
+  return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
 }
 
 /** 從 S3 key 清單過濾出指令 id(按時間排序)。 */
@@ -135,7 +158,8 @@ export function createOperatorChannel({ s3, bucket, jobPrefix, cmds }) {
           const r = await s3.send(new cmds.GetObjectCommand({ Bucket: bucket, Key: `${cmdPrefix}${id}.json` }));
           const c = JSON.parse(await r.Body.transformToString());
           if (c && typeof c.text === 'string' && c.text.trim()) {
-            const cmd = { id, text: c.text.trim().slice(0, 500), ...(c.hintId ? { hintId: c.hintId } : {}) };
+            const point = validPoint(c.point);
+            const cmd = { id, text: c.text.trim().slice(0, 500), ...(c.hintId ? { hintId: c.hintId } : {}), ...(point ? { point } : {}) };
             fresh.push(cmd);
             active.push(cmd);
           }

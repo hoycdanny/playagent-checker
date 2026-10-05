@@ -157,6 +157,24 @@ describe('operator commands', () => {
     expect(() => validateCommandBody({ text: 'x'.repeat(501) })).toThrow(CommandValidationError);
   });
 
+  test('validateCommandBody: screen point (with or without text)', () => {
+    expect(validateCommandBody({ point: { x: 0.62, y: 0.88 } })).toEqual({ text: '點這個位置', remember: true, point: { x: 0.62, y: 0.88 }, pointOnly: true });
+    expect(validateCommandBody({ text: '這是 SPIN', point: { x: 1, y: 0 } })).toMatchObject({ text: '這是 SPIN', point: { x: 1, y: 0 } });
+    expect(validateCommandBody({ text: '這是 SPIN', point: { x: 1, y: 0 } }).pointOnly).toBeUndefined();
+    expect(() => validateCommandBody({ point: { x: 1.2, y: 0.5 } })).toThrow(CommandValidationError);
+    expect(() => validateCommandBody({ point: { x: 'a', y: 0.5 } })).toThrow(CommandValidationError);
+  });
+
+  test('operatorTurnNote: point commands carry position; tap-only points are not repeated as reminders', () => {
+    const tapOnly = { id: 'cmd-1', text: '點這個位置', point: { x: 0.5, y: 0.9 } };
+    const spin = { id: 'cmd-2', text: '這是 SPIN', point: { x: 0.85, y: 0.92 } };
+    expect(operatorTurnNote([spin], [spin])).toContain('這是 SPIN(畫面位置約左起 85%、上起 92%)');
+    const later = operatorTurnNote([], [tapOnly, spin]);
+    expect(later).toContain('這是 SPIN');
+    expect(later).not.toContain('點這個位置');
+    expect(operatorTurnNote([], [tapOnly])).toBe('');
+  });
+
   test('ids sort by time', () => {
     const a = newCommandId(1_000_000);
     const b = newCommandId(2_000_000);

@@ -269,11 +269,6 @@
   min-height: 560px;
 }
 
-/* 橫向遊戲:即時畫面欄放寬(畫面以寬度為準,上下不留大片黑邊) */
-.detail__layout--landscape {
-  grid-template-columns: minmax(420px, 1.7fr) minmax(280px, 0.9fr) minmax(300px, 1fr);
-}
-
 .detail__col {
   min-width: 0;
   min-height: 0;
