@@ -156,7 +156,8 @@ export default function TaskDetailPage() {
   const liveUrl = asText(latestShot?.annotatedUrl) ?? asText(latestShot?.screenshotUrl);
   const latestStep = steps[steps.length - 1];
   // 最新一步的畫面名稱:即時指令「記住」時當作提示的畫面範圍,也顯示在即時畫面下方。
-  const latestScreen = asText([...steps].reverse().find((s) => s.screen)?.screen);
+  // 略過回應無法解析的步驟(畫面名只是「畫面 87」這種流水號),取最近一個 AI 真的辨識過的畫面。
+  const latestScreen = asText([...steps].reverse().find((s) => s.screen && !s.parseFailed)?.screen);
   // 終局後仍顯示指令紀錄(若本次有下過指令)。
   const hasCommands = steps.some((s) => Array.isArray(s.operatorCommands) && s.operatorCommands.length > 0);
   const showChat = !!jobId && (isLive || hasCommands);

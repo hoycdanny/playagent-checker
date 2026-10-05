@@ -10,6 +10,8 @@ export interface HintLike {
   pageId?: string;
   screen?: string;
   enabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 export interface EditsLike {
   renames?: Record<string, string>;

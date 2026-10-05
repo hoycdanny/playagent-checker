@@ -348,10 +348,14 @@ function totalImageBytes(messages) {
   return bytes;
 }
 
-// 目前 VLM 是否拒收 temperature/topP(首次被拒後設為 true,見 decide() 的 Converse 分支)。
-let samplingUnsupported = false;
+// 拒收 temperature/topP 的模型(首次被拒後記住,見 decide() 的 Converse 分支)。
+const samplingUnsupportedModels = new Set();
+// 解析失敗的最後一道備援:換一個穩定的視覺模型重問(2026-10-05:Kimi K3 長任務中段開始
+// 頻繁吐出 1000 token 亂碼/空字串,連同重問都失敗,測試人員下的指令也因此被吞掉)。
+const VLM_FALLBACK = process.env.PA_VLM_FALLBACK
+  || (VLM.includes('anthropic') ? 'us.amazon.nova-pro-v1:0' : 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
 
-async function decide(system, messages) {
+async function decide(system, messages, modelId = VLM) {
   // 預設保留最近 2 張圖;但再加一道保險:若總圖量仍逼近模型 body 上限(~2MB),就降到只留最新 1 張,
   // 避免像大廳這種細節多的畫面兩張疊起來撐爆(Failed to buffer request body: length limit exceeded)。
   pruneImages(messages, 2);
@@ -360,9 +364,9 @@ async function decide(system, messages) {
   // 裁剪過舊的 assistant 回應文字(見 pruneAssistantText 註解):長任務的對話歷史文字
   // 本來無限增長,這裡控制在最近 6 輪完整內容,避免 prompt 隨步數線性變長變雜訊化。
   pruneAssistantText(messages, 6);
-  const channel = channelFor(VLM);
+  const channel = channelFor(modelId);
   const request = summarizeRequest(system, messages);
-  const baseTrace = { modelId: VLM, channel, request };
+  const baseTrace = { modelId, channel, request };
   try {
     if (channel === 'bedrock') {
       // Anthropic Claude:InvokeModel + Anthropic body。
@@ -373,7 +377,7 @@ async function decide(system, messages) {
       // 改成要求「thinking 30~60 字」雙重防護,這裡提高到 1000 留足夠餘裕。
       const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 1000, system, messages };
       const res = await bedrock.send(new InvokeModelCommand({
-        modelId: VLM, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body),
+        modelId, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body),
       }));
       const parsed = JSON.parse(new TextDecoder().decode(res.body));
       const out = parsed.content?.find((c) => c.type === 'text')?.text ?? '{}';
@@ -387,20 +391,20 @@ async function decide(system, messages) {
     // "This model doesn't support the temperature field"),第 0 步就失敗。改為:被拒時去掉取樣參數
     // 重送一次,並記住此模型不支援,後續步驟直接不送。
     const converse = (withSampling) => bedrock.send(new ConverseCommand({
-      modelId: VLM,
+      modelId,
       system: [{ text: system }],
       messages: toConverseMessages(messages),
       inferenceConfig: withSampling ? { maxTokens: 1000, temperature: 0.2, topP: 0.9 } : { maxTokens: 1000 },
     }));
     let res;
-    if (samplingUnsupported) {
+    if (samplingUnsupportedModels.has(modelId)) {
       res = await converse(false);
     } else {
       try {
         res = await converse(true);
       } catch (e) {
         if (!/temperature|top_?p/i.test(String(e?.message || ''))) throw e;
-        samplingUnsupported = true;
+        samplingUnsupportedModels.add(modelId);
         res = await converse(false);
       }
     }
@@ -620,6 +624,7 @@ async function main() {
   // prevAction:給 prompt 的上一步動作;navAction/prevTarget:導覽圖「造成轉場的動作/目標」。
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let prevScreen = ''; // 上一步 AI 標的畫面名(記憶提醒 / 指令回執用)
+  let pendingCmds = []; // 尚未得到有效回應的測試人員指令(解析失敗時延續到下一步)
   let consecFail = 0;
   // 無上限時不會「達步數上限」;若真的迴圈自然結束(理論上只有有限步才會),訊息才用步數上限。
   let finalState = 'fail';
@@ -775,12 +780,16 @@ async function main() {
       ? `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化 —— 你先前點的位置不是可互動按鈕。請「換一個明顯不同的位置」,對準畫面上最大最醒目的主按鈕(通常在中下段,文字如 Play now / START / 開始 / 進入),把座標對到那顆按鈕的正中心,不要再點同一處或空白處。`
       : (i > 0 && !screenChanged ? '上一步後畫面沒變(可能無效),換個位置或做法。' : '');
     // 測試人員即時指令(聊天室):新指令最高優先注入本回合;先前指令持續提醒。
-    const newCmds = await operator.poll();
-    for (const c of newCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
+    const freshCmds = await operator.poll();
+    for (const c of freshCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
+    // 上一步沒有成功處理(模型回應無法解析)的指令延續到這一步,仍以「剛下的指令」最高優先注入,
+    // 直到 AI 真的給出有效回應為止 —— 之前會在解析失敗那一步被「吃掉」,之後只剩一句提醒。
+    const newCmds = [...pendingCmds, ...freshCmds];
+    pendingCmds = [];
     // 回到某畫面時,提醒使用者教過的該畫面操作(system 裡的長清單之外,再於當下強調一次)。
     const scoped = screenHintsFor(appMemory.hints, { screen: prevScreen, pageId: prevPageId });
     const memoryNote = scoped.length
-      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過:${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
+      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
       : '';
     const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + controlNote
       + memoryNote + operatorTurnNote(newCmds, operator.active);
@@ -808,10 +817,16 @@ async function main() {
       ? await decideUitars(uitarsInstr, messages, cw, ch)
       : await decide(system, messages);
     // 解析失敗(模型吐亂碼/空字串)時立即重問,最多 2 次;不浪費一個步驟、也不讓連續失敗計數誤殺任務。
+    //   第 1 次:同模型,但只帶「本回合」(拿掉長對話歷史 —— 實測模型多半是被長歷史帶歪才開始吐亂碼)。
+    //   第 2 次:換備援模型(VLM_FALLBACK),同樣只帶本回合。
+    // 備援呼叫本身失敗(如無權限)時保留原結果(wait 重試),不讓「模型呼叫失敗 → done」誤結束任務。
     for (let r = 0; r < 2 && decided.cmd.parseFailed && decided.trace?.ok !== false && !USE_UITARS; r++) {
-      const retry = await decide(system, messages);
+      const model = r === 0 ? VLM : VLM_FALLBACK;
+      const retry = await decide(system, [messages[messages.length - 1]], model);
+      if (retry.trace?.ok === false) { console.warn(`[decide] 重問(${model})呼叫失敗:${retry.trace?.error?.message ?? ''}`); continue; }
       if (retry.usage && decided.usage) retry.usage = { input: retry.usage.input + decided.usage.input, output: retry.usage.output + decided.usage.output };
-      decided = { ...retry, trace: { ...retry.trace, retries: r + 1 } };
+      decided = { ...retry, trace: { ...retry.trace, retries: r + 1, ...(model !== VLM ? { fallbackModel: model } : {}) } };
+      if (!retry.cmd.parseFailed && model !== VLM) console.log(`[decide] 第 ${i} 步改由備援模型 ${model} 決策`);
     }
     const { cmd, usage, rawText, trace } = decided;
     if (autopilotPromise) await autopilotPromise;
@@ -1092,11 +1107,12 @@ async function main() {
       ...(trace && trace.ok === false ? { modelError: true } : {}),
       ...(foregroundLost ? { foregroundLost: true, ...(appState !== undefined ? { appState } : {}) } : {}),
       ...(perf ? { perf } : {}),
-      ...(newCmds.length ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}) };
+      ...(newCmds.length && !cmd.parseFailed ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}) };
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
-    // 指令回執:AI 這一步怎麼回應(聊天室顯示)。
-    for (const c of newCmds) {
+    // 指令回執:AI 這一步怎麼回應(聊天室顯示)。回應無法解析 → 不算已處理,留到下一步再送。
+    if (cmd.parseFailed && newCmds.length) pendingCmds = newCmds;
+    for (const c of cmd.parseFailed ? [] : newCmds) {
       await operator.ack(c, { status: 'applied', step: i, action: cmd.action, screen: screenName, reply: String(cmd.thinking || '').slice(0, 400) });
     }
 
