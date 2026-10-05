@@ -83,6 +83,8 @@ export default function TaskDetailPage() {
   const TERMINAL_STATES = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
   const isLive = !TERMINAL_STATES.has(state) && state !== 'queued';
   const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
+  // 遊戲畫面方向(依即時畫面實際比例):橫向遊戲時放寬即時畫面欄。
+  const [landscape, setLandscape] = useState(false);
   useEffect(() => {
     if (!jobId || !isLive) {
       setLiveFrameUrl(null);
@@ -302,7 +304,7 @@ export default function TaskDetailPage() {
       )}
 
       {/* 主區三欄:即時畫面 | 下指令 + 測試腳本 | 執行軌跡(窄螢幕自動改兩欄 / 單欄) */}
-      <div className="detail__layout">
+      <div className={`detail__layout ${landscape ? 'detail__layout--landscape' : ''}`}>
         {/* 即時畫面:執行中顯示串流幀;否則回退最新步驟截圖。 */}
         <section className="detail__col detail__col--live" aria-labelledby="detail-live-title">
           <h2 id="detail-live-title" className="detail__panel-title">
@@ -326,6 +328,7 @@ export default function TaskDetailPage() {
               fallbackUrl={liveFrameUrl ?? liveUrl ?? null}
               alt={latestScreen ?? t('detail.liveView')}
               lang={lang}
+              onAspect={(a) => setLandscape(a > 1)}
               {...(audioLevels?.state ? { audioState: audioLevels.state } : {})}
             />
           ) : liveUrl ? (
