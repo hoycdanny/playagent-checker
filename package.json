@@ -5,14 +5,16 @@
   "description": "Serverless AI QA Platform",
   "workspaces": [
     "web",
-    "infra"
+    "infra",
+    "worker"
   ],
   "scripts": {
     "build:web": "npm run build --workspace web",
     "dev:web": "npm run dev --workspace web",
     "test:web": "npm run test --workspace web",
     "synth": "npm run synth --workspace infra",
-    "test:infra": "npm run test --workspace infra"
+    "test:infra": "npm run test --workspace infra",
+    "test:worker": "npm run test --workspace worker"
   },
   "engines": {
     "node": ">=20"

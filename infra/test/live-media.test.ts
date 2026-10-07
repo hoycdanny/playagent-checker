@@ -4,11 +4,13 @@ import type { S3Client } from '@aws-sdk/client-s3';
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: async (_c: unknown, cmd: { input: { Key: string } }) => `https://signed/${cmd.input.Key}`,
 }));
-const { listMediaSegments, readAudioLevels } = await import('../lambda/api/liveMedia.js');
+const { listMediaSegments, readAudioLevels, withRecordingUrls } = await import('../lambda/api/liveMedia.js');
 // @ts-expect-error 無 .d.ts 的 .mjs 匯入
 const lv = await import('../../agent/liveVideo.mjs');
 // @ts-expect-error 無 .d.ts 的 .mjs 匯入
 const ma = await import('../../agent/mediaAudio.mjs');
+// @ts-expect-error 無 .d.ts 的 .mjs 匯入
+const mf = await import('../../agent/moveFeedback.mjs');
 
 function fakeS3(keys: string[], bodies: Record<string, string> = {}) {
   const send = async (cmd: { constructor: { name: string }; input: Record<string, unknown> }) => {
@@ -62,6 +64,21 @@ describe('readAudioLevels', () => {
     expect(r.state).toBe('on');
     expect(r.chunks).toHaveLength(1);
   });
+  test('recording state is kept; replay URLs only for recording file names', async () => {
+    const doc = JSON.stringify({
+      state: 'recording',
+      dt: 0.1,
+      chunks: [
+        { name: 'rec-0.mp4', t: 1, dur: 1, rms: [-20] },
+        { name: 'a1700000000000.mp4', t: 2, dur: 1, rms: [-20] },
+        { name: '../../secret.json', t: 3, dur: 1, rms: [-20] },
+      ],
+    });
+    const s3 = fakeS3([], { [`${P}audio/levels.json`]: doc });
+    const r = await withRecordingUrls(s3, 'b', 't1', 'job-1', await readAudioLevels(s3, 'b', 't1', 'job-1'));
+    expect(r.state).toBe('recording');
+    expect(r.chunks.map((c) => c.url)).toEqual([`https://signed/${P}audio/rec-0.mp4`, `https://signed/${P}audio/a1700000000000.mp4`, undefined]);
+  });
 });
 
 describe('runner helpers', () => {
@@ -76,5 +93,126 @@ describe('runner helpers', () => {
   test('parseRmsLines handles -inf and numbers', () => {
     const txt = 'frame:0\nlavfi.astats.Overall.RMS_level=-inf\nframe:1\nlavfi.astats.Overall.RMS_level=-19.84\n';
     expect(ma.parseRmsLines(txt)).toEqual([-120, -19.8]);
+  });
+});
+
+describe('continuous recorder (one recording per run)', () => {
+  type Call = { name: string; args?: Record<string, unknown> };
+  function setup(opts: { uploadFails?: boolean; autoEndOnce?: boolean; startIndex?: number; initialChunks?: unknown[] } = {}) {
+    const calls: Call[] = [];
+    const puts = new Map<string, unknown>();
+    let running = false;
+    let autoEnded = false;
+    let tick: (() => void) | null = null;
+    const client = {
+      mobile: async (name: string, args?: Record<string, unknown>) => {
+        calls.push({ name, ...(args ? { args } : {}) });
+        if (name === 'startMediaProjectionRecording') { running = true; return true; }
+        if (name === 'isMediaProjectionRecordingRunning') {
+          if (opts.autoEndOnce && !autoEnded) { autoEnded = true; running = false; }
+          return running;
+        }
+        if (name === 'stopMediaProjectionRecording') {
+          running = false;
+          if (args?.['remotePath']) {
+            if (opts.uploadFails) throw new Error('upload failed');
+            puts.set('uploaded', args);
+            return '';
+          }
+          return Buffer.from('fake-mp4').toString('base64');
+        }
+        return null;
+      },
+    };
+    const rec = ma.createMediaRecorder({
+      client,
+      prefix: 'tenants/t1/jobs/job-1',
+      put: async (k: string, body: unknown) => { puts.set(k, body); },
+      presignPost: async (key: string) => ({ url: `https://s3.example/${key}`, fields: { key, policy: 'p' } }),
+      download: async () => Buffer.from('fake-mp4'),
+      analyze: async () => [-30, -20, -120, -10],
+      setIntervalFn: (fn: () => void) => { tick = fn; return 1; },
+      clearIntervalFn: () => {},
+      ...(opts.startIndex !== undefined ? { startIndex: opts.startIndex, initialChunks: opts.initialChunks } : {}),
+    });
+    return { rec, calls, puts, tick: () => tick?.() };
+  }
+  const levels = (puts: Map<string, unknown>) => JSON.parse(String(puts.get('tenants/t1/jobs/job-1/audio/levels.json')));
+
+  test('starts once, stops once and uploads straight to S3 via presigned POST', async () => {
+    const { rec, calls, puts } = setup();
+    expect(await rec.start()).toBe(true);
+    expect(levels(puts).state).toBe('recording');
+    await rec.stop();
+    const names = calls.map((c) => c.name);
+    expect(names.filter((n) => n === 'startMediaProjectionRecording')).toHaveLength(1);
+    const stop = calls.find((c) => c.name === 'stopMediaProjectionRecording')!;
+    expect(stop.args).toMatchObject({ remotePath: 'https://s3.example/tenants/t1/jobs/job-1/audio/rec-0.mp4', method: 'POST', fileFieldName: 'file' });
+    expect(stop.args!['formFields']).toEqual({ key: 'tenants/t1/jobs/job-1/audio/rec-0.mp4', policy: 'p' });
+    const doc = levels(puts);
+    expect(doc.state).toBe('on');
+    expect(doc.chunks).toHaveLength(1);
+    expect(doc.chunks[0]).toMatchObject({ name: 'rec-0.mp4', dur: 0.4, rms: [-30, -20, -120, -10] });
+  });
+
+  test('direct upload failure → falls back to base64 and uploads itself', async () => {
+    const { rec, puts } = setup({ uploadFails: true });
+    await rec.start();
+    await rec.stop();
+    expect(String(puts.get('tenants/t1/jobs/job-1/audio/rec-0.mp4'))).toBe('fake-mp4');
+    expect(levels(puts).chunks).toHaveLength(1);
+  });
+
+  test('watchdog: recording hit its max length → keeps it and starts the next one', async () => {
+    const { rec, calls, puts, tick } = setup({ autoEndOnce: true });
+    await rec.start();
+    tick();
+    for (let k = 0; k < 20; k++) await new Promise((r) => setTimeout(r, 0)); // 讓看門狗跑完
+    await rec.stop();
+    expect(calls.filter((c) => c.name === 'startMediaProjectionRecording')).toHaveLength(2);
+    expect(levels(puts).chunks.map((c: { name: string }) => c.name)).toEqual(['rec-0.mp4', 'rec-1.mp4']);
+  });
+
+  test('new connection (long run): continues the part number and keeps earlier parts', async () => {
+    const first = setup();
+    await first.rec.start();
+    await first.rec.stop();
+    const second = setup({ startIndex: first.rec.nextIndex, initialChunks: first.rec.chunks });
+    await second.rec.start();
+    await second.rec.stop();
+    expect(levels(second.puts).chunks.map((c: { name: string }) => c.name)).toEqual(['rec-0.mp4', 'rec-1.mp4']);
+  });
+
+  test('device cannot record → start() returns false and marks unavailable', async () => {
+    const puts = new Map<string, unknown>();
+    const rec = ma.createMediaRecorder({
+      client: { mobile: async () => { throw new Error('not supported'); } },
+      prefix: 'p',
+      put: async (k: string, b: unknown) => { puts.set(k, b); },
+      presignPost: async () => ({ url: '', fields: {} }),
+      download: async () => Buffer.alloc(0),
+      maxSec: 900,
+      setIntervalFn: () => 1,
+      clearIntervalFn: () => {},
+    });
+    expect(await rec.start()).toBe(false);
+    expect(JSON.parse(String(puts.get('p/audio/levels.json'))).state).toBe('unavailable');
+  });
+});
+
+describe('joystick move feedback', () => {
+  test('normDir / turnDir', () => {
+    expect(mf.normDir('Up-Left')).toBe('upleft');
+    expect(mf.normDir('sideways')).toBeNull();
+    expect(mf.turnDir('right', 1)).toBe('down');
+    expect(mf.turnDir('right', 2)).toBe('up');
+    expect(mf.turnDir('right', 3)).toBe('left');
+  });
+  test('isBlocked uses the scene-band threshold', () => {
+    const ham = (a: string, b: string) => Number(b) - Number(a);
+    expect(mf.isBlocked('0', '0', ham)).toBe(true);
+    expect(mf.isBlocked('0', '16', ham)).toBe(true);
+    expect(mf.isBlocked('0', '278', ham)).toBe(false);
+    expect(mf.isBlocked(null, '0', ham)).toBe(false);
   });
 });

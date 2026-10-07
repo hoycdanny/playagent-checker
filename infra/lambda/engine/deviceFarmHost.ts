@@ -41,6 +41,10 @@ export interface DeviceFarmRunParams {
   package?: string;
   platform?: DevicePlatform;
   vlmModel?: string;
+  /** 決策 Agent 模型(agent seat);runner 每步規劃目標。 */
+  agentModel?: string;
+  /** 輔助 Agent 模型(subagent seat);runner 每步核對效果、整理數據、核對完成。 */
+  subagentModel?: string;
   caseTask?: string;
   /** 步數上限;未給代表無上限(runner 端 PA_MAXSTEPS 不設 = Infinity)。 */
   maxSteps?: number;
@@ -83,6 +87,8 @@ export async function startDeviceFarmRun(
     { name: 'PA_DF_REGION', value: DEVICE_FARM_REGION },
     { name: 'PA_DF_PROJECT', value: DF_PROJECT_NAME },
     { name: 'PA_VLM', value: params.vlmModel ?? '' },
+    { name: 'PA_AGENT_MODEL', value: params.agentModel ?? '' },
+    { name: 'PA_SUBAGENT_MODEL', value: params.subagentModel ?? '' },
     { name: 'PA_PKG', value: params.package ?? '' },
     { name: 'PA_TASK', value: params.caseTask ?? '' },
     // 使用者選 UI-TARS 定位:把 endpoint 名傳給 runner(需 endpoint 已部署 InService)。

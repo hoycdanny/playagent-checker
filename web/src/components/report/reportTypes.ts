@@ -116,6 +116,10 @@ export interface EvidenceStep {
   module?: string;
   mechanic?: string;
   obs?: Record<string, number | string | boolean>;
+  /** 長時模式的連線段。 */
+  segment?: number;
+  /** 判定為讀錯、不計入指標的數值(原值 + 原因)。 */
+  excludedObs?: Record<string, { value: number; reason: L10n }>;
   issue?: { category: string; severity: Severity; title: string };
   override?: string;
   parseFailed?: boolean;
@@ -236,5 +240,9 @@ export interface StructuredReport {
   profiles: Array<{ id: string; version: string; label: L10n }>;
   spec: { values: Record<string, number>; sources: string[] };
   evidence: EvidenceStep[];
+  dataQuality?: {
+    excluded: Array<{ step: number; key: string; value: number; reason: L10n; prev?: { step: number; value: number }; next?: { step: number; value: number } }>;
+    betChanges: Array<{ step: number; prevStep: number; key: string; from: number; to: number }>;
+  };
   notes: L10n[];
 }

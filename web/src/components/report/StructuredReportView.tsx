@@ -129,7 +129,9 @@ export function StructuredReportView({
   ];
   const visible = sections.filter((s) => s.show);
   const num = (id: SectionId) => visible.findIndex((s) => s.id === id) + 1;
-  const H = ({ id }: { id: SectionId }) => (
+  // 以函式呼叫(非元件)產生標題:若寫成 render 內定義的元件,每次重繪都會換一個元件型別,
+  // React 會卸載重建所有 <h2>,導致目錄捲動追蹤失效。
+  const H = (id: SectionId) => (
     <h2 className="srep__h2" id={`srep-${id}`}>
       {num(id)}. {txt(sections.find((s) => s.id === id)!.key, lang)}
     </h2>
@@ -141,18 +143,34 @@ export function StructuredReportView({
 
   // 目錄高亮目前閱讀的章節。
   const visibleKey = visible.map((s) => s.id).join(',');
+  // 每次捲動都重新查詢標題位置:取「頂端已越過閱讀線」的最後一個章節;捲到底時選最後一章。
+  // capture 監聽可同時涵蓋 window 與內層捲動容器。
   useEffect(() => {
-    if (typeof IntersectionObserver === 'undefined') return;
-    const els = visibleKey.split(',').map((id) => document.getElementById(`srep-${id}`)).filter((e): e is HTMLElement => Boolean(e));
-    const io = new IntersectionObserver(
-      (entries) => {
-        const top = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (top) setActive(top.target.id.replace(/^srep-/, ''));
-      },
-      { rootMargin: '-80px 0px -70% 0px' },
-    );
-    els.forEach((e) => io.observe(e));
-    return () => io.disconnect();
+    const ids = visibleKey.split(',');
+    const OFFSET = 120;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      let current = ids[0] ?? 'cover';
+      for (const id of ids) {
+        const el = document.getElementById(`srep-${id}`);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top - OFFSET <= 0) current = id;
+        else break;
+      }
+      const doc = document.documentElement;
+      if (window.innerHeight + window.scrollY >= doc.scrollHeight - 2) current = ids[ids.length - 1] ?? current;
+      setActive((prev) => (prev === current ? prev : current));
+    };
+    const onScroll = () => { if (!raf) raf = window.requestAnimationFrame(update); };
+    update();
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', onScroll, { capture: true });
+      window.removeEventListener('resize', onScroll);
+      if (raf) window.cancelAnimationFrame(raf);
+    };
   }, [visibleKey]);
 
   const totalShown = Math.max(1, r.counts.totalChecks);
@@ -181,7 +199,7 @@ export function StructuredReportView({
       <div className="srep__main">
       {/* 1. Cover */}
       <section className={`srep__section srep__hero srep__hero--${r.overallStatus}`}>
-        <H id="cover" />
+        {H('cover')}
         <div className="srep__cover">
           <div className="srep__cover-id">
             <div className="srep__eyebrow">
@@ -213,7 +231,7 @@ export function StructuredReportView({
 
       {/* 2. Executive Summary */}
       <section className="srep__section">
-        <H id="executive" />
+        {H('executive')}
         <ul className="srep__summary">
           {r.summaryLines.map((l, i) => <li key={i}>{tr(l, lang)}</li>)}
         </ul>
@@ -281,7 +299,7 @@ export function StructuredReportView({
       {/* 判定明細 */}
       {checks.length > 0 && (
         <section className="srep__section">
-          <H id="verdicts" />
+          {H('verdicts')}
           <p className="srep__note srep__note--top">{txt('verdictsHint', lang)}</p>
           <VerdictMatrix
             checks={checks}
@@ -303,7 +321,7 @@ export function StructuredReportView({
       {/* AI 分析 */}
       {visible.some((s) => s.id === 'insights') && (
         <section className="srep__section">
-          <H id="insights" />
+          {H('insights')}
           <InsightsPanel
             {...(jobId ? { jobId } : {})}
             lang={lang}
@@ -318,7 +336,7 @@ export function StructuredReportView({
 
       {/* 3. Environment */}
       <section className="srep__section">
-        <H id="environment" />
+        {H('environment')}
         <dl className="srep__kv">
           <KV k={txt('reportId', lang)} v={h.reportId} />
           <KV k={txt('caseVersion', lang)} v={h.caseVersion} />
@@ -346,7 +364,7 @@ export function StructuredReportView({
 
       {/* 4. Scope */}
       <section className="srep__section">
-        <H id="scope" />
+        {H('scope')}
         <div className="srep__chips">
           {r.scope.map((s) => (
             <span key={s.id} className={`srep__chip srep__chip--${s.status}`}>
@@ -359,7 +377,7 @@ export function StructuredReportView({
 
       {/* 5. Quality Dashboard */}
       <section className="srep__section">
-        <H id="dashboard" />
+        {H('dashboard')}
         <div className="srep__dims">
           {r.dashboard.map((d) => (
             <div key={d.dimension} className={`srep__dim ${d.score === null ? 'srep__dim--na' : ''}`}>
@@ -387,7 +405,7 @@ export function StructuredReportView({
 
       {/* 6. Coverage */}
       <section className="srep__section">
-        <H id="coverage" />
+        {H('coverage')}
         <div className="srep__grid2">
           <CoverageList title={txt('featureCov', lang)} items={r.coverage.feature} lang={lang} />
           <CoverageList title={txt('scenarioCov', lang)} items={r.coverage.scenario} lang={lang} />
@@ -405,13 +423,13 @@ export function StructuredReportView({
 
       {/* 7. Results */}
       <section className="srep__section">
-        <H id="results" />
+        {H('results')}
         <Charts list={charts(RESULT_CHARTS)} lang={lang} labelOf={labelOf} empty={txt('noData', lang)} />
       </section>
 
       {/* Modules */}
       <section className="srep__section">
-        <H id="modules" />
+        {H('modules')}
         <div className="srep__table-wrap">
           <table className="srep__table">
             <thead>
@@ -449,7 +467,7 @@ export function StructuredReportView({
       {/* Genre-specific */}
       {visible.some((s) => s.id === 'genre') && (
         <section className="srep__section">
-          <H id="genre" />
+          {H('genre')}
           <p className="srep__muted">{r.profiles.filter((p) => p.id !== 'global').map((p) => `${tr(p.label, lang)} v${p.version}`).join(' + ')}</p>
           <MetricGrid metrics={group('genre')} lang={lang} />
           <Charts list={genreCharts} lang={lang} labelOf={labelOf} />
@@ -459,7 +477,7 @@ export function StructuredReportView({
       {/* Mechanics */}
       {r.mechanics.length > 0 && (
         <section className="srep__section">
-          <H id="mechanics" />
+          {H('mechanics')}
           <div className="srep__table-wrap">
             <table className="srep__table">
               <thead>
@@ -489,33 +507,33 @@ export function StructuredReportView({
 
       {hasSection('progression') && (
         <section className="srep__section">
-          <H id="progression" />
+          {H('progression')}
           <MetricGrid metrics={group('progression')} lang={lang} />
         </section>
       )}
       {hasSection('economy') && (
         <section className="srep__section">
-          <H id="economy" />
+          {H('economy')}
           <MetricGrid metrics={group('economy')} lang={lang} />
         </section>
       )}
 
       {/* Performance */}
       <section className="srep__section">
-        <H id="performance" />
+        {H('performance')}
         <MetricGrid metrics={group('performance')} lang={lang} />
         <Charts list={charts(PERF_CHARTS)} lang={lang} labelOf={labelOf} />
       </section>
 
       {/* Stability */}
       <section className="srep__section">
-        <H id="stability" />
+        {H('stability')}
         <MetricGrid metrics={group('stability')} lang={lang} />
       </section>
 
       {/* Visual */}
       <section className="srep__section">
-        <H id="visual" />
+        {H('visual')}
         <p className="srep__note">{txt('visualHint', lang)}</p>
         {visual.length === 0 ? <p className="srep__muted">{txt('noFindings', lang)}</p> : (
           <div className="srep__findings">
@@ -526,7 +544,7 @@ export function StructuredReportView({
 
       {/* UX */}
       <section className="srep__section">
-        <H id="ux" />
+        {H('ux')}
         <p className="srep__note">{txt('uxHint', lang)}</p>
         <MetricGrid metrics={r.metrics.filter((m) => ['retry_rate', 'stuck_count', 'navigation_failure_count', 'unique_screens'].includes(m.id))} lang={lang} />
         {r.findings.filter((f) => f.category === 'ux').map((f) => <FindingCard key={f.id} f={f} lang={lang} onOpenImage={onOpenImage} />)}
@@ -534,7 +552,7 @@ export function StructuredReportView({
 
       {/* AI Reliability */}
       <section className="srep__section">
-        <H id="aiReliability" />
+        {H('aiReliability')}
         <MetricGrid metrics={group('ai_reliability')} lang={lang} />
         <Charts list={charts(AI_CHARTS)} lang={lang} labelOf={labelOf} />
         <h3 className="srep__h3">{txt('aiFailures', lang)} ({r.aiFailures.length})</h3>
@@ -547,7 +565,7 @@ export function StructuredReportView({
 
       {/* Defects */}
       <section className="srep__section">
-        <H id="defects" />
+        {H('defects')}
         <div className="srep__kpis">
           <Kpi label={txt('gameDefects', lang)} value={gameDefects.length} tone={gameDefects.length ? 'fail' : 'pass'} />
           <Kpi label={tr(STATUS_TEXT['NEEDS_TRIAGE'], lang)} value={triage.length} tone={triage.length ? 'warn' : undefined} />
@@ -601,7 +619,7 @@ export function StructuredReportView({
 
       {/* Test Case */}
       <section className="srep__section">
-        <H id="testCase" />
+        {H('testCase')}
         <dl className="srep__kv">
           <KV k={txt('caseId', lang)} v={r.testCase.id} />
           <KV k={txt('caseName', lang)} v={r.testCase.name} />
@@ -631,14 +649,14 @@ export function StructuredReportView({
       {/* Evidence */}
       {r.evidence.length > 0 && (
         <section className="srep__section">
-          <H id="evidence" />
+          {H('evidence')}
           <EvidenceTrace steps={r.evidence} lang={lang} onOpenImage={onOpenImage} />
         </section>
       )}
 
       {/* Risk */}
       <section className="srep__section">
-        <H id="risk" />
+        {H('risk')}
         {r.risks.length === 0 ? <p className="srep__muted">{txt('noRisks', lang)}</p> : (
           <div className="srep__findings">
             {r.risks.map((k) => (
@@ -659,7 +677,7 @@ export function StructuredReportView({
 
       {/* Release */}
       <section className="srep__section">
-        <H id="release" />
+        {H('release')}
         <StatusBadge kind="release" value={r.release.readiness} lang={lang} label={txt('readiness', lang)} large />
         <p className="srep__note">{txt('readinessNote', lang)}</p>
         <h3 className="srep__h3">{txt('rulesHit', lang)}</h3>
@@ -678,9 +696,10 @@ export function StructuredReportView({
 
       {/* Appendix */}
       <section className="srep__section">
-        <H id="appendix" />
+        {H('appendix')}
         <h3 className="srep__h3">{txt('notes', lang)}</h3>
         <ul className="srep__summary">{r.notes.map((n, i) => <li key={i}>{tr(n, lang)}</li>)}</ul>
+        <DataQualityTables q={r.dataQuality} lang={lang} />
         <h3 className="srep__h3">{txt('profiles', lang)}</h3>
         <p className="srep__muted">{r.profiles.map((p) => `${tr(p.label, lang)} v${p.version}`).join(' + ')}</p>
         {Object.keys(r.spec.values).length > 0 && (
@@ -895,6 +914,52 @@ function FindingCard({ f, lang, onOpenImage, compact, anchor, note }: {
 
 const TRACE_PREVIEW = 40;
 
+/** 數據品質:排除的讀錯數值與投注額變更,每列都能對回步驟。 */
+function DataQualityTables({ q, lang }: { q: StructuredReport['dataQuality']; lang: RLang }) {
+  if (!q || (q.excluded.length === 0 && q.betChanges.length === 0)) return null;
+  const n = (v: number) => v.toLocaleString();
+  return (
+    <>
+      <h3 className="srep__h3">{txt('dataQuality', lang)}</h3>
+      {q.excluded.length > 0 && (
+        <div className="srep__table-wrap">
+          <table className="srep__table">
+            <caption className="srep__muted">{txt('dqExcluded', lang)}</caption>
+            <thead><tr><th scope="col">{txt('dqStep', lang)}</th><th scope="col">{txt('dqField', lang)}</th><th scope="col">{txt('dqRaw', lang)}</th><th scope="col">{txt('dqReason', lang)}</th></tr></thead>
+            <tbody>
+              {q.excluded.map((e) => (
+                <tr key={`${e.step}-${e.key}`}>
+                  <td className="srep__mono">#{e.step}</td>
+                  <td className="srep__mono">{e.key}</td>
+                  <td className="srep__mono">{n(e.value)}</td>
+                  <td>{tr(e.reason, lang)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {q.betChanges.length > 0 && (
+        <div className="srep__table-wrap">
+          <table className="srep__table">
+            <caption className="srep__muted">{txt('dqBetChanges', lang)}</caption>
+            <thead><tr><th scope="col">{txt('dqStep', lang)}</th><th scope="col">{txt('dqField', lang)}</th><th scope="col">{txt('dqChange', lang)}</th></tr></thead>
+            <tbody>
+              {q.betChanges.map((c) => (
+                <tr key={`${c.step}-${c.key}`}>
+                  <td className="srep__mono">#{c.prevStep} → #{c.step}</td>
+                  <td className="srep__mono">{c.key}</td>
+                  <td className="srep__mono">{n(c.from)} → {n(c.to)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
 function EvidenceTrace({ steps, lang, onOpenImage }: { steps: EvidenceStep[]; lang: RLang; onOpenImage: (u: string) => void }) {
   const [all, setAll] = useState(false);
   const shown = all ? steps : steps.slice(0, TRACE_PREVIEW);
@@ -918,6 +983,12 @@ function EvidenceTrace({ steps, lang, onOpenImage }: { steps: EvidenceStep[]; la
                   {s.module && <span className="srep__tag">{s.module}</span>}
                   {s.mechanic && <span className="srep__tag">{s.mechanic}</span>}
                   {s.override && <span className="srep__tag srep__tag--warn">{txt('override', lang)}: {s.override}</span>}
+                  {s.segment && s.segment > 1 && <span className="srep__tag">{txt('segment', lang)} {s.segment}</span>}
+                  {s.excludedObs && Object.keys(s.excludedObs).length > 0 && (
+                    <span className="srep__tag srep__tag--warn" title={Object.values(s.excludedObs).map((e) => tr(e.reason, lang)).join('\n')}>
+                      {txt('excludedValue', lang)}: {Object.entries(s.excludedObs).map(([k, e]) => `${k}=${e.value.toLocaleString()}`).join(' · ')}
+                    </span>
+                  )}
                   {s.assertion && <span className={`srep__assert srep__assert--${s.assertion}`}>{tr(STATUS_TEXT[s.assertion], lang)}</span>}
                   {typeof s.confidence === 'number' && <span className="srep__muted">conf {s.confidence.toFixed(2)}</span>}
                   {typeof s.vlmMs === 'number' && <span className="srep__muted">{s.vlmMs} ms</span>}

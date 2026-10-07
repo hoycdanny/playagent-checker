@@ -140,6 +140,8 @@ async function readJobMeta(
   osVersion?: string;
   genres: string[];
   controls?: { ids: string[]; source: 'case' | 'genre' };
+  maxHours?: number;
+  display?: { width: number; height: number };
 } | null> {
   try {
     const res = await s3.send(
@@ -161,6 +163,8 @@ async function readJobMeta(
       osVersion?: string;
       genres?: string[];
       controls?: { ids?: unknown; source?: string };
+      maxHours?: number;
+      display?: { width?: unknown; height?: unknown };
     };
     return {
       appId: job.appId ?? '',
@@ -177,6 +181,10 @@ async function readJobMeta(
       genres: Array.isArray(job.genres) ? job.genres.filter((g): g is string => typeof g === 'string') : [],
       ...(job.controls
         ? { controls: { ids: sanitizeControls(job.controls.ids), source: job.controls.source === 'case' ? ('case' as const) : ('genre' as const) } }
+        : {}),
+      ...(typeof job.maxHours === 'number' && job.maxHours > 0 ? { maxHours: job.maxHours } : {}),
+      ...(job.display && Number.isInteger(job.display.width) && Number.isInteger(job.display.height)
+        ? { display: { width: job.display.width as number, height: job.display.height as number } }
         : {}),
     };
   } catch {
@@ -378,6 +386,8 @@ export async function handler(event: EngineEvent): Promise<void> {
   // 傳到 runner,否則 runner 只會用它自己的內建預設(通用 VLM),預設精準定位形同虛設。
   const resolvedVlmModel =
     snapshot.seats.find((s) => s.seat === 'vlm')?.modelId ?? event.vlmModel;
+  const seatModel = (seat: 'agent' | 'subagent'): string | undefined =>
+    snapshot.seats.find((s) => s.seat === seat)?.modelId;
 
   // 組裝 Knowledge/Memory 上下文(Req 9),固化供審計。失敗不擋執行。
   try {
@@ -438,6 +448,11 @@ export async function handler(event: EngineEvent): Promise<void> {
           jobId: event.jobId,
           ...(meta?.abi ? { abi: meta.abi } : {}),
           ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
+          ...(seatModel('agent') ? { agentModel: seatModel('agent')! } : {}),
+          ...(seatModel('subagent') ? { subagentModel: seatModel('subagent')! } : {}),
+          ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
+          // 主機保險回收:任務最長時數 + 15 分鐘收尾(沒設 = 12 小時)。
+          ttlMinutes: meta?.maxHours ? meta.maxHours * 60 + 15 : 720,
           budgetUsd,
         },
         'emulator',
@@ -446,7 +461,7 @@ export async function handler(event: EngineEvent): Promise<void> {
       await writeStatus(s3, BUCKET, event.tenantId, {
         jobId: event.jobId,
         state: 'running',
-        message: `emulator 主機已啟動(${instanceId}),裝置準備中`,
+        message: `Android 容器主機已啟動(${instanceId}),準備 Redroid 中`,
         updatedAt: new Date().toISOString(),
       });
     } else if (event.backend === 'devicefarm') {
@@ -476,6 +491,9 @@ export async function handler(event: EngineEvent): Promise<void> {
           ...(meta.package ? { package: meta.package } : {}),
           platform,
           ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
+          // 三個 Agent 協作:決策(agent seat)與輔助(subagent seat)模型也交給 runner。
+          ...(seatModel('agent') ? { agentModel: seatModel('agent')! } : {}),
+          ...(seatModel('subagent') ? { subagentModel: seatModel('subagent')! } : {}),
           ...(meta.caseTask ? { caseTask: meta.caseTask } : {}),
           ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
           // 使用者提交時明選的裝置:deviceArn 直接指定實體真機(runner 短路挑此台);
@@ -495,8 +513,46 @@ export async function handler(event: EngineEvent): Promise<void> {
           updatedAt: new Date().toISOString(),
         });
       }
+    } else if (event.backend === 'windows') {
+      // Windows:Amazon GameLift Streams(GPU 主機)。engine 只開一個沒有人連線的 stream session,
+      // 主機上的 host.ps1 下載遊戲 + 跑 AI runner(本機直呼 Bedrock),終態由 runner 寫回。
+      const meta = await readJobMeta(s3, BUCKET, event.tenantId, event.jobId);
+      if (!meta?.artifactKey) {
+        await writeStatus(s3, BUCKET, event.tenantId, {
+          jobId: event.jobId,
+          state: 'error',
+          message: 'Windows 測試需要先在應用頁上傳遊戲(.exe 安裝檔或 .zip)',
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        const { startWindowsRun } = await import('./windowsHost.js');
+        const run = await startWindowsRun(
+          {
+            tenantId: event.tenantId,
+            jobId: event.jobId,
+            appId: meta.appId,
+            bucket: BUCKET,
+            prefix: `tenants/${event.tenantId}/jobs/${event.jobId}`,
+            artifactKey: meta.artifactKey,
+            ...(meta.package ? { package: meta.package } : {}),
+            ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
+            ...(seatModel('agent') ? { agentModel: seatModel('agent')! } : {}),
+            ...(seatModel('subagent') ? { subagentModel: seatModel('subagent')! } : {}),
+            ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
+            ...(meta.display ? { display: meta.display } : {}),
+            maxMinutes: (meta.maxHours ?? 1) * 60,
+          },
+          process.env.AWS_REGION ?? 'us-east-2',
+        );
+        await writeStatus(s3, BUCKET, event.tenantId, {
+          jobId: event.jobId,
+          state: 'running',
+          message: `Windows GPU 主機(GameLift Streams)啟動中,解析度 ${run.display.width}x${run.display.height},最長 ${run.minutes} 分鐘`,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     } else {
-      // windows / attached 仍為後續接入。
+      // attached 仍為後續接入。
       await writeStatus(s3, BUCKET, event.tenantId, {
         jobId: event.jobId,
         state: 'error',

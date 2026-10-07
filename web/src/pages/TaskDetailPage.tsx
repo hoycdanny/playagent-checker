@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
 import { apiGet, apiPost, type ListResponse } from '../api/client.ts';
-import { modelLabel } from '../components/modelProvider.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import { OperatorChat } from '../components/tasks/OperatorChat.tsx';
@@ -13,6 +12,8 @@ import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
 import type { PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
+import { RecordingPlayer, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
+import { DeviceLogsPanel } from '../components/tasks/DeviceLogsPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
 import './ListPage.css';
@@ -21,26 +22,6 @@ import './TaskDetailPage.css';
 interface KbSummary {
   id: string;
   name: string;
-}
-
-/** 單步模型互動 log(對應後端 traces/<i>.json)。 */
-interface TraceLog {
-  index: number;
-  seat?: string;
-  modelId?: string;
-  channel?: string;
-  ok?: boolean;
-  request?: {
-    systemChars?: number;
-    turnText?: string;
-    imageCount?: number;
-    imageApproxKB?: number;
-    messageTurns?: number;
-  };
-  rawResponse?: string;
-  tokens?: { input?: number; output?: number };
-  error?: { name?: string; message?: string };
-  at?: string;
 }
 
 /** 把任意值安全轉成可渲染字串;非 string/number/boolean 一律字串化,避免把物件/陣列當
@@ -53,6 +34,11 @@ function asText(v: unknown): string | undefined {
   try { return JSON.stringify(v); } catch { return String(v); }
 }
 
+/** 狀態訊息開頭的「第 N 步:」/「Step N:」與標題列步數重複,去掉。 */
+export function stripStepPrefix(msg: string | undefined | null): string {
+  return String(msg ?? '').replace(/^\s*(第\s*\d+\s*步|Step\s*\d+)\s*[:：]\s*/i, '');
+}
+
 /** 本頁新增文案(zh/en)。 */
 const PT = {
   progress: ['第 {n} 步', 'Step {n}'],
@@ -62,6 +48,18 @@ const PT = {
   stepCount: ['{n} 步', '{n} steps'],
   booting: ['真機啟動中…', 'Starting the device…'],
   bootingHint: ['Device Farm 開機通常需要 3–5 分鐘,畫面就緒後會自動出現。', 'Device Farm usually takes 3–5 minutes; the screen appears automatically.'],
+  replay: ['回放', 'Replay'],
+  chat: ['對 AI 下指令', 'Instruct the AI'],
+  goalHint: ['決策 Agent 給這一步的目標', 'Goal set by the Decision Agent for this step'],
+  scriptStep: ['腳本 {n}/{m}', 'Script {n}/{m}'],
+  effectHint: ['輔助 Agent 判斷這一步的動作有沒有生效', 'Helper Agent verdict on whether this action worked'],
+  effectOk: ['✓ 有效', '✓ Worked'],
+  effectNone: ['✕ 沒有反應', '✕ No effect'],
+  effectOther: ['⚠ 畫面不如預期', '⚠ Unexpected'],
+  suspectValue: ['⚠ 疑似讀錯 {k}={v}(前一筆 #{s} = {p})', '⚠ Likely misread {k}={v} (previous #{s} = {p})'],
+  betChanged: ['⚠ 投注額變更 {f} → {t}(第 {s} 步起)', '⚠ Bet changed {f} → {t} (since step {s})'],
+  segment: ['第 {n} 段連線', 'Session {n}'],
+  replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
 } as const;
 const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
 
@@ -92,6 +90,8 @@ export default function TaskDetailPage() {
     setChatRefresh((n) => n + 1);
   }
   const [chatRefresh, setChatRefresh] = useState(0);
+  // 下指令區預設收合(在畫面上點了位置時自動展開,方便補一句說明)。
+  const [chatOpen, setChatOpen] = useState(false);
   useEffect(() => {
     if (!jobId || !isLive) {
       setLiveFrameUrl(null);
@@ -134,28 +134,6 @@ export default function TaskDetailPage() {
     };
   }, [jobId, isLive]);
 
-  // 模型互動 Log:點「Log」按鈕才抓(traces/*.json),含每步模型/請求摘要/原始回應/錯誤。
-  const [showLogs, setShowLogs] = useState(false);
-  const [logs, setLogs] = useState<TraceLog[] | null>(null);
-  const [logsLoading, setLogsLoading] = useState(false);
-  async function loadLogs() {
-    if (!jobId) return;
-    setLogsLoading(true);
-    try {
-      const r = await apiGet<ListResponse<TraceLog>>(`/tasks/${jobId}/logs`);
-      setLogs(r.items);
-    } catch {
-      setLogs([]);
-    } finally {
-      setLogsLoading(false);
-    }
-  }
-  function toggleLogs() {
-    const next = !showLogs;
-    setShowLogs(next);
-    if (next && logs === null) void loadLogs();
-  }
-
   // 即時畫面回退:取「最新一張有截圖的步驟」(live 幀尚未產生或任務已結束時顯示)。
   const latestShot = [...steps]
     .reverse()
@@ -172,39 +150,23 @@ export default function TaskDetailPage() {
   // 遊戲音效音量時間軸(Device Farm 真機才有):標出每一步有沒有音效。
   const audioLevels = useAudioLevels(jobId, isLive, backend === 'devicefarm');
   const hasAudio = !!audioLevels && audioLevels.chunks.length > 0;
+  // 測試結束後的整場錄影(含聲音)回放;點執行軌跡的「回放」跳到那一步。
+  const hasRecording = !isLive && !!audioLevels?.chunks.some((c) => typeof c.url === 'string' && c.dur > 0);
+  const [seek, setSeek] = useState<SeekRequest | null>(null);
+  const [playingStep, setPlayingStep] = useState<number | null>(null);
+  const stepMarks = useMemo(
+    () => steps.filter((s) => typeof s.at === 'string').map((s) => ({ index: s.index, t: Date.parse(s.at as string) })).filter((m) => Number.isFinite(m.t)),
+    [steps],
+  );
 
   return (
     <section className="listpage detail">
-      <div className="detail__topline">
-        <Link to="/tasks" className="detail__back">
-          ← {t('detail.back')}
-        </Link>
-        <div className="detail__topline-right">
-          {/* 任務結束後直接進結構化測試報告(判定明細、截圖、修正建議)。 */}
-          {jobId && TERMINAL_STATES.has(state) && state !== 'cancelled' && (
-            <Link to={`/reports/${jobId}`} className="detail__report-link">
-              {t('detail.viewReport')} →
-            </Link>
-          )}
-          <button
-            type="button"
-            className={`detail__logs-btn ${showLogs ? 'detail__logs-btn--on' : ''}`}
-            onClick={toggleLogs}
-            aria-expanded={showLogs}
-          >
-            {showLogs ? t('detail.logsHide') : t('detail.logsShow')}
-          </button>
-          <span
-            className={`detail__conn ${connected ? 'detail__conn--on' : 'detail__conn--off'}`}
-          >
-            {connected ? t('detail.connected') : t('detail.disconnected')}
-          </span>
-        </div>
-      </div>
-
-      {/* 標題列:狀態 + 進度 + 精簡任務資訊(細節 hover 才顯示),把版面留給即時畫面與執行軌跡 */}
+      {/* 標題列(一行):返回 + 標題 + 狀態 + 步數 + 目前動作 + 任務資訊 + 報告 / 連線狀態 */}
       <header className="detail__head">
         <div className="detail__head-row">
+          <Link to="/tasks" className="detail__back detail__back--icon" aria-label={t('detail.back')} title={t('detail.back')}>
+            <span aria-hidden="true">←</span>
+          </Link>
           <h1 className="detail__title">{t('detail.title')}</h1>
           <span className={`detail__pill detail__pill--${state}`}>{t(`state.${state}` as MessageKey)}</span>
           {stepNo > 0 && (
@@ -213,13 +175,37 @@ export default function TaskDetailPage() {
               {meta?.maxSteps ? ` · ${pt('limit', lang).replace('{m}', String(meta.maxSteps))}` : ''}
             </span>
           )}
+          {/* 目前狀態訊息:放在標題列步數後面,淺灰色(終局狀態以 ARIA live region 通報,Req 11.3) */}
+          {/* 狀態訊息去掉開頭重複的「第 N 步:」(步數已在左邊) */}
+          <span className="detail__state" role="status" aria-live="polite" title={message ?? undefined}>
+            <span className="visually-hidden">{t(`state.${state}` as MessageKey)}{message ? ' — ' : ''}</span>
+            {stripStepPrefix(message)}
+          </span>
           <TaskInfoStrip meta={meta} kbNames={kbNames} />
+          <span className="detail__head-end">
+            {/* 任務結束後直接進結構化測試報告(判定明細、截圖、修正建議)。 */}
+            {jobId && TERMINAL_STATES.has(state) && state !== 'cancelled' && (
+              <Link to={`/reports/${jobId}`} className="detail__report-link">
+                {t('detail.viewReport')} →
+              </Link>
+            )}
+            {/* 即時連線狀態:只用圖示(滑過 / 讀屏顯示文字) */}
+            <span
+              className={`detail__conn detail__conn--icon ${connected ? 'detail__conn--on' : 'detail__conn--off'}`}
+              role="img"
+              aria-label={connected ? t('detail.connected') : t('detail.disconnected')}
+              title={connected ? t('detail.connected') : t('detail.disconnected')}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0" />
+                <path d="M1.42 9a16 16 0 0 1 21.16 0" />
+                <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+                <circle cx="12" cy="20" r="1" fill="currentColor" />
+                {!connected && <path d="M2 2l20 20" />}
+              </svg>
+            </span>
+          </span>
         </div>
-        {/* 終局狀態以 ARIA live region 通報(Req 11.3) */}
-        <p className="detail__state" role="status" aria-live="polite">
-          <span className="visually-hidden">{t(`state.${state}` as MessageKey)}{message ? ' — ' : ''}</span>
-          {message ?? ''}
-        </p>
         {/* 成因引導(Req 12.3):fail → 被測 App/案例;error → 環境/基礎設施 */}
         {state === 'fail' && (
           <p className="detail__triage detail__triage--fail">{t('trend.triageFail')}</p>
@@ -228,88 +214,6 @@ export default function TaskDetailPage() {
           <p className="detail__triage detail__triage--error">{t('trend.triageError')}</p>
         )}
       </header>
-
-      {/* 模型互動 Log:每步完整記錄(模型/請求摘要/原始回應/token/錯誤),供除錯。 */}
-      {showLogs && (
-        <section className="detail__logs">
-          <h2 className="detail__panel-title">{t('detail.logs')}</h2>
-          {logsLoading ? (
-            <div className="listpage__skeleton" aria-hidden="true">
-              <div className="listpage__skeleton-row" />
-            </div>
-          ) : !logs || logs.length === 0 ? (
-            <p className="detail__no-steps">{t('detail.logsEmpty')}</p>
-          ) : (
-            <ol className="detail__log-list">
-              {logs.map((lg) => (
-                <li
-                  key={lg.index}
-                  className={`detail__log ${lg.ok === false ? 'detail__log--err' : ''}`}
-                >
-                  <div className="detail__log-head">
-                    <span className="detail__log-idx">{t('detail.step')} {lg.index}</span>
-                    {lg.seat && <span className="detail__log-seat">{lg.seat}</span>}
-                    {lg.modelId && (
-                      <span className="detail__log-model" title={lg.modelId}>
-                        {modelLabel(lg.modelId)}
-                      </span>
-                    )}
-                    {lg.channel && <span className="detail__log-channel">{lg.channel}</span>}
-                    <span className={`detail__log-status ${lg.ok === false ? 'is-err' : 'is-ok'}`}>
-                      {lg.ok === false ? t('detail.logFail') : t('detail.logOk')}
-                    </span>
-                  </div>
-                  {/* 請求摘要:送了幾張圖、多大、對話輪數 —— body 太大這類問題一眼可見 */}
-                  {lg.request && (
-                    <div className="detail__log-row">
-                      <span className="detail__log-key">{t('detail.logRequest')}</span>
-                      <span className="detail__log-val">
-                        {t('detail.logImages')}: {lg.request.imageCount ?? 0}
-                        {typeof lg.request.imageApproxKB === 'number'
-                          ? ` (~${lg.request.imageApproxKB} KB)`
-                          : ''}
-                        {typeof lg.request.messageTurns === 'number'
-                          ? ` · ${t('detail.logTurns')}: ${lg.request.messageTurns}`
-                          : ''}
-                      </span>
-                    </div>
-                  )}
-                  {lg.request?.turnText && (
-                    <div className="detail__log-row">
-                      <span className="detail__log-key">{t('detail.logPrompt')}</span>
-                      <span className="detail__log-val detail__log-pre">{lg.request.turnText}</span>
-                    </div>
-                  )}
-                  {lg.error ? (
-                    <div className="detail__log-row">
-                      <span className="detail__log-key">{t('detail.logError')}</span>
-                      <span className="detail__log-val detail__log-pre detail__log-errtext">
-                        {lg.error.name ? `${lg.error.name}: ` : ''}
-                        {lg.error.message}
-                      </span>
-                    </div>
-                  ) : (
-                    lg.rawResponse && (
-                      <div className="detail__log-row">
-                        <span className="detail__log-key">{t('detail.logResponse')}</span>
-                        <span className="detail__log-val detail__log-pre">{lg.rawResponse}</span>
-                      </div>
-                    )
-                  )}
-                  {lg.tokens && (
-                    <div className="detail__log-row">
-                      <span className="detail__log-key">{t('detail.tokens')}</span>
-                      <span className="detail__log-val detail__log-mono">
-                        ↑ {lg.tokens.input ?? 0} · ↓ {lg.tokens.output ?? 0}
-                      </span>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ol>
-          )}
-        </section>
-      )}
 
       {/* 主區三欄:即時畫面 | 下指令 + 測試腳本 | 執行軌跡(窄螢幕自動改兩欄 / 單欄) */}
       <div className="detail__layout">
@@ -341,6 +245,8 @@ export default function TaskDetailPage() {
               onSendPoint={sendPoint}
               {...(audioLevels?.state ? { audioState: audioLevels.state } : {})}
             />
+          ) : hasRecording && audioLevels ? (
+            <RecordingPlayer levels={audioLevels} steps={stepMarks} lang={lang} seek={seek} onStep={setPlayingStep} />
           ) : liveUrl ? (
             <figure className="detail__screen">
               <img src={liveUrl} alt={asText(latestShot?.screen) ?? t('detail.liveView')} />
@@ -366,30 +272,44 @@ export default function TaskDetailPage() {
               {asText(latestStep.action) && <span className="detail__step-action">{asText(latestStep.action)}</span>}
             </div>
           )}
+          {/* 即時畫面底下:對 AI 下指令 + 測試腳本(皆可收合,讓畫面保持最大) */}
+          <div className="detail__live-ops">
+            {showChat && (
+              <div className="detail__fold">
+                <button
+                  type="button"
+                  className="detail__fold-btn"
+                  aria-expanded={chatOpen || !!pickPoint}
+                  aria-controls="detail-chat-body"
+                  onClick={() => setChatOpen((v) => !v)}
+                >
+                  <span aria-hidden="true">{chatOpen || pickPoint ? '▾' : '▸'}</span> {pt('chat', lang)}
+                </button>
+                {(chatOpen || !!pickPoint) && (
+                  <div id="detail-chat-body">
+                    <OperatorChat
+                      jobId={jobId!}
+                      isLive={isLive}
+                      {...(latestScreen ? { currentScreen: latestScreen } : {})}
+                      {...(appId ? { appId } : {})}
+                      point={pickPoint}
+                      onClearPoint={() => setPickPoint(null)}
+                      refreshKey={chatRefresh}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            <ScriptPanel
+              lang={lang}
+              {...(meta?.script ?? meta?.task ? { script: meta?.script ?? meta?.task } : {})}
+              {...(meta?.caseName ? { caseName: meta.caseName } : {})}
+              {...(meta?.caseVersion ? { caseVersion: meta.caseVersion } : {})}
+            />
+          </div>
         </section>
 
-        {/* 中:下指令(執行中的主要操作)+ 測試腳本 */}
-        <div className="detail__col detail__col--ops">
-          {showChat && (
-            <OperatorChat
-              jobId={jobId!}
-              isLive={isLive}
-              {...(latestScreen ? { currentScreen: latestScreen } : {})}
-              {...(appId ? { appId } : {})}
-              point={pickPoint}
-              onClearPoint={() => setPickPoint(null)}
-              refreshKey={chatRefresh}
-            />
-          )}
-          <ScriptPanel
-            lang={lang}
-            {...(meta?.script ?? meta?.task ? { script: meta?.script ?? meta?.task } : {})}
-            {...(meta?.caseName ? { caseName: meta.caseName } : {})}
-            {...(meta?.caseVersion ? { caseVersion: meta.caseVersion } : {})}
-          />
-        </div>
-
-        {/* 右:執行軌跡(由新到舊) */}
+        {/* 中:執行軌跡(由新到舊) */}
         <section className="detail__col detail__col--trace" aria-labelledby="detail-trace-title">
           <h2 id="detail-trace-title" className="detail__panel-title">
             {t('detail.trace')}
@@ -420,7 +340,7 @@ export default function TaskDetailPage() {
                       .filter((x): x is string => !!x)
                   : [];
                 return (
-                  <li key={s.index} className={`detail__step ${k === 0 ? 'detail__step--latest' : ''}`}>
+                  <li key={s.index} className={`detail__step ${k === 0 && !hasRecording ? 'detail__step--latest' : ''} ${hasRecording && playingStep === s.index ? 'detail__step--playing' : ''}`}>
                     {thumb && (
                       <a href={thumb} target="_blank" rel="noreferrer" className="detail__step-thumb">
                         <img src={thumb} alt={screenText ?? `step ${s.index}`} loading="lazy" />
@@ -440,7 +360,57 @@ export default function TaskDetailPage() {
                             : from + (typeof s.durationMs === 'number' ? (s.durationMs as number) : 8000);
                           return <StepSound s={soundInWindow(audioLevels, from, to)} lang={lang} />;
                         })()}
+                        {hasRecording && typeof s.at === 'string' && (
+                          <button
+                            type="button"
+                            className="detail__step-replay"
+                            onClick={() => setSeek((p) => ({ t: Date.parse(s.at as string), n: (p?.n ?? 0) + 1 }))}
+                            aria-label={pt('replayStep', lang).replace('{n}', String(s.index))}
+                          >
+                            ▶ {pt('replay', lang)}
+                          </button>
+                        )}
                       </div>
+                      {(() => {
+                        // 決策 Agent 給這一步的目標 + 輔助 Agent 判斷這一步的動作有沒有生效。
+                        const plan = s.plan as { goal?: unknown; scriptStep?: unknown; scriptTotal?: unknown } | undefined;
+                        const review = s.review as { effect?: unknown; note?: unknown } | undefined;
+                        const goal = asText(plan?.goal);
+                        const effect = asText(review?.effect);
+                        const effectKey = effect === 'ok' ? 'effectOk' : effect === 'no_effect' ? 'effectNone' : effect === 'unexpected' ? 'effectOther' : null;
+                        // runner 即時數值把關(疑似讀錯 / 投注額變更),每筆都標出前後步驟與數值。
+                        const warnings = Array.isArray(s.warnings) ? (s.warnings as Array<Record<string, unknown>>) : [];
+                        const nf = (v: unknown) => (typeof v === 'number' ? v.toLocaleString() : String(v ?? '?'));
+                        const warnText = warnings.map((w) => {
+                          if (w.kind === 'suspect_value') {
+                            const prev = w.prev as { step?: unknown; value?: unknown } | undefined;
+                            return pt('suspectValue', lang).replace('{k}', String(w.key)).replace('{v}', nf(w.value)).replace('{s}', String(prev?.step ?? '?')).replace('{p}', nf(prev?.value));
+                          }
+                          if (w.kind === 'bet_changed') return pt('betChanged', lang).replace('{f}', nf(w.from)).replace('{t}', nf(w.to)).replace('{s}', String(w.sinceStep ?? '?'));
+                          return null;
+                        }).filter((x): x is string => !!x);
+                        const seg = typeof s.segment === 'number' && (s.segment as number) > 1 ? (s.segment as number) : null;
+                        if (!goal && !effectKey && warnText.length === 0 && !seg) return null;
+                        return (
+                          <div className="detail__step-team">
+                            {seg && <span className="detail__step-effect">{pt('segment', lang).replace('{n}', String(seg))}</span>}
+                            {warnText.map((w, j) => <span key={j} className="detail__step-effect is-unexpected">{w}</span>)}
+                            {goal && (
+                              <span className="detail__step-goal" title={pt('goalHint', lang)}>
+                                🎯 {typeof plan?.scriptStep === 'number' && typeof plan?.scriptTotal === 'number' && (plan.scriptTotal as number) > 1
+                                  ? `${pt('scriptStep', lang).replace('{n}', String(plan.scriptStep)).replace('{m}', String(plan.scriptTotal))} · `
+                                  : ''}
+                                {goal}
+                              </span>
+                            )}
+                            {effectKey && (
+                              <span className={`detail__step-effect is-${effect}`} title={asText(review?.note) ?? pt('effectHint', lang)}>
+                                {pt(effectKey, lang)}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {opCmds.map((txt, j) => (
                         <div key={j} className="detail__step-opcmd">
                           <span aria-hidden="true">💬</span> {txt}
@@ -457,6 +427,13 @@ export default function TaskDetailPage() {
             </ol>
           )}
         </section>
+
+        {/* 右:日誌檢視(裝置系統 Log / 音效播放狀態 / 三個 AI Agent,由新到舊) */}
+        {jobId && (
+          <section className="detail__col detail__col--devlogs">
+            <DeviceLogsPanel jobId={jobId} isLive={isLive} device={backend === 'devicefarm'} {...(appId ? { appId } : {})} seats={meta?.seats ?? []} />
+          </section>
+        )}
       </div>
     </section>
   );

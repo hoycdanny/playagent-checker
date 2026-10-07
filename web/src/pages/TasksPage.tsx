@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
@@ -35,27 +36,12 @@ interface TaskItem {
   stepCount?: number;
 }
 
-// 後端選項:模擬器(emulator)/Windows 已淘汰(改用 Device Farm 真機),不再列出。
-const BACKENDS: { value: string; labelKey: MessageKey }[] = [
-  { value: 'web', labelKey: 'backend.web' },
-  { value: 'devicefarm', labelKey: 'backend.devicefarm' },
-  { value: 'attached', labelKey: 'backend.attached' },
-];
-
-/** 目前可端到端執行的後端(其餘標「尚未支援」並停用,避免誤選後才失敗)。
- *  devicefarm=iOS/Android 真機(取代模擬器,可過遊戲伺服器對模擬器的檢查);web=Lambda 瀏覽器。 */
-const SUPPORTED_BACKENDS = new Set(['web', 'devicefarm']);
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
  *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
  *  故 web 不開放這兩欄(開放了設定也不會被 runner 使用,只會誤導使用者)。 */
 const AGENT_SUBAGENT_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
 /** 需要選 VLM 模型(判畫面座標,web 上同時兼任決策)的後端。web 也開放選擇(single-seat)。 */
 const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
-
-/** App 平台決定可用的執行後端:web 應用只能用 Web 瀏覽器;原生(android/ios)只能用 Device Farm 真機。 */
-function backendForPlatform(platform: string | undefined): string {
-  return platform === 'web' ? 'web' : 'devicefarm';
-}
 
 interface ModelEntry {
   modelId: string;
@@ -112,6 +98,11 @@ export default function TasksPage() {
   const [appId, setAppId] = useState('');
   const [caseId, setCaseId] = useState('');
   const [backend, setBackend] = useState('web');
+  const [runtimeId, setRuntimeId] = useState<RuntimeId>('web');
+  // Android 容器 / Windows 的最長執行時數。
+  const [maxHours, setMaxHours] = useState(6);
+  // Windows 啟動時的畫面解析度(GameLift Streams 虛擬螢幕)。
+  const [display, setDisplay] = useState<Display>({ width: 1920, height: 1080 });
   const [vlmModel, setVlmModel] = useState('');
   const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
   const [agentModel, setAgentModel] = useState('');
@@ -120,6 +111,8 @@ export default function TasksPage() {
   const [subagentModels, setSubagentModels] = useState<ModelEntry[]>([]);
   // 步數/預算上限:空字串 = 無上限(不帶入提交,引擎/ runner 端不設閘口)。
   const [maxSteps, setMaxSteps] = useState('');
+  // Device Farm 執行時長(段數):'1' 單段 / '2' / '4' / '0' 不限。
+  const [maxSegments, setMaxSegments] = useState('1');
   const [budgetUsd, setBudgetUsd] = useState('');
   // Device Farm 裝置選擇:真機池清單 + 使用者所選裝置 ARN(空 = 讓引擎自動挑第一台可用)。
   const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
@@ -292,6 +285,9 @@ export default function TasksPage() {
         // 空 = 無上限:僅在填了正數時帶入。
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
         ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
+        ...(backend === 'devicefarm' && maxSegments !== '1' ? { maxSegments: Number(maxSegments) } : {}),
+        ...(backend === 'emulator' || backend === 'windows' ? { maxHours: effectiveHours(backend, maxHours) } : {}),
+        ...(backend === 'windows' ? { display } : {}),
         // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
         ...(backend === 'devicefarm' && deviceArn
           ? (() => {
@@ -408,7 +404,12 @@ export default function TasksPage() {
                 const app = apps.find((a) => a.id === nextAppId);
                 setSelectedKbIds(app?.defaultKnowledgeBaseIds ?? []);
                 // 執行後端由 App 平台決定(web→web 瀏覽器;原生→Device Farm 真機),不讓使用者亂選。
-                if (app) setBackend(backendForPlatform(app.platform));
+                if (app) {
+                  const r = defaultRuntime(app.platform);
+                  setRuntimeId(r.id);
+                  setBackend(r.backend);
+                  setMaxSegments('1');
+                }
               }}
             >
               <option value="">—</option>
@@ -432,44 +433,17 @@ export default function TasksPage() {
           </label>
           <label className="tasks__field">
             <span className="tasks__label">{t('tasks.backend')}</span>
-            {/* 執行環境由 App 平台決定:選了 App 後鎖定(web→Web 瀏覽器;原生→Device Farm),
-                避免 web 應用誤選真機、或原生應用誤選瀏覽器。未選 App 前才可自由選。 */}
-            {(() => {
-              const selApp = apps.find((a) => a.id === appId);
-              if (selApp) {
-                const locked = backendForPlatform(selApp.platform);
-                const label = BACKENDS.find((b) => b.value === locked);
-                return (
-                  <>
-                    <input
-                      type="text"
-                      readOnly
-                      className="tasks__readonly"
-                      value={label ? t(label.labelKey) : locked}
-                    />
-                    <span className="tasks__field-hint">{t('tasks.backendLocked')}</span>
-                  </>
-                );
-              }
-              return (
-                <select value={backend} onChange={(e) => setBackend(e.target.value)}>
-                  {BACKENDS.map((b) => {
-                    const supported = SUPPORTED_BACKENDS.has(b.value);
-                    const suffix = !supported
-                      ? ` (${t('backend.unsupported')})`
-                      : b.value === 'web'
-                        ? ` — ${t('backend.webPreview')}`
-                        : '';
-                    return (
-                      <option key={b.value} value={b.value} disabled={!supported}>
-                        {t(b.labelKey)}
-                        {suffix}
-                      </option>
-                    );
-                  })}
-                </select>
-              );
-            })()}
+            {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
+            <RuntimeSelect
+              platform={apps.find((a) => a.id === appId)?.platform}
+              value={runtimeId}
+              onChange={(r) => {
+                  setRuntimeId(r.id);
+                  setBackend(r.backend);
+                  setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
+                }}
+              hintClass="tasks__field-hint"
+            />
           </label>
           {backend === 'devicefarm' && (
             <div className="tasks__field">
@@ -567,6 +541,28 @@ export default function TasksPage() {
               )}
             </>
           )}
+          {(backend === 'emulator' || backend === 'windows') && (
+            <label className="tasks__field">
+              <HoursSelect backend={backend} value={maxHours} onChange={setMaxHours} labelClass="tasks__label" hintClass="tasks__field-hint" />
+            </label>
+          )}
+          {backend === 'windows' && (
+            <div className="tasks__field">
+              <DisplaySelect value={display} onChange={setDisplay} labelClass="tasks__label" hintClass="tasks__field-hint" />
+            </div>
+          )}
+          {runtimeById(runtimeId)?.long && (
+            <label className="tasks__field">
+              <span className="tasks__label">{t('tasks.runDuration')}</span>
+              <span className="tasks__field-hint">{t('tasks.runDurationHint')}</span>
+              <select value={maxSegments} onChange={(e) => setMaxSegments(e.target.value)}>
+                <option value="2">{t('tasks.runLong2')}</option>
+                <option value="4">{t('tasks.runLong4')}</option>
+                <option value="0">{t('tasks.runLongUnlimited')}</option>
+              </select>
+              {maxSegments !== '1' && <span className="tasks__field-hint" role="note">{t('tasks.runLongNote')}</span>}
+            </label>
+          )}
           <label className="tasks__field">
             <span className="tasks__label">{t('tasks.maxSteps')}</span>
             <span className="tasks__field-hint">{t('tasks.maxStepsHint')}</span>
@@ -629,7 +625,7 @@ export default function TasksPage() {
             >
               {t('tasks.cancel')}
             </button>
-            <button type="submit" className="tasks__go" disabled={submitting}>
+            <button type="submit" className="tasks__go" disabled={submitting || (backend === 'windows' && displayError(display, 'en') !== null)}>
               {submitting ? t('tasks.submitting') : t('tasks.submitBtn')}
             </button>
           </div>

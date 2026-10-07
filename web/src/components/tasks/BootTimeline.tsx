@@ -30,6 +30,8 @@ const DEVICE_STATUS: Record<string, [string, string]> = {
   RUNNING: ['手機已開機', 'Device running'],
 };
 
+const OPEN_KEY = 'pa.bootTimelineOpen';
+
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
 
 export function fmtDur(ms: number): string {
@@ -58,6 +60,18 @@ export function BootTimeline({ boot, createdAt, updatedAt, state, backend, lang 
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, [ended]);
+
+  // 各階段明細可收合:使用者按過就記住(localStorage);沒按過 → 啟動中展開、開始測試後自動收起。
+  const [pref, setPref] = useState<boolean | null>(() => {
+    try {
+      const v = localStorage.getItem(OPEN_KEY);
+      return v === '1' ? true : v === '0' ? false : null;
+    } catch { return null; }
+  });
+  const toggle = (next: boolean) => {
+    setPref(next);
+    try { localStorage.setItem(OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+  };
 
   const zh = lang === 'zh';
   const start = ms(createdAt);
@@ -96,6 +110,8 @@ export function BootTimeline({ boot, createdAt, updatedAt, state, backend, lang 
   const runMs = booted ? endAt - runStart! : undefined;
   const devLabel = boot?.deviceStatus ? DEVICE_STATUS[boot.deviceStatus]?.[zh ? 0 : 1] ?? boot.deviceStatus : undefined;
   if (!Number.isFinite(start)) return null;
+  const open = pref ?? !booted;
+  const stepsId = 'dboot-steps';
 
   return (
     <div className="dboot" aria-label={zh ? '啟動進度' : 'Startup progress'}>
@@ -114,12 +130,38 @@ export function BootTimeline({ boot, createdAt, updatedAt, state, backend, lang 
             <b>{fmtDur(runMs)}</b>
           </span>
         )}
+        {boot?.session && booted && !ended && (() => {
+          // 連線時間上限:單段 → 到點收尾;長時 → 到點換新連線(第 N / M 段)。
+          const ss = boot.session;
+          const wrapAt = ms(ss.wrapAt);
+          if (!Number.isFinite(wrapAt)) return null;
+          const last = ss.maxSegments !== 0 && ss.segment >= ss.maxSegments;
+          const hhmm = new Date(wrapAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          const segText = ss.maxSegments === 1 ? '' : zh ? `第 ${ss.segment}${ss.maxSegments ? `/${ss.maxSegments}` : ''} 段 · ` : `Session ${ss.segment}${ss.maxSegments ? `/${ss.maxSegments}` : ''} · `;
+          const what = last ? (zh ? '收尾' : 'wrap-up') : (zh ? '換新連線' : 'new session');
+          return (
+            <span className="dboot__total" title={zh ? 'Device Farm 單次連線最長 150 分鐘' : 'A Device Farm session lasts at most 150 minutes'}>
+              {segText}{hhmm} {what}({fmtDur(Math.max(0, wrapAt - now))})
+            </span>
+          );
+        })()}
         {ended && Number.isFinite(endAt) && (
           <span className="dboot__total">{zh ? '總計' : 'Total'} {fmtDur(endAt - start)}</span>
         )}
+        <button
+          type="button"
+          className="dboot__fold"
+          aria-expanded={open}
+          aria-controls={stepsId}
+          onClick={() => toggle(!open)}
+          title={open ? (zh ? '收合啟動階段' : 'Hide startup stages') : (zh ? '展開啟動階段' : 'Show startup stages')}
+        >
+          <span aria-hidden="true">{open ? '▴' : '▾'}</span>
+          <span className="visually-hidden">{open ? (zh ? '收合啟動階段' : 'Hide startup stages') : (zh ? '展開啟動階段' : 'Show startup stages')}</span>
+        </button>
       </div>
 
-      <ol className="dboot__steps">
+      <ol className="dboot__steps" id={stepsId} hidden={!open}>
         {stages.map((s, i) => {
           const done = i < curIdx || (s.id === 'run' && ended && booted);
           const active = i === curIdx && !ended;

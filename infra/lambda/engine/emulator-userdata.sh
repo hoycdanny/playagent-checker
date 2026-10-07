@@ -1,7 +1,7 @@
 #!/bin/bash
-# 每任務 Redroid 主機 userdata(自驅動)。參考 game-ai-qa/infra/emulator-userdata.sh 的真機驗證做法。
-# 主機起來後:裝 docker+binder → Redroid → 裝 APK → 截圖迴圈(截圖→雲端 VLM 判座標→adb input)
-# → 寫 status.json → 自我終結。per-job 輸入(jobId/tenantId/bucket/vlmModel)經 EC2 tag 讀取。
+# 每任務 Redroid 主機 userdata(自驅動)。Graviton(arm64)上用 Docker 跑 Redroid(開源 Android 容器)。
+# 主機起來後:裝 docker+binder → Redroid → 裝 APK → 跑 AI runner(與 Device Farm 同一套:三個 Agent、證據、報告;
+# runner 在本機直接呼叫 Bedrock)→ 自我終結。per-job 輸入經 EC2 tag 與 job.json 讀取。
 # ⚠ 行尾必須 LF;長度需 < 16384 原始位元組。
 exec > >(tee /var/log/emulator-bootstrap.log) 2>&1
 set -x
@@ -38,6 +38,9 @@ for i in $(seq 1 20); do
 done
 TENANT_ID=$(tag 'playagent:tenantId'); BUCKET=$(tag 'playagent:bucket')
 VLM_MODEL=$(tag 'playagent:vlmModel'); TENANT_ROLE=$(tag 'playagent:tenantRole'); BUDGET=$(tag 'playagent:budget')
+AGENT_MODEL=$(tag 'playagent:agentModel'); SUBAGENT_MODEL=$(tag 'playagent:subagentModel')
+MAX_STEPS=$(tag 'playagent:maxSteps'); TTL_MIN=$(tag 'playagent:ttlMinutes')
+for v in AGENT_MODEL SUBAGENT_MODEL MAX_STEPS TTL_MIN; do [ "${!v}" = "None" ] && eval "$v=''"; done
 PREFIX="tenants/$TENANT_ID/jobs/$JOB_ID"
 
 selfterm() { aws ec2 terminate-instances --instance-ids "$IID" 2>/dev/null || true; }
@@ -47,7 +50,8 @@ writestatus() { # $1=state $2=message $3=steps
     | aws s3 cp - "s3://$BUCKET/$PREFIX/status.json" --content-type application/json 2>/dev/null || true
 }
 trap 'writestatus error "userdata failed line $LINENO" 0; selfterm' ERR
-shutdown -h +30 &  # TTL 30 分保險回收
+# TTL 保險回收(長時測試可跑很久;預設 12 小時,engine 依任務時長帶 ttlMinutes)。關機 = 終止實例。
+shutdown -h +"${TTL_MIN:-720}" &
 
 # 註:本主機專屬單一 job,直接用實例 profile 憑證存取 S3(該租戶前綴)與 Bedrock,
 # 不另扮租戶角色(主機生命週期即一個 job,實例 profile 權限已限本資料桶)。
@@ -68,12 +72,14 @@ uplog() { aws s3 cp /var/log/emulator-bootstrap.log "s3://$BUCKET/$PREFIX/bootst
 # 網路:沿用 Docker 預設 bridge + Docker daemon 自己管理的 NAT(已在 game-ai-qa 真機驗證可連外網)。
 # 「不」手動改 iptables MASQUERADE/FORWARD、「不」覆寫 --dns、「不」設 Redroid net_dns 參數——
 # 那些客製反而會覆蓋 Docker 自己的規則、把原本能通的網路弄壞(playagent 舊版連不上網的根因)。
+aws s3 cp "s3://$BUCKET/$PREFIX/job.json" /tmp/job.json || true
+RW=$(jq -r '.display.width // 1080' /tmp/job.json 2>/dev/null || echo 1080); RH=$(jq -r '.display.height // 1920' /tmp/job.json 2>/dev/null || echo 1920)
 writestatus running "pulling redroid image" 0; uplog
 retry 5 docker pull redroid/redroid:15.0.0-latest
 docker rm -f android 2>/dev/null || true
 docker run -d --privileged --name android --restart unless-stopped -m 12g \
   -p 0.0.0.0:5555:5555 redroid/redroid:15.0.0-latest \
-  androidboot.redroid_gpu_mode=guest androidboot.redroid_width=1080 androidboot.redroid_height=1920 \
+  androidboot.redroid_gpu_mode=guest androidboot.redroid_width="$RW" androidboot.redroid_height="$RH" \
   ro.setupwizard.mode=OPTIONAL
 sleep 5
 if ! docker ps --filter name=android --filter status=running | grep -q android; then
@@ -102,7 +108,6 @@ echo "guest-net-check: ping8888=[$NET_PING] | dnsresolve=[$NET_CURL]"
 writestatus running "android booted, installing APK" 0; uplog
 
 # --- 6. 讀 job.json 取 APK key + 裝 APK(split 包用 install-multiple)+ 推 OBB + 自動啟動 ---
-aws s3 cp "s3://$BUCKET/$PREFIX/job.json" /tmp/job.json
 APK_KEY=$(jq -r '.artifactKey // empty' /tmp/job.json)
 PKG=$(jq -r '.package // .identifier // empty' /tmp/job.json)
 if [ -n "$APK_KEY" ]; then
@@ -161,22 +166,33 @@ if [ -n "$APK_KEY" ]; then
   fi
 fi
 
-# --- 7. 截圖→標註→VLM→input 迴圈(runner)。imagemagick 畫標註,node 跑 runner ---
-retry 10 apt-get install -y nodejs imagemagick
-aws s3 cp "s3://$BUCKET/_engine/emulatorRunner.mjs" /opt/runner.mjs 2>/dev/null || true
-if [ -f /opt/runner.mjs ] && command -v node >/dev/null 2>&1; then
-  writestatus running "AI agent starting" 0; uplog
-  APP_ID=$(jq -r '.appId // empty' /tmp/job.json)
-  PLAYAGENT_JOB=$JOB_ID PLAYAGENT_TENANT=$TENANT_ID PLAYAGENT_BUCKET=$BUCKET \
-  PLAYAGENT_PREFIX=$PREFIX PLAYAGENT_VLM=$VLM_MODEL PLAYAGENT_BUDGET=$BUDGET \
-  PLAYAGENT_PKG=$PKG PLAYAGENT_APP=$APP_ID \
-  node /opt/runner.mjs || { uplog; writestatus error "runner failed" 0; }
-  uplog
-else
-  $ADB shell screencap -p /sdcard/s0.png 2>/dev/null || true
-  $ADB pull /sdcard/s0.png /tmp/s0.png 2>/dev/null || true
-  aws s3 cp /tmp/s0.png "s3://$BUCKET/$PREFIX/screenshots/0.png" 2>/dev/null || true
-  writestatus pass "device ready, APK installed (no runner)" 1
+# --- 7. AI runner(與 Device Farm 同一套 explorationRunner,改用 adb 驅動;runner 在本機直接呼叫 Bedrock)---
+writestatus running "installing AI runner" 0; uplog
+retry 10 apt-get install -y imagemagick ffmpeg || true
+case "$(uname -m)" in aarch64) NARCH=arm64 ;; *) NARCH=x64 ;; esac
+NODE_V=v22.12.0
+if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20)'; then
+  retry 5 curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-$NARCH.tar.xz"
+  tar -xJf /tmp/node.tar.xz -C /opt
+  ln -sf "/opt/node-$NODE_V-linux-$NARCH/bin/node" /usr/local/bin/node
+  ln -sf "/opt/node-$NODE_V-linux-$NARCH/bin/npm" /usr/local/bin/npm
 fi
+mkdir -p /opt/runner
+retry 3 aws s3 cp "s3://$BUCKET/_engine/runner/" /opt/runner/ --recursive --only-show-errors
+cp /opt/runner/exploration-runner.package.json /opt/runner/package.json
+(cd /opt/runner && retry 3 npm install --omit=dev --no-audit --no-fund)
+APP_ID=$(jq -r '.appId // empty' /tmp/job.json)
+TASK=$(jq -r '.caseTask // empty' /tmp/job.json)
+writestatus running "AI agent starting" 0; uplog
+PA_DRIVER=adb PA_ADB_SERIAL=127.0.0.1:5555 PA_PLATFORM=android \
+PA_JOB="$JOB_ID" PA_TENANT="$TENANT_ID" PA_APP="$APP_ID" PA_BUCKET="$BUCKET" PA_PREFIX="$PREFIX" \
+PA_DATA_REGION="$AWS_DEFAULT_REGION" PA_VLM="$VLM_MODEL" PA_AGENT_MODEL="$AGENT_MODEL" PA_SUBAGENT_MODEL="$SUBAGENT_MODEL" \
+PA_PKG="$PKG" PA_TASK="$TASK" PA_MAXSTEPS="$MAX_STEPS" PA_DEVICE_MODEL="Redroid $(uname -m)" \
+node /opt/runner/explorationRunner.mjs > /var/log/runner.log 2>&1 || true
+aws s3 cp /var/log/runner.log "s3://$BUCKET/$PREFIX/runner.log" 2>/dev/null || true
+# runner 沒寫終態(例如啟動就崩潰)才補 error;已有終態不覆蓋。
+ST=$(aws s3 cp "s3://$BUCKET/$PREFIX/status.json" - 2>/dev/null | jq -r '.state // empty')
+if [ "$ST" = "running" ] || [ -z "$ST" ]; then writestatus error "runner exited without a result (see runner.log)" 0; fi
+uplog
 
 selfterm

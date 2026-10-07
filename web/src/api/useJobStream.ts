@@ -58,6 +58,8 @@ export interface BootProgress {
   deviceStatus?: string;
   deviceModel?: string;
   sizeMB?: number;
+  /** Device Farm 連線段:第幾段、這段幾點到時間上限(單段 = 收尾;長時 = 換新連線)。 */
+  session?: { segment: number; maxSegments: number; startedAt: string; wrapAt: string; wrapMin: number };
 }
 
 export interface JobDetail {

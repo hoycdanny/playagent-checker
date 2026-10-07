@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
@@ -57,26 +58,12 @@ const TABS: { key: Tab; labelKey: MessageKey }[] = [
   { key: 'credentials', labelKey: 'workspace.tabCredentials' },
 ];
 
-const BACKENDS: { value: string; labelKey: MessageKey; supported: boolean }[] = [
-  { value: 'web', labelKey: 'backend.web', supported: true },
-  { value: 'emulator', labelKey: 'backend.emulator', supported: true },
-  { value: 'windows', labelKey: 'backend.windows', supported: false },
-  // devicefarm = iOS/Android 真機(取代模擬器,可過遊戲伺服器對模擬器環境的檢查)。
-  { value: 'devicefarm', labelKey: 'backend.devicefarm', supported: true },
-  { value: 'attached', labelKey: 'backend.attached', supported: false },
-];
-
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
  *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
  *  故 web 不開放這兩欄(開放了設定也不會被 runner 使用,只會誤導使用者)。 */
 const AGENT_SUBAGENT_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
 /** 需要選 VLM 模型(判畫面座標,web 上同時兼任決策)的後端。web 也開放選擇(single-seat)。 */
 const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
-
-/** App 平台決定執行後端:web→web 瀏覽器;原生(android/ios)→ Device Farm 真機。 */
-function backendForPlatform(platform: string | undefined): string {
-  return platform === 'web' ? 'web' : 'devicefarm';
-}
 
 interface ModelEntry {
   modelId: string;
@@ -139,6 +126,11 @@ export default function AppWorkspacePage() {
   }, [showTaskForm]);
   const [taskCaseId, setTaskCaseId] = useState('');
   const [backend, setBackend] = useState('web');
+  const [runtimeId, setRuntimeId] = useState<RuntimeId>('web');
+  // Android 容器 / Windows 的最長執行時數。
+  const [maxHours, setMaxHours] = useState(6);
+  // Windows 啟動時的畫面解析度(GameLift Streams 虛擬螢幕)。
+  const [display, setDisplay] = useState<Display>({ width: 1920, height: 1080 });
   // 三個 Seat 模型(與獨立「測試任務」頁一致):agent=控制遊戲、vlm=分析畫面、subagent=子代理。
   const [vlmModel, setVlmModel] = useState('');
   const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
@@ -148,6 +140,8 @@ export default function AppWorkspacePage() {
   const [subagentModels, setSubagentModels] = useState<ModelEntry[]>([]);
   // 步數/預算上限:空 = 無上限。
   const [maxSteps, setMaxSteps] = useState('');
+  // Device Farm 執行時長(段數):'1' 單段 / '2' / '4' / '0' 不限。
+  const [maxSegments, setMaxSegments] = useState('1');
   const [budgetUsd, setBudgetUsd] = useState('');
   // Device Farm 裝置選擇:真機池 + 所選裝置 ARN(空 = 引擎自動挑第一台可用)。
   const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
@@ -201,7 +195,11 @@ export default function AppWorkspacePage() {
       .then((a) => {
         setApp(a);
         // 執行後端由 App 平台決定(web→瀏覽器;原生→Device Farm),不讓使用者亂選。
-        setBackend(backendForPlatform(a.platform));
+        {
+          const r = defaultRuntime(a.platform);
+          setRuntimeId(r.id);
+          setBackend(r.backend);
+        }
         // 預選該 App 的預設知識庫。
         const defaults = (a as AppRecord & { defaultKnowledgeBaseIds?: string[] })
           .defaultKnowledgeBaseIds;
@@ -397,6 +395,9 @@ export default function AppWorkspacePage() {
         ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
         ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
         ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
+        ...(backend === 'devicefarm' && maxSegments !== '1' ? { maxSegments: Number(maxSegments) } : {}),
+        ...(backend === 'emulator' || backend === 'windows' ? { maxHours: effectiveHours(backend, maxHours) } : {}),
+        ...(backend === 'windows' ? { display } : {}),
         // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
         ...(backend === 'devicefarm' && deviceArn
           ? (() => {
@@ -694,16 +695,19 @@ export default function AppWorkspacePage() {
                   ))}
                 </select>
               </label>
-              {/* 執行環境由 App 平台決定並鎖定(web→瀏覽器;原生→Device Farm),不讓使用者亂選。 */}
+              {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
               <label className="ws__field">
                 <span className="ws__label">{t('tasks.backend')}</span>
-                <input
-                  type="text"
-                  readOnly
-                  className="ws__readonly"
-                  value={t((BACKENDS.find((b) => b.value === backend)?.labelKey) ?? 'backend.web')}
+                <RuntimeSelect
+                  platform={app?.platform}
+                  value={runtimeId}
+                  onChange={(r) => {
+                  setRuntimeId(r.id);
+                  setBackend(r.backend);
+                  setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
+                }}
+                  hintClass="ws__muted"
                 />
-                <span className="ws__muted">{t('tasks.backendLocked')}</span>
               </label>
               {backend === 'devicefarm' && (
                 <div className="ws__field">
@@ -803,7 +807,29 @@ export default function AppWorkspacePage() {
                   )}
                 </>
               )}
-              <label className="ws__field">
+{(backend === 'emulator' || backend === 'windows') && (
+            <label className="ws__field">
+              <HoursSelect backend={backend} value={maxHours} onChange={setMaxHours} labelClass="ws__label" hintClass="ws__muted" />
+            </label>
+          )}
+          {backend === 'windows' && (
+            <div className="ws__field">
+              <DisplaySelect value={display} onChange={setDisplay} labelClass="ws__label" hintClass="ws__muted" />
+            </div>
+          )}
+          {runtimeById(runtimeId)?.long && (
+            <label className="ws__field">
+              <span className="ws__label">{t('tasks.runDuration')}</span>
+              <span className="ws__muted">{t('tasks.runDurationHint')}</span>
+              <select value={maxSegments} onChange={(e) => setMaxSegments(e.target.value)}>
+                <option value="2">{t('tasks.runLong2')}</option>
+                <option value="4">{t('tasks.runLong4')}</option>
+                <option value="0">{t('tasks.runLongUnlimited')}</option>
+              </select>
+              {maxSegments !== '1' && <span className="ws__muted" role="note">{t('tasks.runLongNote')}</span>}
+            </label>
+          )}
+          <label className="ws__field">
                 <span className="ws__label">{t('tasks.maxSteps')}</span>
                 <input
                   type="number"
@@ -855,7 +881,7 @@ export default function AppWorkspacePage() {
                 <button type="button" className="ws__secondary" onClick={() => setShowTaskForm(false)}>
                   {t('tasks.cancel')}
                 </button>
-                <button type="submit" className="ws__primary" disabled={submitting}>
+                <button type="submit" className="ws__primary" disabled={submitting || (backend === 'windows' && displayError(display, 'en') !== null)}>
                   {submitting ? t('tasks.submitting') : t('tasks.submitBtn')}
                 </button>
               </div>

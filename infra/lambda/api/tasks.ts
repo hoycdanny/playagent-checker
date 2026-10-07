@@ -40,6 +40,12 @@ export interface JobRecord {
   maxSteps?: number;
   /** 預算上限(美元;未設=無上限)。 */
   budgetUsd?: number;
+  /** Device Farm 執行時長:1 = 單段(140 分鐘收尾);N = 最多 N 段連線接續;0 = 不限段數。未設 = 1。 */
+  maxSegments?: number;
+  /** 自管主機(Android 容器 / Windows)的最長執行時間(小時,1~72);到時主機自動終止。 */
+  maxHours?: number;
+  /** 畫面解析度(Windows:GameLift Streams 虛擬螢幕;寬高偶數、總像素 ≤ 1920×1080)。 */
+  display?: JobDisplay;
   /** 被測產物的完整 S3 key(emulator userdata 據此拉 APK)。 */
   artifactKey?: string;
   /** 案例任務描述(emulator runner 給 VLM 的目標)。 */
@@ -69,6 +75,30 @@ export interface JobRecord {
   /** 該版本的案例名稱快照。 */
   caseName?: string;
   createdAt: string;
+}
+
+export interface JobDisplay {
+  width: number;
+  height: number;
+}
+
+/** GameLift Streams 單一 session 總像素上限(1920×1080)。 */
+export const WINDOWS_MAX_PIXELS = 2_073_600;
+
+/** 解析度校驗:寬高為 320~4096 的偶數;Windows 另限總像素 ≤ 2,073,600。 */
+export function parseDisplay(raw: unknown, backend: Backend): JobDisplay | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (backend !== 'windows') return undefined;
+  if (typeof raw !== 'object') throw new ValidationError('display 必須是 { width, height }');
+  const r = raw as Record<string, unknown>;
+  const width = Number(r['width']);
+  const height = Number(r['height']);
+  const ok = (n: number) => Number.isInteger(n) && n >= 320 && n <= 4096 && n % 2 === 0;
+  if (!ok(width) || !ok(height)) throw new ValidationError('解析度寬高必須是 320~4096 的偶數');
+  if (width * height > WINDOWS_MAX_PIXELS) {
+    throw new ValidationError(`Windows 解析度總像素不可超過 ${WINDOWS_MAX_PIXELS}(1920×1080);${width}×${height} 太大`);
+  }
+  return { width, height };
 }
 
 export interface JobControls {
@@ -129,6 +159,12 @@ interface SubmitInput {
   maxSteps?: number;
   /** 預算上限(美元);未指定或 <=0 代表「無上限」。 */
   budgetUsd?: number;
+  /** Device Farm 執行時長(段數;見 JobRecord.maxSegments)。 */
+  maxSegments?: number;
+  /** 自管主機最長執行時間(小時)。 */
+  maxHours?: number;
+  /** Windows 畫面解析度。 */
+  display?: JobDisplay;
   /** Device Farm:使用者明選的實體裝置 ARN(engine 依此挑真機而非取第一台)。 */
   deviceArn?: string;
   /** Device Farm:所選機型名稱(顯示用)。 */
@@ -165,6 +201,22 @@ export function validateSubmit(body: unknown): SubmitInput {
   const maxSteps = Number.isFinite(rawMaxSteps) && rawMaxSteps > 0 ? Math.floor(rawMaxSteps) : undefined;
   const rawBudget = Number(b['budgetUsd']);
   const budgetUsd = Number.isFinite(rawBudget) && rawBudget > 0 ? rawBudget : undefined;
+  // 執行時長(只有 Device Farm 有 150 分鐘連線上限):0..20 的整數;其他值拒絕。
+  const rawSegments = b['maxSegments'];
+  let maxSegments: number | undefined;
+  if (rawSegments !== undefined && rawSegments !== null && rawSegments !== '') {
+    const n = Number(rawSegments);
+    if (!Number.isInteger(n) || n < 0 || n > 20) throw new ValidationError('maxSegments 必須是 0~20 的整數(0 = 不限段數)');
+    if (backend === 'devicefarm' && n !== 1) maxSegments = n;
+  }
+  const rawHours = b['maxHours'];
+  let maxHours: number | undefined;
+  if (rawHours !== undefined && rawHours !== null && rawHours !== '') {
+    const n = Number(rawHours);
+    if (!Number.isInteger(n) || n < 1 || n > 72) throw new ValidationError('maxHours 必須是 1~72 的整數');
+    if (backend === 'emulator' || backend === 'windows') maxHours = n;
+  }
+  const display = parseDisplay(b['display'], backend as Backend);
   // Device Farm 裝置選擇(僅 devicefarm 後端有意義;其他後端即使帶了也不落 job)。
   // deviceArn 需符合 Device Farm ARN 形狀,避免注入任意值。
   const rawDeviceArn = b['deviceArn'];
@@ -204,6 +256,9 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(knowledgeBaseIds && knowledgeBaseIds.length > 0 ? { knowledgeBaseIds } : {}),
     ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
+    ...(maxSegments !== undefined ? { maxSegments } : {}),
+    ...(maxHours !== undefined ? { maxHours } : {}),
+    ...(display ? { display } : {}),
     ...(deviceArn ? { deviceArn } : {}),
     ...(deviceModel ? { deviceModel } : {}),
     ...(osVersion ? { osVersion } : {}),
@@ -244,6 +299,9 @@ export async function createJob(
     ...(input.subagentModel ? { subagentModel: input.subagentModel } : {}),
     ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
     ...(input.budgetUsd !== undefined ? { budgetUsd: input.budgetUsd } : {}),
+    ...(input.maxSegments !== undefined ? { maxSegments: input.maxSegments } : {}),
+    ...(input.maxHours !== undefined ? { maxHours: input.maxHours } : {}),
+    ...(input.display ? { display: input.display } : {}),
     ...(input.deviceArn ? { deviceArn: input.deviceArn } : {}),
     ...(input.deviceModel ? { deviceModel: input.deviceModel } : {}),
     ...(input.osVersion ? { osVersion: input.osVersion } : {}),
@@ -405,8 +463,16 @@ export async function listJobs(
       // 花費:report 直接記錄優先;否則以 token × 該模型單價估算(Fail Closed:查無單價則留空)。
       let billableSpendUsd: number | undefined;
       let spendEstimated = false;
+      let bySeat: number | undefined;
+      try {
+        bySeat = spendBySeat(report, (seat) => seatModels?.[seat]);
+      } catch (err) {
+        if (!(err instanceof PricingError)) throw err;
+      }
       if (typeof report?.billableSpendUsd === 'number') {
         billableSpendUsd = report.billableSpendUsd;
+      } else if (report?.tokensBySeat) {
+        if (bySeat !== undefined) { billableSpendUsd = bySeat; spendEstimated = true; }
       } else if (
         vlmModel &&
         typeof report?.tokens?.input === 'number' &&
@@ -506,27 +572,69 @@ export interface TraceRecord {
 }
 
 /** 讀某任務的全部互動 log(traces/*.json),依 index 排序。供「Log」呈現除錯用。 */
+export type TraceSeat = 'vlm' | 'agent' | 'subagent';
+
+/** trace 檔名 → seat:<i>.json = 視覺;<i>-agent.json = 決策;<i>-subagent*.json / <i>-summary.json = 輔助。 */
+export function traceSeatOf(fileName: string): TraceSeat | null {
+  const m = /^(\d+)(?:-([a-z-]+))?\.json$/.exec(fileName);
+  if (!m) return null;
+  const tag = m[2];
+  if (!tag) return 'vlm';
+  if (tag === 'agent') return 'agent';
+  if (tag.startsWith('subagent') || tag === 'summary') return 'subagent';
+  return null;
+}
+
+/**
+ * 讀某任務的互動 log(traces/*.json),依 index 排序。
+ * - seat:只讀某個 Agent(依檔名過濾,不必讀其他 Agent 的檔)。
+ * - limit:只回最新 N 筆(長測試三個 Agent 合計可能上千筆,整包會超過 Lambda 回應上限)。
+ * - summary:只回 token / 成敗 / 耗時(「用量」分頁用,體積小)。
+ */
 export async function readTraces(
   s3: S3Client,
   bucket: string,
   tenantId: string,
   jobId: string,
+  opts: { seat?: TraceSeat; limit?: number; summary?: boolean } = {},
 ): Promise<TraceRecord[]> {
-  const list = await s3.send(
-    new ListObjectsV2Command({
-      Bucket: bucket,
-      Prefix: `${jobsPrefix(tenantId)}${jobId}/traces/`,
-    }),
-  );
-  const keys = (list.Contents ?? [])
-    .map((o) => o.Key)
-    .filter((k): k is string => typeof k === 'string' && k.endsWith('.json'));
-  const traces = await Promise.all(
-    keys.map((key) => readJson<TraceRecord>(s3, bucket, key)),
-  );
-  return traces
-    .filter((t): t is TraceRecord => t !== null)
-    .sort((a, b) => a.index - b.index);
+  const prefix = `${jobsPrefix(tenantId)}${jobId}/traces/`;
+  const entries: Array<{ key: string; index: number }> = [];
+  let token: string | undefined;
+  do {
+    const list = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ...(token ? { ContinuationToken: token } : {}) }));
+    for (const o of list.Contents ?? []) {
+      const key = o.Key;
+      if (typeof key !== 'string') continue;
+      const name = key.slice(prefix.length);
+      const seat = traceSeatOf(name);
+      if (!seat || (opts.seat && seat !== opts.seat)) continue;
+      entries.push({ key, index: Number(name.split(/[-.]/)[0]) });
+    }
+    token = list.IsTruncated ? list.NextContinuationToken : undefined;
+  } while (token);
+  entries.sort((a, b) => a.index - b.index);
+  const pick = opts.limit && opts.limit > 0 ? entries.slice(-opts.limit) : entries;
+  const out: TraceRecord[] = [];
+  for (let i = 0; i < pick.length; i += 50) {
+    const batch = await Promise.all(pick.slice(i, i + 50).map((e) => readJson<TraceRecord>(s3, bucket, e.key).catch(() => null)));
+    for (const t of batch) {
+      if (!t) continue;
+      if (opts.summary) {
+        const r = t as Record<string, unknown>;
+        out.push({
+          index: t.index,
+          ...(typeof r['seat'] === 'string' ? { seat: r['seat'] } : {}),
+          ...(typeof r['modelId'] === 'string' ? { modelId: r['modelId'] } : {}),
+          ...(typeof r['ok'] === 'boolean' ? { ok: r['ok'] } : {}),
+          ...(r['tokens'] && typeof r['tokens'] === 'object' ? { tokens: r['tokens'] } : {}),
+          ...(typeof r['ms'] === 'number' ? { ms: r['ms'] } : {}),
+          ...(typeof r['at'] === 'string' ? { at: r['at'] } : {}),
+        } as TraceRecord);
+      } else out.push(t);
+    }
+  }
+  return out.sort((a, b) => a.index - b.index);
 }
 
 /** 執行配置快照(config.json,由引擎於執行前落地)—— 每個 seat 的模型與解析單價。 */
@@ -543,11 +651,38 @@ interface ConfigSnapshot {
   seats?: ConfigSnapshotSeat[];
   resolvedAt?: string;
 }
+/**
+ * 依各 Agent 的 token × 各自模型單價估算花費(report.tokensBySeat)。
+ * 回 undefined = 沒有分 seat 的資料(呼叫端退回舊算法);任一 seat 查不到價 → 拋 PricingError(Fail Closed)。
+ */
+export function spendBySeat(
+  report: Pick<ReportShape, 'tokensBySeat' | 'seatModels'> | null | undefined,
+  modelFor: (seat: 'vlm' | 'agent' | 'subagent') => string | undefined,
+): number | undefined {
+  const by = report?.tokensBySeat;
+  if (!by) return undefined;
+  let total = 0;
+  for (const seat of ['vlm', 'agent', 'subagent'] as const) {
+    const t = by[seat];
+    const input = t?.input ?? 0;
+    const output = t?.output ?? 0;
+    if (input === 0 && output === 0) continue;
+    const modelId = report?.seatModels?.[seat] ?? modelFor(seat);
+    if (!modelId) throw new PricingError(`無法判斷 ${seat} 的模型`);
+    total += computeSpend(modelId, input, output);
+  }
+  return total;
+}
+
 /** 報告產出物(report.json)—— 只取本頁需要的欄位(task 描述、token 用量)。 */
 interface ReportShape {
   task?: string;
   stepCount?: number;
   tokens?: { input?: number; output?: number };
+  /** 三個 Agent 各自的 token(runner agent-team-v1 起);有則花費依各自模型單價分開計。 */
+  tokensBySeat?: Partial<Record<'vlm' | 'agent' | 'subagent', { input?: number; output?: number }>>;
+  /** runner 實際使用的各 Agent 模型。 */
+  seatModels?: Partial<Record<'vlm' | 'agent' | 'subagent', string>>;
   billableSpendUsd?: number;
   budgetUsd?: number | null;
   /** runner 寫入的 VLM 模型 id(report.json 有帶;供詳情頁在無 seat 快照時回退顯示)。 */
@@ -568,6 +703,7 @@ export interface BootProgress {
   deviceStatus?: string;
   deviceModel?: string;
   sizeMB?: number;
+  session?: { segment: number; maxSegments: number; startedAt: string; wrapAt: string; wrapMin: number };
 }
 
 /** 任務詳情頁需要的彙整 metadata:套用情境、使用模型、花費。 */
@@ -637,6 +773,14 @@ async function buildTaskMeta(
   let spendEstimated = false;
   if (typeof report?.billableSpendUsd === 'number') {
     billableSpendUsd = report.billableSpendUsd;
+  } else if (report?.tokensBySeat) {
+    // 三個 Agent 分開計價(各自模型單價)。
+    try {
+      const v = spendBySeat(report, (seat) => seats.find((s) => s.seat === seat)?.modelId);
+      if (v !== undefined) { billableSpendUsd = v; spendEstimated = true; }
+    } catch (err) {
+      if (!(err instanceof PricingError)) throw err;
+    }
   } else if (tokens) {
     // 以 vlm seat 單價估(VLM 是逐步呼叫的主要花費);無 vlm 則取第一個 seat。
     const priceSeat = seats.find((s) => s.seat === 'vlm') ?? seats[0];

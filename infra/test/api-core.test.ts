@@ -263,6 +263,101 @@ describe('API 核心 — App CRUD', () => {
     expect(items).toHaveLength(0);
   });
 
+  describe('DELETE /apps/{id} 連帶刪除工作區資料', () => {
+    const T = 'tenants/t-001/';
+    const old = new Date(Date.now() - 60 * 60_000).toISOString();
+    /** 兩個 App:要刪的 app-a(含各類資料)與不相干的 app-ab(前綴相近,不可被誤刪)。 */
+    function seed(deps: ReturnType<typeof fakeDeps>, statusA2 = { state: 'pass', updatedAt: old }) {
+      const s = deps.store;
+      const put = (k: string, v: unknown) => s.set(`${T}${k}`, typeof v === 'string' ? v : JSON.stringify(v));
+      put('apps/app-a.json', { id: 'app-a', name: 'A', platform: 'android', createdAt: old, artifactId: 'art-a', iconArtifactId: 'art-shared', defaultKnowledgeBaseIds: ['kb-1'] });
+      put('apps/app-ab.json', { id: 'app-ab', name: 'AB', platform: 'android', createdAt: old, artifactId: 'art-ab', iconArtifactId: 'art-shared' });
+      // app-a 的兩個任務(含報告、截圖、影片、指令)
+      for (const [jobId, status] of [['job-a1', { state: 'fail', updatedAt: old }], ['job-a2', statusA2]] as const) {
+        put(`jobs/${jobId}/job.json`, { jobId, appId: 'app-a', knowledgeBaseIds: ['kb-1'], artifactKey: `${T}artifacts/art-a/app.apk` });
+        put(`jobs/${jobId}/status.json`, status);
+        put(`jobs/${jobId}/report.json`, {});
+        put(`jobs/${jobId}/steps/0.json`, {});
+        put(`jobs/${jobId}/steps/0.png`, 'png');
+        put(`jobs/${jobId}/live/0001.mp4`, 'mp4');
+        put(`jobs/${jobId}/commands/c1.json`, {});
+      }
+      put('jobs/job-b1/job.json', { jobId: 'job-b1', appId: 'app-ab' });
+      put('jobs/job-b1/status.json', { state: 'pass', updatedAt: old });
+      put('cases/app-a/case-1.yaml', 'name: x');
+      put('case-versions/app-a/case-1/2026-0101-0000-0000.json', {});
+      put('cases/app-ab/case-2.yaml', 'name: y');
+      put('case-versions/app-ab/case-2/2026-0101-0000-0000.json', {});
+      put('memory/app-a/structure.json', {});
+      put('memory/app-a/hints.json', {});
+      put('memory/app-a/screenshots/p1.png', 'png');
+      put('memory/app-a/attached/summary.md', 'x');
+      put('memory/app-ab/structure.json', {});
+      put('knowledge/app-a.md', 'facts');
+      put('knowledge/app-ab.md', 'facts');
+      put('artifacts/art-a/app.apk', 'apk');
+      put('artifacts/art-shared/icon.png', 'png');
+      put('artifacts/art-ab/app.apk', 'apk');
+      s.set('shared/kb-refs/kb-1.json', JSON.stringify({
+        apps: { 't-001/app-a': { tenantId: 't-001', appId: 'app-a', at: old } },
+        jobs: { 't-001/job-a1': { tenantId: 't-001', jobId: 'job-a1', at: old }, 't-001/job-a2': { tenantId: 't-001', jobId: 'job-a2', at: old } },
+      }));
+    }
+    function withSecrets(deps: ReturnType<typeof fakeDeps>) {
+      const deletedSecrets: string[] = [];
+      Object.assign(deps, {
+        secretWriter: {
+          putSecretValue: async () => {},
+          deleteSecret: async (name: string) => { deletedSecrets.push(name); },
+          getSecretJson: async () => null,
+        },
+      });
+      return deletedSecrets;
+    }
+
+    test('刪除任務/報告、測試情境與版本、記憶、知識、安裝檔、帳密;其他 App 不受影響', async () => {
+      const deps = fakeDeps();
+      seed(deps);
+      const secrets = withSecrets(deps);
+      const res = await handleRequest({ method: 'DELETE', path: '/apps/app-a', claims }, deps);
+      expect(res.status).toBe(200);
+      expect((res.body as { done: boolean }).done).toBe(true);
+
+      const keys = [...deps.store.keys()];
+      expect(keys.filter((k) => k.includes('app-a/') || k.includes('app-a.') || k.includes('/job-a') || k.includes('art-a/'))).toEqual([]);
+      // 其他 App 的資料完整保留(含與 app-a 共用的圖示)
+      for (const k of ['apps/app-ab.json', 'jobs/job-b1/job.json', 'cases/app-ab/case-2.yaml', 'case-versions/app-ab/case-2/2026-0101-0000-0000.json', 'memory/app-ab/structure.json', 'knowledge/app-ab.md', 'artifacts/art-ab/app.apk', 'artifacts/art-shared/icon.png']) {
+        expect(deps.store.has(`${T}${k}`), k).toBe(true);
+      }
+      expect(secrets).toEqual(['playagent/tenant/t-001/app/app-a/credentials']);
+      // 共用知識庫的引用索引已移除這個 App 與它的任務
+      expect(JSON.parse(deps.store.get('shared/kb-refs/kb-1.json')!)).toEqual({ apps: {}, jobs: {} });
+    });
+
+    test('還有測試在執行 → 409,什麼都不刪', async () => {
+      const deps = fakeDeps();
+      seed(deps, { state: 'running', updatedAt: new Date().toISOString() });
+      const before = deps.store.size;
+      const res = await handleRequest({ method: 'DELETE', path: '/apps/app-a', claims }, deps);
+      expect(res.status).toBe(409);
+      expect(res.body).toMatchObject({ code: 'APP_HAS_RUNNING_JOBS', running: [{ jobId: 'job-a2', state: 'running' }] });
+      expect(deps.store.size).toBe(before);
+    });
+
+    test('卡在執行中但很久沒更新的任務(已死)不擋刪除', async () => {
+      const deps = fakeDeps();
+      seed(deps, { state: 'running', updatedAt: old });
+      const res = await handleRequest({ method: 'DELETE', path: '/apps/app-a', claims }, deps);
+      expect(res.status).toBe(200);
+      expect(deps.store.has(`${T}jobs/job-a2/job.json`)).toBe(false);
+    });
+
+    test('非法 appId → 400', async () => {
+      const res = await handleRequest({ method: 'DELETE', path: '/apps/..', claims }, fakeDeps());
+      expect(res.status).toBe(400);
+    });
+  });
+
   test('GET /apps/{id} 找不到 → 404', async () => {
     const res = await handleRequest(
       { method: 'GET', path: '/apps/app-nope', claims },
@@ -275,7 +370,7 @@ describe('API 核心 — App CRUD', () => {
 describe('API 核心 — 上傳', () => {
   test('POST /uploads 非法 kind → 400', async () => {
     const res = await handleRequest(
-      { method: 'POST', path: '/uploads', claims, body: { kind: 'exe' } },
+      { method: 'POST', path: '/uploads', claims, body: { kind: 'dmg' } },
       fakeDeps(),
     );
     expect(res.status).toBe(400);
@@ -971,6 +1066,53 @@ describe('API 核心 — 任務提交/取消', () => {
     expect(remaining).toHaveLength(0);
     const list = await handleRequest({ method: 'GET', path: '/tasks', claims }, deps);
     expect((list.body as { items: unknown[] }).items).toHaveLength(0);
+  });
+
+  test('GET /tasks/{id}/live-metrics: 執行中用目前步驟即時算指標;結束後用報告', async () => {
+    const deps = fakeDeps();
+    seedAppAndCase(deps);
+    const created = await handleRequest({ method: 'POST', path: '/tasks', claims, body: { backend: 'web', appId: 'app-1', caseId: 'case-1' } }, deps);
+    const jobId = (created.body as { jobId: string }).jobId;
+    const P = `tenants/t-001/jobs/${jobId}/`;
+    const at = (s: number) => new Date(Date.UTC(2026, 9, 5, 0, 0, s)).toISOString();
+    deps.store.set(`${P}steps/0.json`, JSON.stringify({ index: 0, action: 'tap', screen: '大廳', at: at(0) }));
+    deps.store.set(`${P}steps/1.json`, JSON.stringify({ index: 1, action: 'wait', screen: '大廳', at: at(10) }));
+    const live = await handleRequest({ method: 'GET', path: `/tasks/${jobId}/live-metrics`, claims }, deps);
+    expect(live.status).toBe(200);
+    const b = live.body as { metrics: Array<{ id: string; status: string }>; stepCount: number; final: boolean };
+    expect(b.stepCount).toBe(2);
+    expect(b.final).toBe(false);
+    expect(b.metrics.length).toBeGreaterThan(0);
+    expect(b.metrics.every((m) => m.status === 'ok' || m.status === 'not_collected')).toBe(true);
+
+    deps.store.set(`${P}report.json`, JSON.stringify({ jobId, state: 'pass', steps: [{ index: 0, action: 'tap', at: at(0) }] }));
+    const done = await handleRequest({ method: 'GET', path: `/tasks/${jobId}/live-metrics`, claims }, deps);
+    expect((done.body as { final: boolean; stepCount: number }).final).toBe(true);
+    expect((done.body as { stepCount: number }).stepCount).toBe(1);
+
+    const bad = await handleRequest({ method: 'GET', path: '/tasks/not!valid/live-metrics', claims }, deps);
+    expect(bad.status).toBe(400);
+  });
+
+  test('GET /tasks/{id}/logs: seat / limit / summary 過濾', async () => {
+    const deps = fakeDeps();
+    const P = 'tenants/t-001/jobs/job-abc123/traces/';
+    const tr = (index: number, seat: string, extra = {}) => JSON.stringify({ index, seat, modelId: 'm', ok: true, tokens: { input: 10, output: 2 }, rawResponse: 'long text', ...extra });
+    for (let i = 0; i < 3; i++) {
+      deps.store.set(`${P}${i}.json`, tr(i, 'vlm'));
+      deps.store.set(`${P}${i}-agent.json`, tr(i, 'agent'));
+      deps.store.set(`${P}${i}-subagent.json`, tr(i, 'subagent'));
+    }
+    deps.store.set(`${P}2-summary.json`, tr(2, 'subagent'));
+    deps.store.set(`${P}junk.json`, '{}');
+    const get = async (q: string) => ((await handleRequest({ method: 'GET', path: '/tasks/job-abc123/logs', query: Object.fromEntries(new URLSearchParams(q)), claims }, deps)).body as { items: Array<{ index: number; seat: string; rawResponse?: string }> }).items;
+    expect(await get('')).toHaveLength(10);
+    expect((await get('seat=agent')).map((t) => t.seat)).toEqual(['agent', 'agent', 'agent']);
+    expect((await get('seat=subagent')).length).toBe(4);
+    expect((await get('seat=vlm&limit=2')).map((t) => t.index)).toEqual([1, 2]);
+    const sum = await get('summary=1');
+    expect(sum).toHaveLength(10);
+    expect(sum[0]!.rawResponse).toBeUndefined();
   });
 
   test('DELETE /tasks 非法 jobId → 400', async () => {

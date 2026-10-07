@@ -27,6 +27,7 @@ import {
   type AppRecord,
 } from './apps.js';
 import { artifactKey } from './artifacts.js';
+import { APP_ID_RE, AppRunningError, purgeApp } from './appPurge.js';
 import {
   activateCaseVersion,
   CASE_VERSION_RE,
@@ -60,7 +61,8 @@ import {
 } from './tasks.js';
 import { writeStatus, readStatus } from './status.js';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { listMediaSegments, readAudioLevels } from './liveMedia.js';
+import { listMediaSegments, readAudioLevels, withRecordingUrls } from './liveMedia.js';
+import { DEVICE_LOG_KINDS, readDeviceLogs, type DeviceLogKind } from './deviceLogs.js';
 import { generateInsights } from './report/insights.js';
 import { CATALOG, modelsForSeat, type Seat } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
@@ -751,11 +753,34 @@ export async function handleRequest(
         // 動態路由:DELETE /apps/{id}(刪除被測應用)
         const appDelMatch = req.method === 'DELETE' && /^\/apps\/([^/]+)$/.exec(req.path);
         if (appDelMatch) {
+          // 刪工作區 = 連帶刪除底下所有資料(任務/報告、測試情境與版本、記憶、知識、安裝檔、帳密)。
+          // 資料多時一次做不完 → 回 202 + done:false,前端再呼叫一次接著刪(App 紀錄最後才刪)。
+          const appId = appDelMatch[1]!;
+          if (!APP_ID_RE.test(appId)) return json(400, { error: 'appId 格式不正確' });
           const s3 = await deps.getTenantS3(tenant.tenantId);
-          const before = await getApp(s3, deps.bucket, tenant.tenantId, appDelMatch[1]!).catch(() => null);
-          await deleteApp(s3, deps.bucket, tenant.tenantId, appDelMatch[1]!);
-          await removeKbRefs(deps.sharedS3, deps.bucket, before?.defaultKnowledgeBaseIds, { type: 'app', tenantId: tenant.tenantId, appId: appDelMatch[1]! }).catch(() => {});
-          return json(200, { id: appDelMatch[1]! });
+          const apps = await listApps(s3, deps.bucket, tenant.tenantId);
+          const app = apps.find((a) => a.id === appId) ?? null;
+          try {
+            const result = await purgeApp(
+              {
+                s3,
+                sharedS3: deps.sharedS3,
+                bucket: deps.bucket,
+                tenantId: tenant.tenantId,
+                ...(deps.secretWriter ? { secretWriter: deps.secretWriter } : {}),
+                otherApps: apps.filter((a) => a.id !== appId),
+                deleteAppRecord: () => deleteApp(s3, deps.bucket, tenant.tenantId, appId),
+              },
+              appId,
+              app,
+            );
+            return json(result.done ? 200 : 202, { id: appId, ...result });
+          } catch (err) {
+            if (err instanceof AppRunningError) {
+              return json(409, { error: err.message, code: 'APP_HAS_RUNNING_JOBS', running: err.running });
+            }
+            throw err;
+          }
         }
         // 動態路由:GET /knowledge-bases/{id}(讀單一知識庫)
         const kbGetMatch = req.method === 'GET' && /^\/knowledge-bases\/([^/]+)$/.exec(req.path);
@@ -1084,7 +1109,24 @@ export async function handleRequest(
           const jobId = levelsMatch[1]!;
           if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
           const s3 = await deps.getTenantS3(tenant.tenantId);
-          return json(200, await readAudioLevels(s3, deps.bucket, tenant.tenantId, jobId));
+          const levels = await readAudioLevels(s3, deps.bucket, tenant.tenantId, jobId);
+          // 附上每段含聲音錄影的下載 URL(任務頁回放用)。
+          return json(200, await withRecordingUrls(s3, deps.bucket, tenant.tenantId, jobId, levels));
+        }
+        // 動態路由:GET /tasks/{id}/device-logs?kind=logcat|audio&after=<檔名>(真機 log,任務詳情頁展開時讀)
+        const devLogMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/device-logs$/.exec(req.path);
+        if (devLogMatch) {
+          const jobId = devLogMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const kind = req.query?.['kind'] ?? 'logcat';
+          if (!(DEVICE_LOG_KINDS as readonly string[]).includes(kind)) return json(400, { error: `kind 必須是 ${DEVICE_LOG_KINDS.join('/')} 之一` });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const after = req.query?.['after'];
+          const limit = Number(req.query?.['limit']);
+          return json(200, await readDeviceLogs(s3, deps.bucket, tenant.tenantId, jobId, kind as DeviceLogKind, {
+            ...(after ? { after } : {}),
+            ...(Number.isFinite(limit) && limit > 0 ? { limit } : {}),
+          }));
         }
         // 動態路由:GET /tasks/{id}/live-video|live-audio?after=<檔名>(即時影片 / 含音效段落,依序播放)
         const mediaMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/live-(video|audio)$/.exec(req.path);
@@ -1105,8 +1147,47 @@ export async function handleRequest(
           const jobId = logsMatch[1]!;
           if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
           const s3 = await deps.getTenantS3(tenant.tenantId);
-          const traces = await readTraces(s3, deps.bucket, tenant.tenantId, jobId);
+          // ?seat=vlm|agent|subagent 只讀一個 Agent;?limit=N 最新 N 筆;?summary=1 只回 token/成敗(用量分頁)。
+          const seatQ = req.query?.['seat'];
+          const limitQ = Number(req.query?.['limit']);
+          const traces = await readTraces(s3, deps.bucket, tenant.tenantId, jobId, {
+            ...(seatQ === 'vlm' || seatQ === 'agent' || seatQ === 'subagent' ? { seat: seatQ } : {}),
+            ...(Number.isFinite(limitQ) && limitQ > 0 ? { limit: Math.min(limitQ, 500) } : {}),
+            ...(req.query?.['summary'] === '1' ? { summary: true } : {}),
+          });
           return json(200, { items: traces });
+        }
+        // 動態路由:GET /tasks/{id}/live-metrics(即時指標:用目前已有的步驟跑一次報告引擎,只回指標)
+        // 執行中也能算(與報告同一套指標定義與計算);結束後若有 report.json 則用它(含效能等完整資料)。
+        const liveMetricsMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/live-metrics$/.exec(req.path);
+        if (liveMetricsMatch) {
+          const jobId = liveMetricsMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const finished = await readReport(s3, deps.bucket, tenant.tenantId, jobId).catch(() => null);
+          let raw: Record<string, unknown>;
+          if (finished && typeof finished === 'object') {
+            raw = finished as Record<string, unknown>;
+          } else {
+            const detail = await readJobDetail(s3, deps.bucket, tenant.tenantId, jobId);
+            if (!detail) return json(404, { error: '找不到任務' });
+            raw = {
+              jobId,
+              state: detail.state,
+              steps: detail.steps,
+              ...(detail.job?.caseTask ? { task: detail.job.caseTask } : {}),
+              ...(detail.updatedAt ? { generatedAt: detail.updatedAt } : {}),
+            };
+          }
+          const structured = await buildReportForJob(deps, s3, tenant.tenantId, jobId, raw, { sign: false });
+          const stepCount = Array.isArray(raw['steps']) ? (raw['steps'] as unknown[]).length : 0;
+          return json(200, {
+            metrics: structured.metrics,
+            counts: structured.counts,
+            stepCount,
+            final: Boolean(finished),
+            at: new Date().toISOString(),
+          });
         }
         // 動態路由:GET /tasks/{id}(詳情 + steps,供重連補讀 Req 5.4)
         const detailMatch = req.method === 'GET' && /^\/tasks\/([^/]+)$/.exec(req.path);
@@ -1546,8 +1627,11 @@ async function handleSubmitTask(
   const artifactVersion = appRecord?.artifactId ?? input.appId;
   // emulator/裝置後端需要被測產物的完整 S3 key + 案例任務描述(給 VLM 的目標)。
   // package(Android 包名)來自 App identifier,供 OBB 推送與自動啟動遊戲。
+  // Windows 遊戲可能是 game.exe 或 game.zip:給資料夾,由主機挑檔(host.ps1)。
   const artifactKey = appRecord?.artifactId
-    ? `${tenantPrefix(tenantId)}artifacts/${appRecord.artifactId}/app.apk`
+    ? appRecord.platform === 'windows'
+      ? `${tenantPrefix(tenantId)}artifacts/${appRecord.artifactId}/`
+      : `${tenantPrefix(tenantId)}artifacts/${appRecord.artifactId}/app.apk`
     : undefined;
   const pkg = appRecord?.identifier;
   // 任務目標取自「本次使用的版本」內容(不是 head,避免提交瞬間被改)。
