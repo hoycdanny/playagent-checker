@@ -15,6 +15,8 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import IconSelect, { type IconSelectOption } from '../components/IconSelect.tsx';
+import AppsCostPanel, { type CostResponse } from '../components/apps/AppsCostPanel.tsx';
+import Sparkline from '../components/charts/Sparkline.tsx';
 import './ListPage.css';
 import './AppsPage.css';
 
@@ -30,6 +32,8 @@ interface AppRecord {
   secondaryGenres?: Genre[];
   version?: string;
   artifactId?: string;
+  /** 已上傳的版本清單(多版本 APK/IPA/EXE);後端對舊資料會補成一筆。 */
+  builds?: Array<{ artifactId: string; label: string }>;
   iconArtifactId?: string;
   /** 由後端簽發的限時圖示 URL(小截圖直顯)。 */
   iconUrl?: string;
@@ -110,6 +114,15 @@ export default function AppsPage() {
   );
   const kbs = kbQuery.data?.items ?? [];
 
+  // 成本:和「成本分析」頁共用同一個 useQuery key(cost:30),避免重複打那支要掃全部任務的 API。
+  const costQuery = useQuery<CostResponse>('cost:30', () => apiGet<CostResponse>('/cost?days=30'));
+  const daily = costQuery.data?.daily;
+  // 通過率:取最近 200 筆任務(後端上限)分組算。這是「近期」通過率,不是全期間。
+  const taskQuery = useQuery<ListResponse<{ appId: string; state: string }>>(
+    'tasks:200',
+    () => apiGet<ListResponse<{ appId: string; state: string }>>('/tasks?limit=200'),
+  );
+
   const [form, setForm] = useState<FormState | null>(null);
   const [artifactPct, setArtifactPct] = useState<number | null>(null);
   const [artifactState, setArtifactState] = useState<UploadState>('idle');
@@ -140,6 +153,35 @@ export default function AppsPage() {
       );
     });
   }, [items, search, platformFilter, genreFilter]);
+
+  const appNames = useMemo(
+    () => new Map(items.map((a) => [a.id, a.name] as const)),
+    [items],
+  );
+
+  /** 每個應用的卡片指標:近 30 天花費／次數、近期通過率、日花費序列(走勢圖)。 */
+  const cardStats = useMemo(() => {
+    const m = new Map<string, { spendUsd: number; runs: number; passRate: number | null; spark: number[] }>();
+    const decided = new Map<string, { decided: number; passed: number }>();
+    for (const x of taskQuery.data?.items ?? []) {
+      if (x.state !== 'pass' && x.state !== 'fail') continue;
+      const cur = decided.get(x.appId) ?? { decided: 0, passed: 0 };
+      cur.decided += 1;
+      if (x.state === 'pass') cur.passed += 1;
+      decided.set(x.appId, cur);
+    }
+    for (const a of items) {
+      const c = daily?.byApp.find((x) => x.appId === a.id);
+      const d = decided.get(a.id);
+      m.set(a.id, {
+        spendUsd: c?.totalUsd ?? 0,
+        runs: c?.runs ?? 0,
+        passRate: d && d.decided > 0 ? Math.round((d.passed / d.decided) * 100) : null,
+        spark: (daily?.days ?? []).map((day) => day.byApp?.[a.id] ?? 0),
+      });
+    }
+    return m;
+  }, [items, daily, taskQuery.data]);
 
   const editing = form?.editingId != null;
   const kind = form ? artifactKindFor(form.platform) : null;
@@ -601,6 +643,11 @@ export default function AppsPage() {
         </form>
       )}
 
+      {/* 成本分析(有應用才顯示;編輯表單展開時收起,避免頁面過長) */}
+      {!form && items.length > 0 && !costQuery.error && (
+        <AppsCostPanel daily={daily} names={appNames} days={30} />
+      )}
+
       {/* 搜尋 / 篩選列(有資料才顯示) */}
       {!form && items.length > 0 && (
         <div className="apps__toolbar">
@@ -664,6 +711,7 @@ export default function AppsPage() {
             <AppCard
               key={app.id}
               app={app}
+              stats={cardStats.get(app.id)}
               busy={busyId === app.id}
               onEdit={() => openEdit(app)}
               onDelete={() => void onDelete(app)}
@@ -675,17 +723,26 @@ export default function AppsPage() {
   );
 }
 
+interface CardStats {
+  spendUsd: number;
+  runs: number;
+  passRate: number | null;
+  spark: number[];
+}
+
 interface AppCardProps {
   app: AppRecord;
+  stats?: CardStats;
   busy: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }
 
-function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
+function AppCard({ app, stats, busy, onEdit, onDelete }: AppCardProps) {
   const { t } = useI18n();
   const hasArtifact = Boolean(app.artifactId) || app.platform === 'web';
   const secondary = (app.secondaryGenres ?? []).filter((g) => g !== app.genre);
+  const buildCount = app.builds?.length ?? (app.artifactId ? 1 : 0);
 
   return (
     <li className={`apps__card${busy ? ' apps__card--busy' : ''}`}>
@@ -732,6 +789,12 @@ function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
           <dt>{t('apps.version')}</dt>
           <dd className={app.version ? 'apps__mono' : 'apps__muted'}>
             {app.version || t('apps.versionNone')}
+            {/* 多版本:顯示保留了幾個安裝檔(詳細在工作區「版本」分頁) */}
+            {buildCount > 1 && (
+              <span className="apps__builds">
+                {t('apps.buildsCount').replace('{n}', String(buildCount))}
+              </span>
+            )}
           </dd>
         </div>
         <div className="apps__meta-row">
@@ -757,6 +820,31 @@ function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
           <dd>{new Date(app.createdAt).toLocaleDateString()}</dd>
         </div>
       </dl>
+
+      {/* 近 30 天指標 + 花費走勢(走勢只回答漲跌,精確數字看左邊的金額) */}
+      <div className="apps__kpis">
+        <div className="apps__kpi">
+          <b>{stats ? stats.runs : '—'}</b>
+          <span>{t('apps.kpiRuns')}</span>
+        </div>
+        <div className="apps__kpi">
+          <b>
+            {stats && stats.passRate !== null ? `${stats.passRate}%` : '—'}
+          </b>
+          <span title={t('apps.kpiPassRateHint')}>{t('apps.kpiPassRate')}</span>
+        </div>
+        <div className="apps__kpi">
+          <b>{stats ? `$${stats.spendUsd.toFixed(2)}` : '—'}</b>
+          <span>{t('apps.kpiSpend')}</span>
+        </div>
+        <Sparkline
+          values={stats?.spark ?? []}
+          width={92}
+          height={30}
+          format={(v) => `$${v.toFixed(2)}`}
+          ariaLabel={`${app.name} ${t('apps.costTrend')}`}
+        />
+      </div>
 
       <p className={`apps__notes ${app.notes ? '' : 'apps__muted'}`}>
         {app.notes || t('apps.notesEmpty')}

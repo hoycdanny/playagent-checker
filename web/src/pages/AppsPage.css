@@ -585,3 +585,47 @@
   opacity: 0.8;
   border-style: dashed;
 }
+
+/* ── 卡片上的近 30 天指標(次數 / 通過率 / 花費 + 走勢)──────────────── */
+.apps__kpis {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  margin: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.apps__kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 0;
+}
+.apps__kpi b {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.apps__kpi span {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 多版本標記(接在版本號後面) */
+.apps__builds {
+  margin-left: var(--space-2);
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--brand);
+  border: 1px solid var(--brand);
+  white-space: nowrap;
+}

@@ -1,0 +1,174 @@
+/* 應用管理頁的成本分析區 */
+.acost {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin-bottom: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.acost__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.acost__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.acost__desc {
+  margin: var(--space-1) 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-tertiary);
+  max-width: 68ch;
+}
+
+.acost__link {
+  flex: 0 0 auto;
+  font-size: 13px;
+  color: var(--brand);
+  text-decoration: none;
+}
+.acost__link:hover {
+  text-decoration: underline;
+}
+
+.acost__kpis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.acost__kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.acost__kpi b {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.acost__kpi-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.acost__kpi-sub {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.acost__sub {
+  margin: var(--space-2) 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.acost__empty {
+  margin: 0;
+  padding: var(--space-4) 0;
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+.acost__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 一列 = 名稱 / 占比條 / 走勢 / 金額 / 次數。名稱固定寬度讓後面欄位對齊。 */
+.acost__row {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) minmax(80px, 2fr) auto 84px 84px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.acost__row:last-child {
+  border-bottom: none;
+}
+
+.acost__row-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--text-primary);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.acost__row-name:hover {
+  color: var(--brand);
+}
+
+.acost__swatch {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+
+.acost__bar {
+  display: block;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-raised);
+  overflow: hidden;
+}
+.acost__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  min-width: 2px;
+}
+
+.acost__row-amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.acost__row-runs {
+  text-align: right;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+/* 窄螢幕:占比條與走勢圖讓位,保留名稱與金額 */
+@media (max-width: 720px) {
+  .acost__row {
+    grid-template-columns: 1fr auto;
+  }
+  .acost__bar,
+  .acost__row .spark,
+  .acost__row-runs {
+    display: none;
+  }
+}

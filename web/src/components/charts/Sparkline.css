@@ -1,0 +1,19 @@
+.spark {
+  display: inline-block;
+  position: relative;
+  line-height: 0;
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+
+.spark svg {
+  display: block;
+  overflow: visible;
+}
+
+/* 沒有花費的期間:只畫一條淡底線,維持版面高度一致 */
+.spark--empty line {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}

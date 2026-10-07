@@ -421,3 +421,136 @@ button.ws__stat:hover {
   color: var(--brand);
   border-color: var(--brand);
 }
+
+/* ── 版本分頁(同一 App 的多個安裝檔)────────────────────────────────── */
+.ws__builds {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* 上傳列:標籤 + 備註 + 檔案選擇,窄螢幕自動換行 */
+.ws__build-upload {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.ws__build-upload .ws__field {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+/* <input type=file> 藏起來,整個 label 當按鈕用 */
+.ws__upload {
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.ws__build-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ws__build {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+/* 使用中的那一版:左側色條,一眼看出送出測試會用哪個 */
+.ws__build--active {
+  border-color: var(--brand);
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.ws__build-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.ws__build-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ws__build-badge {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+.ws__build-kind {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+}
+
+.ws__build-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 13px;
+}
+/* 通過率著色:只是視覺提示,實際門檻看報告 */
+.ws__build-rate {
+  font-weight: 600;
+}
+.ws__build-rate.is-good {
+  color: var(--status-pass);
+}
+.ws__build-rate.is-mid {
+  color: var(--status-running);
+}
+.ws__build-rate.is-bad {
+  color: var(--status-fail);
+}
+
+.ws__build-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* 刪除類按鈕(憑證/版本共用) */
+.ws__remove {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--status-fail);
+  font-size: 13px;
+  cursor: pointer;
+}
+.ws__remove:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* 知識庫綁定分頁的動作列 */
+.ws__kb-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
