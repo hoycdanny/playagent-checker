@@ -15,18 +15,24 @@ import {
   type ArtifactKind,
 } from './artifacts.js';
 import {
+  activateAppBuild,
+  addAppBuild,
   createApp,
   deleteApp,
   getApp,
   listApps,
+  removeAppBuild,
   updateApp,
+  validateAddBuild,
   validateCreateApp,
   validateUpdateApp,
+  withBuilds,
   NotFoundError as AppNotFoundError,
   ValidationError,
+  type AppBuild,
   type AppRecord,
 } from './apps.js';
-import { artifactKey } from './artifacts.js';
+import { artifactKey, deleteArtifactPrefix } from './artifacts.js';
 import { APP_ID_RE, AppRunningError, purgeApp } from './appPurge.js';
 import {
   activateCaseVersion,
@@ -328,8 +334,10 @@ export async function handleRequest(
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const records = await listApps(s3, deps.bucket, tenant.tenantId);
         // 為有圖示的 App 附上限時 presigned GET URL(小截圖直顯,位元組不經 Lambda)。
+        // withBuilds:只有舊 artifactId 沒有 builds[] 的 App,讀取時補成「一個版本」,
+        // 前端就能一致地處理版本清單(不改寫 S3)。
         const items = await Promise.all(
-          records.map((r) => enrichAppIcon(s3, deps.bucket, tenant.tenantId, r)),
+          records.map((r) => enrichAppIcon(s3, deps.bucket, tenant.tenantId, withBuilds(r))),
         );
         return json(200, { items });
       }
@@ -436,16 +444,19 @@ export async function handleRequest(
       }
 
       case 'GET /cases': {
+        // ?app= 只回該 App 的案例(工作區用;不帶則回全租戶)。
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const items = await listCases(s3, deps.bucket, tenant.tenantId);
-        return json(200, { items });
+        const all = await listCases(s3, deps.bucket, tenant.tenantId);
+        const app = req.query?.['app'];
+        return json(200, { items: app ? all.filter((c) => c.app === app) : all });
       }
 
       case 'GET /reports': {
-        // 報告清單 = 任務清單(前端只顯示已終局者)。
+        // 報告清單 = 任務清單(前端只顯示已終局者)。?app= 只回該 App。
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const { items } = await listJobs(s3, deps.bucket, tenant.tenantId);
-        return json(200, { items });
+        const app = req.query?.['app'];
+        return json(200, { items: app ? items.filter((x) => x.appId === app) : items });
       }
 
       case 'GET /models': {
@@ -734,6 +745,14 @@ export async function handleRequest(
         const parsed = limitRaw === undefined ? 30 : Number(limitRaw);
         const limit =
           Number.isFinite(parsed) && parsed > 0 ? Math.min(parsed, 200) : undefined;
+        // ?app= 只回該 App 的任務(工作區用)。篩選必須在截斷「之前」做,
+        // 否則先取最新 30 筆再篩,冷門 App 會看起來沒有任務。
+        const app = req.query?.['app'];
+        if (app) {
+          const { items: all } = await listJobs(s3, deps.bucket, tenant.tenantId);
+          const mine = all.filter((x) => x.appId === app);
+          return json(200, { items: limit ? mine.slice(0, limit) : mine, total: mine.length });
+        }
         const { items, total } = await listJobs(s3, deps.bucket, tenant.tenantId, {
           ...(limit ? { limit } : {}),
         });
@@ -782,12 +801,60 @@ export async function handleRequest(
           return json(405, { error: 'method not allowed' });
         }
 
+        // 動態路由:App 版本管理(同一個 App 可保留多個 APK/IPA/EXE 版本)。
+        //   POST   /apps/{id}/builds                        新增一版並設為使用中
+        //   POST   /apps/{id}/builds/{artifactId}/activate   切換使用中版本
+        //   DELETE /apps/{id}/builds/{artifactId}            從清單移除(安裝檔另判是否可刪)
+        // 歷史任務的 job.json.artifactVersion 就是這裡的 artifactId,所以舊報告仍指得到
+        // 它當時測的那一版;刪版本只影響「之後還能不能再測這一版」。
+        const buildsMatch = req.method === 'POST' && /^\/apps\/([^/]+)\/builds$/.exec(req.path);
+        if (buildsMatch) {
+          const appId = buildsMatch[1]!;
+          if (!APP_ID_RE.test(appId)) return json(400, { error: 'appId 格式不正確' });
+          const input = validateAddBuild(req.body);
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const record = await addAppBuild(s3, deps.bucket, tenant.tenantId, appId, {
+            ...input,
+            ...(tenant.email ? { uploadedBy: tenant.email } : {}),
+          });
+          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, withBuilds(record));
+          return json(201, enriched);
+        }
+        const buildActivate = req.method === 'POST' && /^\/apps\/([^/]+)\/builds\/([^/]+)\/activate$/.exec(req.path);
+        if (buildActivate) {
+          const appId = buildActivate[1]!;
+          if (!APP_ID_RE.test(appId)) return json(400, { error: 'appId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const record = await activateAppBuild(s3, deps.bucket, tenant.tenantId, appId, decodeURIComponent(buildActivate[2]!));
+          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, withBuilds(record));
+          return json(200, enriched);
+        }
+        const buildDelete = req.method === 'DELETE' && /^\/apps\/([^/]+)\/builds\/([^/]+)$/.exec(req.path);
+        if (buildDelete) {
+          const appId = buildDelete[1]!;
+          if (!APP_ID_RE.test(appId)) return json(400, { error: 'appId 格式不正確' });
+          const artId = decodeURIComponent(buildDelete[2]!);
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const record = await removeAppBuild(s3, deps.bucket, tenant.tenantId, appId, artId);
+          // 安裝檔實體:只有「沒有任何 App 的版本清單還留著它」才刪,否則留在 S3。
+          // 歷史任務指向它不影響刪除 —— 報告看的是當時的執行結果,不需要重新安裝。
+          const apps = await listApps(s3, deps.bucket, tenant.tenantId);
+          const stillUsed = apps.some(
+            (a) => a.artifactId === artId || (a.builds ?? []).some((b) => b.artifactId === artId),
+          );
+          if (!stillUsed) {
+            await deleteArtifactPrefix(s3, deps.bucket, tenant.tenantId, artId).catch(() => {});
+          }
+          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, withBuilds(record));
+          return json(200, { ...enriched, artifactDeleted: !stillUsed });
+        }
+
         const appGetMatch = req.method === 'GET' && /^\/apps\/([^/]+)$/.exec(req.path);
         if (appGetMatch) {
           const s3 = await deps.getTenantS3(tenant.tenantId);
           const record = await getApp(s3, deps.bucket, tenant.tenantId, appGetMatch[1]!);
           if (!record) return json(404, { error: '找不到 App' });
-          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, record);
+          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, withBuilds(record));
           return json(200, enriched);
         }
         // 動態路由:PUT /apps/{id}(局部更新;修改名稱/平台/識別碼/產物/圖示/備註)
@@ -804,7 +871,7 @@ export async function handleRequest(
             patch,
           );
           await syncAppKbRefs(deps.sharedS3, deps.bucket, tenant.tenantId, record.id, before?.defaultKnowledgeBaseIds, record.defaultKnowledgeBaseIds).catch(() => {});
-          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, record);
+          const enriched = await enrichAppIcon(s3, deps.bucket, tenant.tenantId, withBuilds(record));
           return json(200, enriched);
         }
         // 動態路由:DELETE /apps/{id}(刪除被測應用)
@@ -1652,6 +1719,8 @@ async function handleSubmitTask(
   // 快照被測 App 的產物版本(供趨勢/flaky 判斷「有無被測變更」,Req 12.2)。
   const appRecord = await readJsonObject<{
     artifactId?: string;
+    builds?: AppBuild[];
+    version?: string;
     identifier?: string;
     genre?: string;
     secondaryGenres?: string[];
@@ -1701,14 +1770,36 @@ async function handleSubmitTask(
       // 內建樣板內容以程式碼為準(可由 id+version 重建),不必存 Markdown;自建則完整快照。
       ...(!k.builtin ? { markdown: k.markdown ?? '', ...(k.reportSpec ? { reportSpec: k.reportSpec } : {}) } : {}),
     }));
-  const artifactVersion = appRecord?.artifactId ?? input.appId;
+  // 選版本:提交時明選 buildId > App 目前使用中的版本。版本清單見 apps.ts 的 builds[]。
+  // 舊 App 沒有 builds[](只有 artifactId),視為「一個版本」。
+  const builds: AppBuild[] = appRecord?.builds?.length
+    ? appRecord.builds
+    : appRecord?.artifactId
+      ? [{
+        artifactId: appRecord.artifactId,
+        label: appRecord.version ?? '',
+        kind: appRecord.platform === 'ios' ? 'ipa' : appRecord.platform === 'windows' ? 'exe' : 'apk',
+        uploadedAt: '',
+      }]
+      : [];
+  const chosenBuild =
+    (input.buildId ? builds.find((b) => b.artifactId === input.buildId) : undefined)
+    ?? builds.find((b) => b.artifactId === appRecord?.artifactId);
+  const chosenArtifactId = chosenBuild?.artifactId ?? appRecord?.artifactId;
+  // artifactVersion 就是產物 id:趨勢分析(trends.ts)以它分組做版本間回歸比較。
+  const artifactVersion = chosenArtifactId ?? input.appId;
   // emulator/裝置後端需要被測產物的完整 S3 key + 案例任務描述(給 VLM 的目標)。
   // package(Android 包名)來自 App identifier,供 OBB 推送與自動啟動遊戲。
+  // 檔名依版本的 kind 決定(先前一律硬編 app.apk,iOS 的 app.ipa 永遠選不到)。
   // Windows 遊戲可能是 game.exe 或 game.zip:給資料夾,由主機挑檔(host.ps1)。
-  const artifactKey = appRecord?.artifactId
-    ? appRecord.platform === 'windows'
-      ? `${tenantPrefix(tenantId)}artifacts/${appRecord.artifactId}/`
-      : `${tenantPrefix(tenantId)}artifacts/${appRecord.artifactId}/app.apk`
+  const jobArtifactKey = chosenArtifactId
+    ? appRecord?.platform === 'windows'
+      ? `${tenantPrefix(tenantId)}artifacts/${chosenArtifactId}/`
+      : artifactKey(
+        tenantId,
+        chosenArtifactId,
+        chosenBuild?.kind ?? (appRecord?.platform === 'ios' ? 'ipa' : 'apk'),
+      )
     : undefined;
   const pkg = appRecord?.identifier;
   // 任務目標取自「本次使用的版本」內容(不是 head,避免提交瞬間被改)。
@@ -1734,7 +1825,8 @@ async function handleSubmitTask(
     { ...input, ...(resolvedKbIds.length > 0 ? { knowledgeBaseIds: resolvedKbIds } : {}) },
     artifactVersion,
     {
-      ...(artifactKey ? { artifactKey } : {}),
+      ...(jobArtifactKey ? { artifactKey: jobArtifactKey } : {}),
+      ...(chosenBuild?.label ? { artifactLabel: chosenBuild.label } : {}),
       ...(caseTask ? { caseTask } : {}),
       ...(pkg ? { package: pkg } : {}),
       ...(appRecord?.platform ? { platform: appRecord.platform } : {}),

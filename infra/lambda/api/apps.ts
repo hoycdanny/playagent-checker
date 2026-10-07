@@ -54,6 +54,30 @@ export type AppGenre = (typeof APP_GENRES)[number];
 /** 版本字串長度上限(如 1.2.3 / build 號)。 */
 const VERSION_MAX = 64;
 
+/** 產物 id 格式(與 appPurge 的 ARTIFACT_ID_RE 一致)。 */
+const ARTIFACT_ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
+/** 一個 App 最多保留幾個版本(避免無上限累積安裝檔;超過要先刪舊的)。 */
+export const BUILDS_MAX = 30;
+
+/** 一個已上傳的版本。 */
+export interface AppBuild {
+  /** 產物 id(S3 位置 artifacts/<artifactId>/)。 */
+  artifactId: string;
+  /** 顯示用的版本標籤(使用者填,如 1.2.12 或 build 480)。 */
+  label: string;
+  /** 產物種類(決定 S3 檔名;apk/ipa/zip/exe)。 */
+  kind: 'apk' | 'ipa' | 'zip' | 'exe';
+  uploadedAt: string;
+  /** 這一版的備註(改了什麼、已知問題)。 */
+  notes?: string;
+  /** 上傳者 email(審計用)。 */
+  uploadedBy?: string;
+}
+
+const BUILD_KINDS = ['apk', 'ipa', 'zip', 'exe'] as const;
+const BUILD_LABEL_MAX = 64;
+const BUILD_NOTES_MAX = 500;
+
 export interface AppRecord {
   id: string;
   name: string;
@@ -66,8 +90,18 @@ export interface AppRecord {
   secondaryGenres?: AppGenre[];
   /** 版本(可選,手動填;未來可由 APK 自動解析)。 */
   version?: string;
-  /** 引用的產物 id(可選,階段 3 上傳後填入)。 */
+  /**
+   * 使用中版本的產物 id。送出測試時預設用這一版。
+   * 保持 scalar 是為了相容既有資料與既有查詢路徑(job.json / appPurge / createJob);
+   * 多版本清單放在 builds[],兩者同時維護(activateBuild 會一起改)。
+   */
   artifactId?: string;
+  /**
+   * 已上傳的版本清單(新到舊)。同一個 App 可以保留多個 APK/IPA/EXE 版本,
+   * 送出測試時挑一版;歷史任務的 job.json.artifactVersion 就是這裡的 artifactId,
+   * 所以趨勢分析(trends.ts 依 artifactVersion 分組)可以直接做版本間回歸比較。
+   */
+  builds?: AppBuild[];
   /** 應用圖示/代表截圖的產物 id(png,可選);前端列表顯示小截圖用。 */
   iconArtifactId?: string;
   /** 測試人員備註(版本、登入需求、注意事項等,可選)。 */
@@ -112,6 +146,146 @@ function parseSecondaryGenres(raw: unknown): AppGenre[] {
 
 export class ValidationError extends Error {}
 export class NotFoundError extends Error {}
+
+/** 校驗「新增一個版本」的請求主體。 */
+export function validateAddBuild(body: unknown): {
+  artifactId: string;
+  label: string;
+  kind: AppBuild['kind'];
+  notes?: string;
+} {
+  if (typeof body !== 'object' || body === null) throw new ValidationError('請求主體必須是物件');
+  const b = body as Record<string, unknown>;
+  const artifactId = b['artifactId'];
+  if (typeof artifactId !== 'string' || !ARTIFACT_ID_RE.test(artifactId)) {
+    throw new ValidationError('artifactId 格式不正確');
+  }
+  const kind = b['kind'];
+  if (typeof kind !== 'string' || !(BUILD_KINDS as readonly string[]).includes(kind)) {
+    throw new ValidationError(`kind 必須是 ${BUILD_KINDS.join('/')} 之一`);
+  }
+  const rawLabel = typeof b['label'] === 'string' ? b['label'].trim() : '';
+  if (rawLabel.length > BUILD_LABEL_MAX) throw new ValidationError(`label 不可超過 ${BUILD_LABEL_MAX} 字`);
+  const notes = typeof b['notes'] === 'string' ? b['notes'].trim() : '';
+  if (notes.length > BUILD_NOTES_MAX) throw new ValidationError(`notes 不可超過 ${BUILD_NOTES_MAX} 字`);
+  return {
+    artifactId,
+    // 沒填標籤就用上傳時間當標籤,至少讓清單可讀。
+    label: rawLabel || new Date().toISOString().slice(0, 16).replace('T', ' '),
+    kind: kind as AppBuild['kind'],
+    ...(notes ? { notes } : {}),
+  };
+}
+
+/**
+ * 新增一個版本並設為使用中。同一個 artifactId 重複加則更新其標籤/備註(冪等)。
+ * 新版本放最前面;超過上限時拒絕(要使用者先刪舊版,避免無聲丟棄安裝檔)。
+ */
+export async function addAppBuild(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+  appId: string,
+  input: { artifactId: string; label: string; kind: AppBuild['kind']; notes?: string; uploadedBy?: string },
+): Promise<AppRecord> {
+  const existing = await getApp(s3, bucket, tenantId, appId);
+  if (!existing) throw new NotFoundError(`找不到 App: ${appId}`);
+  const builds = [...(existing.builds ?? [])];
+  const at = builds.findIndex((x) => x.artifactId === input.artifactId);
+  const build: AppBuild = {
+    artifactId: input.artifactId,
+    label: input.label,
+    kind: input.kind,
+    uploadedAt: at >= 0 ? builds[at]!.uploadedAt : new Date().toISOString(),
+    ...(input.notes ? { notes: input.notes } : {}),
+    ...(input.uploadedBy ? { uploadedBy: input.uploadedBy } : {}),
+  };
+  if (at >= 0) builds[at] = build;
+  else {
+    if (builds.length >= BUILDS_MAX) {
+      throw new ValidationError(`版本數已達上限 ${BUILDS_MAX},請先刪除舊版本`);
+    }
+    builds.unshift(build);
+  }
+  const next: AppRecord = {
+    ...existing,
+    builds,
+    // 新上傳的版本直接設為使用中(多數情況就是要測新版)。
+    artifactId: input.artifactId,
+    updatedAt: new Date().toISOString(),
+  };
+  // 版本標籤同時反映到 App 的顯示版本,讓列表/報告的「遊戲版本」跟著走。
+  if (input.label) next.version = input.label;
+  await putApp(s3, bucket, tenantId, next);
+  return next;
+}
+
+/** 切換使用中版本。 */
+export async function activateAppBuild(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+  appId: string,
+  artifactId: string,
+): Promise<AppRecord> {
+  const existing = await getApp(s3, bucket, tenantId, appId);
+  if (!existing) throw new NotFoundError(`找不到 App: ${appId}`);
+  const build = (existing.builds ?? []).find((b) => b.artifactId === artifactId);
+  if (!build) throw new NotFoundError('找不到這個版本');
+  const next: AppRecord = {
+    ...existing,
+    artifactId,
+    version: build.label,
+    updatedAt: new Date().toISOString(),
+  };
+  await putApp(s3, bucket, tenantId, next);
+  return next;
+}
+
+/**
+ * 從清單移除一個版本(不刪 S3 檔案,由呼叫端決定是否清理)。
+ * 不允許刪掉使用中的版本 —— 先切到別版再刪,避免 App 變成沒有可測產物。
+ */
+export async function removeAppBuild(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+  appId: string,
+  artifactId: string,
+): Promise<AppRecord> {
+  const existing = await getApp(s3, bucket, tenantId, appId);
+  if (!existing) throw new NotFoundError(`找不到 App: ${appId}`);
+  if (existing.artifactId === artifactId && (existing.builds ?? []).length > 1) {
+    throw new ValidationError('這是使用中的版本,請先切換到其他版本再刪除');
+  }
+  const builds = (existing.builds ?? []).filter((b) => b.artifactId !== artifactId);
+  const next: AppRecord = { ...existing, builds, updatedAt: new Date().toISOString() };
+  if (builds.length === 0) delete next.builds;
+  // 刪掉的正好是使用中(且是最後一版)→ 一併清掉 artifactId,App 回到「沒有產物」狀態。
+  if (existing.artifactId === artifactId) delete next.artifactId;
+  await putApp(s3, bucket, tenantId, next);
+  return next;
+}
+
+/**
+ * 把舊資料補上 builds[]:只有 artifactId 沒有 builds 的 App,視為「一個版本」。
+ * 用於讀取時的即時遷移(不改寫 S3),讓前端一致處理。
+ */
+export function withBuilds(record: AppRecord): AppRecord {
+  if (record.builds && record.builds.length > 0) return record;
+  if (!record.artifactId) return record;
+  const kind: AppBuild['kind'] =
+    record.platform === 'ios' ? 'ipa' : record.platform === 'windows' ? 'exe' : 'apk';
+  return {
+    ...record,
+    builds: [{
+      artifactId: record.artifactId,
+      label: record.version ?? '(未標記版本)',
+      kind,
+      uploadedAt: record.updatedAt ?? record.createdAt,
+    }],
+  };
+}
 
 /** 應用備註長度上限(避免無節制寫入)。 */
 const NOTES_MAX = 2000;
