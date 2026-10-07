@@ -168,6 +168,8 @@ export type MessageKey =
   | 'apps.filterAllGenres'
   | 'apps.noMatch'
   | 'apps.costTitle'
+  | 'apps.costExpand'
+  | 'apps.costCollapse'
   | 'apps.costDesc'
   | 'apps.costTotal'
   | 'apps.costNoData'
@@ -782,6 +784,8 @@ const zhHant: Catalog = {
   'apps.filterAllGenres': '全部類型',
   'apps.noMatch': '沒有符合條件的應用程式。',
   'apps.costTitle': "測試成本分析",
+  'apps.costExpand': "展開",
+  'apps.costCollapse': "收合",
   'apps.costDesc': "每次測試的費用 = AI 模型(token × 單價)+ 真機實際計量分鐘。不含 S3／API 等基礎設施費用。",
   'apps.costTotal': "區間總費用",
   'apps.costNoData': "這個區間還沒有測試費用。",
@@ -1395,6 +1399,8 @@ const en: Catalog = {
   'apps.filterAllGenres': 'All genres',
   'apps.noMatch': 'No apps match your filters.',
   'apps.costTitle': "Testing cost",
+  'apps.costExpand': "Expand",
+  'apps.costCollapse': "Collapse",
   'apps.costDesc': "Each run = AI model cost (tokens × price) + metered real-device minutes. Infrastructure (S3, API) is not included.",
   'apps.costTotal': "Total in range",
   'apps.costNoData': "No testing cost in this range yet.",
@@ -2013,6 +2019,8 @@ const zhHans: Catalog = {
   'apps.filterAllGenres': '全部类型',
   'apps.noMatch': '没有符合条件的应用程序。',
   'apps.costTitle': "测试成本分析",
+  'apps.costExpand': "展开",
+  'apps.costCollapse': "收起",
   'apps.costDesc': "每次测试的费用 = AI 模型(token × 单价)+ 真机实际计量分钟。不含 S3／API 等基础设施费用。",
   'apps.costTotal': "区间总费用",
   'apps.costNoData': "这个区间还没有测试费用。",
@@ -2624,6 +2632,8 @@ const ja: Catalog = {
   'apps.filterAll': 'すべて',
   'apps.noMatch': '条件に一致するアプリがありません。',
   'apps.costTitle': "テストコスト分析",
+  'apps.costExpand': "展開",
+  'apps.costCollapse': "折りたたむ",
   'apps.costDesc': "1 回の実行 = AI モデル費用(token × 単価)+ 実機の実計測分。S3／API などのインフラ費用は含みません。",
   'apps.costTotal': "期間合計",
   'apps.costNoData': "この期間のテスト費用はまだありません。",
@@ -3238,6 +3248,8 @@ const ko: Catalog = {
   'apps.filterAll': '전체 플랫폼',
   'apps.noMatch': '조건에 맞는 앱이 없습니다.',
   'apps.costTitle': "테스트 비용 분석",
+  'apps.costExpand': "펼치기",
+  'apps.costCollapse': "접기",
   'apps.costDesc': "실행 1회 = AI 모델 비용(token × 단가) + 실제 측정된 실기기 사용 시간. S3／API 등 인프라 비용은 제외입니다.",
   'apps.costTotal': "기간 합계",
   'apps.costNoData': "이 기간에는 테스트 비용이 없습니다.",

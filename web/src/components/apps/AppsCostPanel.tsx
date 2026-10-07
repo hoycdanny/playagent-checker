@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { SERIES_COLORS, StackedBarChart, type StackSeries } from '../charts/StackedBarChart.tsx';
@@ -14,6 +14,7 @@ export interface DailyCost {
 }
 export interface CostResponse { daily?: DailyCost }
 
+const OPEN_KEY = 'playagent.apps.costOpen';
 const usd = (n: number) => `$${n < 1 && n > 0 ? n.toFixed(3) : n.toFixed(2)}`;
 const mmdd = (iso: string) => iso.slice(5);
 
@@ -36,6 +37,23 @@ export default function AppsCostPanel({
   days?: number;
 }) {
   const { t } = useI18n();
+  // 預設收合:應用管理頁的主角是應用卡片,成本是輔助資訊。
+  // 展開狀態記在 localStorage,每次進頁不用重新點開。
+  const [open, setOpen] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  function toggle() {
+    setOpen((v) => {
+      try {
+        localStorage.setItem(OPEN_KEY, v ? '0' : '1');
+      } catch { /* 隱私模式下寫不了,不影響功能 */ }
+      return !v;
+    });
+  }
 
   const rows = useMemo(() => {
     const list = (daily?.byApp ?? []).filter((x) => x.totalUsd > 0 || x.runs > 0);
@@ -81,14 +99,37 @@ export default function AppsCostPanel({
   }, [rows, daily]);
 
   return (
-    <section className="acost">
+    <section className={`acost${open ? ' acost--open' : ''}`}>
+      {/* 收合時只有一行:標題 + 總花費/次數/平均,把版面讓給應用卡片 */}
       <header className="acost__head">
-        <div>
-          <h2 className="acost__title">{t('apps.costTitle')}</h2>
-          <p className="acost__desc">{t('apps.costDesc')}</p>
-        </div>
+        <button
+          type="button"
+          className="acost__toggle"
+          aria-expanded={open}
+          onClick={toggle}
+          title={open ? t('apps.costCollapse') : t('apps.costExpand')}
+        >
+          <span className="acost__caret" aria-hidden="true">{open ? '▾' : '▸'}</span>
+          <span className="acost__title">{t('apps.costTitle')}</span>
+          <span className="acost__summary">
+            {usd(totals?.totalUsd ?? 0)}
+            <span className="acost__dot" aria-hidden="true">·</span>
+            {totals?.runs ?? 0} {t('apps.kpiRuns')}
+            {perRun !== null && (
+              <>
+                <span className="acost__dot" aria-hidden="true">·</span>
+                {t('apps.costPerRun')} {usd(perRun)}
+              </>
+            )}
+            <span className="acost__range">{t('apps.costRange').replace('{n}', String(days))}</span>
+          </span>
+        </button>
         <Link to="/cost" className="acost__link">{t('apps.costOpen')} →</Link>
       </header>
+
+      {!open ? null : (
+      <>
+      <p className="acost__desc">{t('apps.costDesc')}</p>
 
       <div className="acost__kpis">
         <div className="acost__kpi">
@@ -150,6 +191,8 @@ export default function AppsCostPanel({
             })}
           </ul>
         </>
+      )}
+      </>
       )}
     </section>
   );
