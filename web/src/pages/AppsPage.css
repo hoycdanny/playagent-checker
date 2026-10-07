@@ -587,10 +587,12 @@
 }
 
 /* ── 卡片上的近 30 天指標(次數 / 通過率 / 花費 + 走勢)──────────────── */
+/* 三個指標各占一欄、走勢圖獨占第二列(撐滿寬度)。
+   指標和走勢圖擠同一列會把「測試次數」壓成「測…」。 */
 .apps__kpis {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-1) var(--space-2);
   padding: var(--space-2) var(--space-3);
   margin: 0 var(--space-3);
   border: 1px solid var(--border);
@@ -603,19 +605,22 @@
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-  flex: 1 1 0;
 }
 .apps__kpi b {
   font-size: 15px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.2;
   color: var(--text-primary);
 }
 .apps__kpi span {
   font-size: 11px;
+  line-height: 1.3;
   color: var(--text-tertiary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.apps__kpi-spark {
+  grid-column: 1 / -1;
+  min-width: 0;
 }
 
 /* 多版本標記(接在版本號後面) */

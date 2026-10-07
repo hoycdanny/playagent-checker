@@ -2,32 +2,78 @@
 .acost {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  padding: var(--space-4);
-  margin-bottom: var(--space-5);
+  gap: var(--space-2);
+  /* 收合時只是一條窄列,展開才給完整內距 */
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
+}
+.acost--open {
+  gap: var(--space-3);
+  padding: var(--space-4);
   box-shadow: var(--shadow-sm);
 }
 
 .acost__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
 }
 
+/* 整條標題列就是展開/收合的按鈕 */
+.acost__toggle {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-1) 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.acost__caret {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
 .acost__title {
   margin: 0;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
+/* 收合時看得到的摘要:總花費・次數・平均 */
+.acost__summary {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+.acost__dot {
+  color: var(--text-tertiary);
+}
+.acost__range {
+  margin-left: var(--space-1);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
 .acost__desc {
-  margin: var(--space-1) 0 0;
+  margin: 0;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text-tertiary);

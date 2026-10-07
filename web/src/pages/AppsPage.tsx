@@ -837,13 +837,17 @@ function AppCard({ app, stats, busy, onEdit, onDelete }: AppCardProps) {
           <b>{stats ? `$${stats.spendUsd.toFixed(2)}` : '—'}</b>
           <span>{t('apps.kpiSpend')}</span>
         </div>
-        <Sparkline
-          values={stats?.spark ?? []}
-          width={92}
-          height={30}
-          format={(v) => `$${v.toFixed(2)}`}
-          ariaLabel={`${app.name} ${t('apps.costTrend')}`}
-        />
+        {/* 走勢圖自己一列、撐滿卡片寬度 —— 擠在數字旁邊會把三個標籤壓成「測…」 */}
+        <div className="apps__kpi-spark">
+          <Sparkline
+            fluid
+            values={stats?.spark ?? []}
+            width={240}
+            height={28}
+            format={(v) => `$${v.toFixed(2)}`}
+            ariaLabel={`${app.name} ${t('apps.costTrend')}`}
+          />
+        </div>
       </div>
 
       <p className={`apps__notes ${app.notes ? '' : 'apps__muted'}`}>

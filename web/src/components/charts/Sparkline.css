@@ -17,3 +17,8 @@
   stroke-width: 1.5;
   stroke-dasharray: 3 3;
 }
+
+/* fluid:svg 寬度交給容器(高度由 height 屬性固定) */
+.spark svg:not([width]) {
+  width: 100%;
+}

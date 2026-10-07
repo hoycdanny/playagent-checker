@@ -18,6 +18,7 @@ export default function Sparkline({
   height = 32,
   format,
   ariaLabel,
+  fluid = false,
 }: {
   values: number[];
   color?: string;
@@ -26,6 +27,8 @@ export default function Sparkline({
   /** 把數值轉成可讀文字(給隱藏的無障礙描述用)。 */
   format?: (v: number) => string;
   ariaLabel: string;
+  /** 撐滿容器寬度(width 仍作為 viewBox 的座標基準)。 */
+  fluid?: boolean;
 }) {
   const gid = useId().replace(/:/g, '');
   const n = values.length;
@@ -47,11 +50,17 @@ export default function Sparkline({
   const fmt = format ?? ((v: number) => String(v));
   const last = n > 0 ? values[n - 1]! : 0;
 
+  // fluid:寬度交給 CSS(viewBox 仍用 width 當座標基準),高度固定。
+  const box = fluid ? { width: '100%', height } : { width, height };
+  const svgSize = fluid
+    ? { preserveAspectRatio: 'none' as const, height }
+    : { width, height };
+
   if (n === 0 || max <= 0) {
     // 全為 0(例如這個應用這段期間沒花錢)→ 畫一條底線,不要留一塊空白。
     return (
-      <span className="spark spark--empty" style={{ width, height }} aria-hidden="true">
-        <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height}>
+      <span className="spark spark--empty" style={box} aria-hidden="true">
+        <svg viewBox={`0 0 ${width} ${height}`} {...svgSize}>
           <line x1="0" x2={width} y1={height - 2} y2={height - 2} />
         </svg>
       </span>
@@ -59,8 +68,8 @@ export default function Sparkline({
   }
 
   return (
-    <span className="spark" style={{ width, height }}>
-      <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} aria-hidden="true" focusable="false">
+    <span className="spark" style={box}>
+      <svg viewBox={`0 0 ${width} ${height}`} {...svgSize} aria-hidden="true" focusable="false">
         <defs>
           <linearGradient id={`spark-${gid}`} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={color} stopOpacity="0.28" />
