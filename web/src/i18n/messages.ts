@@ -530,6 +530,26 @@ export type MessageKey =
   | 'devices.secretAdding'
   | 'devices.secretHint'
   | 'devices.secretRemove'
+  | 'devices.containersSection'
+  | 'devices.containersDesc'
+  | 'devices.hostsSection'
+  | 'devices.hostsDesc'
+  | 'devices.hostJob'
+  | 'devices.streamsSection'
+  | 'devices.streamsDesc'
+  | 'devices.streamsGroup'
+  | 'devices.streamsAlwaysOn'
+  | 'devices.streamsOnDemand'
+  | 'devices.streamsAllocated'
+  | 'devices.streamsIdle'
+  | 'devices.streamsActive'
+  | 'devices.streamsNone'
+  | 'devices.infraLoading'
+  | 'devices.infraEmpty'
+  | 'devices.infraError'
+  | 'devices.infraNote'
+  | 'devices.attachedWip'
+  | 'workspace.secretsShared'
   | 'devices.noSecrets'
   | 'trend.title'
   | 'trend.flaky'
@@ -1135,6 +1155,26 @@ const zhHant: Catalog = {
   'devices.secretAdding': '新增中…',
   'devices.secretHint': '鍵名只允許英數與 _ . -;值加密存於 Secrets Manager,只在任務執行時由執行容器讀取替換,不落 S3、不寫進報告。',
   'devices.secretRemove': '移除',
+  'devices.containersSection': "容器(Fargate)",
+  'devices.containersDesc': "執行中的容器:Device Farm 控制器、Web runner、Android 容器。任務開始時自動建立,結束就回收。",
+  'devices.hostsSection': "每任務主機(EC2)",
+  'devices.hostsDesc': "帶 playagent:jobId 標籤的主機(Android 容器跑在 Graviton 上)。只在任務期間存在。",
+  'devices.hostJob': "任務",
+  'devices.streamsSection': "Windows 串流(GameLift Streams)",
+  'devices.streamsDesc': "Windows 遊戲跑在 NVIDIA GPU 串流主機上。常駐容量永遠開著(會持續計費),隨需容量要等幾分鐘開機。",
+  'devices.streamsGroup': "串流群組",
+  'devices.streamsAlwaysOn': "常駐容量",
+  'devices.streamsOnDemand': "隨需容量",
+  'devices.streamsAllocated': "已配置",
+  'devices.streamsIdle': "閒置",
+  'devices.streamsActive': "進行中 session",
+  'devices.streamsNone': "尚未建立串流群組。要跑 Windows 測試需先執行 worker/windows-host/gamelift/setup.mjs。",
+  'devices.infraLoading': "讀取中…",
+  'devices.infraEmpty': "目前沒有執行中的資源。",
+  'devices.infraError': "無法讀取:{msg}",
+  'devices.infraNote': "這一區是平台共用的執行資源(不分租戶),為唯讀現況快照,約 30 秒更新一次。",
+  'devices.attachedWip': "開發中,尚未開放",
+  'workspace.secretsShared': "這一區是整個租戶共用的機密引用:所有應用看到的是同一份清單。只綁這個應用的帳密請用上面的「測試憑證」。",
   'devices.noSecrets': '尚無機密引用。',
   'trend.title': '趨勢',
   'trend.flaky': '不穩定',
@@ -1740,6 +1780,26 @@ const en: Catalog = {
   'devices.secretAdding': 'Adding…',
   'devices.secretHint': 'Keys allow only letters, digits and _ . -; values are stored in Secrets Manager and read only by the run container at execution time to substitute — never written to S3 or reports.',
   'devices.secretRemove': 'Remove',
+  'devices.containersSection': "Containers (Fargate)",
+  'devices.containersDesc': "Running containers: Device Farm controller, web runner, Android container. Created when a run starts and reclaimed when it ends.",
+  'devices.hostsSection': "Per-run hosts (EC2)",
+  'devices.hostsDesc': "Instances tagged playagent:jobId (Android containers run on Graviton). They exist only for the duration of a run.",
+  'devices.hostJob': "Run",
+  'devices.streamsSection': "Windows streaming (GameLift Streams)",
+  'devices.streamsDesc': "Windows games run on NVIDIA GPU streaming hosts. Always-on capacity bills continuously; on-demand capacity takes a few minutes to boot.",
+  'devices.streamsGroup': "Stream group",
+  'devices.streamsAlwaysOn': "Always-on",
+  'devices.streamsOnDemand': "On-demand",
+  'devices.streamsAllocated': "Allocated",
+  'devices.streamsIdle': "Idle",
+  'devices.streamsActive': "Active sessions",
+  'devices.streamsNone': "No stream group yet. Run worker/windows-host/gamelift/setup.mjs before running Windows tests.",
+  'devices.infraLoading': "Loading…",
+  'devices.infraEmpty': "Nothing running right now.",
+  'devices.infraError': "Could not read: {msg}",
+  'devices.infraNote': "This section shows platform-wide execution resources (not per tenant). Read-only snapshot, refreshed about every 30 seconds.",
+  'devices.attachedWip': "In development, not available yet",
+  'workspace.secretsShared': "These secret references are shared across the whole tenant: every app sees the same list. For credentials that belong to this app only, use Test credentials above.",
   'devices.noSecrets': 'No secret references yet.',
   'trend.title': 'Trend',
   'trend.flaky': 'Flaky',
@@ -2348,6 +2408,26 @@ const zhHans: Catalog = {
   'devices.secretAdding': '新增中…',
   'devices.secretHint': '键名只允许英数与 _ . -;值加密存于 Secrets Manager,只在任务执行时由执行容器读取替换,不落 S3、不写进报告。',
   'devices.secretRemove': '移除',
+  'devices.containersSection': "容器(Fargate)",
+  'devices.containersDesc': "执行中的容器:Device Farm 控制器、Web runner、Android 容器。任务开始时自动创建,结束就回收。",
+  'devices.hostsSection': "每任务主机(EC2)",
+  'devices.hostsDesc': "带 playagent:jobId 标签的主机(Android 容器跑在 Graviton 上)。只在任务期间存在。",
+  'devices.hostJob': "任务",
+  'devices.streamsSection': "Windows 串流(GameLift Streams)",
+  'devices.streamsDesc': "Windows 游戏跑在 NVIDIA GPU 串流主机上。常驻容量永远开着(会持续计费),随需容量要等几分钟开机。",
+  'devices.streamsGroup': "串流群组",
+  'devices.streamsAlwaysOn': "常驻容量",
+  'devices.streamsOnDemand': "随需容量",
+  'devices.streamsAllocated': "已配置",
+  'devices.streamsIdle': "闲置",
+  'devices.streamsActive': "进行中 session",
+  'devices.streamsNone': "尚未创建串流群组。要跑 Windows 测试需先执行 worker/windows-host/gamelift/setup.mjs。",
+  'devices.infraLoading': "读取中…",
+  'devices.infraEmpty': "目前没有执行中的资源。",
+  'devices.infraError': "无法读取:{msg}",
+  'devices.infraNote': "这一区是平台共用的执行资源(不分租户),为只读现况快照,约 30 秒更新一次。",
+  'devices.attachedWip': "开发中,尚未开放",
+  'workspace.secretsShared': "这一区是整个租户共用的机密引用:所有应用看到的是同一份清单。只绑这个应用的帐密请用上面的「测试凭证」。",
   'devices.noSecrets': '尚无密钥引用。',
   'trend.title': '趋势',
   'trend.flaky': '不稳定',
@@ -2953,6 +3033,26 @@ const ja: Catalog = {
   'devices.secretAdding': '追加中…',
   'devices.secretHint': 'キー名は英数字と _ . - のみ。値は Secrets Manager に保存され、実行時に実行コンテナだけが読み取って置換します。S3 やレポートには書き込まれません。',
   'devices.secretRemove': '削除',
+  'devices.containersSection': "コンテナ(Fargate)",
+  'devices.containersDesc': "実行中のコンテナ:Device Farm コントローラ、Web runner、Android コンテナ。実行開始時に作成され、終了時に回収されます。",
+  'devices.hostsSection': "タスク専用ホスト(EC2)",
+  'devices.hostsDesc': "playagent:jobId タグ付きのインスタンス(Android コンテナは Graviton 上で動作)。実行中のみ存在します。",
+  'devices.hostJob': "タスク",
+  'devices.streamsSection': "Windows ストリーミング(GameLift Streams)",
+  'devices.streamsDesc': "Windows ゲームは NVIDIA GPU ストリーミングホストで動作します。常時稼働容量は課金が続き、オンデマンド容量は起動に数分かかります。",
+  'devices.streamsGroup': "ストリームグループ",
+  'devices.streamsAlwaysOn': "常時稼働",
+  'devices.streamsOnDemand': "オンデマンド",
+  'devices.streamsAllocated': "割当済み",
+  'devices.streamsIdle': "アイドル",
+  'devices.streamsActive': "進行中のセッション",
+  'devices.streamsNone': "ストリームグループが未作成です。Windows テストの前に worker/windows-host/gamelift/setup.mjs を実行してください。",
+  'devices.infraLoading': "読み込み中…",
+  'devices.infraEmpty': "現在稼働中のリソースはありません。",
+  'devices.infraError': "読み取れませんでした:{msg}",
+  'devices.infraNote': "このセクションはプラットフォーム共通の実行リソース(テナント別ではありません)。読み取り専用のスナップショットで、約 30 秒ごとに更新されます。",
+  'devices.attachedWip': "開発中のため未提供",
+  'workspace.secretsShared': "ここのシークレット参照はテナント全体で共有され、すべてのアプリで同じ一覧が表示されます。このアプリ専用の認証情報は上の「テスト認証情報」を使ってください。",
   'devices.noSecrets': '機密参照はまだありません。',
   'trend.title': 'トレンド',
   'trend.flaky': '不安定',
@@ -3558,6 +3658,26 @@ const ko: Catalog = {
   'devices.secretAdding': '추가 중…',
   'devices.secretHint': '키는 영숫자와 _ . - 만 허용합니다. 값은 Secrets Manager에 저장되며 실행 시 실행 컨테이너만 읽어 치환합니다. S3나 리포트에는 기록되지 않습니다.',
   'devices.secretRemove': '제거',
+  'devices.containersSection': "컨테이너(Fargate)",
+  'devices.containersDesc': "실행 중인 컨테이너: Device Farm 컨트롤러, 웹 runner, Android 컨테이너. 실행 시작 시 생성되고 종료 시 회수됩니다.",
+  'devices.hostsSection': "작업 전용 호스트(EC2)",
+  'devices.hostsDesc': "playagent:jobId 태그가 붙은 인스턴스(Android 컨테이너는 Graviton에서 실행). 실행 중에만 존재합니다.",
+  'devices.hostJob': "작업",
+  'devices.streamsSection': "Windows 스트리밍(GameLift Streams)",
+  'devices.streamsDesc': "Windows 게임은 NVIDIA GPU 스트리밍 호스트에서 실행됩니다. 상시 용량은 계속 과금되고, 온디맨드 용량은 부팅에 몇 분 걸립니다.",
+  'devices.streamsGroup': "스트림 그룹",
+  'devices.streamsAlwaysOn': "상시 용량",
+  'devices.streamsOnDemand': "온디맨드 용량",
+  'devices.streamsAllocated': "할당됨",
+  'devices.streamsIdle': "유휴",
+  'devices.streamsActive': "진행 중 세션",
+  'devices.streamsNone': "스트림 그룹이 아직 없습니다. Windows 테스트 전에 worker/windows-host/gamelift/setup.mjs를 실행하세요.",
+  'devices.infraLoading': "불러오는 중…",
+  'devices.infraEmpty': "현재 실행 중인 리소스가 없습니다.",
+  'devices.infraError': "읽을 수 없습니다: {msg}",
+  'devices.infraNote': "이 섹션은 플랫폼 공용 실행 리소스(테넌트별 아님)입니다. 읽기 전용 스냅샷이며 약 30초마다 갱신됩니다.",
+  'devices.attachedWip': "개발 중으로 아직 제공되지 않습니다",
+  'workspace.secretsShared': "여기의 시크릿 참조는 테넌트 전체에서 공유되며 모든 앱이 같은 목록을 봅니다. 이 앱 전용 자격 증명은 위의 \"테스트 자격 증명\"을 사용하세요.",
   'devices.noSecrets': '아직 비밀 참조가 없습니다.',
   'trend.title': '추세',
   'trend.flaky': '불안정',

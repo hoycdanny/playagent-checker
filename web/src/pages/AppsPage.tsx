@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   apiGet,
   apiPost,
   apiPut,
-  apiDelete,
-  ApiError,
   uploadToS3,
   type ListResponse,
   type UploadTarget,
@@ -140,7 +138,6 @@ export default function AppsPage() {
   // 偵測到上傳的是 XAPK / split bundle:非錯誤,提示使用者系統會在執行時自動合併成單一 APK。
   const [xapkDetected, setXapkDetected] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   // 搜尋 + 平台 + 類型篩選(測試人員清單越長越需要)。
   const [search, setSearch] = useState('');
@@ -228,11 +225,23 @@ export default function AppsPage() {
     }
   }
 
-  // 表單 inline 展開於頁面上方;從下方卡片按「編輯」時捲動到表單,避免看不到而誤操作。
+  // 表單 inline 展開於頁面上方;開啟時捲動到表單,避免看不到而誤操作。
   const formRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     if (form) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [form]);
+
+  // 工作區的「編輯」會連到 /apps?edit=<id>:載入後直接開這個應用的編輯表單,
+  // 然後把 query 清掉(避免重整或上一頁又跳開表單)。
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const id = searchParams.get('edit');
+    if (!id || items.length === 0) return;
+    const target = items.find((a) => a.id === id);
+    if (target) openEdit(target);
+    setSearchParams({}, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, items]);
 
   function openCreate() {
     resetUploads();
@@ -326,34 +335,6 @@ export default function AppsPage() {
       refetch();
     } finally {
       setSaving(false);
-    }
-  }
-
-  // 刪工作區會連帶永久刪除底下所有資料 → 要求輸入名稱確認。
-  // 資料多時後端一次做不完(回 done:false),這裡接著再呼叫直到刪完。
-  async function onDelete(app: AppRecord) {
-    const typed = window.prompt(t('apps.deleteConfirm').replace('{name}', app.name));
-    if (typed === null) return;
-    if (typed.trim() !== app.name.trim()) {
-      window.alert(t('apps.deleteNameMismatch'));
-      return;
-    }
-    setBusyId(app.id);
-    try {
-      for (let i = 0; i < 20; i++) {
-        const res = await apiDelete<{ done?: boolean }>(`/apps/${encodeURIComponent(app.id)}`);
-        if (res.done !== false) break;
-      }
-    } catch (err) {
-      const running = err instanceof ApiError && err.status === 409 ? err.message.match(/\d+/)?.[0] : undefined;
-      window.alert(
-        running
-          ? t('apps.deleteRunning').replace('{n}', running)
-          : t('apps.deleteFailed').replace('{msg}', err instanceof Error ? err.message : String(err)),
-      );
-    } finally {
-      setBusyId(null);
-      refetch();
     }
   }
 
@@ -706,14 +687,7 @@ export default function AppsPage() {
       ) : (
         <ul className="apps__grid">
           {filtered.map((app) => (
-            <AppCard
-              key={app.id}
-              app={app}
-              stats={cardStats.get(app.id)}
-              busy={busyId === app.id}
-              onEdit={() => openEdit(app)}
-              onDelete={() => void onDelete(app)}
-            />
+            <AppCard key={app.id} app={app} stats={cardStats.get(app.id)} />
           ))}
         </ul>
       )}
@@ -731,19 +705,16 @@ interface CardStats {
 interface AppCardProps {
   app: AppRecord;
   stats?: CardStats;
-  busy: boolean;
-  onEdit: () => void;
-  onDelete: () => void;
 }
 
-function AppCard({ app, stats, busy, onEdit, onDelete }: AppCardProps) {
+function AppCard({ app, stats }: AppCardProps) {
   const { t } = useI18n();
   const hasArtifact = Boolean(app.artifactId) || app.platform === 'web';
   const secondary = (app.secondaryGenres ?? []).filter((g) => g !== app.genre);
   const buildCount = app.builds?.length ?? (app.artifactId ? 1 : 0);
 
   return (
-    <li className={`apps__card${busy ? ' apps__card--busy' : ''}`}>
+    <li className="apps__card">
       <Link to={`/apps/${encodeURIComponent(app.id)}`} className="apps__card-top apps__card-link">
         <div className="apps__thumb">
           {app.iconUrl ? (
@@ -782,42 +753,23 @@ function AppCard({ app, stats, busy, onEdit, onDelete }: AppCardProps) {
         </div>
       </Link>
 
-      <dl className="apps__meta">
-        <div className="apps__meta-row">
-          <dt>{t('apps.version')}</dt>
-          <dd className={app.version ? 'apps__mono' : 'apps__muted'}>
-            {app.version || t('apps.versionNone')}
-            {/* 多版本:顯示保留了幾個安裝檔(詳細在工作區「版本」分頁) */}
-            {buildCount > 1 && (
-              <span className="apps__builds">
-                {t('apps.buildsCount').replace('{n}', String(buildCount))}
-              </span>
-            )}
-          </dd>
-        </div>
-        <div className="apps__meta-row">
-          <dt>{t('apps.identifier')}</dt>
-          <dd className={app.identifier ? 'apps__mono' : 'apps__muted'}>
-            {app.identifier || t('apps.identifierNone')}
-          </dd>
-        </div>
-        <div className="apps__meta-row">
-          <dt>{t('apps.artifact')}</dt>
-          <dd>
-            <span
-              className={`apps__dot ${
-                hasArtifact ? 'apps__dot--ok' : 'apps__dot--warn'
-              }`}
-              aria-hidden="true"
-            />
-            {hasArtifact ? t('apps.artifactReady') : t('apps.artifactMissing')}
-          </dd>
-        </div>
-        <div className="apps__meta-row">
-          <dt>{t('apps.createdAt')}</dt>
-          <dd>{new Date(app.createdAt).toLocaleDateString()}</dd>
-        </div>
-      </dl>
+      {/* 卡片只留「辨識 + 近況」:版本號/識別碼/建立時間/備註都在工作區裡,
+          清單上一張卡擺四行 meta 只是把下一張卡推出畫面。
+          需要注意的狀態(沒有安裝檔、有多個版本)用小標記提示。 */}
+      <div className="apps__flags">
+        {!hasArtifact && (
+          <span className="apps__flag apps__flag--warn">
+            <span className="apps__dot apps__dot--warn" aria-hidden="true" />
+            {t('apps.artifactMissing')}
+          </span>
+        )}
+        {buildCount > 1 && (
+          <span className="apps__flag">
+            {t('apps.buildsCount').replace('{n}', String(buildCount))}
+          </span>
+        )}
+        {app.version && <span className="apps__flag apps__mono">{app.version}</span>}
+      </div>
 
       {/* 近 30 天指標 + 花費走勢(走勢只回答漲跌,精確數字看左邊的金額) */}
       <div className="apps__kpis">
@@ -848,31 +800,11 @@ function AppCard({ app, stats, busy, onEdit, onDelete }: AppCardProps) {
         </div>
       </div>
 
-      <p className={`apps__notes ${app.notes ? '' : 'apps__muted'}`}>
-        {app.notes || t('apps.notesEmpty')}
-      </p>
-
+      {/* 編輯 / 刪除搬到工作區的標題列(進去就看得到),卡片只留一個主要動作。 */}
       <div className="apps__card-footer">
-      <Link
-        to={`/apps/${encodeURIComponent(app.id)}`}
-        className="apps__enter-btn"
-      >
-        {t('workspace.enter')} →
-      </Link>
-
-      <div className="apps__card-actions">
-        <button type="button" className="apps__card-btn" onClick={onEdit} disabled={busy}>
-          {t('apps.edit')}
-        </button>
-        <button
-          type="button"
-          className="apps__card-btn apps__card-btn--danger"
-          onClick={onDelete}
-          disabled={busy}
-        >
-          {t('apps.delete')}
-        </button>
-      </div>
+        <Link to={`/apps/${encodeURIComponent(app.id)}`} className="apps__enter-btn">
+          {t('workspace.enter')} →
+        </Link>
       </div>
     </li>
   );

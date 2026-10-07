@@ -204,6 +204,8 @@ export interface ApiDeps {
   hasher: Hasher;
   /** 列出 Device Farm 真機池(可用手機;唯讀)。選填,未注入時 GET /devices/cloud 回空清單。 */
   listCloudDevices?: () => Promise<CloudDevice[]>;
+  /** 列出執行基礎設施現況(容器 / EC2 主機 / GameLift Streams)。選填;未注入時 GET /devices/infra 回空資料。 */
+  listRuntimeInfra?: () => Promise<RuntimeInfra>;
   /** 取 AWS 真實成本(Cost Explorer)。選填;未注入或失敗時費用頁只顯示估算成本。 */
   getRealCost?: (opts: { start?: string; end?: string }) => Promise<RealCost>;
   /** 列出 Device Farm remote access session 的實際計量分鐘(費用頁依任務歸屬)。選填。 */
@@ -232,6 +234,49 @@ export interface CloudDevice {
   memoryBytes?: number;
   /** CPU 描述(如 "Qualcomm Snapdragon ... 2.84 GHz")。 */
   cpu?: string;
+}
+
+/**
+ * 執行基礎設施現況(裝置管理頁的「容器 / 主機 / 串流」三區)。
+ *
+ * 這是**平台層**資料,不是租戶資料:ECS task、EC2 instance、GameLift stream group
+ * 都是整個帳號共用的執行資源(和 /devices/cloud 一樣不經租戶隔離角色)。
+ * 任何一段讀取失敗就把該段標進 errors,前端顯示「無法讀取」而不是假裝 0。
+ */
+export interface RuntimeInfra {
+  /** Fargate 容器(Device Farm 控制器 / Web runner / Redroid 容器)。 */
+  containers: {
+    taskArn: string;
+    cluster: string;
+    status: string;
+    cpu?: string;
+    memory?: string;
+    startedAt?: string;
+  }[];
+  /** 每任務 EC2 主機(Graviton + Redroid)。 */
+  hosts: {
+    instanceId: string;
+    instanceType: string;
+    state: string;
+    az?: string;
+    launchedAt?: string;
+    jobId?: string;
+  }[];
+  /** GameLift Streams(Windows GPU 串流)容量與進行中的 session。 */
+  streams: {
+    groupId: string;
+    status?: string;
+    locations: {
+      location: string;
+      alwaysOn?: number;
+      onDemand?: number;
+      allocated?: number;
+      idle?: number;
+      status?: string;
+    }[];
+    activeSessions?: number;
+  } | null;
+  errors?: string[];
 }
 
 function json(status: number, body: unknown): ApiResponse {
@@ -568,6 +613,15 @@ export async function handleRequest(
         // Device Farm 真機池(唯讀;跨租戶共用的雲端資源,不經租戶 S3)。未注入 lister 則回空清單。
         const items = deps.listCloudDevices ? await deps.listCloudDevices() : [];
         return json(200, { items });
+      }
+
+      case 'GET /devices/infra': {
+        // 容器(ECS)/ 主機(EC2)/ 串流(GameLift Streams)現況。與 /devices/cloud 同性質:
+        // 平台共用資源的唯讀快照,不經租戶 S3。未注入 lister 則回空資料。
+        const infra: RuntimeInfra = deps.listRuntimeInfra
+          ? await deps.listRuntimeInfra()
+          : { containers: [], hosts: [], streams: null, errors: ['未啟用'] };
+        return json(200, infra);
       }
 
       case 'GET /memory': {
