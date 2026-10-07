@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
+import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
@@ -15,10 +15,36 @@ interface DeviceView {
   lastSeenAt?: string;
 }
 
-interface SecretRefEntry {
-  name: string;
-  label: string;
-  createdAt: string;
+/** GET /devices/infra —— 執行基礎設施現況(平台共用,不分租戶)。 */
+interface RuntimeInfra {
+  containers: { taskArn: string; cluster: string; status: string; cpu?: string; memory?: string; startedAt?: string }[];
+  hosts: { instanceId: string; instanceType: string; state: string; az?: string; launchedAt?: string; jobId?: string }[];
+  streams: {
+    groupId: string;
+    status?: string;
+    locations: { location: string; alwaysOn?: number; onDemand?: number; allocated?: number; idle?: number; status?: string }[];
+    activeSessions?: number;
+  } | null;
+  errors?: string[];
+}
+
+/** 從 errors 裡挑出某一段的訊息(段名由後端給:containers / hosts / streams)。 */
+function errorFor(infra: RuntimeInfra | undefined, part: string): string | null {
+  const hit = (infra?.errors ?? []).find((e) => e.startsWith(`${part}:`));
+  return hit ? hit.slice(part.length + 1).trim() : null;
+}
+
+function shortTaskId(arn: string): string {
+  return arn.split('/').pop() ?? arn;
+}
+
+function elapsed(iso: string | undefined): string {
+  if (!iso) return '';
+  const ms = Date.now() - Date.parse(iso);
+  if (!Number.isFinite(ms) || ms < 0) return '';
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 }
 
 export default function DevicesPage() {
@@ -27,13 +53,12 @@ export default function DevicesPage() {
   const devices = useQuery<ListResponse<DeviceView>>('devices', () =>
     apiGet<ListResponse<DeviceView>>('/devices'),
   );
-  const secrets = useQuery<ListResponse<SecretRefEntry>>('secret-refs', () =>
-    apiGet<ListResponse<SecretRefEntry>>('/secret-refs'),
-  );
   // Device Farm 真機池(唯讀,自動建立/回收);顯示實際可用機清單而非靜態文字。
   const cloudDevices = useQuery<ListResponse<CloudDevice>>('devices-cloud', () =>
     apiGet<ListResponse<CloudDevice>>('/devices/cloud'),
   );
+  // 容器 / EC2 主機 / GameLift Streams 現況(後端快取 30 秒)。
+  const infra = useQuery<RuntimeInfra>('devices-infra', () => apiGet<RuntimeInfra>('/devices/infra'));
 
   // 註冊本地裝置
   const [label, setLabel] = useState('');
@@ -63,41 +88,6 @@ export default function DevicesPage() {
     devices.refetch();
   }
 
-  // 機密引用
-  // 測試憑證:使用者填「短鍵(如 TEST_USERNAME)+ 值 + 標籤」;後端組出完整機密名並把值寫進
-  // Secrets Manager(值永不回傳)。任務目標裡寫 ${TEST_USERNAME} 或 secretRef:<全名> 即會被替換。
-  const [secretKey, setSecretKey] = useState('');
-  const [secretValue, setSecretValue] = useState('');
-  const [secretLabel, setSecretLabel] = useState('');
-  const [addingSecret, setAddingSecret] = useState(false);
-  const [secretError, setSecretError] = useState<string | null>(null);
-
-  async function onAddSecret(e: FormEvent) {
-    e.preventDefault();
-    setSecretError(null);
-    setAddingSecret(true);
-    try {
-      await apiPut('/secret-refs', {
-        key: secretKey.trim(),
-        value: secretValue,
-        label: secretLabel || undefined,
-      });
-      setSecretKey('');
-      setSecretValue('');
-      setSecretLabel('');
-      secrets.refetch();
-    } catch (err) {
-      setSecretError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setAddingSecret(false);
-    }
-  }
-
-  async function onRemoveSecret(name: string) {
-    await apiDelete(`/secret-refs?name=${encodeURIComponent(name)}`);
-    secrets.refetch();
-  }
-
   function copyToken() {
     if (!issuedToken) return;
     void navigator.clipboard?.writeText(issuedToken);
@@ -106,7 +96,9 @@ export default function DevicesPage() {
   }
 
   const deviceItems = devices.data?.items ?? [];
-  const secretItems = secrets.data?.items ?? [];
+  const containers = infra.data?.containers ?? [];
+  const hosts = infra.data?.hosts ?? [];
+  const streams = infra.data?.streams ?? null;
 
   return (
     <section className="listpage listpage--wide devices">
@@ -155,9 +147,116 @@ export default function DevicesPage() {
         )}
       </div>
 
-      {/* 本地裝置(attached) */}
+      {/* 容器(Fargate):Device Farm 控制器 / Web runner / Android 容器 */}
       <div className="devices__card">
-        <h2 className="devices__section">{t('devices.attachedSection')}</h2>
+        <h2 className="devices__section">{t('devices.containersSection')}</h2>
+        <p className="devices__desc">{t('devices.containersDesc')}</p>
+        {infra.loading && !infra.data ? (
+          <p className="devices__desc">{t('devices.infraLoading')}</p>
+        ) : errorFor(infra.data, 'containers') || infra.error ? (
+          <p className="devices__desc">
+            {t('devices.infraError').replace('{msg}', errorFor(infra.data, 'containers') ?? infra.error ?? '')}
+          </p>
+        ) : containers.length === 0 ? (
+          <p className="devices__desc">{t('devices.infraEmpty')}</p>
+        ) : (
+          <ul className="devices__cloud-list">
+            {containers.map((c) => (
+              <li key={c.taskArn} className="devices__cloud-item">
+                <span className="devices__cloud-name">{shortTaskId(c.taskArn)}</span>
+                <span className="devices__cloud-meta">
+                  {c.cluster}
+                  {c.cpu ? ` · ${Number(c.cpu) / 1024} vCPU` : ''}
+                  {c.memory ? ` · ${Math.round(Number(c.memory) / 1024)} GB` : ''}
+                  {c.startedAt ? ` · ${elapsed(c.startedAt)}` : ''}
+                </span>
+                <span className="devices__badge devices__badge--auto">{c.status}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* 每任務 EC2 主機(Android 容器跑在 Graviton 上) */}
+      <div className="devices__card">
+        <h2 className="devices__section">{t('devices.hostsSection')}</h2>
+        <p className="devices__desc">{t('devices.hostsDesc')}</p>
+        {infra.loading && !infra.data ? (
+          <p className="devices__desc">{t('devices.infraLoading')}</p>
+        ) : errorFor(infra.data, 'hosts') ? (
+          <p className="devices__desc">
+            {t('devices.infraError').replace('{msg}', errorFor(infra.data, 'hosts') ?? '')}
+          </p>
+        ) : hosts.length === 0 ? (
+          <p className="devices__desc">{t('devices.infraEmpty')}</p>
+        ) : (
+          <ul className="devices__cloud-list">
+            {hosts.map((h) => (
+              <li key={h.instanceId} className="devices__cloud-item">
+                <span className="devices__cloud-name">{h.instanceId}</span>
+                <span className="devices__cloud-meta">
+                  {h.instanceType}
+                  {h.az ? ` · ${h.az}` : ''}
+                  {h.launchedAt ? ` · ${elapsed(h.launchedAt)}` : ''}
+                  {h.jobId ? ` · ${t('devices.hostJob')} ${h.jobId}` : ''}
+                </span>
+                <span className="devices__badge devices__badge--auto">{h.state}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Windows 串流(GameLift Streams):容量與進行中的 session */}
+      <div className="devices__card">
+        <h2 className="devices__section">{t('devices.streamsSection')}</h2>
+        <p className="devices__desc">{t('devices.streamsDesc')}</p>
+        {infra.loading && !infra.data ? (
+          <p className="devices__desc">{t('devices.infraLoading')}</p>
+        ) : errorFor(infra.data, 'streams') ? (
+          <p className="devices__desc">
+            {t('devices.infraError').replace('{msg}', errorFor(infra.data, 'streams') ?? '')}
+          </p>
+        ) : !streams ? (
+          <p className="devices__desc">{t('devices.streamsNone')}</p>
+        ) : (
+          <>
+            <p className="devices__desc">
+              {t('devices.streamsGroup')}: <code>{streams.groupId}</code>
+              {streams.status ? ` · ${streams.status}` : ''}
+              {typeof streams.activeSessions === 'number'
+                ? ` · ${t('devices.streamsActive')} ${streams.activeSessions}`
+                : ''}
+            </p>
+            <ul className="devices__cloud-list">
+              {streams.locations.map((l) => (
+                <li key={l.location} className="devices__cloud-item">
+                  <span className="devices__cloud-name">{l.location}</span>
+                  <span className="devices__cloud-meta">
+                    {[
+                      typeof l.alwaysOn === 'number' ? `${t('devices.streamsAlwaysOn')} ${l.alwaysOn}` : null,
+                      typeof l.onDemand === 'number' ? `${t('devices.streamsOnDemand')} ${l.onDemand}` : null,
+                      typeof l.allocated === 'number' ? `${t('devices.streamsAllocated')} ${l.allocated}` : null,
+                      typeof l.idle === 'number' ? `${t('devices.streamsIdle')} ${l.idle}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                  {l.status && <span className="devices__badge devices__badge--auto">{l.status}</span>}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <p className="devices__hint">{t('devices.infraNote')}</p>
+      </div>
+
+      {/* 本地裝置(attached):尚未開發完成,整區反灰避免誤按 */}
+      <div className="devices__card devices__card--disabled" aria-disabled="true">
+        <h2 className="devices__section">
+          {t('devices.attachedSection')}
+          <span className="devices__badge devices__badge--wip">{t('devices.attachedWip')}</span>
+        </h2>
         <p className="devices__desc">{t('devices.attachedDesc')}</p>
 
         <form className="devices__form" onSubmit={onRegister}>
@@ -165,11 +264,13 @@ export default function DevicesPage() {
             <span className="devices__label">{t('devices.label')}</span>
             <input
               value={label}
+              disabled
               onChange={(e) => setLabel(e.target.value)}
               placeholder={t('devices.labelHint')}
             />
           </label>
-          <button type="submit" className="devices__btn" disabled={registering}>
+          {/* 註冊流程(本地代理)還沒做完,先停用按鈕;已註冊的裝置仍可移除。 */}
+          <button type="submit" className="devices__btn" disabled>
             {registering ? t('devices.registering') : t('devices.register')}
           </button>
         </form>
@@ -219,72 +320,6 @@ export default function DevicesPage() {
                   onClick={() => void onRemoveDevice(d.deviceId)}
                 >
                   {t('devices.remove')}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* 被測登入機密引用(只管理引用,不回傳值) */}
-      <div className="devices__card">
-        <h2 className="devices__section">{t('devices.secretsSection')}</h2>
-        <p className="devices__desc">{t('devices.secretsDesc')}</p>
-
-        <form className="devices__form devices__form--secret" onSubmit={onAddSecret}>
-          <label className="devices__field">
-            <span className="devices__label">{t('devices.secretKey')}</span>
-            <input
-              required
-              value={secretKey}
-              placeholder="TEST_USERNAME"
-              onChange={(e) => setSecretKey(e.target.value)}
-            />
-          </label>
-          <label className="devices__field">
-            <span className="devices__label">{t('devices.secretValue')}</span>
-            <input
-              required
-              type="password"
-              autoComplete="new-password"
-              value={secretValue}
-              onChange={(e) => setSecretValue(e.target.value)}
-            />
-          </label>
-          <label className="devices__field">
-            <span className="devices__label">{t('devices.secretLabel')}</span>
-            <input
-              value={secretLabel}
-              onChange={(e) => setSecretLabel(e.target.value)}
-            />
-          </label>
-          <button type="submit" className="devices__btn" disabled={addingSecret}>
-            {addingSecret ? t('devices.secretAdding') : t('devices.secretAdd')}
-          </button>
-        </form>
-        <p className="devices__hint">{t('devices.secretHint')}</p>
-        {secretError && (
-          <p className="listpage__error" role="alert">
-            {secretError}
-          </p>
-        )}
-
-        {secretItems.length === 0 ? (
-          <div className="listpage__empty">
-            <p>{t('devices.noSecrets')}</p>
-          </div>
-        ) : (
-          <ul className="listpage__list">
-            {secretItems.map((s) => (
-              <li key={s.name} className="devices__item">
-                <span className="devices__item-name">{s.label}</span>
-                <code className="devices__item-hint">{s.name}</code>
-                <button
-                  type="button"
-                  className="devices__remove"
-                  onClick={() => void onRemoveSecret(s.name)}
-                >
-                  {t('devices.secretRemove')}
                 </button>
               </li>
             ))}

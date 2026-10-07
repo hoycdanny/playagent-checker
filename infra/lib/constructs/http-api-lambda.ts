@@ -97,6 +97,23 @@ export class HttpApiLambda extends Construct {
       bundling: {
         format: OutputFormat.ESM,
         target: 'node22',
+        // 打包進來的 AWS SDK client 是 CJS,在 ESM bundle 裡會用到 require()。
+        // 沒有這行 banner 就會在載入時炸「Dynamic require of "node:https" is not supported」
+        // —— 而且是整支 Lambda 起不來,不是只有那一個路由壞掉。
+        banner: "import{createRequire as __paCreateRequire}from'module';const require=__paCreateRequire(import.meta.url);",
+        // 預設會把 @aws-sdk/* 全部視為 Lambda runtime 內建。GameLift Streams 太新,
+        // runtime 內建的 SDK 不保證有這個 client,所以改成明列外部模組,
+        // 讓 @aws-sdk/client-gameliftstreams 打包進 bundle。其餘仍用 runtime 內建。
+        externalModules: [
+          '@aws-sdk/client-s3', '@aws-sdk/client-sts', '@aws-sdk/client-sqs',
+          '@aws-sdk/client-secrets-manager', '@aws-sdk/client-device-farm',
+          '@aws-sdk/client-cost-explorer', '@aws-sdk/client-cognito-identity-provider',
+          '@aws-sdk/client-bedrock-runtime', '@aws-sdk/client-bedrock-agent',
+          '@aws-sdk/client-bedrock-agent-runtime', '@aws-sdk/client-s3vectors',
+          '@aws-sdk/client-lambda', '@aws-sdk/client-ec2', '@aws-sdk/client-ecs',
+          '@aws-sdk/client-ssm', '@aws-sdk/client-codebuild',
+          '@aws-sdk/client-cloudwatch-logs', '@aws-sdk/s3-request-presigner',
+        ],
       },
     });
 
@@ -203,6 +220,45 @@ export class HttpApiLambda extends Construct {
       }),
     );
 
+    // 裝置管理頁的「容器 / 主機 / 串流」三區:執行基礎設施的唯讀快照。
+    // 全部是 List/Describe/Get,沒有任何寫入;ECS/EC2 的 List* 不支援資源級條件,故 *。
+    // (更新前「還有任務在跑」的檢查也用這組,之前只在有 updater 時才授權,現在常駐。)
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'ecs:ListClusters',
+          'ecs:ListTasks',
+          'ecs:DescribeTasks',
+          'ec2:DescribeInstances',
+          'ec2:DescribeTags',
+        ],
+        resources: ['*'],
+      }),
+    );
+    // GameLift Streams(Windows GPU 串流)容量與進行中的 session:唯讀。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          'gameliftstreams:GetStreamGroup',
+          'gameliftstreams:ListStreamGroups',
+          'gameliftstreams:ListStreamSessions',
+        ],
+        resources: [`arn:aws:gameliftstreams:${props.region}:${acct}:*`],
+      }),
+    );
+    // stream group id 由 worker 的 setup 腳本寫在 /playagent/<stack>/windows-gls/*。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ssm:GetParametersByPath', 'ssm:GetParameters'],
+        // GetParametersByPath 檢查的是「路徑本身」那個資源(/playagent),
+        // 不是底下的參數,所以兩個 ARN 都要給。
+        resources: [
+          `arn:aws:ssm:${props.region}:${acct}:parameter/playagent`,
+          `arn:aws:ssm:${props.region}:${acct}:parameter/playagent/*`,
+        ],
+      }),
+    );
+
     // 測試憑證:API 建立/更新/刪除使用者的測試帳密(存 Secrets Manager,值永不回傳)。
     // scope 到本平台命名前綴 playagent/tenant/*;租戶隔離由後端以 tenantSecretPrefix 強制。
     // CreateSecret 不支援資源級 ARN(建立時資源尚不存在),故拆成兩條:建立用 *,其餘 scope 到前綴。
@@ -266,13 +322,8 @@ export class HttpApiLambda extends Construct {
           resources: [`${props.dataBucket.bucketArn}/_system/*`],
         }),
       );
-      // 更新前警告「還有任務在跑」:唯讀,兩者都不支援資源級條件。
-      this.apiFn.addToRolePolicy(
-        new iam.PolicyStatement({
-          actions: ['ecs:ListClusters', 'ecs:ListTasks', 'ec2:DescribeInstances'],
-          resources: ['*'],
-        }),
-      );
+      // 更新前警告「還有任務在跑」用的 ecs/ec2 唯讀權限已移到上面常駐授權
+      // (裝置管理頁也要用),這裡不再重複。
     }
 
     // 費用分析頁取 AWS 真實成本:Cost Explorer 唯讀(CE 不支援資源級條件,故 *)。

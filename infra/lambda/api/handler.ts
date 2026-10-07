@@ -12,8 +12,16 @@ import {
   ListRemoteAccessSessionsCommand,
   type Device,
 } from '@aws-sdk/client-device-farm';
+import { ECSClient, ListClustersCommand, ListTasksCommand, DescribeTasksCommand } from '@aws-sdk/client-ecs';
+import { EC2Client, DescribeInstancesCommand } from '@aws-sdk/client-ec2';
+import { SSMClient, GetParametersByPathCommand } from '@aws-sdk/client-ssm';
+import {
+  GameLiftStreamsClient,
+  GetStreamGroupCommand,
+  ListStreamSessionsCommand,
+} from '@aws-sdk/client-gameliftstreams';
 import { createHash, randomBytes } from 'node:crypto';
-import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice } from './core.js';
+import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice, type RuntimeInfra } from './core.js';
 import { assumeTenantS3 } from './tenantCredentials.js';
 import { draftCaseYaml, makeBedrockClient } from './draft.js';
 import { getRealCost, jobIdFromSessionName, makeCostExplorerClient, type DeviceSessionUsage, type RealCost } from './cost.js';
@@ -31,6 +39,11 @@ const bedrock = makeBedrockClient(REGION);
 const sqs = new SQSClient({ region: REGION });
 // 共用命名空間(shared/*)用 Lambda 自身角色,不經租戶隔離角色。
 const sharedS3 = new S3Client({ region: REGION });
+// 執行基礎設施唯讀查詢(裝置管理頁的容器 / 主機 / 串流三區)。
+const ecs = new ECSClient({ region: REGION });
+const ec2 = new EC2Client({ region: REGION });
+const ssm = new SSMClient({ region: REGION });
+const gls = new GameLiftStreamsClient({ region: REGION });
 // Device Farm 真機服務僅在 us-west-2;列真機池供裝置管理頁顯示(唯讀)。
 const DF_REGION = process.env.DF_REGION ?? 'us-west-2';
 const deviceFarm = new DeviceFarmClient({ region: DF_REGION });
@@ -113,6 +126,128 @@ async function listCloudDevices(): Promise<CloudDevice[]> {
   return items;
 }
 
+// ── 執行基礎設施現況(裝置管理頁:容器 / 主機 / 串流)──────────────────
+// 平台共用資源的唯讀快照。三段各自 try/catch:一段讀不到就記進 errors,
+// 不讓整頁掛掉也不假裝 0(容量顯示錯誤比沒顯示更糟)。
+let infraCache: { at: number; data: RuntimeInfra } | null = null;
+const INFRA_TTL_MS = 30 * 1000;
+
+async function listRuntimeInfra(): Promise<RuntimeInfra> {
+  if (infraCache && Date.now() - infraCache.at < INFRA_TTL_MS) return infraCache.data;
+  const errors: string[] = [];
+  const containers: RuntimeInfra['containers'] = [];
+  const hosts: RuntimeInfra['hosts'] = [];
+  let streams: RuntimeInfra['streams'] = null;
+
+  // 1) Fargate 容器:本帳號每個 cluster 的 RUNNING task。
+  try {
+    const clusters = (await ecs.send(new ListClustersCommand({}))).clusterArns ?? [];
+    for (const cluster of clusters.slice(0, 10)) {
+      const arns = (await ecs.send(new ListTasksCommand({ cluster, desiredStatus: 'RUNNING' }))).taskArns ?? [];
+      if (arns.length === 0) continue;
+      const shortCluster = cluster.split('/').pop() ?? cluster;
+      // DescribeTasks 一次上限 100 個 ARN。
+      for (let i = 0; i < arns.length; i += 100) {
+        const d = await ecs.send(new DescribeTasksCommand({ cluster, tasks: arns.slice(i, i + 100) }));
+        for (const task of d.tasks ?? []) {
+          containers.push({
+            taskArn: task.taskArn ?? '',
+            cluster: shortCluster,
+            status: task.lastStatus ?? 'UNKNOWN',
+            ...(task.cpu ? { cpu: task.cpu } : {}),
+            ...(task.memory ? { memory: task.memory } : {}),
+            ...(task.startedAt ? { startedAt: new Date(task.startedAt).toISOString() } : {}),
+          });
+        }
+      }
+    }
+  } catch (err) {
+    errors.push(`containers: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // 2) EC2 主機:帶 playagent:jobId 標籤的每任務主機(Redroid Graviton 等)。
+  try {
+    const res = await ec2.send(new DescribeInstancesCommand({
+      Filters: [
+        { Name: 'instance-state-name', Values: ['pending', 'running', 'stopping', 'shutting-down'] },
+        { Name: 'tag-key', Values: ['playagent:jobId'] },
+      ],
+    }));
+    for (const inst of (res.Reservations ?? []).flatMap((r) => r.Instances ?? [])) {
+      const jobId = inst.Tags?.find((x) => x.Key === 'playagent:jobId')?.Value;
+      hosts.push({
+        instanceId: inst.InstanceId ?? '',
+        instanceType: inst.InstanceType ?? '',
+        state: inst.State?.Name ?? 'unknown',
+        ...(inst.Placement?.AvailabilityZone ? { az: inst.Placement.AvailabilityZone } : {}),
+        ...(inst.LaunchTime ? { launchedAt: new Date(inst.LaunchTime).toISOString() } : {}),
+        ...(jobId ? { jobId } : {}),
+      });
+    }
+  } catch (err) {
+    errors.push(`hosts: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // 3) GameLift Streams:stream group id 由 worker/windows-host/gamelift/setup.mjs 寫進
+  //    SSM /playagent/<stack>/windows-gls/streamGroupId。這裡用 GetParametersByPath 找,
+  //    避免把 Execution stack 名稱跨 stack 傳進 ControlPlane。
+  try {
+    const groupId = await findStreamGroupId();
+    if (!groupId) {
+      streams = null;
+    } else {
+      const g = await gls.send(new GetStreamGroupCommand({ Identifier: groupId }));
+      let activeSessions: number | undefined;
+      try {
+        const s = await gls.send(new ListStreamSessionsCommand({ Identifier: groupId, Status: 'ACTIVE' }));
+        activeSessions = (s.Items ?? []).length;
+      } catch {
+        /* session 列舉失敗不影響容量顯示 */
+      }
+      streams = {
+        groupId,
+        ...(g.Status ? { status: g.Status } : {}),
+        locations: (g.LocationStates ?? []).map((l) => ({
+          location: l.LocationName ?? '',
+          ...(typeof l.AlwaysOnCapacity === 'number' ? { alwaysOn: l.AlwaysOnCapacity } : {}),
+          ...(typeof l.OnDemandCapacity === 'number' ? { onDemand: l.OnDemandCapacity } : {}),
+          ...(typeof l.AllocatedCapacity === 'number' ? { allocated: l.AllocatedCapacity } : {}),
+          ...(typeof l.IdleCapacity === 'number' ? { idle: l.IdleCapacity } : {}),
+          ...(l.Status ? { status: l.Status } : {}),
+        })),
+        ...(activeSessions !== undefined ? { activeSessions } : {}),
+      };
+    }
+  } catch (err) {
+    errors.push(`streams: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  const data: RuntimeInfra = {
+    containers,
+    hosts,
+    streams,
+    ...(errors.length > 0 ? { errors } : {}),
+  };
+  infraCache = { at: Date.now(), data };
+  return data;
+}
+
+/** 找 Windows GameLift Streams 的 stream group id(SSM /playagent/**​/windows-gls/streamGroupId)。 */
+async function findStreamGroupId(): Promise<string | null> {
+  let token: string | undefined;
+  do {
+    const r = await ssm.send(new GetParametersByPathCommand({
+      Path: '/playagent',
+      Recursive: true,
+      ...(token ? { NextToken: token } : {}),
+    }));
+    const hit = (r.Parameters ?? []).find((p) => p.Name?.endsWith('/windows-gls/streamGroupId'));
+    if (hit?.Value) return hit.Value;
+    token = r.NextToken;
+  } while (token);
+  return null;
+}
+
 // Device Farm session 實際計量分鐘(費用頁依任務歸屬用);快取 2 分鐘。
 const DF_PROJECT = process.env.DF_PROJECT ?? 'playagent-checker';
 let deviceSessionCache: { at: number; items: DeviceSessionUsage[] } | null = null;
@@ -171,6 +306,7 @@ const deps: ApiDeps = {
     randomToken: () => randomBytes(24).toString('base64url'),
   },
   listCloudDevices,
+  listRuntimeInfra,
   listDeviceSessions,
   // Cost Explorer 每次查詢約 US$0.01 且資料本來就有 ~24h 延遲:同一 Lambda 實例快取 10 分鐘。
   getRealCost: async (opts) => {

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { apiGet, apiPut, apiDelete, type ListResponse } from '../api/client.ts';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { apiGet, apiPut, apiDelete, ApiError, type ListResponse } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import MemoryPanel from '../components/memory/MemoryPanel.tsx';
 import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
+import SecretRefsPanel from '../components/secrets/SecretRefsPanel.tsx';
 // 案例/任務/報告分頁直接用獨立頁面的元件(傳 appId 進入嵌入模式),
 // 這樣工作區與主頁面的排版是「同一份」,不會各自長歪。
 import CasesPage from './CasesPage.tsx';
@@ -89,8 +90,10 @@ function stateClass(state: string): string {
 export default function AppWorkspacePage() {
   const { t } = useI18n();
   const { appId = '' } = useParams<{ appId: string }>();
+  const navigate = useNavigate();
 
   const [app, setApp] = useState<AppRecord | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -207,6 +210,37 @@ export default function AppWorkspacePage() {
     return m;
   }, [cases]);
 
+  /**
+   * 刪除整個工作區(應用 + 底下所有資料)。要求輸入名稱確認;
+   * 資料多時後端一次做不完(回 done:false),這裡接著再呼叫直到刪完,然後回應用清單。
+   */
+  async function onDeleteApp() {
+    if (!app) return;
+    const typed = window.prompt(t('apps.deleteConfirm').replace('{name}', app.name));
+    if (typed === null) return;
+    if (typed.trim() !== app.name.trim()) {
+      window.alert(t('apps.deleteNameMismatch'));
+      return;
+    }
+    setDeleting(true);
+    try {
+      for (let i = 0; i < 20; i++) {
+        const res = await apiDelete<{ done?: boolean }>(`/apps/${encodeURIComponent(appId)}`);
+        if (res.done !== false) break;
+      }
+      navigate('/apps');
+    } catch (err) {
+      const running = err instanceof ApiError && err.status === 409 ? err.message.match(/\d+/)?.[0] : undefined;
+      window.alert(
+        running
+          ? t('apps.deleteRunning').replace('{n}', running)
+          : t('apps.deleteFailed').replace('{msg}', err instanceof Error ? err.message : String(err)),
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function onSaveDefaultKbs() {
     setKbSaving(true);
     setKbSaved(false);
@@ -267,6 +301,15 @@ export default function AppWorkspacePage() {
             {app?.version && <span className="ws__badge ws__mono">{app.version}</span>}
             {app?.identifier && <span className="ws__badge ws__mono">{app.identifier}</span>}
           </div>
+        </div>
+        {/* 編輯 / 刪除這個應用:從應用管理的卡片移到這裡,卡片只留「進入工作區」。 */}
+        <div className="ws__identity-actions">
+          <Link to={`/apps?edit=${encodeURIComponent(appId)}`} className="ws__secondary ws__link-btn">
+            {t('apps.edit')}
+          </Link>
+          <button type="button" className="ws__remove" disabled={deleting} onClick={() => void onDeleteApp()}>
+            {t('apps.delete')}
+          </button>
         </div>
       </header>
 
@@ -484,6 +527,12 @@ export default function AppWorkspacePage() {
               ))}
             </ul>
           )}
+
+          {/* 機密引用:整個租戶共用(${鍵名} / secretRef:全名),原本在裝置管理頁。
+              放在這裡是因為設定帳密的時機就是在顧某個應用,但範圍不是單一應用 —— 下面講清楚。 */}
+          <h2 className="ws__subtitle">{t('devices.secretsSection')}</h2>
+          <p className="ws__muted">{t('workspace.secretsShared')}</p>
+          <SecretRefsPanel />
         </div>
       )}
     </section>

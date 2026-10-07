@@ -554,3 +554,12 @@ button.ws__stat:hover {
   flex-wrap: wrap;
   gap: var(--space-3);
 }
+
+/* 應用身份列右側:編輯 / 刪除這個工作區(從應用卡片搬過來) */
+.ws__identity-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+  flex: 0 0 auto;
+}
