@@ -15,12 +15,19 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import IconSelect, { type IconSelectOption } from '../components/IconSelect.tsx';
-import AppsCostPanel, { type CostResponse } from '../components/apps/AppsCostPanel.tsx';
 import Sparkline from '../components/charts/Sparkline.tsx';
 import './ListPage.css';
 import './AppsPage.css';
 
 type Platform = 'android' | 'ios' | 'windows' | 'web';
+
+/** GET /cost 回應中這頁用得到的部分(每個應用的近 30 天花費與每日序列)。 */
+interface CostResponse {
+  daily?: {
+    days: Array<{ date: string; byApp: Record<string, number> }>;
+    byApp: Array<{ appId: string; totalUsd: number; runs: number }>;
+  };
+}
 
 interface AppRecord {
   id: string;
@@ -114,7 +121,8 @@ export default function AppsPage() {
   );
   const kbs = kbQuery.data?.items ?? [];
 
-  // 成本:和「成本分析」頁共用同一個 useQuery key(cost:30),避免重複打那支要掃全部任務的 API。
+  // 成本:只為了卡片上的走勢圖與花費數字。和「成本分析」頁共用同一個 useQuery key
+  //(cost:30),所以兩頁之間來回不會重打那支要掃全部任務的 API。
   const costQuery = useQuery<CostResponse>('cost:30', () => apiGet<CostResponse>('/cost?days=30'));
   const daily = costQuery.data?.daily;
   // 通過率:取最近 200 筆任務(後端上限)分組算。這是「近期」通過率,不是全期間。
@@ -153,11 +161,6 @@ export default function AppsPage() {
       );
     });
   }, [items, search, platformFilter, genreFilter]);
-
-  const appNames = useMemo(
-    () => new Map(items.map((a) => [a.id, a.name] as const)),
-    [items],
-  );
 
   /** 每個應用的卡片指標:近 30 天花費／次數、近期通過率、日花費序列(走勢圖)。 */
   const cardStats = useMemo(() => {
@@ -641,11 +644,6 @@ export default function AppsPage() {
             </button>
           </div>
         </form>
-      )}
-
-      {/* 成本分析(有應用才顯示;編輯表單展開時收起,避免頁面過長) */}
-      {!form && items.length > 0 && !costQuery.error && (
-        <AppsCostPanel daily={daily} names={appNames} days={30} />
       )}
 
       {/* 搜尋 / 篩選列(有資料才顯示) */}

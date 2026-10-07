@@ -167,23 +167,12 @@ export type MessageKey =
   | 'apps.filterGenre'
   | 'apps.filterAllGenres'
   | 'apps.noMatch'
-  | 'apps.costTitle'
-  | 'apps.costExpand'
-  | 'apps.costCollapse'
-  | 'apps.costDesc'
-  | 'apps.costTotal'
-  | 'apps.costNoData'
-  | 'apps.costOpen'
   | 'apps.costTrend'
-  | 'apps.costRange'
   | 'apps.kpiRuns'
   | 'apps.kpiSpend'
   | 'apps.kpiPassRate'
   | 'apps.kpiPassRateHint'
   | 'apps.buildsCount'
-  | 'apps.costPerRun'
-  | 'apps.costByApp'
-  | 'apps.costDaily'
   | 'apps.iconAlt'
   | 'apps.iconPlaceholder'
   | 'apps.genre'
@@ -783,23 +772,12 @@ const zhHant: Catalog = {
   'apps.filterGenre': '遊戲類型',
   'apps.filterAllGenres': '全部類型',
   'apps.noMatch': '沒有符合條件的應用程式。',
-  'apps.costTitle': "測試成本分析",
-  'apps.costExpand': "展開",
-  'apps.costCollapse': "收合",
-  'apps.costDesc': "每次測試的費用 = AI 模型(token × 單價)+ 真機實際計量分鐘。不含 S3／API 等基礎設施費用。",
-  'apps.costTotal': "區間總費用",
-  'apps.costNoData': "這個區間還沒有測試費用。",
-  'apps.costOpen': "完整成本分析",
   'apps.costTrend': "花費走勢",
-  'apps.costRange': "近 {n} 天",
   'apps.kpiRuns': "測試次數",
   'apps.kpiSpend': "花費",
   'apps.kpiPassRate': "通過率",
   'apps.kpiPassRateHint': "取最近 200 次任務中屬於此應用、已判定通過／失敗的部分。",
   'apps.buildsCount': "{n} 個版本",
-  'apps.costPerRun': "平均每次",
-  'apps.costByApp': "各應用費用",
-  'apps.costDaily': "每日費用(依應用堆疊)",
   'apps.iconAlt': '圖示',
   'apps.iconPlaceholder': '無截圖',
   'apps.genre': '遊戲類型',
@@ -1398,23 +1376,12 @@ const en: Catalog = {
   'apps.filterGenre': 'Genre',
   'apps.filterAllGenres': 'All genres',
   'apps.noMatch': 'No apps match your filters.',
-  'apps.costTitle': "Testing cost",
-  'apps.costExpand': "Expand",
-  'apps.costCollapse': "Collapse",
-  'apps.costDesc': "Each run = AI model cost (tokens × price) + metered real-device minutes. Infrastructure (S3, API) is not included.",
-  'apps.costTotal': "Total in range",
-  'apps.costNoData': "No testing cost in this range yet.",
-  'apps.costOpen': "Full cost analysis",
   'apps.costTrend': "Spend trend",
-  'apps.costRange': "Last {n} days",
   'apps.kpiRuns': "Runs",
   'apps.kpiSpend': "Spend",
   'apps.kpiPassRate': "Pass rate",
   'apps.kpiPassRateHint': "From the decided (pass/fail) runs of this app within the latest 200 tasks.",
   'apps.buildsCount': "{n} build(s)",
-  'apps.costPerRun': "Avg per run",
-  'apps.costByApp': "Cost by app",
-  'apps.costDaily': "Daily cost (stacked by app)",
   'apps.iconAlt': 'icon',
   'apps.iconPlaceholder': 'No image',
   'apps.genre': 'Genre',
@@ -2018,23 +1985,12 @@ const zhHans: Catalog = {
   'apps.filterGenre': '游戏类型',
   'apps.filterAllGenres': '全部类型',
   'apps.noMatch': '没有符合条件的应用程序。',
-  'apps.costTitle': "测试成本分析",
-  'apps.costExpand': "展开",
-  'apps.costCollapse': "收起",
-  'apps.costDesc': "每次测试的费用 = AI 模型(token × 单价)+ 真机实际计量分钟。不含 S3／API 等基础设施费用。",
-  'apps.costTotal': "区间总费用",
-  'apps.costNoData': "这个区间还没有测试费用。",
-  'apps.costOpen': "完整成本分析",
   'apps.costTrend': "花费走势",
-  'apps.costRange': "近 {n} 天",
   'apps.kpiRuns': "测试次数",
   'apps.kpiSpend': "花费",
   'apps.kpiPassRate': "通过率",
   'apps.kpiPassRateHint': "取最近 200 次任务中属于此应用、已判定通过／失败的部分。",
   'apps.buildsCount': "{n} 个版本",
-  'apps.costPerRun': "平均每次",
-  'apps.costByApp': "各应用费用",
-  'apps.costDaily': "每日费用(按应用堆叠)",
   'apps.iconAlt': '图标',
   'apps.iconPlaceholder': '无截图',
   'apps.genre': '游戏类型',
@@ -2631,23 +2587,12 @@ const ja: Catalog = {
   'apps.filterPlatform': 'プラットフォーム',
   'apps.filterAll': 'すべて',
   'apps.noMatch': '条件に一致するアプリがありません。',
-  'apps.costTitle': "テストコスト分析",
-  'apps.costExpand': "展開",
-  'apps.costCollapse': "折りたたむ",
-  'apps.costDesc': "1 回の実行 = AI モデル費用(token × 単価)+ 実機の実計測分。S3／API などのインフラ費用は含みません。",
-  'apps.costTotal': "期間合計",
-  'apps.costNoData': "この期間のテスト費用はまだありません。",
-  'apps.costOpen': "コスト分析を開く",
   'apps.costTrend': "費用の推移",
-  'apps.costRange': "直近 {n} 日",
   'apps.kpiRuns': "実行回数",
   'apps.kpiSpend': "費用",
   'apps.kpiPassRate': "合格率",
   'apps.kpiPassRateHint': "直近 200 件のタスクのうち、このアプリで合否が確定した実行から算出。",
   'apps.buildsCount': "ビルド {n} 件",
-  'apps.costPerRun': "1 回あたり",
-  'apps.costByApp': "アプリ別費用",
-  'apps.costDaily': "日別費用(アプリ別積み上げ)",
   'apps.iconAlt': 'アイコン',
   'apps.iconPlaceholder': '画像なし',
   'apps.filterGenre': 'ジャンル',
@@ -3247,23 +3192,12 @@ const ko: Catalog = {
   'apps.filterPlatform': '플랫폼',
   'apps.filterAll': '전체 플랫폼',
   'apps.noMatch': '조건에 맞는 앱이 없습니다.',
-  'apps.costTitle': "테스트 비용 분석",
-  'apps.costExpand': "펼치기",
-  'apps.costCollapse': "접기",
-  'apps.costDesc': "실행 1회 = AI 모델 비용(token × 단가) + 실제 측정된 실기기 사용 시간. S3／API 등 인프라 비용은 제외입니다.",
-  'apps.costTotal': "기간 합계",
-  'apps.costNoData': "이 기간에는 테스트 비용이 없습니다.",
-  'apps.costOpen': "전체 비용 분석",
   'apps.costTrend': "지출 추이",
-  'apps.costRange': "최근 {n}일",
   'apps.kpiRuns': "실행 횟수",
   'apps.kpiSpend': "지출",
   'apps.kpiPassRate': "통과율",
   'apps.kpiPassRateHint': "최근 200개 작업 중 이 앱에서 합격/실패가 확정된 실행으로 계산합니다.",
   'apps.buildsCount': "빌드 {n}개",
-  'apps.costPerRun': "실행당 평균",
-  'apps.costByApp': "앱별 비용",
-  'apps.costDaily': "일별 비용(앱별 누적)",
   'apps.iconAlt': '아이콘',
   'apps.iconPlaceholder': '이미지 없음',
   'apps.filterGenre': '장르',

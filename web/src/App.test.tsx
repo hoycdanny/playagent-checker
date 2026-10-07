@@ -54,11 +54,13 @@ describe('App 路由守衛', () => {
     expect(screen.getByLabelText(/電子郵件|Email/)).toBeInTheDocument();
   });
 
-  test('已登入顯示 shell 與九個導覽連結', async () => {
+  // 導覽列只放「跨應用」的入口:指南、應用管理、真機、知識、成本。
+  // 案例/任務/報告/記憶地圖都綁在單一應用上,入口在應用工作區的分頁裡。
+  test('已登入顯示 shell 與五個導覽連結', async () => {
     seedAuth();
     renderApp();
     const navs = screen.getAllByRole('navigation');
-    expect(within(navs[0]!).getAllByRole('link')).toHaveLength(9);
+    expect(within(navs[0]!).getAllByRole('link')).toHaveLength(5);
     // 頂欄顯示租戶
     expect(screen.getByText(/acme/)).toBeInTheDocument();
   });
@@ -79,12 +81,12 @@ describe('已登入 shell 行為', () => {
     fireEvent.change(select, { target: { value: 'zh-Hant' } });
     const nav = screen.getAllByRole('navigation')[0]!;
     expect(within(nav).getByText('應用管理')).toBeInTheDocument();
-    expect(within(nav).getByText('測試任務')).toBeInTheDocument();
+    expect(within(nav).getByText('費用分析')).toBeInTheDocument();
     expect(localStorage.getItem('playagent.locale')).toBe('zh-Hant');
 
     fireEvent.change(select, { target: { value: 'en' } });
     expect(within(nav).getByText('Apps')).toBeInTheDocument();
-    expect(within(nav).getByText('Test Tasks')).toBeInTheDocument();
+    expect(within(nav).getByText('Cost Analysis')).toBeInTheDocument();
     expect(localStorage.getItem('playagent.locale')).toBe('en');
   });
 

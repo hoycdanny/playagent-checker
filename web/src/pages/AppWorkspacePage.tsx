@@ -1,23 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
+import { apiGet, apiPut, apiDelete, type ListResponse } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
-import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
-import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
-import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
-import { CaseVersionBadge, CaseVersions } from '../components/cases/CaseVersions.tsx';
-import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
-import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
-import TasksTable from '../components/TasksTable.tsx';
 import MemoryPanel from '../components/memory/MemoryPanel.tsx';
-import ReportsPanel, { type ReportItem } from '../components/reports/ReportsPanel.tsx';
 import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
-import DevicePicker from '../components/DevicePicker.tsx';
+// 案例/任務/報告分頁直接用獨立頁面的元件(傳 appId 進入嵌入模式),
+// 這樣工作區與主頁面的排版是「同一份」,不會各自長歪。
+import CasesPage from './CasesPage.tsx';
+import TasksPage from './TasksPage.tsx';
+import ReportsPage from './ReportsPage.tsx';
 import './ListPage.css';
 import './TasksPage.css';
-import './CasesPage.css';
 import './MemoryPage.css';
 import './AppWorkspacePage.css';
 
@@ -80,29 +75,6 @@ const TABS: { key: Tab; labelKey: MessageKey }[] = [
 ];
 const TAB_KEYS = new Set<string>(TABS.map((x) => x.key));
 
-/** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
- *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
- *  故 web 不開放這兩欄(開放了設定也不會被 runner 使用,只會誤導使用者)。 */
-const AGENT_SUBAGENT_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
-/** 需要選 VLM 模型(判畫面座標,web 上同時兼任決策)的後端。web 也開放選擇(single-seat)。 */
-const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
-
-interface ModelEntry {
-  modelId: string;
-  displayName: string;
-  pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
-}
-
-/** 模型下拉的顯示文字:名稱 + 每百萬 token 進/出價(估算價標註)。
- *  自建模型(如 UI-TARS,單價 0/0)不按 token 計費,改標「常駐 GPU 計費」。 */
-function modelOptionLabel(m: ModelEntry): string {
-  if (!m.pricing) return m.displayName;
-  const { inputPerM, outputPerM, estimated } = m.pricing;
-  if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — 常駐 GPU 計費`;
-  const fmt = (n: number) => `$${n.toFixed(2)}`;
-  return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} 每百萬 token${estimated ? '(估算)' : ''}`;
-}
-
 function stateClass(state: string): string {
   if (state === 'pass') return 'task-state--pass';
   if (state === 'fail') return 'task-state--fail';
@@ -123,6 +95,8 @@ export default function AppWorkspacePage() {
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [memStats, setMemStats] = useState<{ pages: number; edges: number } | null>(null);
+  // 知識庫清單(知識分頁的綁定選項)。
+  const [kbs, setKbs] = useState<{ id: string; name: string; archived?: boolean }[]>([]);
   // 分頁放在網址(?tab=)—— 重新整理、分享連結、瀏覽器上一頁都會回到同一個分頁。
   const [searchParams, setSearchParams] = useSearchParams();
   const rawTab = searchParams.get('tab') ?? '';
@@ -132,57 +106,6 @@ export default function AppWorkspacePage() {
     if (next === 'overview') p.delete('tab'); else p.set('tab', next);
     setSearchParams(p, { replace: true });
   }
-  // 要測哪一個版本(空 = App 目前使用中的版本)。
-  const [buildId, setBuildId] = useState('');
-
-  // 建立/編輯案例(鎖定本 App)
-  const [showCaseForm, setShowCaseForm] = useState(false);
-  const [editingCaseId, setEditingCaseId] = useState<string | null>(null);
-  const [caseName, setCaseName] = useState('');
-  const [caseYaml, setCaseYaml] = useState('');
-  const [caseControls, setCaseControls] = useState<string[] | undefined>(undefined);
-  const [caseDesc, setCaseDesc] = useState('');
-  const [drafting, setDrafting] = useState(false);
-  const [savingCase, setSavingCase] = useState(false);
-
-  // 提交任務(鎖定本 App)
-  const [showTaskForm, setShowTaskForm] = useState(false);
-  // 表單 inline 展開;開啟時捲動到表單,避免從下方按鈕開啟後看不到。
-  const caseFormRef = useRef<HTMLFormElement>(null);
-  const taskFormRef = useRef<HTMLFormElement>(null);
-  useEffect(() => {
-    if (showCaseForm) caseFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [showCaseForm]);
-  useEffect(() => {
-    if (showTaskForm) taskFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [showTaskForm]);
-  const [taskCaseId, setTaskCaseId] = useState('');
-  const [backend, setBackend] = useState('web');
-  const [runtimeId, setRuntimeId] = useState<RuntimeId>('web');
-  // Android 容器 / Windows 的最長執行時數。
-  const [maxHours, setMaxHours] = useState(6);
-  // Windows 啟動時的畫面解析度(GameLift Streams 虛擬螢幕)。
-  const [display, setDisplay] = useState<Display>({ width: 1920, height: 1080 });
-  // 三個 Seat 模型(與獨立「測試任務」頁一致):agent=控制遊戲、vlm=分析畫面、subagent=子代理。
-  const [vlmModel, setVlmModel] = useState('');
-  const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
-  const [agentModel, setAgentModel] = useState('');
-  const [agentModels, setAgentModels] = useState<ModelEntry[]>([]);
-  const [subagentModel, setSubagentModel] = useState('');
-  const [subagentModels, setSubagentModels] = useState<ModelEntry[]>([]);
-  // 步數/預算上限:空 = 無上限。
-  const [maxSteps, setMaxSteps] = useState('');
-  // Device Farm 執行時長(段數):'1' 單段 / '2' / '4' / '0' 不限。
-  const [maxSegments, setMaxSegments] = useState('1');
-  const [budgetUsd, setBudgetUsd] = useState('');
-  // Device Farm 裝置選擇:真機池 + 所選裝置 ARN(空 = 引擎自動挑第一台可用)。
-  const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
-  const [deviceArn, setDeviceArn] = useState('');
-  const [devicePickerOpen, setDevicePickerOpen] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [taskError, setTaskError] = useState<string | null>(null);
-  const [kbs, setKbs] = useState<{ id: string; name: string; archived?: boolean }[]>([]);
-  const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
   // 知識分頁:這個 App 的預設知識庫(存回 App 記錄的 defaultKnowledgeBaseIds)。
   const [defaultKbIds, setDefaultKbIds] = useState<string[]>([]);
   const [kbSaving, setKbSaving] = useState(false);
@@ -230,17 +153,7 @@ export default function AppWorkspacePage() {
     apiGet<AppRecord>(`/apps/${encodeURIComponent(appId)}`)
       .then((a) => {
         setApp(a);
-        // 執行後端由 App 平台決定(web→瀏覽器;原生→Device Farm),不讓使用者亂選。
-        {
-          const r = defaultRuntime(a.platform);
-          setRuntimeId(r.id);
-          setBackend(r.backend);
-        }
-        // 預選該 App 的預設知識庫。
-        const defaults = (a as AppRecord & { defaultKnowledgeBaseIds?: string[] })
-          .defaultKnowledgeBaseIds;
-        if (defaults && defaults.length > 0) setSelectedKbIds(defaults);
-        setDefaultKbIds(defaults ?? []);
+        setDefaultKbIds(a.defaultKnowledgeBaseIds ?? []);
       })
       .catch(() => setNotFound(true));
   }
@@ -269,30 +182,7 @@ export default function AppWorkspacePage() {
     apiGet<ListResponse<{ id: string; name: string; archived?: boolean }>>('/knowledge-bases')
       .then((r) => setKbs(r.items))
       .catch(() => {});
-    // VLM 模型清單(判畫面座標的 VLM Seat 可選模型);真機/Web 探索用。
-    // 三個 Seat 可選模型:預設 = 各 seat 推薦第 1 名;下拉前 5 名置頂並加 ★(與測試任務頁一致)。
-    apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
-      .then((r) => {
-        setVlmModels(sortByRecommend('vlm', r.items));
-        setVlmModel(recommendedDefault('vlm', r.items));
-      })
-      .catch(() => {});
-    apiGet<ListResponse<ModelEntry>>('/models?seat=agent')
-      .then((r) => {
-        setAgentModels(sortByRecommend('agent', r.items));
-        setAgentModel(recommendedDefault('agent', r.items));
-      })
-      .catch(() => {});
-    apiGet<ListResponse<ModelEntry>>('/models?seat=subagent')
-      .then((r) => {
-        setSubagentModels(sortByRecommend('subagent', r.items));
-        setSubagentModel(recommendedDefault('subagent', r.items));
-      })
-      .catch(() => {});
-    // Device Farm 真機池(供 devicefarm 後端挑機型/版本);唯讀清單。
-    apiGet<ListResponse<CloudDevice>>('/devices/cloud')
-      .then((r) => setCloudDevices(r.items))
-      .catch(() => {});
+    // 模型清單、真機池、送出表單等都在嵌入的「測試任務」元件裡自己載入。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId]);
 
@@ -317,147 +207,6 @@ export default function AppWorkspacePage() {
     return m;
   }, [cases]);
 
-  async function onDraft() {
-    if (!caseDesc.trim()) return;
-    setDrafting(true);
-    try {
-      const res = await apiPost<{ yaml: string }>('/cases/draft', {
-        description: caseDesc,
-        appId,
-      });
-      setCaseYaml(applyControls(res.yaml, caseControls));
-    } catch {
-      /* 忽略,使用者可手寫 */
-    } finally {
-      setDrafting(false);
-    }
-  }
-
-  function resetCaseForm() {
-    setEditingCaseId(null);
-    setCaseName('');
-    setCaseYaml('');
-    setCaseControls(undefined);
-    setCaseDesc('');
-  }
-
-  function openCreateCase() {
-    resetCaseForm();
-    setShowCaseForm(true);
-  }
-
-  async function openEditCase(c: CaseSummary) {
-    resetCaseForm();
-    setEditingCaseId(c.id);
-    setCaseName(c.name);
-    setShowCaseForm(true);
-    try {
-      const detail = await apiGet<{ yaml: string }>(
-        `/cases/${encodeURIComponent(appId)}/${encodeURIComponent(c.id)}`,
-      );
-      setCaseYaml(detail.yaml);
-      setCaseControls(readControls(detail.yaml));
-    } catch {
-      /* 忽略,使用者可重寫 */
-    }
-  }
-
-  async function onDeleteCase(c: CaseSummary) {
-    if (!window.confirm(t('cases.deleteConfirm'))) return;
-    try {
-      await apiDelete(`/cases/${encodeURIComponent(appId)}/${encodeURIComponent(c.id)}`);
-      loadCases();
-    } catch {
-      /* 忽略 */
-    }
-  }
-
-  async function onSaveCase(e: FormEvent) {
-    e.preventDefault();
-    setSavingCase(true);
-    try {
-      if (editingCaseId) {
-        await apiPut(
-          `/cases/${encodeURIComponent(appId)}/${encodeURIComponent(editingCaseId)}`,
-          { name: caseName, yaml: applyControls(caseYaml, caseControls) },
-        );
-      } else {
-        await apiPost('/cases', { app: appId, name: caseName, yaml: applyControls(caseYaml, caseControls) });
-      }
-      setShowCaseForm(false);
-      resetCaseForm();
-      loadCases();
-    } finally {
-      setSavingCase(false);
-    }
-  }
-
-  async function onDeleteTask(jobId: string) {
-    if (!window.confirm(t('tasks.deleteConfirm'))) return;
-    try {
-      await apiDelete(`/tasks/${encodeURIComponent(jobId)}`);
-      loadTasks();
-    } catch {
-      /* 忽略 */
-    }
-  }
-
-  async function onDeleteReport(jobId: string) {
-    if (!window.confirm(t('report.deleteConfirm'))) return;
-    try {
-      await apiDelete(`/tasks/${encodeURIComponent(jobId)}`);
-      loadTasks();
-    } catch {
-      /* 忽略 */
-    }
-  }
-
-  async function onSubmitTask(e: FormEvent) {
-    e.preventDefault();
-    if (!taskCaseId) {
-      setTaskError(t('tasks.needAppCase'));
-      return;
-    }
-    setTaskError(null);
-    setSubmitting(true);
-    try {
-      await apiPost('/tasks', {
-        backend,
-        appId,
-        caseId: taskCaseId,
-        category: 'exploration',
-        ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
-        ...(AGENT_SUBAGENT_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
-        ...(AGENT_SUBAGENT_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
-        ...(selectedKbIds.length > 0 ? { knowledgeBaseIds: selectedKbIds } : {}),
-        ...(Number(maxSteps) > 0 ? { maxSteps: Number(maxSteps) } : {}),
-        ...(Number(budgetUsd) > 0 ? { budgetUsd: Number(budgetUsd) } : {}),
-        ...(backend === 'devicefarm' && maxSegments !== '1' ? { maxSegments: Number(maxSegments) } : {}),
-        ...(backend === 'emulator' || backend === 'windows' ? { maxHours: effectiveHours(backend, maxHours) } : {}),
-        ...(backend === 'windows' ? { display } : {}),
-        ...(buildId ? { buildId } : {}),
-        // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
-        ...(backend === 'devicefarm' && deviceArn
-          ? (() => {
-              const d = cloudDevices.find((x) => x.arn === deviceArn);
-              return {
-                deviceArn,
-                ...(d?.name ? { deviceModel: d.name } : {}),
-                ...(d?.os ? { osVersion: d.os } : {}),
-              };
-            })()
-          : {}),
-      });
-      setShowTaskForm(false);
-      setTaskCaseId('');
-      loadTasks();
-    } catch (err) {
-      setTaskError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
   async function onSaveDefaultKbs() {
     setKbSaving(true);
     setKbSaved(false);
@@ -472,16 +221,6 @@ export default function AppWorkspacePage() {
       /* 忽略;失敗時維持畫面上的勾選 */
     } finally {
       setKbSaving(false);
-    }
-  }
-
-  async function onCancelTask(jobId: string) {
-    if (!window.confirm(t('tasks.cancelConfirm'))) return;
-    try {
-      await apiPost(`/tasks/${jobId}/cancel`, {});
-      loadTasks();
-    } catch {
-      /* 忽略 */
     }
   }
 
@@ -602,390 +341,22 @@ export default function AppWorkspacePage() {
       {/* 測試案例(鎖定本 App) */}
       {tab === 'cases' && (
         <div className="ws__panel">
-          <div className="ws__panel-head">
-            {!showCaseForm && (
-              <button type="button" className="ws__primary" onClick={openCreateCase}>
-                {t('cases.create')}
-              </button>
-            )}
-          </div>
-
-          {showCaseForm && (
-            <form ref={caseFormRef} className="ws__form" onSubmit={onSaveCase}>
-              {editingCaseId && <h3 className="ws__subtitle">{t('cases.editTitle')}</h3>}
-              <label className="ws__field">
-                <span className="ws__label">{t('cases.name')}</span>
-                <input required value={caseName} onChange={(e) => setCaseName(e.target.value)} />
-              </label>
-              <label className="ws__field">
-                <span className="ws__label">{t('cases.describe')}</span>
-                <textarea
-                  className="ws__textarea"
-                  rows={3}
-                  value={caseDesc}
-                  onChange={(e) => setCaseDesc(e.target.value)}
-                  placeholder={t('cases.describeHint')}
-                />
-                <button
-                  type="button"
-                  className="ws__secondary"
-                  onClick={onDraft}
-                  disabled={drafting || !caseDesc.trim()}
-                >
-                  {drafting ? t('cases.drafting') : t('cases.draft')}
-                </button>
-              </label>
-              <label className="ws__field">
-                <span className="ws__label">{t('cases.yamlLabel')}</span>
-                <textarea
-                  className="ws__textarea ws__mono"
-                  rows={10}
-                  value={caseYaml}
-                  onChange={(e) => {
-                    setCaseYaml(e.target.value);
-                    setCaseControls(readControls(e.target.value));
-                  }}
-                  spellCheck={false}
-                />
-              </label>
-              <ControlSchemePicker
-                value={caseControls}
-                {...(app?.genre ? { genre: app.genre } : {})}
-                onChange={(ids) => {
-                  setCaseControls(ids);
-                  setCaseYaml((y) => applyControls(y, ids));
-                }}
-              />
-              {editingCaseId && (
-                <CaseVersions
-                  app={appId}
-                  caseId={editingCaseId}
-                  onActivated={(v) => {
-                    setCaseName(v.name);
-                    setCaseYaml(v.yaml);
-                    setCaseControls(readControls(v.yaml));
-                    loadCases();
-                  }}
-                />
-              )}
-              <div className="ws__form-actions">
-                <button
-                  type="button"
-                  className="ws__secondary"
-                  onClick={() => {
-                    setShowCaseForm(false);
-                    resetCaseForm();
-                  }}
-                >
-                  {t('cases.cancel')}
-                </button>
-                <button
-                  type="submit"
-                  className="ws__primary"
-                  disabled={savingCase || !caseName.trim() || !caseYaml.trim()}
-                >
-                  {savingCase
-                    ? t('cases.saving')
-                    : editingCaseId
-                      ? t('cases.saveEdit')
-                      : t('cases.save')}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {cases.length === 0 ? (
-            <div className="listpage__empty"><p>{t('page.cases.empty')}</p></div>
-          ) : (
-            <ul className="listpage__list">
-              {cases.map((c) => (
-                <li key={c.id} className="listpage__item cases__item">
-                  <span className="cases__item-name">{c.name}</span>
-                  <CaseVersionBadge version={c.version} />
-                  <span style={{ marginLeft: 'auto' }}>
-                    <CaseTrendBadge app={c.app} caseId={c.id} />
-                  </span>
-                  <span className="cases__item-actions">
-                    <button
-                      type="button"
-                      className="cases__row-btn"
-                      onClick={() => void openEditCase(c)}
-                    >
-                      {t('cases.edit')}
-                    </button>
-                    <button
-                      type="button"
-                      className="cases__row-btn cases__row-btn--danger"
-                      onClick={() => void onDeleteCase(c)}
-                    >
-                      {t('cases.delete')}
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          {/* 與獨立「測試案例」頁共用同一個元件,只是鎖定本 App:排版完全一致。 */}
+          <CasesPage appId={appId} />
         </div>
       )}
 
-      {/* 測試任務(鎖定本 App) */}
+      {/* 測試任務(與獨立頁共用同一個元件,鎖定本 App) */}
       {tab === 'tasks' && (
         <div className="ws__panel">
-          <div className="ws__panel-head">
-            {!showTaskForm && (
-              <button
-                type="button"
-                className="ws__primary"
-                onClick={() => setShowTaskForm(true)}
-                disabled={cases.length === 0}
-              >
-                {t('tasks.submit')}
-              </button>
-            )}
-          </div>
-
-          {showTaskForm && (
-            <form ref={taskFormRef} className="ws__form" onSubmit={onSubmitTask}>
-              <label className="ws__field">
-                <span className="ws__label">{t('tasks.case')}</span>
-                <select value={taskCaseId} onChange={(e) => setTaskCaseId(e.target.value)}>
-                  <option value="">—</option>
-                  {cases.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </label>
-              {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
-              {(app?.builds?.length ?? 0) > 1 && (
-                <label className="ws__field">
-                  <span className="ws__label">{t('workspace.buildPick')}</span>
-                  <span className="ws__muted">{t('workspace.buildPickHint')}</span>
-                  <select value={buildId} onChange={(e) => setBuildId(e.target.value)}>
-                    <option value="">{t('workspace.buildUseActive')}</option>
-                    {(app?.builds ?? []).map((b) => (
-                      <option key={b.artifactId} value={b.artifactId}>
-                        {b.label}{b.artifactId === app?.artifactId ? ` (${t('workspace.buildActive')})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <label className="ws__field">
-                <span className="ws__label">{t('tasks.backend')}</span>
-                <RuntimeSelect
-                  platform={app?.platform}
-                  value={runtimeId}
-                  onChange={(r) => {
-                  setRuntimeId(r.id);
-                  setBackend(r.backend);
-                  setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
-                }}
-                  hintClass="ws__muted"
-                />
-              </label>
-              {backend === 'devicefarm' && (
-                <div className="ws__field">
-                  <span className="ws__label">{t('tasks.device')}</span>
-                  <span className="ws__muted">{t('tasks.deviceHint')}</span>
-                  {(() => {
-                    const d = cloudDevices.find((x) => x.arn === deviceArn);
-                    const specs = d
-                      ? [
-                          `Android ${d.os}`,
-                          d.arch,
-                          d.resolution,
-                          typeof d.memoryBytes === 'number'
-                            ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
-                            : undefined,
-                          d.cpu,
-                        ].filter(Boolean)
-                      : [];
-                    return (
-                      <div className="ws__device-pick">
-                        <span className="ws__device-current">
-                          {d ? d.name : t('tasks.deviceAuto')}
-                          {specs.length > 0 && (
-                            <span className="ws__device-specs">{specs.join(' · ')}</span>
-                          )}
-                        </span>
-                        <button
-                          type="button"
-                          className="ws__device-btn"
-                          onClick={() => setDevicePickerOpen(true)}
-                        >
-                          {t('tasks.deviceChange')}
-                        </button>
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
-              {devicePickerOpen && (
-                <DevicePicker
-                  devices={cloudDevices}
-                  value={deviceArn}
-                  onSelect={(d) => {
-                    setDeviceArn(d?.arn ?? '');
-                    setDevicePickerOpen(false);
-                  }}
-                  onClose={() => setDevicePickerOpen(false)}
-                />
-              )}
-              {/* 模型選擇(與獨立「測試任務」頁一致):控制遊戲 / 分析畫面 / 子代理。
-                  web runner 只有單一 VLM 座位,故只顯示分析畫面欄。 */}
-              {(VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend)) && (
-                <>
-                  <p className="ws__models-intro">
-                    {t(AGENT_SUBAGENT_BACKENDS.has(backend) ? 'tasks.modelsIntro' : 'tasks.modelsIntroWeb')}
-                  </p>
-                  {AGENT_SUBAGENT_BACKENDS.has(backend) && (
-                    <label className="ws__field">
-                      <span className="ws__label">{t('tasks.modelAgent')}</span>
-                      <span className="ws__muted">{t('detail.roleAgentHint')}</span>
-                      <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
-                        {agentModels.map((m) => (
-                          <option key={m.modelId} value={m.modelId}>
-                            {starLabel('agent', m.modelId, modelOptionLabel(m))}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {VLM_BACKENDS.has(backend) && (
-                    <label className="ws__field">
-                      <span className="ws__label">{t('tasks.modelVlm')}</span>
-                      <span className="ws__muted">
-                        {backend === 'web' ? t('tasks.roleVlmWebHint') : t('detail.roleVlmHint')}
-                      </span>
-                      <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
-                        {vlmModels.map((m) => (
-                          <option key={m.modelId} value={m.modelId}>
-                            {starLabel('vlm', m.modelId, modelOptionLabel(m))}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {AGENT_SUBAGENT_BACKENDS.has(backend) && (
-                    <label className="ws__field">
-                      <span className="ws__label">{t('tasks.modelSubagent')}</span>
-                      <span className="ws__muted">{t('detail.roleSubagentHint')}</span>
-                      <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
-                        {subagentModels.map((m) => (
-                          <option key={m.modelId} value={m.modelId}>
-                            {starLabel('subagent', m.modelId, modelOptionLabel(m))}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                </>
-              )}
-{(backend === 'emulator' || backend === 'windows') && (
-            <label className="ws__field">
-              <HoursSelect backend={backend} value={maxHours} onChange={setMaxHours} labelClass="ws__label" hintClass="ws__muted" />
-            </label>
-          )}
-          {backend === 'windows' && (
-            <div className="ws__field">
-              <DisplaySelect value={display} onChange={setDisplay} labelClass="ws__label" hintClass="ws__muted" />
-            </div>
-          )}
-          {runtimeById(runtimeId)?.long && (
-            <label className="ws__field">
-              <span className="ws__label">{t('tasks.runDuration')}</span>
-              <span className="ws__muted">{t('tasks.runDurationHint')}</span>
-              <select value={maxSegments} onChange={(e) => setMaxSegments(e.target.value)}>
-                <option value="2">{t('tasks.runLong2')}</option>
-                <option value="4">{t('tasks.runLong4')}</option>
-                <option value="0">{t('tasks.runLongUnlimited')}</option>
-              </select>
-              {maxSegments !== '1' && <span className="ws__muted" role="note">{t('tasks.runLongNote')}</span>}
-            </label>
-          )}
-          <label className="ws__field">
-                <span className="ws__label">{t('tasks.maxSteps')}</span>
-                <input
-                  type="number"
-                  min="0"
-                  inputMode="numeric"
-                  placeholder={t('tasks.unlimited')}
-                  value={maxSteps}
-                  onChange={(e) => setMaxSteps(e.target.value)}
-                />
-              </label>
-              <label className="ws__field">
-                <span className="ws__label">{t('tasks.budgetUsd')}</span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  placeholder={t('tasks.unlimited')}
-                  value={budgetUsd}
-                  onChange={(e) => setBudgetUsd(e.target.value)}
-                />
-              </label>
-              {kbs.length > 0 && (
-                <div className="ws__field">
-                  <span className="ws__label">{t('tasks.knowledgeBases')}</span>
-                  <div className="ws__kb-list">
-                    {kbs.filter((kb) => !kb.archived || selectedKbIds.includes(kb.id)).map((kb) => (
-                      <label key={kb.id} className="ws__kb-option">
-                        <input
-                          type="checkbox"
-                          checked={selectedKbIds.includes(kb.id)}
-                          onChange={(e) => {
-                            setSelectedKbIds((prev) =>
-                              e.target.checked
-                                ? [...prev, kb.id]
-                                : prev.filter((id) => id !== kb.id),
-                            );
-                          }}
-                        />
-                        <span>{kb.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <span className="ws__muted">{t('tasks.knowledgeBasesHint')}</span>
-                </div>
-              )}
-              {taskError && <p className="listpage__error" role="alert">{taskError}</p>}
-              <div className="ws__form-actions">
-                <button type="button" className="ws__secondary" onClick={() => setShowTaskForm(false)}>
-                  {t('tasks.cancel')}
-                </button>
-                <button type="submit" className="ws__primary" disabled={submitting || (backend === 'windows' && displayError(display, 'en') !== null)}>
-                  {submitting ? t('tasks.submitting') : t('tasks.submitBtn')}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {tasks.length === 0 ? (
-            <div className="listpage__empty"><p>{t('page.tasks.empty')}</p></div>
-          ) : (
-            /* 與獨立「測試任務」頁共用同一份表格(不含勾選/篩選;操作=檢視+取消/刪除)。 */
-            <TasksTable
-              tasks={tasks}
-              appById={() => app ?? undefined}
-              onCancel={(jobId) => void onCancelTask(jobId)}
-              onDelete={(jobId) => void onDeleteTask(jobId)}
-            />
-          )}
+          <TasksPage appId={appId} />
         </div>
       )}
 
-      {/* 測試報告(本 App 的終局任務;統計 + 篩選 + 搜尋) */}
+      {/* 測試報告(與獨立頁共用同一個元件,鎖定本 App) */}
       {tab === 'reports' && (
         <div className="ws__panel">
-          <ReportsPanel
-            items={reports.map((x) => ({
-              ...x,
-              caseName: x.caseName ?? caseNameById.get(x.caseId) ?? x.caseId,
-            })) as ReportItem[]}
-            onDelete={onDeleteReport}
-          />
+          <ReportsPage appId={appId} />
         </div>
       )}
 
