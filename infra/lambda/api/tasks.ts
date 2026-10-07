@@ -48,6 +48,8 @@ export interface JobRecord {
   display?: JobDisplay;
   /** 被測產物的完整 S3 key(emulator userdata 據此拉 APK)。 */
   artifactKey?: string;
+  /** 這次測的版本標籤(顯示用;artifactVersion 是產物 id,不好讀)。 */
+  artifactLabel?: string;
   /** 案例任務描述(emulator runner 給 VLM 的目標)。 */
   caseTask?: string;
   /** guest ABI(emulator 選主機架構;預設 arm64-v8a)。 */
@@ -143,6 +145,8 @@ function reportKey(tenantId: string, jobId: string): string {
 interface SubmitInput {
   backend: Backend;
   appId: string;
+  /** 要測哪一個版本(App builds[] 的 artifactId);未指定 = App 目前使用中的版本。 */
+  buildId?: string;
   caseId: string;
   category: 'test' | 'exploration';
   /** 使用者選的 VLM 模型(分析畫面/判座標);未指定則引擎用預設。 */
@@ -216,6 +220,10 @@ export function validateSubmit(body: unknown): SubmitInput {
     if (!Number.isInteger(n) || n < 1 || n > 72) throw new ValidationError('maxHours 必須是 1~72 的整數');
     if (backend === 'emulator' || backend === 'windows') maxHours = n;
   }
+  // 要測的版本(App 的 builds[] 之一);格式與產物 id 相同。存在性由 core 解析時確認。
+  const rawBuild = b['buildId'];
+  const buildId =
+    typeof rawBuild === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(rawBuild) ? rawBuild : undefined;
   const display = parseDisplay(b['display'], backend as Backend);
   // Device Farm 裝置選擇(僅 devicefarm 後端有意義;其他後端即使帶了也不落 job)。
   // deviceArn 需符合 Device Farm ARN 形狀,避免注入任意值。
@@ -248,6 +256,7 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(caseVersion ? { caseVersion } : {}),
     backend: backend as Backend,
     appId,
+    ...(buildId ? { buildId } : {}),
     caseId,
     category,
     ...(vlmModel ? { vlmModel } : {}),
@@ -282,7 +291,7 @@ export async function createJob(
   tenantId: string,
   input: SubmitInput,
   artifactVersion?: string,
-  extra?: { artifactKey?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string },
+  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string },
 ): Promise<JobRecord> {
   const jobId = newJobId();
   const record: JobRecord = {
@@ -306,6 +315,7 @@ export async function createJob(
     ...(input.deviceModel ? { deviceModel: input.deviceModel } : {}),
     ...(input.osVersion ? { osVersion: input.osVersion } : {}),
     ...(extra?.artifactKey ? { artifactKey: extra.artifactKey } : {}),
+    ...(extra?.artifactLabel ? { artifactLabel: extra.artifactLabel } : {}),
     ...(extra?.caseTask ? { caseTask: extra.caseTask } : {}),
     ...(extra?.abi ? { abi: extra.abi } : {}),
     ...(extra?.package ? { package: extra.package } : {}),

@@ -1,4 +1,10 @@
-import { PutObjectCommand, GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import {
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  DeleteObjectsCommand,
+  type S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { tenantPrefix } from './tenantCredentials.js';
 
@@ -63,4 +69,43 @@ export async function createUploadUrl(
     { expiresIn: UPLOAD_URL_TTL_SECONDS },
   );
   return { url, key };
+}
+
+/**
+ * 刪掉一個產物資料夾(artifacts/<artifactId>/ 底下全部物件)。
+ * 呼叫端要先確認沒有任何 App 的版本清單還留著它 —— 這裡不做引用檢查。
+ * 回傳刪掉的物件數。找不到視為成功(冪等)。
+ */
+export async function deleteArtifactPrefix(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+  artifactId: string,
+): Promise<number> {
+  // 產物 id 會進 S3 前綴,必須擋掉 ../ 與斜線(否則可能刪到別的租戶前綴)。
+  if (!/^[A-Za-z0-9_-]{1,120}$/.test(artifactId)) {
+    throw new Error('artifactId 格式不正確');
+  }
+  const prefix = `${tenantPrefix(tenantId)}artifacts/${artifactId}/`;
+  let removed = 0;
+  let token: string | undefined;
+  do {
+    const page = await s3.send(
+      new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix, ContinuationToken: token }),
+    );
+    const keys = (page.Contents ?? [])
+      .map((o) => o.Key)
+      .filter((k): k is string => typeof k === 'string');
+    if (keys.length > 0) {
+      await s3.send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+        }),
+      );
+      removed += keys.length;
+    }
+    token = page.NextContinuationToken;
+  } while (token);
+  return removed;
 }

@@ -249,10 +249,20 @@ export async function purgeApp(deps: PurgeDeps, appId: string, app: AppRecord | 
   await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `${base}knowledge/${appId}.md` }));
   deleted.knowledge += 1;
 
-  // 5. 安裝檔 / 圖示:App 本身與各任務用過的;其他 App 還在用的保留。
-  const inUse = new Set(deps.otherApps.flatMap((a) => [a.artifactId, a.iconArtifactId]).filter((x): x is string => Boolean(x)));
+  // 5. 安裝檔 / 圖示:App 本身(含所有版本)與各任務用過的;其他 App 還在用的保留。
+  // in-use 必須展開其他 App 的 builds[],否則刪一個 App 會誤刪另一個 App 的歷史版本安裝檔。
+  const inUse = new Set(
+    deps.otherApps
+      .flatMap((a) => [a.artifactId, a.iconArtifactId, ...(a.builds ?? []).map((b) => b.artifactId)])
+      .filter((x): x is string => Boolean(x)),
+  );
   const artifactIds = new Set(
-    [app?.artifactId, app?.iconArtifactId, ...jobs.map((j) => artifactIdFromKey(tenantId, j.artifactKey))].filter(
+    [
+      app?.artifactId,
+      app?.iconArtifactId,
+      ...(app?.builds ?? []).map((b) => b.artifactId),
+      ...jobs.map((j) => artifactIdFromKey(tenantId, j.artifactKey)),
+    ].filter(
       (x): x is string => typeof x === 'string' && ARTIFACT_ID_RE.test(x) && !inUse.has(x),
     ),
   );
