@@ -7,6 +7,7 @@
  *   act(tap)          → page.mouse.click(x, y)
  *   act(swipe)        → mouse.move → down → move → up(拖曳/捲動)
  *   act(type)         → keyboard.type(帶 Enter 送出)
+ *   act(key)          → keyboard.press(方向鍵 / WASD / Enter…;只開放遊戲常用鍵,可 repeat 連按)
  *   act(back)         → page.goBack()
  *   act(launch/goto)  → page.goto(url)
  *   getScreenSize()   → 視埠寬高
@@ -17,6 +18,20 @@
 import { chromium } from 'playwright';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 模型可用的按鍵名 → Playwright 的鍵名。
+ * 只開放遊戲常用的鍵,避免模型亂送組合鍵(如 F5 重整、Ctrl+W 關頁)把測試環境弄壞。
+ */
+const KEYS = {
+  up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
+  enter: 'Enter', escape: 'Escape', esc: 'Escape', space: 'Space', tab: 'Tab',
+  backspace: 'Backspace', delete: 'Delete', home: 'Home', end: 'End',
+  pageup: 'PageUp', pagedown: 'PageDown',
+  w: 'KeyW', a: 'KeyA', s: 'KeyS', d: 'KeyD',
+  q: 'KeyQ', e: 'KeyE', r: 'KeyR', f: 'KeyF', z: 'KeyZ', x: 'KeyX', c: 'KeyC',
+  '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4', '5': 'Digit5',
+};
 
 export class PlaywrightClient {
   #browser;
@@ -124,6 +139,18 @@ export class PlaywrightClient {
         // 先確保有 focus(多數情況上一步 tap 已 focus 輸入框);輸入文字,結尾送 Enter。
         await this.#page.keyboard.type(String(cmd.text ?? ''), { delay: 20 });
         await this.#page.keyboard.press('Enter').catch(() => {});
+        break;
+      }
+      case 'key': {
+        // 鍵盤按鍵:很多網頁遊戲(2048、射擊、平台跳躍)只監聽 keydown,滑鼠與拖曳完全沒反應。
+        // 可按 n 次(repeat),用於連續移動。
+        const name = KEYS[String(cmd.key ?? '').toLowerCase()];
+        if (!name) throw new Error(`不支援的按鍵:${cmd.key}`);
+        const times = Math.max(1, Math.min(20, Number(cmd.repeat) || 1));
+        for (let i = 0; i < times; i++) {
+          await this.#page.keyboard.press(name);
+          if (times > 1) await new Promise((r) => setTimeout(r, 120));
+        }
         break;
       }
       case 'back': {

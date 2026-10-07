@@ -83,10 +83,13 @@ function buildSystemPrompt(knowledge, evidence) {
     `不是 LINE/Facebook/Apple 第三方),再 tap 帳號欄輸入帳號、tap 密碼欄輸入密碼,然後點登入/送出。` +
     `唯有「目標」沒有提供帳密時,才關閉登入彈窗改走訪客/其他路徑。` +
     `需要輸入時,先 tap 輸入框再用 type 輸入(type 會自動送出 Enter)。需要往下看更多內容時用 swipe(垂直)捲動。` +
+    // 很多網頁遊戲(2048、射擊、平台跳躍)只監聽鍵盤,滑鼠點擊與拖曳完全沒反應,必須讓模型知道有 key 可用。
+    `【鍵盤操作】網頁遊戲若點擊/滑動都沒反應,很可能只吃鍵盤:用 key 送按鍵。` +
+    `可用按鍵:up/down/left/right、w/a/s/d、space、enter、escape、tab、1~5,可加 repeat(1~20)連按。` +
     `目標:${TASK}` +
     `先簡短思考(thinking),再給動作。只輸出 JSON:` +
-    `{"thinking":"...","action":"tap|swipe|type|back|wait|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"text":"...","screen":"畫面名稱"}。` +
-    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe(捲動)需 x,y,x2,y2;type 需 text;done 只在真正完成目標或完全無法進行時用。` +
+    `{"thinking":"...","action":"tap|swipe|type|key|back|wait|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"text":"...","key":"up|down|left|right|w|a|s|d|space|enter|escape|tab","repeat":<連按次數>,"screen":"畫面名稱"}。` +
+    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe(捲動)需 x,y,x2,y2;type 需 text;key 需 key(可選 repeat);done 只在真正完成目標或完全無法進行時用。` +
     `screen 用精確畫面名描述當前畫面(如「首頁」「登入」「遊戲主畫面」「結算」),不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
   const withEvidence = base + evidencePromptSection(evidence, { subject: '網頁/遊戲' });
