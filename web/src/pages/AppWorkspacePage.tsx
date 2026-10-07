@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { apiGet, apiPost, apiPut, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
@@ -11,10 +11,14 @@ import { CaseVersionBadge, CaseVersions } from '../components/cases/CaseVersions
 import { CaseTrendBadge } from '../components/CaseTrendBadge.tsx';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import TasksTable from '../components/TasksTable.tsx';
+import MemoryPanel from '../components/memory/MemoryPanel.tsx';
+import ReportsPanel, { type ReportItem } from '../components/reports/ReportsPanel.tsx';
+import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
 import DevicePicker from '../components/DevicePicker.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 import './CasesPage.css';
+import './MemoryPage.css';
 import './AppWorkspacePage.css';
 
 interface AppRecord {
@@ -26,6 +30,11 @@ interface AppRecord {
   version?: string;
   iconUrl?: string;
   notes?: string;
+  /** 使用中的版本(產物 id)。 */
+  artifactId?: string;
+  /** 已上傳的版本清單(新到舊)。 */
+  builds?: AppBuild[];
+  defaultKnowledgeBaseIds?: string[];
 }
 interface CaseSummary {
   id: string;
@@ -42,21 +51,34 @@ interface TaskItem {
   caseId: string;
   state: string;
   createdAt: string;
+  caseName?: string;
+  caseVersion?: string;
+  finishedAt?: string;
+  stepCount?: number;
+  billableSpendUsd?: number;
+  message?: string;
+  deviceModel?: string;
+  /** 這次測的是哪一版(多版本 App)。 */
+  artifactLabel?: string;
+  artifactVersion?: string;
 }
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
 const PASS_STATES = new Set(['pass']);
 
-type Tab = 'overview' | 'cases' | 'tasks' | 'reports' | 'memory' | 'credentials';
+type Tab = 'overview' | 'builds' | 'cases' | 'tasks' | 'reports' | 'memory' | 'knowledge' | 'credentials';
 
 const TABS: { key: Tab; labelKey: MessageKey }[] = [
   { key: 'overview', labelKey: 'workspace.tabOverview' },
+  { key: 'builds', labelKey: 'workspace.tabBuilds' },
   { key: 'cases', labelKey: 'workspace.tabCases' },
   { key: 'tasks', labelKey: 'workspace.tabTasks' },
   { key: 'reports', labelKey: 'workspace.tabReports' },
   { key: 'memory', labelKey: 'workspace.tabMemory' },
+  { key: 'knowledge', labelKey: 'workspace.tabKnowledge' },
   { key: 'credentials', labelKey: 'workspace.tabCredentials' },
 ];
+const TAB_KEYS = new Set<string>(TABS.map((x) => x.key));
 
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
  *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
@@ -101,7 +123,17 @@ export default function AppWorkspacePage() {
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [memStats, setMemStats] = useState<{ pages: number; edges: number } | null>(null);
-  const [tab, setTab] = useState<Tab>('overview');
+  // 分頁放在網址(?tab=)—— 重新整理、分享連結、瀏覽器上一頁都會回到同一個分頁。
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawTab = searchParams.get('tab') ?? '';
+  const tab: Tab = (TAB_KEYS.has(rawTab) ? rawTab : 'overview') as Tab;
+  function setTab(next: Tab) {
+    const p = new URLSearchParams(searchParams);
+    if (next === 'overview') p.delete('tab'); else p.set('tab', next);
+    setSearchParams(p, { replace: true });
+  }
+  // 要測哪一個版本(空 = App 目前使用中的版本)。
+  const [buildId, setBuildId] = useState('');
 
   // 建立/編輯案例(鎖定本 App)
   const [showCaseForm, setShowCaseForm] = useState(false);
@@ -151,6 +183,10 @@ export default function AppWorkspacePage() {
   const [taskError, setTaskError] = useState<string | null>(null);
   const [kbs, setKbs] = useState<{ id: string; name: string; archived?: boolean }[]>([]);
   const [selectedKbIds, setSelectedKbIds] = useState<string[]>([]);
+  // 知識分頁:這個 App 的預設知識庫(存回 App 記錄的 defaultKnowledgeBaseIds)。
+  const [defaultKbIds, setDefaultKbIds] = useState<string[]>([]);
+  const [kbSaving, setKbSaving] = useState(false);
+  const [kbSaved, setKbSaved] = useState(false);
 
   // App 測試憑證(存 Secrets Manager;前端只拿得到 {key, visible},拿不到值)。
   const [credItems, setCredItems] = useState<{ key: string; visible: boolean }[]>([]);
@@ -204,17 +240,18 @@ export default function AppWorkspacePage() {
         const defaults = (a as AppRecord & { defaultKnowledgeBaseIds?: string[] })
           .defaultKnowledgeBaseIds;
         if (defaults && defaults.length > 0) setSelectedKbIds(defaults);
+        setDefaultKbIds(defaults ?? []);
       })
       .catch(() => setNotFound(true));
   }
   function loadCases() {
-    apiGet<ListResponse<CaseSummary>>('/cases')
-      .then((r) => setCases(r.items.filter((c) => c.app === appId)))
+    apiGet<ListResponse<CaseSummary>>(`/cases?app=${encodeURIComponent(appId)}`)
+      .then((r) => setCases(r.items))
       .catch(() => {});
   }
   function loadTasks() {
-    apiGet<ListResponse<TaskItem>>('/tasks?limit=100')
-      .then((r) => setTasks(r.items.filter((x) => x.appId === appId)))
+    apiGet<ListResponse<TaskItem>>(`/tasks?app=${encodeURIComponent(appId)}&limit=200`)
+      .then((r) => setTasks(r.items))
       .catch(() => {});
   }
 
@@ -398,6 +435,7 @@ export default function AppWorkspacePage() {
         ...(backend === 'devicefarm' && maxSegments !== '1' ? { maxSegments: Number(maxSegments) } : {}),
         ...(backend === 'emulator' || backend === 'windows' ? { maxHours: effectiveHours(backend, maxHours) } : {}),
         ...(backend === 'windows' ? { display } : {}),
+        ...(buildId ? { buildId } : {}),
         // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
         ...(backend === 'devicefarm' && deviceArn
           ? (() => {
@@ -417,6 +455,23 @@ export default function AppWorkspacePage() {
       setTaskError(err instanceof Error ? err.message : String(err));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function onSaveDefaultKbs() {
+    setKbSaving(true);
+    setKbSaved(false);
+    try {
+      const next = await apiPut<AppRecord>(`/apps/${encodeURIComponent(appId)}`, {
+        defaultKnowledgeBaseIds: defaultKbIds,
+      });
+      setApp(next);
+      // 綁定改了,之後送出任務的預選也跟著改(不動使用者在表單裡的當次選擇)。
+      setKbSaved(true);
+    } catch {
+      /* 忽略;失敗時維持畫面上的勾選 */
+    } finally {
+      setKbSaving(false);
     }
   }
 
@@ -512,6 +567,11 @@ export default function AppWorkspacePage() {
               <b>{passRate === null ? '—' : `${passRate}%`}</b>
               <span>{t('workspace.statPassRate')}</span>
             </div>
+            {/* 記憶地圖規模:看得出 AI 對這個 App 已經認識多少畫面 */}
+            <button type="button" className="ws__stat" onClick={() => setTab('memory')}>
+              <b>{memStats ? memStats.pages : '—'}</b>
+              <span>{t('memory.statPages')}</span>
+            </button>
           </div>
 
           <h2 className="ws__subtitle">{t('workspace.recentTasks')}</h2>
@@ -696,6 +756,20 @@ export default function AppWorkspacePage() {
                 </select>
               </label>
               {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
+              {(app?.builds?.length ?? 0) > 1 && (
+                <label className="ws__field">
+                  <span className="ws__label">{t('workspace.buildPick')}</span>
+                  <span className="ws__muted">{t('workspace.buildPickHint')}</span>
+                  <select value={buildId} onChange={(e) => setBuildId(e.target.value)}>
+                    <option value="">{t('workspace.buildUseActive')}</option>
+                    {(app?.builds ?? []).map((b) => (
+                      <option key={b.artifactId} value={b.artifactId}>
+                        {b.label}{b.artifactId === app?.artifactId ? ` (${t('workspace.buildActive')})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <label className="ws__field">
                 <span className="ws__label">{t('tasks.backend')}</span>
                 <RuntimeSelect
@@ -902,51 +976,74 @@ export default function AppWorkspacePage() {
         </div>
       )}
 
-      {/* 測試報告(本 App 的終局任務) */}
+      {/* 測試報告(本 App 的終局任務;統計 + 篩選 + 搜尋) */}
       {tab === 'reports' && (
         <div className="ws__panel">
-          {reports.length === 0 ? (
-            <div className="listpage__empty"><p>{t('page.reports.empty')}</p></div>
-          ) : (
-            <ul className="listpage__list">
-              {reports.map((x) => (
-                <li key={x.jobId} className="listpage__item">
-                  <span className={`task-state ${stateClass(x.state)}`}>
-                    {t(`state.${x.state}` as MessageKey)}
-                  </span>
-                  <span className="ws__muted">{caseNameById.get(x.caseId) ?? x.caseId}</span>
-                  <span style={{ marginLeft: 'auto' }} className="reports__row-actions">
-                    <Link to={`/reports/${x.jobId}`}>{t('workspace.openReport')}</Link>
-                    <button
-                      type="button"
-                      className="reports__row-delete"
-                      onClick={() => void onDeleteReport(x.jobId)}
-                    >
-                      {t('report.delete')}
-                    </button>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <ReportsPanel
+            items={reports.map((x) => ({
+              ...x,
+              caseName: x.caseName ?? caseNameById.get(x.caseId) ?? x.caseId,
+            })) as ReportItem[]}
+            onDelete={onDeleteReport}
+          />
         </div>
       )}
 
-      {/* 記憶地圖(導向完整頁,附統計) */}
+      {/* 記憶地圖(與 /memory 同一份實作;樣片本、關係圖、應用記憶、場景範本都在) */}
       {tab === 'memory' && (
         <div className="ws__panel">
-          {memStats && (memStats.pages > 0 || memStats.edges > 0) ? (
-            <>
-              <div className="ws__stats">
-                <div className="ws__stat"><b>{memStats.pages}</b><span>{t('memory.statPages')}</span></div>
-                <div className="ws__stat"><b>{memStats.edges}</b><span>{t('memory.statEdges')}</span></div>
-              </div>
-              <Link className="ws__primary ws__link-btn" to={`/memory?app=${encodeURIComponent(appId)}`}>
-                {t('workspace.viewMemory')}
-              </Link>
-            </>
+          <MemoryPanel appId={appId} onCleared={() => setMemStats({ pages: 0, edges: 0 })} />
+        </div>
+      )}
+
+      {/* 版本(多個 APK/IPA/EXE;選一版來測) */}
+      {tab === 'builds' && (
+        <div className="ws__panel">
+          <BuildsPanel
+            appId={appId}
+            platform={app?.platform ?? 'android'}
+            builds={app?.builds ?? []}
+            activeArtifactId={app?.artifactId}
+            tasks={tasks}
+            onChanged={(next) => setApp(next as AppRecord)}
+          />
+        </div>
+      )}
+
+      {/* 知識綁定(知識庫是跨租戶共用資源,這裡只設定「這個 App 預設帶哪幾座」) */}
+      {tab === 'knowledge' && (
+        <div className="ws__panel">
+          <p className="ws__muted">{t('workspace.kbBindDesc')}</p>
+          {kbs.length === 0 ? (
+            <div className="listpage__empty"><p>{t('workspace.kbNone')}</p></div>
           ) : (
-            <div className="listpage__empty"><p>{t('page.memory.empty')}</p></div>
+            <>
+              <ul className="ws__kb-list">
+                {kbs.filter((k) => !k.archived).map((k) => (
+                  <li key={k.id}>
+                    <label className="ws__check">
+                      <input
+                        type="checkbox"
+                        checked={defaultKbIds.includes(k.id)}
+                        onChange={(e) => setDefaultKbIds(
+                          e.target.checked
+                            ? [...defaultKbIds, k.id]
+                            : defaultKbIds.filter((x) => x !== k.id),
+                        )}
+                      />
+                      <span>{k.name}</span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <div className="ws__kb-actions">
+                <button type="button" className="ws__primary" disabled={kbSaving} onClick={onSaveDefaultKbs}>
+                  {kbSaving ? t('workspace.credSaving') : t('workspace.kbSave')}
+                </button>
+                <Link className="ws__secondary ws__link-btn" to="/knowledge">{t('workspace.kbManage')}</Link>
+              </div>
+              {kbSaved && <p className="ws__muted" role="status">{t('workspace.kbSaved')}</p>}
+            </>
           )}
         </div>
       )}

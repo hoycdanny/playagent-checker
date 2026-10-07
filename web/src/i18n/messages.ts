@@ -167,6 +167,21 @@ export type MessageKey =
   | 'apps.filterGenre'
   | 'apps.filterAllGenres'
   | 'apps.noMatch'
+  | 'apps.costTitle'
+  | 'apps.costDesc'
+  | 'apps.costTotal'
+  | 'apps.costNoData'
+  | 'apps.costOpen'
+  | 'apps.costTrend'
+  | 'apps.costRange'
+  | 'apps.kpiRuns'
+  | 'apps.kpiSpend'
+  | 'apps.kpiPassRate'
+  | 'apps.kpiPassRateHint'
+  | 'apps.buildsCount'
+  | 'apps.costPerRun'
+  | 'apps.costByApp'
+  | 'apps.costDaily'
   | 'apps.iconAlt'
   | 'apps.iconPlaceholder'
   | 'apps.genre'
@@ -222,6 +237,27 @@ export type MessageKey =
   | 'workspace.tabReports'
   | 'workspace.tabMemory'
   | 'workspace.tabCredentials'
+  | 'workspace.tabBuilds'
+  | 'workspace.tabKnowledge'
+  | 'workspace.buildsDesc'
+  | 'workspace.buildsEmpty'
+  | 'workspace.buildLabel'
+  | 'workspace.buildLabelHint'
+  | 'workspace.buildNotes'
+  | 'workspace.buildUpload'
+  | 'workspace.buildActive'
+  | 'workspace.buildActivate'
+  | 'workspace.buildDelete'
+  | 'workspace.buildDeleteConfirm'
+  | 'workspace.buildRuns'
+  | 'workspace.buildPick'
+  | 'workspace.buildPickHint'
+  | 'workspace.buildUseActive'
+  | 'workspace.kbBindDesc'
+  | 'workspace.kbNone'
+  | 'workspace.kbSave'
+  | 'workspace.kbSaved'
+  | 'workspace.kbManage'
   | 'workspace.credDesc'
   | 'workspace.credKey'
   | 'workspace.credKeyHint'
@@ -745,6 +781,21 @@ const zhHant: Catalog = {
   'apps.filterGenre': '遊戲類型',
   'apps.filterAllGenres': '全部類型',
   'apps.noMatch': '沒有符合條件的應用程式。',
+  'apps.costTitle': "測試成本分析",
+  'apps.costDesc': "每次測試的費用 = AI 模型(token × 單價)+ 真機實際計量分鐘。不含 S3／API 等基礎設施費用。",
+  'apps.costTotal': "區間總費用",
+  'apps.costNoData': "這個區間還沒有測試費用。",
+  'apps.costOpen': "完整成本分析",
+  'apps.costTrend': "花費走勢",
+  'apps.costRange': "近 {n} 天",
+  'apps.kpiRuns': "測試次數",
+  'apps.kpiSpend': "花費",
+  'apps.kpiPassRate': "通過率",
+  'apps.kpiPassRateHint': "取最近 200 次任務中屬於此應用、已判定通過／失敗的部分。",
+  'apps.buildsCount': "{n} 個版本",
+  'apps.costPerRun': "平均每次",
+  'apps.costByApp': "各應用費用",
+  'apps.costDaily': "每日費用(依應用堆疊)",
   'apps.iconAlt': '圖示',
   'apps.iconPlaceholder': '無截圖',
   'apps.genre': '遊戲類型',
@@ -800,6 +851,27 @@ const zhHant: Catalog = {
   'workspace.tabReports': '測試報告',
   'workspace.tabMemory': '記憶地圖',
   'workspace.tabCredentials': '測試憑證',
+  'workspace.tabBuilds': "版本",
+  'workspace.tabKnowledge': "知識",
+  'workspace.buildsDesc': "同一個應用可以保留多個版本的安裝檔。送出測試時預設測「使用中」那一版,也可以挑舊版重跑來比較。",
+  'workspace.buildsEmpty': "還沒有上傳任何版本。",
+  'workspace.buildLabel': "版本標籤",
+  'workspace.buildLabelHint': "例如 1.2.12 或 build 480",
+  'workspace.buildNotes': "這一版改了什麼(選填)",
+  'workspace.buildUpload': "上傳新版本",
+  'workspace.buildActive': "使用中",
+  'workspace.buildActivate': "設為使用中",
+  'workspace.buildDelete': "刪除",
+  'workspace.buildDeleteConfirm': "刪除版本「{v}」?歷史報告不會受影響,但之後無法再用這一版重跑測試。",
+  'workspace.buildRuns': "測試 {n} 次",
+  'workspace.buildPick': "測試版本",
+  'workspace.buildPickHint': "預設測使用中的版本;要驗證回歸可以挑舊版。",
+  'workspace.buildUseActive': "使用中的版本",
+  'workspace.kbBindDesc': "知識庫是跨應用共用的資源。這裡設定「這個應用送出測試時預設帶哪幾座」,送出任務時仍可逐次覆蓋。",
+  'workspace.kbNone': "還沒有可用的知識庫。",
+  'workspace.kbSave': "儲存預設知識庫",
+  'workspace.kbSaved': "已儲存。",
+  'workspace.kbManage': "管理知識庫",
   'workspace.credDesc': '設定這個 App 的測試資料(帳號、密碼、伺服器名稱/IP 等)。執行任務時 AI 若需要輸入這些資訊,會自動使用這裡的值,你不必在測試案例裡明寫。',
   'workspace.credKey': '欄位名稱',
   'workspace.credKeyHint': '用你看得懂的名稱,如「帳號」「密碼」「伺服器名稱」;AI 會依語意對應到畫面欄位。',
@@ -1322,6 +1394,21 @@ const en: Catalog = {
   'apps.filterGenre': 'Genre',
   'apps.filterAllGenres': 'All genres',
   'apps.noMatch': 'No apps match your filters.',
+  'apps.costTitle': "Testing cost",
+  'apps.costDesc': "Each run = AI model cost (tokens × price) + metered real-device minutes. Infrastructure (S3, API) is not included.",
+  'apps.costTotal': "Total in range",
+  'apps.costNoData': "No testing cost in this range yet.",
+  'apps.costOpen': "Full cost analysis",
+  'apps.costTrend': "Spend trend",
+  'apps.costRange': "Last {n} days",
+  'apps.kpiRuns': "Runs",
+  'apps.kpiSpend': "Spend",
+  'apps.kpiPassRate': "Pass rate",
+  'apps.kpiPassRateHint': "From the decided (pass/fail) runs of this app within the latest 200 tasks.",
+  'apps.buildsCount': "{n} build(s)",
+  'apps.costPerRun': "Avg per run",
+  'apps.costByApp': "Cost by app",
+  'apps.costDaily': "Daily cost (stacked by app)",
   'apps.iconAlt': 'icon',
   'apps.iconPlaceholder': 'No image',
   'apps.genre': 'Genre',
@@ -1377,6 +1464,27 @@ const en: Catalog = {
   'workspace.tabReports': 'Test Reports',
   'workspace.tabMemory': 'Memory Map',
   'workspace.tabCredentials': 'Test credentials',
+  'workspace.tabBuilds': "Builds",
+  'workspace.tabKnowledge': "Knowledge",
+  'workspace.buildsDesc': "An app can keep several installer versions. Runs use the active one by default; pick an older build to compare.",
+  'workspace.buildsEmpty': "No builds uploaded yet.",
+  'workspace.buildLabel': "Version label",
+  'workspace.buildLabelHint': "e.g. 1.2.12 or build 480",
+  'workspace.buildNotes': "What changed (optional)",
+  'workspace.buildUpload': "Upload a build",
+  'workspace.buildActive': "Active",
+  'workspace.buildActivate': "Make active",
+  'workspace.buildDelete': "Delete",
+  'workspace.buildDeleteConfirm': "Delete build “{v}”? Existing reports are unaffected, but you will not be able to re-run tests on this build.",
+  'workspace.buildRuns': "{n} run(s)",
+  'workspace.buildPick': "Build to test",
+  'workspace.buildPickHint': "Defaults to the active build; pick an older one to check for regressions.",
+  'workspace.buildUseActive': "Active build",
+  'workspace.kbBindDesc': "Knowledge bases are shared across apps. This sets which ones this app pre-selects when submitting a run; you can still override per run.",
+  'workspace.kbNone': "No knowledge bases available yet.",
+  'workspace.kbSave': "Save default knowledge bases",
+  'workspace.kbSaved': "Saved.",
+  'workspace.kbManage': "Manage knowledge bases",
   'workspace.credDesc': 'Set test data for this app (account, password, server name/IP, etc.). When a run needs to type these, the AI uses the values here automatically — you do not need to spell them out in the test case.',
   'workspace.credKey': 'Field name',
   'workspace.credKeyHint': 'Use a name you recognize, e.g. "account", "password", "server name"; the AI maps it to the on-screen field by meaning.',
@@ -1904,6 +2012,21 @@ const zhHans: Catalog = {
   'apps.filterGenre': '游戏类型',
   'apps.filterAllGenres': '全部类型',
   'apps.noMatch': '没有符合条件的应用程序。',
+  'apps.costTitle': "测试成本分析",
+  'apps.costDesc': "每次测试的费用 = AI 模型(token × 单价)+ 真机实际计量分钟。不含 S3／API 等基础设施费用。",
+  'apps.costTotal': "区间总费用",
+  'apps.costNoData': "这个区间还没有测试费用。",
+  'apps.costOpen': "完整成本分析",
+  'apps.costTrend': "花费走势",
+  'apps.costRange': "近 {n} 天",
+  'apps.kpiRuns': "测试次数",
+  'apps.kpiSpend': "花费",
+  'apps.kpiPassRate': "通过率",
+  'apps.kpiPassRateHint': "取最近 200 次任务中属于此应用、已判定通过／失败的部分。",
+  'apps.buildsCount': "{n} 个版本",
+  'apps.costPerRun': "平均每次",
+  'apps.costByApp': "各应用费用",
+  'apps.costDaily': "每日费用(按应用堆叠)",
   'apps.iconAlt': '图标',
   'apps.iconPlaceholder': '无截图',
   'apps.genre': '游戏类型',
@@ -1959,6 +2082,27 @@ const zhHans: Catalog = {
   'workspace.tabReports': '测试报告',
   'workspace.tabMemory': '记忆地图',
   'workspace.tabCredentials': '测试凭证',
+  'workspace.tabBuilds': "版本",
+  'workspace.tabKnowledge': "知识",
+  'workspace.buildsDesc': "同一个应用可以保留多个版本的安装包。送出测试时默认测「使用中」那一版,也可以挑旧版重跑来比较。",
+  'workspace.buildsEmpty': "还没有上传任何版本。",
+  'workspace.buildLabel': "版本标签",
+  'workspace.buildLabelHint': "例如 1.2.12 或 build 480",
+  'workspace.buildNotes': "这一版改了什么(选填)",
+  'workspace.buildUpload': "上传新版本",
+  'workspace.buildActive': "使用中",
+  'workspace.buildActivate': "设为使用中",
+  'workspace.buildDelete': "删除",
+  'workspace.buildDeleteConfirm': "删除版本「{v}」?历史报告不会受影响,但之后无法再用这一版重跑测试。",
+  'workspace.buildRuns': "测试 {n} 次",
+  'workspace.buildPick': "测试版本",
+  'workspace.buildPickHint': "默认测使用中的版本;要验证回归可以挑旧版。",
+  'workspace.buildUseActive': "使用中的版本",
+  'workspace.kbBindDesc': "知识库是跨应用共用的资源。这里设定「这个应用送出测试时默认带哪几座」,送出任务时仍可覆盖。",
+  'workspace.kbNone': "还没有可用的知识库。",
+  'workspace.kbSave': "保存默认知识库",
+  'workspace.kbSaved': "已保存。",
+  'workspace.kbManage': "管理知识库",
   'workspace.credDesc': '设置这个 App 的测试数据(帐号、密码、服务器名称/IP 等)。执行任务时 AI 若需要输入这些信息,会自动使用这里的值,你不必在测试用例里明写。',
   'workspace.credKey': '字段名称',
   'workspace.credKeyHint': '用你看得懂的名称,如「帐号」「密码」「服务器名称」;AI 会依语意对应到画面字段。',
@@ -2479,6 +2623,21 @@ const ja: Catalog = {
   'apps.filterPlatform': 'プラットフォーム',
   'apps.filterAll': 'すべて',
   'apps.noMatch': '条件に一致するアプリがありません。',
+  'apps.costTitle': "テストコスト分析",
+  'apps.costDesc': "1 回の実行 = AI モデル費用(token × 単価)+ 実機の実計測分。S3／API などのインフラ費用は含みません。",
+  'apps.costTotal': "期間合計",
+  'apps.costNoData': "この期間のテスト費用はまだありません。",
+  'apps.costOpen': "コスト分析を開く",
+  'apps.costTrend': "費用の推移",
+  'apps.costRange': "直近 {n} 日",
+  'apps.kpiRuns': "実行回数",
+  'apps.kpiSpend': "費用",
+  'apps.kpiPassRate': "合格率",
+  'apps.kpiPassRateHint': "直近 200 件のタスクのうち、このアプリで合否が確定した実行から算出。",
+  'apps.buildsCount': "ビルド {n} 件",
+  'apps.costPerRun': "1 回あたり",
+  'apps.costByApp': "アプリ別費用",
+  'apps.costDaily': "日別費用(アプリ別積み上げ)",
   'apps.iconAlt': 'アイコン',
   'apps.iconPlaceholder': '画像なし',
   'apps.filterGenre': 'ジャンル',
@@ -2536,6 +2695,27 @@ const ja: Catalog = {
   'workspace.tabReports': 'テストレポート',
   'workspace.tabMemory': '記憶マップ',
   'workspace.tabCredentials': 'テスト認証情報',
+  'workspace.tabBuilds': "ビルド",
+  'workspace.tabKnowledge': "ナレッジ",
+  'workspace.buildsDesc': "1 つのアプリで複数のインストーラーを保持できます。実行時は既定で「使用中」のビルドを使い、旧ビルドを選んで比較もできます。",
+  'workspace.buildsEmpty': "ビルドがまだアップロードされていません。",
+  'workspace.buildLabel': "バージョン名",
+  'workspace.buildLabelHint': "例: 1.2.12 / build 480",
+  'workspace.buildNotes': "変更点(任意)",
+  'workspace.buildUpload': "ビルドをアップロード",
+  'workspace.buildActive': "使用中",
+  'workspace.buildActivate': "使用中にする",
+  'workspace.buildDelete': "削除",
+  'workspace.buildDeleteConfirm': "ビルド「{v}」を削除しますか?既存のレポートには影響しませんが、このビルドで再実行はできなくなります。",
+  'workspace.buildRuns': "{n} 回実行",
+  'workspace.buildPick': "テストするビルド",
+  'workspace.buildPickHint': "既定は使用中のビルド。回帰確認には旧ビルドを選びます。",
+  'workspace.buildUseActive': "使用中のビルド",
+  'workspace.kbBindDesc': "ナレッジベースはアプリ間で共有されます。ここではこのアプリが実行時に既定で選ぶものを設定します(実行ごとに変更も可能)。",
+  'workspace.kbNone': "利用できるナレッジベースがありません。",
+  'workspace.kbSave': "既定のナレッジベースを保存",
+  'workspace.kbSaved': "保存しました。",
+  'workspace.kbManage': "ナレッジベースを管理",
   'workspace.credDesc': 'このアプリのテストデータ(アカウント、パスワード、サーバー名/IP など)を設定します。実行時に入力が必要になると、AI がここの値を自動的に使います。テストケースに明記する必要はありません。',
   'workspace.credKey': '項目名',
   'workspace.credKeyHint': '「アカウント」「パスワード」「サーバー名」など分かりやすい名前を。AI が意味で画面の項目に対応させます。',
@@ -3057,6 +3237,21 @@ const ko: Catalog = {
   'apps.filterPlatform': '플랫폼',
   'apps.filterAll': '전체 플랫폼',
   'apps.noMatch': '조건에 맞는 앱이 없습니다.',
+  'apps.costTitle': "테스트 비용 분석",
+  'apps.costDesc': "실행 1회 = AI 모델 비용(token × 단가) + 실제 측정된 실기기 사용 시간. S3／API 등 인프라 비용은 제외입니다.",
+  'apps.costTotal': "기간 합계",
+  'apps.costNoData': "이 기간에는 테스트 비용이 없습니다.",
+  'apps.costOpen': "전체 비용 분석",
+  'apps.costTrend': "지출 추이",
+  'apps.costRange': "최근 {n}일",
+  'apps.kpiRuns': "실행 횟수",
+  'apps.kpiSpend': "지출",
+  'apps.kpiPassRate': "통과율",
+  'apps.kpiPassRateHint': "최근 200개 작업 중 이 앱에서 합격/실패가 확정된 실행으로 계산합니다.",
+  'apps.buildsCount': "빌드 {n}개",
+  'apps.costPerRun': "실행당 평균",
+  'apps.costByApp': "앱별 비용",
+  'apps.costDaily': "일별 비용(앱별 누적)",
   'apps.iconAlt': '아이콘',
   'apps.iconPlaceholder': '이미지 없음',
   'apps.filterGenre': '장르',
@@ -3114,6 +3309,27 @@ const ko: Catalog = {
   'workspace.tabReports': '테스트 리포트',
   'workspace.tabMemory': '메모리 맵',
   'workspace.tabCredentials': '테스트 자격 증명',
+  'workspace.tabBuilds': "빌드",
+  'workspace.tabKnowledge': "지식",
+  'workspace.buildsDesc': "하나의 앱에 여러 설치 파일 버전을 보관할 수 있습니다. 실행은 기본적으로 \"사용 중\" 빌드를 사용하며, 이전 빌드를 골라 비교할 수도 있습니다.",
+  'workspace.buildsEmpty': "업로드된 빌드가 없습니다.",
+  'workspace.buildLabel': "버전 라벨",
+  'workspace.buildLabelHint': "예: 1.2.12 또는 build 480",
+  'workspace.buildNotes': "변경 사항(선택)",
+  'workspace.buildUpload': "빌드 업로드",
+  'workspace.buildActive': "사용 중",
+  'workspace.buildActivate': "사용 중으로 설정",
+  'workspace.buildDelete': "삭제",
+  'workspace.buildDeleteConfirm': "빌드 \"{v}\"을(를) 삭제할까요? 기존 보고서는 영향을 받지 않지만 이 빌드로 다시 실행할 수 없습니다.",
+  'workspace.buildRuns': "{n}회 실행",
+  'workspace.buildPick': "테스트할 빌드",
+  'workspace.buildPickHint': "기본은 사용 중인 빌드입니다. 회귀 확인에는 이전 빌드를 선택하세요.",
+  'workspace.buildUseActive': "사용 중인 빌드",
+  'workspace.kbBindDesc': "지식 베이스는 앱 간 공용 자원입니다. 여기서는 이 앱이 실행 시 기본으로 선택할 항목을 설정합니다(실행마다 변경 가능).",
+  'workspace.kbNone': "사용 가능한 지식 베이스가 없습니다.",
+  'workspace.kbSave': "기본 지식 베이스 저장",
+  'workspace.kbSaved': "저장했습니다.",
+  'workspace.kbManage': "지식 베이스 관리",
   'workspace.credDesc': '이 앱의 테스트 데이터(계정, 비밀번호, 서버 이름/IP 등)를 설정합니다. 실행 중 입력이 필요하면 AI가 여기 값을 자동으로 사용하므로 테스트 케이스에 직접 쓸 필요가 없습니다.',
   'workspace.credKey': '항목 이름',
   'workspace.credKeyHint': '"계정" "비밀번호" "서버 이름" 처럼 알아보기 쉬운 이름을 사용하세요. AI가 의미로 화면 항목에 매핑합니다.',
