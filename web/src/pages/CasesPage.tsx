@@ -25,9 +25,17 @@ interface CaseSummary {
 
 type Mode = 'nl' | 'yaml' | 'excel';
 
-export default function CasesPage() {
+/**
+ * 測試案例頁。
+ *
+ * 傳入 appId 時進入「嵌入模式」:同一份版面嵌在應用工作區的案例分頁裡,
+ * 只是鎖定單一應用 —— 省掉頁標題與應用下拉,其餘排版與這頁完全一致
+ * (刻意共用同一個元件,而不是在工作區再寫一份清單)。
+ */
+export default function CasesPage({ appId: lockedApp }: { appId?: string } = {}) {
   const { t, locale } = useI18n();
   const lang = reportLang(locale);
+  const embedded = Boolean(lockedApp);
   const casesQuery = useQuery<ListResponse<CaseSummary>>('cases', () =>
     apiGet<ListResponse<CaseSummary>>('/cases'),
   );
@@ -35,7 +43,9 @@ export default function CasesPage() {
   const overviewQuery = useQuery<{ items: CaseOverviewItem[] }>('casesOverview', () =>
     apiGet<{ items: CaseOverviewItem[] }>('/cases/overview'),
   );
-  const overview = overviewQuery.data?.items ?? [];
+  const overview = (overviewQuery.data?.items ?? []).filter(
+    (c) => !lockedApp || c.app === lockedApp,
+  );
   const refetchAll = () => {
     casesQuery.refetch();
     overviewQuery.refetch();
@@ -47,7 +57,7 @@ export default function CasesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>('nl');
-  const [appId, setAppId] = useState('');
+  const [appId, setAppId] = useState(lockedApp ?? '');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [yaml, setYaml] = useState('');
@@ -68,7 +78,7 @@ export default function CasesPage() {
   function resetForm() {
     setEditingId(null);
     setMode('nl');
-    setAppId('');
+    setAppId(lockedApp ?? '');
     setName('');
     setDescription('');
     setYaml('');
@@ -168,7 +178,8 @@ export default function CasesPage() {
   }
 
   const apps = appsQuery.data?.items ?? [];
-  const cases = casesQuery.data?.items ?? [];
+  // 嵌入模式只看這個應用的案例(/cases/overview 沒有 app 參數,在前端篩)。
+  const cases = (casesQuery.data?.items ?? []).filter((c) => !lockedApp || c.app === lockedApp);
   const appById = useMemo(() => {
     const m = new Map<string, AppRecord>();
     for (const a of apps) m.set(a.id, a);
@@ -228,9 +239,9 @@ export default function CasesPage() {
   }
 
   return (
-    <section className="listpage listpage--wide">
+    <section className={`listpage listpage--wide${embedded ? ' listpage--embed' : ''}`}>
       <header className="listpage__header cases__header">
-        <h1 className="listpage__title">{t('page.cases.title')}</h1>
+        {!embedded && <h1 className="listpage__title">{t('page.cases.title')}</h1>}
         <span className="cases__header-actions">
           {selectedKeys.size > 0 && (
             <button
@@ -260,22 +271,25 @@ export default function CasesPage() {
         <form ref={formRef} className="cases__form" onSubmit={onSubmit}>
           {editing && <h2 className="cases__form-title">{t('cases.editTitle')}</h2>}
           <div className="cases__row">
-            <label className="cases__field">
-              <span className="cases__label">{t('cases.app')}</span>
-              {/* 編輯時 App 固定(案例 key 綁定 app),不可改 */}
-              <select
-                value={appId}
-                onChange={(e) => setAppId(e.target.value)}
-                disabled={editing}
-              >
-                <option value="">—</option>
-                {apps.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {/* 嵌入工作區時應用已鎖定,不顯示這個下拉 */}
+            {!embedded && (
+              <label className="cases__field">
+                <span className="cases__label">{t('cases.app')}</span>
+                {/* 編輯時 App 固定(案例 key 綁定 app),不可改 */}
+                <select
+                  value={appId}
+                  onChange={(e) => setAppId(e.target.value)}
+                  disabled={editing}
+                >
+                  <option value="">—</option>
+                  {apps.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             {/* Excel 匯入:名稱取自每一列,不用這個欄位 */}
             {mode !== 'excel' && (
               <label className="cases__field cases__field--grow">

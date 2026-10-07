@@ -75,8 +75,15 @@ function relativeTime(iso: string, locale: string): string {
   return rtf.format(Math.round(diff / 86_400_000), 'day');
 }
 
-export default function ReportsPage() {
+/**
+ * 測試報告頁。
+ *
+ * 傳入 appId 時進入「嵌入模式」:同一份版面嵌在應用工作區的報告分頁裡,
+ * 鎖定單一應用 —— 省掉頁標題與應用篩選,其餘統計/篩選/清單排版與這頁完全一致。
+ */
+export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {}) {
   const { t, locale } = useI18n();
+  const embedded = Boolean(lockedApp);
   const [items, setItems] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -87,7 +94,8 @@ export default function ReportsPage() {
   const [params, setParams] = useSearchParams();
   const q = params.get('q') ?? '';
   const stateF = params.get('state') ?? 'all';
-  const appF = params.get('app') ?? 'all';
+  // 嵌入模式鎖定應用;非嵌入模式才讀 ?app=。
+  const appF = lockedApp ?? params.get('app') ?? 'all';
   const catF = params.get('cat') ?? 'all';
   const backendF = params.get('backend') ?? 'all';
   const rangeF = params.get('range') ?? 'all';
@@ -100,14 +108,30 @@ export default function ReportsPage() {
       return next;
     }, { replace: true });
   };
-  const hasFilters = Boolean(q) || [stateF, appF, catF, backendF, rangeF].some((v) => v !== 'all') || sortF !== 'newest';
+  const hasFilters =
+    Boolean(q) ||
+    [stateF, catF, backendF, rangeF].some((v) => v !== 'all') ||
+    (!embedded && appF !== 'all') ||
+    sortF !== 'newest';
+  /** 清除篩選:嵌入模式要保留 ?tab=,否則會被踢回工作區總覽。 */
+  function clearFilters() {
+    setParams((prev) => {
+      const next = new URLSearchParams();
+      const tab = prev.get('tab');
+      if (tab) next.set('tab', tab);
+      return next;
+    }, { replace: true });
+  }
 
   useEffect(() => {
-    apiGet<ListResponse<ReportItem>>('/reports')
+    apiGet<ListResponse<ReportItem>>(
+      lockedApp ? `/reports?app=${encodeURIComponent(lockedApp)}` : '/reports',
+    )
       .then((r) => setItems(r.items.filter((x) => TERMINAL.has(x.state))))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lockedApp]);
 
   // 除了「狀態」以外的條件先套用:狀態籤的數字反映其他篩選後的分布。
   const baseFiltered = useMemo(() => {
@@ -214,10 +238,12 @@ export default function ReportsPage() {
     });
 
   return (
-    <section className="listpage listpage--wide rpts">
-      <header className="listpage__header rpts__header">
-        <h1 className="listpage__title">{t('page.reports.title')}</h1>
-      </header>
+    <section className={`listpage listpage--wide rpts${embedded ? ' listpage--embed' : ''}`}>
+      {!embedded && (
+        <header className="listpage__header rpts__header">
+          <h1 className="listpage__title">{t('page.reports.title')}</h1>
+        </header>
+      )}
 
       {loading && items.length === 0 ? (
         <div className="listpage__skeleton" aria-hidden="true">
@@ -277,10 +303,13 @@ export default function ReportsPage() {
             </div>
 
             <div className="rpts__selects">
-              <Select label={t('reports.filterApp')} value={appF} onChange={(v) => setParam('app', v)}>
-                <option value="all">{t('reports.allApps')}</option>
-                {appOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </Select>
+              {/* 嵌入工作區時清單已鎖定單一應用,這個篩選沒有意義 */}
+              {!embedded && (
+                <Select label={t('reports.filterApp')} value={appF} onChange={(v) => setParam('app', v)}>
+                  <option value="all">{t('reports.allApps')}</option>
+                  {appOptions.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </Select>
+              )}
               <Select label={t('reports.filterCategory')} value={catF} onChange={(v) => setParam('cat', v)}>
                 <option value="all">{t('reports.allCategories')}</option>
                 <option value="test">{t('reports.category.test')}</option>
@@ -302,7 +331,7 @@ export default function ReportsPage() {
                 ))}
               </Select>
               {hasFilters && (
-                <button type="button" className="rpts__clear" onClick={() => setParams(new URLSearchParams(), { replace: true })}>
+                <button type="button" className="rpts__clear" onClick={clearFilters}>
                   {t('reports.clearFilters')}
                 </button>
               )}

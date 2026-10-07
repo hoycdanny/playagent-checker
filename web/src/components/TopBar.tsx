@@ -8,11 +8,10 @@ import './TopBar.css';
 const BASE_NAV_KEYS = [
   { key: 'nav.guide' as const, path: '/guide' },
   { key: 'nav.apps' as const, path: '/apps' },
-  { key: 'nav.cases' as const, path: '/cases' },
-  { key: 'nav.tasks' as const, path: '/tasks' },
-  { key: 'nav.reports' as const, path: '/reports' },
+  // 測試案例 / 測試任務 / 測試報告 / 記憶地圖 不放在導覽列 —— 它們都綁在某個應用上,
+  // 入口是「應用管理 → 進入工作區」的分頁。路由仍然有效(#/cases 等),
+  // 只是不佔用上方版面。
   { key: 'nav.devices' as const, path: '/devices' },
-  { key: 'nav.memory' as const, path: '/memory' },
   { key: 'nav.knowledge' as const, path: '/knowledge' },
   { key: 'nav.cost' as const, path: '/cost' },
 ];

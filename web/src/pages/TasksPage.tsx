@@ -13,7 +13,13 @@ import DevicePicker from '../components/DevicePicker.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 
-type AppRecord = AppRef & { defaultKnowledgeBaseIds?: string[] };
+type AppRecord = AppRef & {
+  defaultKnowledgeBaseIds?: string[];
+  /** 使用中的版本(產物 id)。 */
+  artifactId?: string;
+  /** 已上傳的版本清單(新到舊);多版本 App 才有多筆。 */
+  builds?: { artifactId: string; label: string }[];
+};
 interface CaseSummary {
   id: string;
   app: string;
@@ -81,8 +87,16 @@ interface KnowledgeBaseSummary {
   archived?: boolean;
 }
 
-export default function TasksPage() {
+/**
+ * 測試任務頁。
+ *
+ * 傳入 appId 時進入「嵌入模式」:同一份版面嵌在應用工作區的任務分頁裡,
+ * 鎖定單一應用 —— 省掉頁標題、應用下拉與應用篩選,並多一個「測試版本」下拉
+ * (多版本 App 可以挑舊版重跑)。其餘排版與這頁完全一致。
+ */
+export default function TasksPage({ appId: lockedApp }: { appId?: string } = {}) {
   const { t } = useI18n();
+  const embedded = Boolean(lockedApp);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [apps, setApps] = useState<AppRecord[]>([]);
@@ -95,8 +109,10 @@ export default function TasksPage() {
   useEffect(() => {
     if (showForm) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [showForm]);
-  const [appId, setAppId] = useState('');
+  const [appId, setAppId] = useState(lockedApp ?? '');
   const [caseId, setCaseId] = useState('');
+  // 要測哪一版(空 = 應用目前使用中的版本);只在嵌入模式且有多版本時出現。
+  const [buildId, setBuildId] = useState('');
   const [backend, setBackend] = useState('web');
   const [runtimeId, setRuntimeId] = useState<RuntimeId>('web');
   // Android 容器 / Windows 的最長執行時數。
@@ -138,7 +154,11 @@ export default function TasksPage() {
   async function refetch() {
     // 只取最新 100 筆:後端據此只讀該 N 筆的物件(避免對全部任務 N+1 展開),
     // 列表載入從十幾秒降到 1~2 秒。前端仍以 usePagedList 於此範圍內漸進顯示。
-    const res = await apiGet<ListResponse<TaskItem>>('/tasks?limit=100');
+    // 嵌入模式帶 ?app=:後端在截斷「之前」就篩,冷門應用才不會看起來沒有任務。
+    const path = lockedApp
+      ? `/tasks?app=${encodeURIComponent(lockedApp)}&limit=200`
+      : '/tasks?limit=100';
+    const res = await apiGet<ListResponse<TaskItem>>(path);
     setTasks(res.items);
     setLoading(false);
   }
@@ -146,7 +166,9 @@ export default function TasksPage() {
   useEffect(() => {
     refetch().catch(() => setLoading(false));
     apiGet<ListResponse<AppRecord>>('/apps').then((r) => setApps(r.items)).catch(() => {});
-    apiGet<ListResponse<CaseSummary>>('/cases').then((r) => setCases(r.items)).catch(() => {});
+    apiGet<ListResponse<CaseSummary>>('/cases')
+      .then((r) => setCases(lockedApp ? r.items.filter((c) => c.app === lockedApp) : r.items))
+      .catch(() => {});
     apiGet<ListResponse<KnowledgeBaseSummary>>('/knowledge-bases')
       .then((r) => setKbs(r.items))
       .catch(() => {});
@@ -174,7 +196,19 @@ export default function TasksPage() {
     apiGet<ListResponse<CloudDevice>>('/devices/cloud')
       .then((r) => setCloudDevices(r.items))
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 嵌入模式:應用載入後套用它的預設執行環境與預設知識庫
+  //(非嵌入模式這件事發生在使用者選應用的 onChange 裡)。
+  const lockedAppRecord = lockedApp ? apps.find((a) => a.id === lockedApp) : undefined;
+  useEffect(() => {
+    if (!lockedAppRecord) return;
+    const r = defaultRuntime(lockedAppRecord.platform);
+    setRuntimeId(r.id);
+    setBackend(r.backend);
+    setSelectedKbIds(lockedAppRecord.defaultKnowledgeBaseIds ?? []);
+  }, [lockedAppRecord]);
 
   // 有執行中/排隊任務時自動輪詢(Req 3.6 讀 status 真相源)。
   useEffect(() => {
@@ -278,6 +312,8 @@ export default function TasksPage() {
         backend,
         appId,
         caseId,
+        // 多版本 App:指定要測的版本(空 = 使用中的版本)。
+        ...(buildId ? { buildId } : {}),
         ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
         ...(AGENT_SUBAGENT_BACKENDS.has(backend) && agentModel ? { agentModel } : {}),
         ...(AGENT_SUBAGENT_BACKENDS.has(backend) && subagentModel ? { subagentModel } : {}),
@@ -376,9 +412,9 @@ export default function TasksPage() {
   const { visible, hasMore, shownCount, total, loadMore } = usePagedList(filtered);
 
   return (
-    <section className="listpage listpage--wide">
+    <section className={`listpage listpage--wide${embedded ? ' listpage--embed' : ''}`}>
       <header className="listpage__header tasks__header">
-        <h1 className="listpage__title">{t('page.tasks.title')}</h1>
+        {!embedded && <h1 className="listpage__title">{t('page.tasks.title')}</h1>}
         {!showForm && (
           <button
             type="button"
@@ -392,6 +428,8 @@ export default function TasksPage() {
 
       {showForm && (
         <form ref={formRef} className="tasks__form" onSubmit={onSubmit}>
+          {/* 嵌入工作區時應用已鎖定,不顯示這個下拉 */}
+          {!embedded && (
           <label className="tasks__field">
             <span className="tasks__label">{t('tasks.app')}</span>
             <select
@@ -420,6 +458,7 @@ export default function TasksPage() {
               ))}
             </select>
           </label>
+          )}
           <label className="tasks__field">
             <span className="tasks__label">{t('tasks.case')}</span>
             <select value={caseId} onChange={(e) => setCaseId(e.target.value)}>
@@ -431,6 +470,24 @@ export default function TasksPage() {
               ))}
             </select>
           </label>
+          {/* 多版本 App:挑一版來測(預設使用中的版本)。版本管理在工作區的「版本」分頁。 */}
+          {(lockedAppRecord?.builds?.length ?? 0) > 1 && (
+            <label className="tasks__field">
+              <span className="tasks__label">{t('workspace.buildPick')}</span>
+              <span className="tasks__field-hint">{t('workspace.buildPickHint')}</span>
+              <select value={buildId} onChange={(e) => setBuildId(e.target.value)}>
+                <option value="">{t('workspace.buildUseActive')}</option>
+                {(lockedAppRecord?.builds ?? []).map((b) => (
+                  <option key={b.artifactId} value={b.artifactId}>
+                    {b.label}
+                    {b.artifactId === lockedAppRecord?.artifactId
+                      ? ` (${t('workspace.buildActive')})`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="tasks__field">
             <span className="tasks__label">{t('tasks.backend')}</span>
             {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
@@ -646,17 +703,20 @@ export default function TasksPage() {
             ))}
           </select>
         </label>
-        <label className="tasks__filter-item">
-          <span className="tasks__filter-label">{t('tasks.colApp')}</span>
-          <select value={appFilter} onChange={(e) => setAppFilter(e.target.value)}>
-            <option value="">{t('tasks.filterAll')}</option>
-            {availableApps.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {/* 嵌入工作區時清單已鎖定單一應用,這個篩選沒有意義 */}
+        {!embedded && (
+          <label className="tasks__filter-item">
+            <span className="tasks__filter-label">{t('tasks.colApp')}</span>
+            <select value={appFilter} onChange={(e) => setAppFilter(e.target.value)}>
+              <option value="">{t('tasks.filterAll')}</option>
+              {availableApps.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="tasks__filter-item">
           <span className="tasks__filter-label">{t('tasks.colBackend')}</span>
           <select value={backendFilter} onChange={(e) => setBackendFilter(e.target.value)}>

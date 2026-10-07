@@ -163,3 +163,17 @@
   color: var(--text-secondary);
   cursor: pointer;
 }
+
+/* 嵌入模式:整頁版面被放進另一個容器(例如應用工作區的分頁)。
+   去掉頁面層級的寬度上限與內距,內部元素的 class 完全不變 ——
+   所以工作區看到的排版就是原頁面的排版。 */
+.listpage--embed {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* 嵌入時沒有 <h1>,標題列只剩操作按鈕,不需要原本那麼大的下方間距 */
+.listpage--embed .listpage__header {
+  margin-bottom: var(--space-4);
+}
