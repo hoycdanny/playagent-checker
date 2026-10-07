@@ -19,6 +19,7 @@ import { draftCaseYaml, makeBedrockClient } from './draft.js';
 import { getRealCost, jobIdFromSessionName, makeCostExplorerClient, type DeviceSessionUsage, type RealCost } from './cost.js';
 import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
 import { makeSecretWriter } from './secretValueStore.js';
+import { makeSystemUpdatePorts, systemUpdateConfigFromEnv } from './systemUpdatePorts.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-east-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
@@ -42,6 +43,14 @@ const userAdmin = USER_POOL_ID
   : undefined;
 // 測試憑證值寫入(Secrets Manager,與資料同區 us-east-2);runner 執行時才讀值替換 PA_TASK。
 const secretWriter = makeSecretWriter(REGION);
+// 系統更新(admin 專用):CDK 注入專案名/參數名才啟用;未設定時 /system/* 回 501。
+const updateCfg = systemUpdateConfigFromEnv(process.env, REGION, BUCKET);
+const systemUpdate = updateCfg
+  ? {
+    ports: makeSystemUpdatePorts(updateCfg, secretWriter, sharedS3),
+    repo: process.env.GITHUB_REPO ?? '',
+  }
+  : undefined;
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
 let cloudDeviceCache: { at: number; items: CloudDevice[] } | null = null;
@@ -172,6 +181,7 @@ const deps: ApiDeps = {
     return value;
   },
   ...(userAdmin ? { userAdmin } : {}),
+  ...(systemUpdate ? { systemUpdate } : {}),
   secretWriter,
 };
 

@@ -21,9 +21,13 @@ export function TopBar() {
   const { t } = useI18n();
   const { theme, toggleTheme } = useTheme();
   const { email, tenantId, isAdmin, logout } = useAuth();
-  // 成員管理僅 admin 可見(真正授權在後端 requireAdmin)。
+  // 成員管理與系統更新僅 admin 可見(真正授權在後端 requireAdmin)。
   const navKeys = isAdmin
-    ? [...BASE_NAV_KEYS, { key: 'nav.members' as const, path: '/members' }]
+    ? [
+      ...BASE_NAV_KEYS,
+      { key: 'nav.members' as const, path: '/members' },
+      { key: 'nav.system' as const, path: '/system' },
+    ]
     : BASE_NAV_KEYS;
   const [menuOpen, setMenuOpen] = useState(false);
 

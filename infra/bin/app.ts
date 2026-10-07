@@ -10,10 +10,19 @@ import { ControlPlaneStack } from '../lib/control-plane-stack.js';
 import { SchedulingStack } from '../lib/scheduling-stack.js';
 import { ExecutionStack } from '../lib/execution-stack.js';
 import { FrontendStack } from '../lib/frontend-stack.js';
+import { UpdaterStack, UPDATE_HISTORY_KEY } from '../lib/updater-stack.js';
 
 const app = new App();
 const cfg = resolveConfig(app);
 const { env, stackPrefix } = cfg;
+
+// 一鍵更新用到的固定名稱:同時給 Updater(建資源)與 ControlPlane(授權 + 呼叫),
+// 用字面字串而非跨 stack 參照,這樣任一方都能單獨部署,不會因為缺 export 而卡住。
+const UPDATE_PROJECT_NAME = `${stackPrefix}-self-update`;
+const UPDATE_LOG_GROUP = `/playagent/${stackPrefix}/update`;
+const GITHUB_SECRET_NAME = 'playagent/github';
+const DEPLOYED_VERSION_PARAM = `/playagent/${stackPrefix}/deployed-version`;
+const GITHUB_REPO = (app.node.tryGetContext('githubRepo') as string | undefined) ?? 'hoycdanny/playagent-checker';
 
 // 有狀態基礎(Cognito / 資料桶 / 租戶角色)。
 const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, {
@@ -50,10 +59,41 @@ const controlPlane = new ControlPlaneStack(app, `${stackPrefix}-ControlPlane`, {
   kbServiceRoleArn: foundation.kbFoundation.serviceRole.roleArn,
   kbVectorBucketPrefix: KB_VECTOR_BUCKET_PREFIX,
   kbEmbeddingModelId: KB_EMBEDDING_MODEL_ID,
+  // 一鍵更新:API 負責驗證與觸發,實際部署在 Updater stack。
+  updater: {
+    projectName: UPDATE_PROJECT_NAME,
+    logGroupName: UPDATE_LOG_GROUP,
+    githubSecretName: GITHUB_SECRET_NAME,
+    deployedVersionParam: DEPLOYED_VERSION_PARAM,
+    historyKey: UPDATE_HISTORY_KEY,
+    repo: GITHUB_REPO,
+  },
 });
 
 // 前端(S3 + CloudFront)—— 階段 0 已可佈署。
 const frontend = new FrontendStack(app, `${stackPrefix}-Frontend`, { env });
+
+// 一鍵更新(管理介面觸發):CodeBuild 從 GitHub 指定版本重新部署下面這五個 stack。
+// 本 stack 刻意不在自己的部署清單裡 —— 更新時不改到正在跑更新的資源;
+// 改了 updater-stack.ts 要人工 `cdk deploy <prefix>-Updater`。
+const updater = new UpdaterStack(app, `${stackPrefix}-Updater`, {
+  env,
+  projectName: UPDATE_PROJECT_NAME,
+  logGroupName: UPDATE_LOG_GROUP,
+  dataBucket: foundation.dataBucket,
+  repo: GITHUB_REPO,
+  targetStacks: [
+    `${stackPrefix}-Foundation`,
+    `${stackPrefix}-Execution`,
+    `${stackPrefix}-Scheduling`,
+    `${stackPrefix}-ControlPlane`,
+    `${stackPrefix}-Frontend`,
+  ],
+  githubSecretName: GITHUB_SECRET_NAME,
+  stateParamName: DEPLOYED_VERSION_PARAM,
+  imageBuildProjects: ['playagent-exploration-runner-build', 'playagent-web-runner-build'],
+  imageBuildRoleName: 'PlayAgentCodeBuildUitarsRole',
+});
 
 // 統一標記,便於成本歸屬與治理(CDK 最佳實踐)。
 // - project / stage / component 為系統保留標籤(自動帶,供費用分析頁依 component 分組)。
@@ -65,6 +105,7 @@ const stackComponents: { stack: import('aws-cdk-lib').Stack; component: string }
   { stack: scheduling, component: 'scheduling' },
   { stack: execution, component: 'execution' },
   { stack: frontend, component: 'frontend' },
+  { stack: updater, component: 'updater' },
 ];
 for (const { stack, component } of stackComponents) {
   Tags.of(stack).add('project', 'playagent-checker');
