@@ -81,6 +81,13 @@ import {
 import { tenantSecretPrefix } from './secretRefs.js';
 import type { SecretWriter } from './secretValueStore.js';
 import {
+  buildVersionReport,
+  looksLikeToken,
+  startUpdate,
+  UpdateError,
+  type SystemUpdatePorts,
+} from './systemUpdate.js';
+import {
   listAppCredentials,
   putAppCredential,
   deleteAppCredential,
@@ -199,6 +206,8 @@ export interface ApiDeps {
   userAdmin?: UserAdmin;
   /** 測試憑證值寫入(Secrets Manager)。選填;未注入時 /secret-refs 僅登記名稱不存值。 */
   secretWriter?: SecretWriter;
+  /** 系統更新(admin 專用)。選填;未注入時 /system/* 回 501。 */
+  systemUpdate?: { ports: SystemUpdatePorts; repo: string };
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示 + 提交任務時挑機)。 */
@@ -249,6 +258,54 @@ export async function handleRequest(
           email: tenant.email,
           isAdmin: isAdmin(req.claims),
         });
+
+      // ── 系統更新(admin 專用)────────────────────────────────────────
+      // 這些路由最終會觸發 CodeBuild 以 CDK 重新部署整個平台,blast radius 是整個帳號,
+      // 所以一律 requireAdmin,並且每次觸發都寫審計紀錄(誰、何時、哪個版本)。
+      case 'GET /system/version': {
+        requireAdmin(req.claims);
+        if (!deps.systemUpdate) return json(501, { error: '系統更新未設定' });
+        const report = await buildVersionReport(deps.systemUpdate.ports, deps.systemUpdate.repo);
+        return json(200, report);
+      }
+
+      case 'GET /system/history': {
+        requireAdmin(req.claims);
+        if (!deps.systemUpdate) return json(501, { error: '系統更新未設定' });
+        const items = await deps.systemUpdate.ports.readHistory();
+        return json(200, { items });
+      }
+
+      case 'POST /system/update': {
+        requireAdmin(req.claims);
+        if (!deps.systemUpdate) return json(501, { error: '系統更新未設定' });
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const ref = typeof body.ref === 'string' ? body.ref.trim() : '';
+        if (!ref) throw new BadRequestError('ref 為必填(要部署的 tag / 分支 / commit sha)');
+        try {
+          const started = await startUpdate(deps.systemUpdate.ports, deps.systemUpdate.repo, {
+            ref,
+            by: tenant.email ?? tenant.tenantId,
+            ...(body.runTests === false ? { runTests: false } : {}),
+            ...(body.force === true ? { force: true } : {}),
+          });
+          return json(202, started);
+        } catch (err) {
+          if (err instanceof UpdateError) return json(409, { error: err.message });
+          throw err;
+        }
+      }
+
+      case 'PUT /system/github-token': {
+        requireAdmin(req.claims);
+        if (!deps.systemUpdate) return json(501, { error: '系統更新未設定' });
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const token = typeof body.token === 'string' ? body.token.trim() : '';
+        // 只回「已設定」,永不回傳或記錄 token 本身。
+        if (!looksLikeToken(token)) throw new BadRequestError('token 格式不正確(至少 20 個字元,只含英數與 - _)');
+        await deps.systemUpdate.ports.writeToken(token);
+        return json(200, { tokenConfigured: true });
+      }
 
       case 'GET /users': {
         // 成員管理(admin 專用):列出本 user pool 使用者。
@@ -1091,6 +1148,26 @@ export async function handleRequest(
           const enable = memberToggle[2] === 'enable';
           await deps.userAdmin.setEnabled(username, enable);
           return json(200, { username, enabled: enable });
+        }
+        // 動態路由:GET /system/update/{buildId}(進度)與 .../log(建置輸出)。
+        const buildLog = req.method === 'GET' && /^\/system\/update\/([^/]+)\/log$/.exec(req.path);
+        if (buildLog) {
+          requireAdmin(req.claims);
+          if (!deps.systemUpdate) return json(501, { error: '系統更新未設定' });
+          const build = await deps.systemUpdate.ports.getBuild(decodeURIComponent(buildLog[1]!));
+          if (!build) return json(404, { error: '找不到這次更新' });
+          if (!build.logGroup || !build.logStream) return json(200, { lines: [], status: build.status });
+          const next = req.query?.['next'];
+          const page = await deps.systemUpdate.ports.readLog(build.logGroup, build.logStream, next);
+          return json(200, { ...page, status: build.status });
+        }
+        const buildStatus = req.method === 'GET' && /^\/system\/update\/([^/]+)$/.exec(req.path);
+        if (buildStatus) {
+          requireAdmin(req.claims);
+          if (!deps.systemUpdate) return json(501, { error: '系統更新未設定' });
+          const build = await deps.systemUpdate.ports.getBuild(decodeURIComponent(buildStatus[1]!));
+          if (!build) return json(404, { error: '找不到這次更新' });
+          return json(200, build);
         }
         // 動態路由:GET /tasks/{id}/live-frame(即時畫面最新幀的短效 presigned URL)。
         // runner 持續覆寫同一個 live key;前端在任務執行中以 ~3-5fps 輪詢此路由換 <img>。

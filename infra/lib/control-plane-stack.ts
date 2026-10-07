@@ -19,6 +19,15 @@ export interface ControlPlaneStackProps extends StackProps {
   kbVectorBucketPrefix: string;
   /** KB embeddings 模型 id。 */
   kbEmbeddingModelId: string;
+  /** 系統更新(admin 一鍵更新)所需的固定名稱;省略則 /system/* 回 501。 */
+  updater?: {
+    projectName: string;
+    logGroupName: string;
+    githubSecretName: string;
+    deployedVersionParam: string;
+    historyKey: string;
+    repo: string;
+  };
 }
 
 /**
@@ -43,6 +52,7 @@ export class ControlPlaneStack extends Stack {
       kbServiceRoleArn: props.kbServiceRoleArn,
       kbVectorBucketPrefix: props.kbVectorBucketPrefix,
       kbEmbeddingModelId: props.kbEmbeddingModelId,
+      ...(props.updater ? { updater: props.updater } : {}),
     });
 
     // 即時串流(WebSocket + S3 事件推送)。

@@ -20,6 +20,7 @@ const MemoryPage = lazy(() => import('./pages/MemoryPage.tsx'));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage.tsx'));
 const CostPage = lazy(() => import('./pages/CostPage.tsx'));
 const MembersPage = lazy(() => import('./pages/MembersPage.tsx'));
+const SystemUpdatePage = lazy(() => import('./pages/SystemUpdatePage.tsx'));
 const GuidePage = lazy(() => import('./pages/GuidePage.tsx'));
 
 /**
@@ -88,6 +89,7 @@ function AppRoutes() {
         <Route path="/knowledge" element={<KnowledgePage />} />
         <Route path="/cost" element={<CostPage />} />
         <Route path="/members" element={<MembersPage />} />
+        <Route path="/system" element={<SystemUpdatePage />} />
         <Route path="*" element={<Navigate to="/guide" replace />} />
       </Routes>
     </ErrorBoundary>

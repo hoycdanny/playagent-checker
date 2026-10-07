@@ -29,6 +29,18 @@ export interface HttpApiLambdaProps {
   kbVectorBucketPrefix: string;
   /** KB embeddings 模型 id。 */
   kbEmbeddingModelId: string;
+  /**
+   * 系統更新(admin 一鍵更新)。名稱由 bin/app.ts 決定並同時給 UpdaterStack,
+   * 用字面字串而非跨 stack 參照,兩邊才能各自單獨部署。省略則 /system/* 回 501。
+   */
+  updater?: {
+    projectName: string;
+    logGroupName: string;
+    githubSecretName: string;
+    deployedVersionParam: string;
+    historyKey: string;
+    repo: string;
+  };
 }
 
 /**
@@ -68,6 +80,16 @@ export class HttpApiLambda extends Construct {
         USER_POOL_ID: props.userPool.userPoolId,
         // Bedrock KB(Stage B):runtime 建 KB 用。
         KB_SERVICE_ROLE_ARN: props.kbServiceRoleArn,
+        // 系統更新(admin 專用);未帶這組變數時 handler 不注入 systemUpdate,路由回 501。
+        ...(props.updater
+          ? {
+            UPDATE_PROJECT_NAME: props.updater.projectName,
+            DEPLOYED_VERSION_PARAM: props.updater.deployedVersionParam,
+            GITHUB_SECRET_NAME: props.updater.githubSecretName,
+            UPDATE_HISTORY_KEY: props.updater.historyKey,
+            GITHUB_REPO: props.updater.repo,
+          }
+          : {}),
         KB_VECTOR_BUCKET_PREFIX: props.kbVectorBucketPrefix,
         KB_EMBEDDING_MODEL_ID: props.kbEmbeddingModelId,
       },
@@ -203,6 +225,55 @@ export class HttpApiLambda extends Construct {
         resources: [`arn:aws:secretsmanager:*:${acct}:secret:playagent/tenant/*`],
       }),
     );
+
+    // ── 系統更新(admin 專用)────────────────────────────────────────────
+    // 注意:這組權限讓 API 能「觸發」更新,而更新本身會以 CDK 重新部署整個平台。
+    // API 自己沒有部署權限,高權限在 UpdaterStack 的 CodeBuild 角色與 CloudFormation;
+    // 真正的守門是後端 requireAdmin(JWT cognito:groups 含 admins)。
+    if (props.updater) {
+      const u = props.updater;
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['codebuild:StartBuild', 'codebuild:BatchGetBuilds', 'codebuild:ListBuildsForProject'],
+          resources: [`arn:aws:codebuild:${props.region}:${acct}:project/${u.projectName}`],
+        }),
+      );
+      // 更新進度頁要讀 build log。log group 名是固定值,故可精確 scope。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['logs:GetLogEvents'],
+          resources: [`arn:aws:logs:${props.region}:${acct}:log-group:${u.logGroupName}:*`],
+        }),
+      );
+      // 已部署版本(唯讀;寫入由更新器在 build 結束時做)。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['ssm:GetParameter'],
+          resources: [`arn:aws:ssm:${props.region}:${acct}:parameter${u.deployedVersionParam}`],
+        }),
+      );
+      // GitHub token:管理員從介面匯入(寫)+ 比對版本時呼叫 GitHub(讀)。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['secretsmanager:PutSecretValue', 'secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret', 'secretsmanager:TagResource'],
+          resources: [`arn:aws:secretsmanager:*:${acct}:secret:${u.githubSecretName}-??????`],
+        }),
+      );
+      // 更新歷史放 _system/ 前綴(與租戶資料隔離)。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:GetObject', 's3:PutObject'],
+          resources: [`${props.dataBucket.bucketArn}/_system/*`],
+        }),
+      );
+      // 更新前警告「還有任務在跑」:唯讀,兩者都不支援資源級條件。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['ecs:ListClusters', 'ecs:ListTasks', 'ec2:DescribeInstances'],
+          resources: ['*'],
+        }),
+      );
+    }
 
     // 費用分析頁取 AWS 真實成本:Cost Explorer 唯讀(CE 不支援資源級條件,故 *)。
     this.apiFn.addToRolePolicy(
