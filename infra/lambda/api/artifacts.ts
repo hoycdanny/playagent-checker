@@ -14,17 +14,19 @@ export async function createDownloadUrl(
   });
 }
 
-export type ArtifactKind = 'apk' | 'ipa' | 'zip' | 'png';
+export type ArtifactKind = 'apk' | 'ipa' | 'zip' | 'exe' | 'png';
 
 const FILENAME_BY_KIND: Record<ArtifactKind, string> = {
   apk: 'app.apk',
   ipa: 'app.ipa',
   zip: 'game.zip',
+  // Windows 遊戲安裝檔(Inno Setup / NSIS 等);GameLift 主機會解開或靜默安裝。
+  exe: 'game.exe',
   // 應用圖示/代表截圖(前端列表小截圖)。與被測產物同機制:租戶前綴 + presigned。
   png: 'icon.png',
 };
 
-export const ARTIFACT_KINDS: readonly ArtifactKind[] = ['apk', 'ipa', 'zip', 'png'];
+export const ARTIFACT_KINDS: readonly ArtifactKind[] = ['apk', 'ipa', 'zip', 'exe', 'png'];
 
 /** presigned PUT URL 有效期(秒)。 */
 const UPLOAD_URL_TTL_SECONDS = 900;

@@ -81,11 +81,32 @@ export async function listMediaSegments(
 }
 
 export interface AudioLevels {
-  state: 'on' | 'unavailable' | 'stopped' | 'none';
+  /** recording = 測試中正在整場錄影(結束後才有檔案);on = 已有錄影可回放。 */
+  state: 'on' | 'recording' | 'unavailable' | 'stopped' | 'none';
   /** 每筆 RMS 的時間間隔(秒)。 */
   dt: number;
-  /** 各錄音段:開始時間(runner epoch ms)、長度(秒)、RMS dB 陣列。 */
-  chunks: Array<{ name: string; t: number; dur: number; rms: number[] }>;
+  /** 各錄影段:開始時間(runner epoch ms)、長度(秒)、RMS dB 陣列;url = 含聲音錄影(回放用)。 */
+  chunks: Array<{ name: string; t: number; dur: number; rms: number[]; url?: string }>;
+}
+
+/** 可回放的錄影檔名:整場錄影 rec-<n>.mp4(新)/ 舊版分段 a<ms>.mp4。 */
+const RECORDING_RE = /^(rec-\d{1,4}|a\d{13})\.mp4$/;
+
+/** 為每段錄影附上限時下載 URL(檔名不合格式的略過,不簽任意 key)。 */
+export async function withRecordingUrls(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+  jobId: string,
+  levels: AudioLevels,
+): Promise<AudioLevels> {
+  const prefix = `${tenantPrefix(tenantId)}jobs/${jobId}/audio/`;
+  const chunks = await Promise.all(
+    levels.chunks.map(async (c) =>
+      RECORDING_RE.test(c.name) ? { ...c, url: await createDownloadUrl(s3, bucket, `${prefix}${c.name}`) } : c,
+    ),
+  );
+  return { ...levels, chunks };
 }
 
 /** 讀音量時間軸(runner 每錄完一段就整份覆寫 audio/levels.json)。沒有 → state 'none'。 */
@@ -94,7 +115,7 @@ export async function readAudioLevels(s3: S3Client, bucket: string, tenantId: st
     const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${tenantPrefix(tenantId)}jobs/${jobId}/audio/levels.json` }));
     const doc = JSON.parse((await res.Body?.transformToString()) ?? '{}') as Partial<AudioLevels>;
     return {
-      state: doc.state === 'unavailable' || doc.state === 'stopped' ? doc.state : 'on',
+      state: doc.state === 'unavailable' || doc.state === 'stopped' || doc.state === 'recording' ? doc.state : 'on',
       dt: typeof doc.dt === 'number' && doc.dt > 0 ? doc.dt : 0.1,
       chunks: Array.isArray(doc.chunks) ? doc.chunks.filter((c) => c && typeof c.t === 'number' && Array.isArray(c.rms)) : [],
     };

@@ -83,7 +83,9 @@ export type OverrideKind =
   | 'reject_done'
   | 'loading_wait'
   | 'stuck_wait'
-  | 'stuck_escape';
+  | 'stuck_escape'
+  /** AI 往被障礙物擋住的方向重複推搖桿,runner 改向。 */
+  | 'blocked_move';
 
 /**
  * 一次效能取樣(runner agent/perfMonitor.mjs 以 adb shell 收集;舊版只有 cpuPct/memMB)。
@@ -153,6 +155,10 @@ export interface EvidenceStep {
   /** 上一步動作是否為 back(判斷前景遺失是 AI 誤操作還是疑似閃退)。 */
   prevAction?: string;
   perf?: PerfSample;
+  /** 長時模式的連線段(換新 Device Farm 連線後 +1;遊戲重新安裝,段與段之間的數值不互相比較)。 */
+  segment?: number;
+  /** 被判定為讀錯、已從 obs 移除的數值(原值 + 判斷依據,可回溯)。 */
+  excludedObs?: Record<string, { value: number; reason: L10n }>;
   durationMs?: number;
   vlmMs?: number;
   screenshotKey?: string;
@@ -592,6 +598,8 @@ export interface StructuredReport {
   profiles: Array<{ id: string; version: string; label: L10n }>;
   spec: { values: Record<string, number>; sources: string[] };
   evidence: EvidenceStep[];
+  /** 數據品質:排除的讀錯數值、投注額變更(每筆含步驟與前後值)。 */
+  dataQuality?: import('./dataQuality.js').DataQuality;
   notes: L10n[];
 }
 

@@ -8,6 +8,8 @@ import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.
 import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
 import { CaseVersions } from '../components/cases/CaseVersions.tsx';
 import { CaseOverviewTable, type CaseOverviewItem } from '../components/cases/CaseOverviewTable.tsx';
+import { ExcelImport } from '../components/cases/ExcelImport.tsx';
+import { reportLang } from '../components/report/reportText.ts';
 import './ListPage.css';
 import './CasesPage.css';
 import './TasksPage.css';
@@ -21,10 +23,11 @@ interface CaseSummary {
   version?: string;
 }
 
-type Mode = 'nl' | 'yaml';
+type Mode = 'nl' | 'yaml' | 'excel';
 
 export default function CasesPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const lang = reportLang(locale);
   const casesQuery = useQuery<ListResponse<CaseSummary>>('cases', () =>
     apiGet<ListResponse<CaseSummary>>('/cases'),
   );
@@ -273,14 +276,17 @@ export default function CasesPage() {
                 ))}
               </select>
             </label>
-            <label className="cases__field cases__field--grow">
-              <span className="cases__label">{t('cases.name')}</span>
-              <input
-                required
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </label>
+            {/* Excel 匯入:名稱取自每一列,不用這個欄位 */}
+            {mode !== 'excel' && (
+              <label className="cases__field cases__field--grow">
+                <span className="cases__label">{t('cases.name')}</span>
+                <input
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+              </label>
+            )}
           </div>
 
           <div className="cases__tabs" role="tablist">
@@ -302,9 +308,34 @@ export default function CasesPage() {
             >
               {t('cases.tabYaml')}
             </button>
+            {/* 從 Excel 匯入只用於新建(一次建立多個案例) */}
+            {!editing && (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mode === 'excel'}
+                className={`cases__tab ${mode === 'excel' ? 'cases__tab--active' : ''}`}
+                onClick={() => setMode('excel')}
+              >
+                {t('cases.tabExcel')}
+              </button>
+            )}
           </div>
 
-          {mode === 'nl' ? (
+          {mode === 'excel' ? (
+            <ExcelImport
+              appId={appId}
+              controls={controls}
+              lang={lang}
+              onCreated={(allOk) => {
+                refetchAll();
+                if (allOk) {
+                  setShowForm(false);
+                  resetForm();
+                }
+              }}
+            />
+          ) : mode === 'nl' ? (
             <div className="cases__field">
               {baseYaml && (
                 <p className="cases__tpl-note">{t('cases.fromTemplate')}</p>
@@ -391,6 +422,7 @@ export default function CasesPage() {
             >
               {t('cases.cancel')}
             </button>
+            {mode !== 'excel' && (
             <button
               type="submit"
               className="cases__submit"
@@ -404,6 +436,7 @@ export default function CasesPage() {
                   ? t('cases.saving')
                   : t('cases.save')}
             </button>
+            )}
           </div>
         </form>
       )}

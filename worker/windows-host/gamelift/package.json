@@ -1,0 +1,16 @@
+{
+  "name": "@playagent/windows-gls-setup",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "建立 PlayAgent 的 Windows 執行環境(Amazon GameLift Streams application / stream group)",
+  "scripts": {
+    "setup": "node setup.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-gameliftstreams": "3.1146.0",
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/client-ssm": "3.1146.0",
+    "@aws-sdk/client-sts": "3.1146.0"
+  }
+}

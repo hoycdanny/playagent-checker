@@ -12,6 +12,7 @@
 import { autospinRtp, computeMetric, isInteractive, obsSeries, round2, spinTransactions, balanceChecks, type MetricContext } from './metrics.js';
 import { applyExclude, mergeProfiles, metricOrigin, type MergedProfile } from './profiles.js';
 import { mergeSpecs, specFromKb } from './reportSpec.js';
+import { sanitizeObs, type DataQuality } from './dataQuality.js';
 import type {
   Assertion,
   ChartData,
@@ -109,12 +110,13 @@ export function resolveGenres(job?: EngineJob | null, app?: EngineApp | null): s
 
 const OVERRIDE_PATTERNS: Array<[RegExp, OverrideKind]> = [
   [/^\[戰鬥強制走位\]/, 'battle_move'],
+  [/^\[走位被擋改向\]/, 'blocked_move'],
   [/^\[拒絕假完成\]/, 'reject_done'],
   [/^偵測到載入\/開場動畫畫面/, 'loading_wait'],
   [/脫困/, 'stuck_escape'],
   [/^(偵測到安裝\/載入畫面|連續 \d+ 步畫面沒變,先等待)/, 'stuck_wait'],
 ];
-const OVERRIDES = new Set<OverrideKind>(['battle_move', 'reject_done', 'loading_wait', 'stuck_wait', 'stuck_escape']);
+const OVERRIDES = new Set<OverrideKind>(['battle_move', 'reject_done', 'loading_wait', 'stuck_wait', 'stuck_escape', 'blocked_move']);
 const CATEGORIES = new Set<FindingCategory>([
   'crash', 'functional', 'gameplay', 'graphics', 'animation', 'audio', 'ui', 'ux', 'performance',
   'network', 'localization', 'compatibility', 'physics', 'ai', 'save_data', 'economy',
@@ -195,6 +197,8 @@ export function normalizeSteps(rawSteps: unknown, opts: { legacySlot: boolean })
       action,
     };
     if (typeof s['at'] === 'string') step.at = s['at'];
+    const seg = num(s['segment']);
+    if (seg !== undefined && seg >= 1) step.segment = Math.floor(seg);
     if (thinking) step.thinking = thinking;
     const x = num(s['x']) ?? num((s['coords'] as Record<string, unknown> | undefined)?.['x']);
     const y = num(s['y']) ?? num((s['coords'] as Record<string, unknown> | undefined)?.['y']);
@@ -336,6 +340,7 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
   if (state === 'pass') return { blocked: false, reason: L('AI 完成測試目標', 'AI completed the test goal') };
   if (state === 'cancelled') return { blocked: true, reason: L('使用者取消,測試未完成', 'Cancelled by user; test incomplete') };
   if (state === 'budget_exceeded') return { blocked: true, reason: L('達預算上限,測試未完成', 'Budget limit reached; test incomplete') };
+  if (/執行時間上限/.test(msg)) return { blocked: true, reason: L('達執行時間上限(Device Farm 單次連線最長 150 分鐘),已提前收尾,測試未完成', 'Run-time limit reached (Device Farm sessions last at most 150 minutes); wrapped up early, test incomplete') };
   if (/達步數上限/.test(msg)) return { blocked: true, reason: L('達步數上限仍未完成目標,無法判定遊戲是否有問題', 'Step limit reached before goal; inconclusive') };
   if (/VLM 連續 \d+ 次回應無法解析/.test(msg) || last?.modelError) {
     return {
@@ -398,7 +403,7 @@ function stepsBefore(steps: EvidenceStep[], index: number, n = 5): string[] {
   return slice.map((s) => `#${s.index} ${s.screen} → ${s.action}${s.x !== undefined ? ` (${s.x},${s.y})` : ''}`);
 }
 
-function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleOf: (s: EvidenceStep) => string | undefined, testCaseId?: string) {
+function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleOf: (s: EvidenceStep) => string | undefined, testCaseId?: string, quality?: DataQuality) {
   const findings: Finding[] = [];
   const aiFailures: Finding[] = [];
   let seq = 0;
@@ -503,6 +508,37 @@ function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleO
     });
   }
 
+  // (b2) 投注額在測試中改變(確定性規則;每一次變更都列出步驟與前後值)。
+  if (quality?.betChanges.length) {
+    const ch = quality.betChanges;
+    const first = ch[0]!;
+    const st = steps.find((s) => s.index === first.step);
+    const list = ch.slice(0, 6).map((c) => `#${c.step}:${c.from.toLocaleString('en-US')} → ${c.to.toLocaleString('en-US')}`).join(';');
+    findings.push({
+      id: nextId('DEF'),
+      title: L('投注額在測試中改變', 'Bet amount changed during the test'),
+      description: L(
+        `投注額共變更 ${ch.length} 次(${list})。若測試腳本要求固定投注額,這段期間的 RTP 會受影響;RTP 已依投注額分段計算。常見原因:App 重啟後沿用其他投注設定、AI 誤觸投注鈕。`,
+        `The bet changed ${ch.length} time(s) (${list}). If the script requires a fixed bet, RTP for this period is affected; RTP is computed per bet level. Common causes: different bet settings after an app restart, or the AI touching the bet button.`,
+      ),
+      severity: 'medium',
+      category: 'economy',
+      classification: 'NEEDS_TRIAGE',
+      certainty: 'deterministic',
+      gameState: st?.screen,
+      frequency: ch.length,
+      reproducibility: reproLabel(ch.length, ch.length),
+      firstStep: first.step,
+      lastStep: ch[ch.length - 1]!.step,
+      expected: `bet = ${first.from.toLocaleString('en-US')}(#${first.prevStep})`,
+      actual: `bet = ${first.to.toLocaleString('en-US')}(#${first.step})`,
+      stepsToReproduce: stepsBefore(steps, first.step),
+      ...(st?.screenshotKey ? { screenshotKey: st.screenshotKey } : {}),
+      ...(testCaseId ? { relatedTestCase: testCaseId } : {}),
+      status: 'open',
+    });
+  }
+
   // (c) App 離開前景:AI 按 back 退出 = AI 失敗;程序未執行 = 疑似閃退;背景 = 跳到其他 App。
   for (const s of steps.filter((x) => x.foregroundLost)) {
     const appState = s.appState;
@@ -557,6 +593,8 @@ function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleO
   if (forcedDone.length) aiFailures.push(aiFinding(nextId('AIF'), forcedDone[0]!, L('AI 提前宣告完成(已被攔截)', 'AI declared done prematurely (intercepted)'), L(`AI 在目標未達成時 ${forcedDone.length} 次想結束測試,runner 攔截並要求繼續。`, `AI tried to finish ${forcedDone.length} time(s) before the goal was met; runner intercepted.`), 'medium', steps, forcedDone.length));
   const battleFix = steps.filter((s) => s.override === 'battle_move');
   if (battleFix.length) aiFailures.push(aiFinding(nextId('AIF'), battleFix[0]!, L('戰鬥中 AI 未用移動(已被修正)', 'AI did not move during combat (corrected)'), L(`${battleFix.length} 步 AI 在戰鬥中選擇點擊/等待,runner 改為搖桿移動。`, `${battleFix.length} step(s) where AI tapped/waited in combat; runner converted to joystick move.`), 'low', steps, battleFix.length));
+  const blockedFix = steps.filter((s) => s.override === 'blocked_move');
+  if (blockedFix.length) aiFailures.push(aiFinding(nextId('AIF'), blockedFix[0]!, L('AI 重複往被擋住的方向走(已改向)', 'AI kept moving into an obstacle (redirected)'), L(`${blockedFix.length} 步 AI 往上一步已被障礙物擋住的方向推搖桿,runner 改走其他方向。`, `${blockedFix.length} step(s) where AI pushed the joystick toward a blocked direction; runner redirected.`), 'low', steps, blockedFix.length));
   const escapes = steps.filter((s) => s.override === 'stuck_escape');
   if (escapes.length) aiFailures.push(aiFinding(nextId('AIF'), escapes[0]!, L('AI 找不到可互動元件(runner 脫困)', 'AI could not find an interactive element (runner escape)'), L(`runner 共 ${escapes.length} 次介入掃描/返回以脫困。`, `Runner intervened ${escapes.length} time(s) to escape.`), 'low', steps, escapes.length));
   const lowEff = steps.filter((s) => isInteractive(s) && s.effective === false && s.assertion !== 'pass');
@@ -826,7 +864,8 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const state = typeof raw['state'] === 'string' ? raw['state'] : 'unknown';
   const message = typeof raw['message'] === 'string' ? raw['message'] : undefined;
   const isSlotLike = genres.some((g) => g === 'slot' || g === 'casino');
-  const steps = normalizeSteps(raw['steps'], { legacySlot: isSlotLike });
+  // 讀錯的數值(餘額/投注額尖峰)從 obs 移除、改記在 excludedObs,不計入任何指標;清單附在報告 dataQuality。
+  const { steps, quality } = sanitizeObs(normalizeSteps(raw['steps'], { legacySlot: isSlotLike }));
 
   const moduleAttr = new Map<number, { id: string; basis: 'ai' | 'inferred' }>();
   for (const s of steps) {
@@ -836,7 +875,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const moduleOf = (s: EvidenceStep) => moduleAttr.get(s.index)?.id;
 
   const terminal = classifyTerminal(state, message, steps);
-  const { findings, aiFailures } = buildFindings(steps, terminal, moduleOf, job?.caseId);
+  const { findings, aiFailures } = buildFindings(steps, terminal, moduleOf, job?.caseId, quality);
   for (const f of [...findings, ...aiFailures]) f.suggestion ??= suggestFor(f);
 
   // 機制歸屬(AI 標註優先,其次以畫面名/思考關鍵字推斷)。
@@ -1202,7 +1241,8 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     profiles: profile.sources,
     spec: { values: spec.values, sources: spec.sources },
     evidence: steps,
-    notes: buildNotes(steps, hasPerf, spec, genres),
+    dataQuality: quality,
+    notes: [...qualityNotes(quality), ...buildNotes(steps, hasPerf, spec, genres)],
   };
   report.summaryLines = buildSummary(report, mval);
   return report;
@@ -1219,6 +1259,17 @@ function relatedToMetric(metricId: string, f: Finding): boolean {
 
 function metricLabel(metrics: MetricValue[], id: string): L10n {
   return metrics.find((m) => m.id === id)?.label ?? L(id, id);
+}
+
+/** 數據品質附註:排除了哪些讀錯的值(列前 5 筆,完整清單在 dataQuality.excluded 與各步驟的 excludedObs)。 */
+function qualityNotes(q: DataQuality): L10n[] {
+  if (!q.excluded.length) return [];
+  const head = q.excluded.slice(0, 5).map((e) => `#${e.step} ${e.key}=${e.value.toLocaleString('en-US')}`).join('、');
+  const more = q.excluded.length > 5 ? `…` : '';
+  return [L(
+    `已排除 ${q.excluded.length} 筆疑似 AI 讀錯的數值,不計入 RTP 與經濟指標:${head}${more}。每一筆的原值與判斷依據都保留在「數據品質」與執行軌跡中。`,
+    `Excluded ${q.excluded.length} value(s) the AI likely misread; they are not used for RTP or economy metrics: ${head}${more}. Each original value and the reason are kept under Data quality and in the evidence trace.`,
+  )];
 }
 
 function buildNotes(steps: EvidenceStep[], hasPerf: boolean, spec: ReportSpec, genres: string[]): L10n[] {

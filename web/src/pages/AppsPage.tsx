@@ -5,6 +5,7 @@ import {
   apiPost,
   apiPut,
   apiDelete,
+  ApiError,
   uploadToS3,
   type ListResponse,
   type UploadTarget,
@@ -47,6 +48,7 @@ const PLATFORMS: { value: Platform; labelKey: MessageKey }[] = [
 
 /** 依平台決定要上傳的產物類型;web 無需上傳。 */
 function artifactKindFor(platform: Platform): 'apk' | 'ipa' | 'zip' | null {
+  // Windows 的 'zip' 代表「遊戲檔」:上傳時依副檔名改送 exe(安裝檔)或 zip(免安裝資料夾)。
   if (platform === 'android') return 'apk';
   if (platform === 'ios') return 'ipa';
   if (platform === 'windows') return 'zip';
@@ -224,7 +226,8 @@ export default function AppsPage() {
     // 先在本地偵測是否為 XAPK(僅 Android 相關);是的話標記,讓 UI 提示「執行時會自動合併」。
     setXapkDetected(kind === 'apk' ? await detectXapkClient(file) : false);
     try {
-      const target = await apiPost<UploadTarget>('/uploads', { kind });
+      const uploadKind = kind === 'zip' && file.name.toLowerCase().endsWith('.exe') ? 'exe' : kind;
+      const target = await apiPost<UploadTarget>('/uploads', { kind: uploadKind });
       await uploadToS3(target.url, file, setArtifactPct);
       setForm((f) => (f ? { ...f, artifactId: target.artifactId } : f));
       setArtifactState('done');
@@ -281,14 +284,31 @@ export default function AppsPage() {
     }
   }
 
+  // 刪工作區會連帶永久刪除底下所有資料 → 要求輸入名稱確認。
+  // 資料多時後端一次做不完(回 done:false),這裡接著再呼叫直到刪完。
   async function onDelete(app: AppRecord) {
-    if (!window.confirm(t('apps.deleteConfirm'))) return;
+    const typed = window.prompt(t('apps.deleteConfirm').replace('{name}', app.name));
+    if (typed === null) return;
+    if (typed.trim() !== app.name.trim()) {
+      window.alert(t('apps.deleteNameMismatch'));
+      return;
+    }
     setBusyId(app.id);
     try {
-      await apiDelete(`/apps/${encodeURIComponent(app.id)}`);
-      refetch();
+      for (let i = 0; i < 20; i++) {
+        const res = await apiDelete<{ done?: boolean }>(`/apps/${encodeURIComponent(app.id)}`);
+        if (res.done !== false) break;
+      }
+    } catch (err) {
+      const running = err instanceof ApiError && err.status === 409 ? err.message.match(/\d+/)?.[0] : undefined;
+      window.alert(
+        running
+          ? t('apps.deleteRunning').replace('{n}', running)
+          : t('apps.deleteFailed').replace('{msg}', err instanceof Error ? err.message : String(err)),
+      );
     } finally {
       setBusyId(null);
+      refetch();
     }
   }
 
@@ -487,7 +507,7 @@ export default function AppsPage() {
                   <input
                     type="file"
                     className="visually-hidden"
-                    {...(kind === 'apk' ? { accept: '.apk,.xapk,.apkm,.apks' } : {})}
+                    {...(kind === 'apk' ? { accept: '.apk,.xapk,.apkm,.apks' } : kind === 'zip' ? { accept: '.exe,.zip' } : {})}
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) void onUploadArtifact(f);
@@ -496,6 +516,7 @@ export default function AppsPage() {
                   <span className="apps__upload-btn">{t('apps.uploadFile')}</span>
                 </label>
                 {kind === 'apk' && <span className="apps__hint">{t('apps.apkHint')}</span>}
+                {kind === 'zip' && <span className="apps__hint">{t('apps.winHint')}</span>}
                 {artifactPct !== null && artifactState === 'idle' && (
                   <span className="apps__upload-status" role="status">
                     {t('apps.uploading')} {artifactPct}%
@@ -664,6 +685,7 @@ interface AppCardProps {
 function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
   const { t } = useI18n();
   const hasArtifact = Boolean(app.artifactId) || app.platform === 'web';
+  const secondary = (app.secondaryGenres ?? []).filter((g) => g !== app.genre);
 
   return (
     <li className={`apps__card${busy ? ' apps__card--busy' : ''}`}>
@@ -691,12 +713,16 @@ function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
                 {t(genreLabelKey(app.genre))}
               </span>
             )}
-            {(app.secondaryGenres ?? []).map((g) => (
-              <span key={g} className="apps__genre apps__genre--secondary" title={t(genreLabelKey(g))}>
-                <GenreIcon genre={g} size={13} />
-                {t(genreLabelKey(g))}
+            {/* 次要類型收成「+N」(滑過看全部),每張卡片標頭一樣高、下方資訊才對得齊。 */}
+            {secondary.length > 0 && (
+              <span
+                className="apps__genre apps__genre--secondary apps__genre--more"
+                title={secondary.map((g) => t(genreLabelKey(g))).join('、')}
+                aria-label={`${t('apps.secondaryGenres')}:${secondary.map((g) => t(genreLabelKey(g))).join('、')}`}
+              >
+                +{secondary.length}
               </span>
-            ))}
+            )}
           </div>
         </div>
       </Link>
@@ -736,6 +762,7 @@ function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
         {app.notes || t('apps.notesEmpty')}
       </p>
 
+      <div className="apps__card-footer">
       <Link
         to={`/apps/${encodeURIComponent(app.id)}`}
         className="apps__enter-btn"
@@ -755,6 +782,7 @@ function AppCard({ app, busy, onEdit, onDelete }: AppCardProps) {
         >
           {t('apps.delete')}
         </button>
+      </div>
       </div>
     </li>
   );

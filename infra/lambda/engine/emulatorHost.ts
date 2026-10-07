@@ -42,7 +42,7 @@ const INSTANCE_TYPES: Record<string, string[]> = {
   x86_64: ['m6i.xlarge', 'm6a.xlarge', 'm5.xlarge'],
 };
 const DEFAULT_ABI = 'arm64-v8a';
-const ROOT_VOLUME_GB = 30;
+const ROOT_VOLUME_GB = 40;
 
 const ec2 = new EC2Client({ region: REGION });
 
@@ -67,6 +67,12 @@ function isCapacityError(err: unknown): boolean {
 export interface EmulatorAcquireSpec extends AcquireSpec {
   abi?: string;
   vlmModel?: string;
+  /** 決策 / 輔助 Agent 模型(三個 Agent 協作)。 */
+  agentModel?: string;
+  subagentModel?: string;
+  maxSteps?: number;
+  /** 主機保險回收時間(分鐘);長時測試依需要調大。 */
+  ttlMinutes?: number;
   budgetUsd?: number;
 }
 
@@ -102,6 +108,8 @@ export class EmulatorHostControl implements HostControl {
             SecurityGroupIds: [SG_ID],
             UserData: userData,
             ClientToken: `${spec.jobId}-${instanceType}`,
+            // userdata 的 TTL `shutdown -h` 與結束時都要「終止」實例(不是停止),EBS 不殘留計費。
+            InstanceInitiatedShutdownBehavior: 'terminate',
             IamInstanceProfile: { Arn: HOST_PROFILE_ARN },
             BlockDeviceMappings: [
               {
@@ -120,6 +128,10 @@ export class EmulatorHostControl implements HostControl {
                   { Key: 'playagent:bucket', Value: BUCKET },
                   { Key: 'playagent:tenantRole', Value: TENANT_ROLE_ARN },
                   { Key: 'playagent:vlmModel', Value: spec.vlmModel ?? '' },
+                  { Key: 'playagent:agentModel', Value: spec.agentModel ?? '' },
+                  { Key: 'playagent:subagentModel', Value: spec.subagentModel ?? '' },
+                  { Key: 'playagent:maxSteps', Value: spec.maxSteps ? String(spec.maxSteps) : '' },
+                  { Key: 'playagent:ttlMinutes', Value: String(spec.ttlMinutes ?? 720) },
                   { Key: 'playagent:budget', Value: String(spec.budgetUsd ?? 1) },
                   // 成本分攤標籤(project/stage/component + 部署者帶入):讓執行期 EC2 也能在
                   // Cost Explorer 依同一組標籤歸屬。與上方保留標籤合併(重複鍵以上方為準罕見)。

@@ -96,8 +96,8 @@ export function spinTransactions(steps: EvidenceStep[]): SpinTxn[] {
  * RTP = 1 + (最後餘額 − 最初餘額) / (spins × bet)。逐次讀派彩太慢(每步 1 spin),AutoSpin 一步可跑數十次。
  * 限制:期間若有非 spin 的獎勵入帳(升級/任務獎金)會使 RTP 偏高;報告附註說明。
  */
-export function autospinRtp(steps: EvidenceStep[]): { spins: number; bet: number; startBalance: number; endBalance: number; rtp: number } | null {
-  const pts: Array<{ left: number; balance: number; bet?: number }> = [];
+export function autospinRtp(steps: EvidenceStep[]): { spins: number; bet: number; startBalance: number; endBalance: number; rtp: number; groups: number } | null {
+  const pts: Array<{ left: number; balance: number; bet?: number; seg: number }> = [];
   for (const s of steps) {
     const o = s.obs;
     if (!o) continue;
@@ -105,20 +105,43 @@ export function autospinRtp(steps: EvidenceStep[]): { spins: number; bet: number
     const balance = toNum(o['balance']);
     if (left === null || balance === null || left < 0) continue;
     const bet = toNum(o['bet']);
-    pts.push({ left, balance, ...(bet !== null && bet > 0 ? { bet } : {}) });
+    pts.push({ left, balance, seg: s.segment ?? 1, ...(bet !== null && bet > 0 ? { bet } : {}) });
   }
   if (pts.length < 2) return null;
-  let spins = 0;
-  for (let i = 1; i < pts.length; i++) {
-    const d = pts[i - 1]!.left - pts[i]!.left;
-    if (d > 0) spins += d;
-  }
   const bets = pts.map((p) => p.bet).filter((b): b is number => typeof b === 'number').sort((a, b) => a - b);
-  const bet = bets.length ? bets[Math.floor(bets.length / 2)]! : null;
-  if (!spins || !bet) return null;
+  const median = bets.length ? bets[Math.floor(bets.length / 2)]! : null;
+  if (!median) return null;
+  // 依「連線段 + 投注額」切成連續區段,各段各自算:旋轉數 × 該段投注額、餘額變化。
+  // 換連線(遊戲重裝、餘額重置)或改投注額時,跨段的那一截不計(旋轉數與餘額變化同時略過,不會偏)。
+  let curBet = pts[0]!.bet ?? median;
+  let group: typeof pts = [];
+  const groups: Array<{ pts: typeof pts; bet: number }> = [];
+  for (const p of pts) {
+    const b = p.bet ?? curBet;
+    const last = group[group.length - 1];
+    if (last && (last.seg !== p.seg || b !== curBet)) { groups.push({ pts: group, bet: curBet }); group = []; }
+    curBet = b;
+    group.push(p);
+  }
+  if (group.length) groups.push({ pts: group, bet: curBet });
+  let spins = 0, wagered = 0, delta = 0, used = 0;
+  for (const g of groups) {
+    if (g.pts.length < 2) continue;
+    let n = 0;
+    for (let i = 1; i < g.pts.length; i++) {
+      const d = g.pts[i - 1]!.left - g.pts[i]!.left;
+      if (d > 0) n += d;
+    }
+    if (!n) continue;
+    spins += n;
+    wagered += n * g.bet;
+    delta += g.pts[g.pts.length - 1]!.balance - g.pts[0]!.balance;
+    used++;
+  }
+  if (!spins || !wagered) return null;
   const startBalance = pts[0]!.balance;
   const endBalance = pts[pts.length - 1]!.balance;
-  return { spins, bet, startBalance, endBalance, rtp: round2((1 + (endBalance - startBalance) / (spins * bet)) * 100) };
+  return { spins, bet: median, startBalance, endBalance, groups: used, rtp: round2((1 + delta / wagered) * 100) };
 }
 
 /** 本次可用的 Spin 樣本數(逐次交易與 AutoSpin 餘額差法取較大者)。 */

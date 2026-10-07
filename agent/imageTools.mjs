@@ -14,6 +14,9 @@ import { writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+// ImageMagick 指令:Linux 容器是 IM6 的 `convert`;Windows 主機用 IM7 的 `magick.exe`(Windows 內建的 convert.exe 是磁碟工具,不能用)。
+const IM = process.env.PA_MAGICK || (process.platform === 'win32' ? 'magick' : 'convert');
+
 // IM6 的 -annotate 需要明確字型檔,否則(容器內 fontconfig 未對映)會 Abort。
 // 容器已裝 fonts-dejavu-core;找出可用的 .ttf 供 -font 指定。
 const FONT_CANDIDATES = [
@@ -36,7 +39,7 @@ export function liveJpeg(pngBuf, maxEdge = 720, quality = 60, timeoutMs = 4000) 
     const finish = (v) => { if (!done) { done = true; resolve(v); } };
     let p;
     try {
-      p = spawn('convert', ['png:-', '-resize', `${maxEdge}x${maxEdge}>`, '-quality', String(quality), 'jpg:-'], { stdio: ['pipe', 'pipe', 'ignore'] });
+      p = spawn(IM, ['png:-', '-resize', `${maxEdge}x${maxEdge}>`, '-quality', String(quality), 'jpg:-'], { stdio: ['pipe', 'pipe', 'ignore'] });
     } catch { finish(null); return; }
     const chunks = [];
     const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* ignore */ } finish(null); }, timeoutMs);
@@ -117,7 +120,7 @@ export function resizeToSmartB64(srcPngB64, origW, origH, quality = 82) {
     src = b64ToTmp(srcPngB64, 'sr-src');
     const out = join(tmpdir(), `pa-sr-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.jpg`);
     // `!` 強制精確尺寸(不保比例湊整);smart_resize 已維持了比例,這裡只是精確落到那個尺寸。
-    execFileSync('convert', [src, '-resize', `${rw}x${rh}!`, '-quality', String(quality), out],
+    execFileSync(IM, [src, '-resize', `${rw}x${rh}!`, '-quality', String(quality), out],
       { maxBuffer: 64 * 1024 * 1024 });
     const buf = readFileSync(out);
     return { b64: buf.toString('base64'), w: rw, h: rh, bytes: buf.length, format: 'jpeg' };
@@ -145,7 +148,7 @@ export function downscaleForVlmB64(srcPngB64, origW, origH, maxEdge = 1280, qual
     const args = [src];
     if (scale < 1) args.push('-resize', `${cw}x${ch}!`);
     args.push('-quality', String(quality), out);
-    execFileSync('convert', args, { maxBuffer: 64 * 1024 * 1024 });
+    execFileSync(IM, args, { maxBuffer: 64 * 1024 * 1024 });
     const buf = readFileSync(out);
     return { b64: buf.toString('base64'), w: cw, h: ch, bytes: buf.length, format: 'jpeg' };
   } catch {
@@ -159,11 +162,15 @@ export function downscaleForVlmB64(srcPngB64, origW, origH, maxEdge = 1280, qual
  * 感知雜湊(pHash):32x32 灰階 → 與均值比較成 1024-bit → 256-hex。用來偵測「畫面有沒有變」。
  * 回 hex 字串或 null。
  */
-export function pHashHex(srcB64) {
+export function pHashHex(srcB64, crop) {
   let src;
   try {
     src = b64ToTmp(srcB64, 'ph-src');
-    const raw = execFileSync('convert', [src, '-resize', '32x32!', '-colorspace', 'Gray', '-depth', '8', 'gray:-'],
+    // crop(選):只取畫面某一塊({x,y,w,h} 皆為 0–1 比例)。先壓成 100x100 再以百分比格切,免讀圖尺寸。
+    const cropArgs = crop
+      ? ['-resize', '100x100!', '-crop', `${Math.round(crop.w * 100)}x${Math.round(crop.h * 100)}+${Math.round(crop.x * 100)}+${Math.round(crop.y * 100)}`, '+repage']
+      : [];
+    const raw = execFileSync(IM, [src, ...cropArgs, '-resize', '32x32!', '-colorspace', 'Gray', '-depth', '8', 'gray:-'],
       { maxBuffer: 4 * 1024 * 1024 });
     const bytes = Array.from(raw).slice(0, 1024);
     if (bytes.length < 1024) return null;
@@ -194,7 +201,7 @@ export function pHashHamming(a, b) {
 /** ImageMagick 是否可用(容器建置時已裝;偵測失敗則所有輔助自動略過)。 */
 export function magickAvailable() {
   try {
-    execFileSync('convert', ['-version'], { stdio: 'ignore' });
+    execFileSync(IM, ['-version'], { stdio: 'ignore' });
     return true;
   } catch {
     return false;
@@ -259,7 +266,7 @@ export function gridOverlayB64(srcB64, ss, quality = 82) {
       }
     }
     args.push('-quality', String(quality), out);
-    execFileSync('convert', args, { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
+    execFileSync(IM, args, { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
     return fileToB64(out);
   } catch {
     return srcB64;
@@ -280,7 +287,7 @@ export function findBrightButton(srcB64, ss) {
     // 不用 -fx(慢且受 IM policy 限制);改用 HSB 通道數學:
     // 轉 HSB → 分離 S(飽和度)與 B(亮度)通道 → 各自 threshold → 相乘(AND)。
     // 對應原判準「夠亮(B>~27%)且高彩度(S>~16%)」的醒目色塊(遊戲主 CTA)。
-    execFileSync('convert', [
+    execFileSync(IM, [
       src, '-resize', `${DS_W}x`,
       '-colorspace', 'HSB',
       '-separate',                       // 產生 3 張:H(0) S(1) B(2)
@@ -291,7 +298,7 @@ export function findBrightButton(srcB64, ss) {
       '-compose', 'multiply', '-composite', // AND
       '-morphology', 'Close', 'Disk:2', '-morphology', 'Open', 'Disk:1', mask,
     ], { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
-    const cc = execFileSync('convert', [mask, '-define', 'connected-components:verbose=true',
+    const cc = execFileSync(IM, [mask, '-define', 'connected-components:verbose=true',
       '-define', 'connected-components:area-threshold=80', '-connected-components', '8', 'null:'],
       { maxBuffer: 16 * 1024 * 1024 }).toString();
     const dsW = DS_W, dsH = Math.round(ss.h / scale);
@@ -338,7 +345,7 @@ export function findButtonBands(srcB64, ss) {
     const mask = join(tmpdir(), `pa-bandmask-${Date.now()}.png`);
     // 與 findBrightButton 相同的「夠亮且高彩度」遮罩(按鈕通常是鮮明色塊),但放寬亮度門檻一點,
     // 讓不同顏色的按鈕(黃/藍/紫)都進得來;形狀篩選交給後面的連通元件比例判斷。
-    execFileSync('convert', [
+    execFileSync(IM, [
       src, '-resize', `${DS_W}x`,
       '-colorspace', 'HSB', '-separate', '-delete', '0',
       '(', '-clone', '0', '-threshold', '18%', ')',
@@ -347,7 +354,7 @@ export function findButtonBands(srcB64, ss) {
       // 橫向閉運算把按鈕內的文字/圖示縫合成一整條(用寬的水平結構元素)。
       '-morphology', 'Close', 'Rectangle:9x3', '-morphology', 'Open', 'Disk:1', mask,
     ], { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
-    const cc = execFileSync('convert', [mask, '-define', 'connected-components:verbose=true',
+    const cc = execFileSync(IM, [mask, '-define', 'connected-components:verbose=true',
       '-define', 'connected-components:area-threshold=200', '-connected-components', '8', 'null:'],
       { maxBuffer: 16 * 1024 * 1024 }).toString();
     const cands = [];
@@ -416,7 +423,7 @@ export function annotateTapB64(srcB64, x, y, label, ss) {
       );
     }
     markArgs.push(out);
-    execFileSync('convert', markArgs, { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
+    execFileSync(IM, markArgs, { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
     return fileToB64(out);
   } catch {
     return null;

@@ -278,6 +278,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  min-height: 56px;
 }
 
 /* 卡片頂部整塊可點進工作區 */
@@ -304,7 +305,6 @@
   font-size: 13px;
   font-weight: 600;
   text-decoration: none;
-  margin-top: auto;
 }
 .apps__enter-btn:hover {
   background: var(--brand-hover);
@@ -338,8 +338,10 @@
 .apps__card-head {
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  justify-content: center;
+  gap: 6px;
   min-width: 0;
+  flex: 1;
 }
 
 .apps__card-name {
@@ -352,7 +354,8 @@
 }
 
 .apps__platform {
-  align-self: flex-start;
+  align-self: center;
+  line-height: 16px;
   font-size: 11px;
   font-weight: 600;
   padding: 2px var(--space-2);
@@ -375,11 +378,28 @@
   color: #f5a623;
 }
 
+/* 標籤只排一行(次要類型收成 +N),每張卡片標頭等高。 */
 .apps__badges {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-1);
   align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+.apps__badges > * {
+  flex-shrink: 0;
+}
+.apps__badges > .apps__genre:not(.apps__genre--more) {
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.apps__genre--more {
+  color: var(--text-secondary);
+  cursor: default;
 }
 
 .apps__genre {
@@ -388,6 +408,7 @@
   gap: 4px;
   font-size: 11px;
   font-weight: 600;
+  line-height: 16px;
   padding: 2px var(--space-2);
   border-radius: 999px;
   background: var(--surface-raised);
@@ -401,29 +422,31 @@
 }
 
 /* ---------- 卡片資訊 ---------- */
+/* 資訊:標籤欄固定寬、數值一律靠左,四列上下對齊。 */
 .apps__meta {
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 5.5em minmax(0, 1fr);
+  row-gap: 6px;
+  column-gap: var(--space-3);
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .apps__meta-row {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  font-size: 13px;
+  display: contents;
 }
 
 .apps__meta-row dt {
   color: var(--text-tertiary);
-  flex-shrink: 0;
 }
 
 .apps__meta-row dd {
   margin: 0;
-  color: var(--text-secondary);
-  text-align: right;
+  color: var(--text-primary);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -431,7 +454,6 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  justify-content: flex-end;
 }
 
 .apps__mono {
@@ -441,7 +463,6 @@
 
 .apps__muted {
   color: var(--text-tertiary);
-  font-style: italic;
 }
 
 .apps__dot {
@@ -461,6 +482,7 @@
 
 .apps__notes {
   margin: 0;
+  overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.5;
   color: var(--text-secondary);
@@ -471,12 +493,18 @@
   min-height: calc(1.5em * 2);
 }
 
-/* ---------- 卡片操作 ---------- */
-.apps__card-actions {
+/* ---------- 卡片操作(固定貼在卡片底部,各卡片按鈕同一高度) ---------- */
+.apps__card-footer {
+  margin-top: auto;
   display: flex;
+  flex-direction: column;
   gap: var(--space-2);
-  padding-top: var(--space-2);
-  border-top: 1px solid var(--border);
+}
+
+.apps__card-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
 }
 
 .apps__card-btn {

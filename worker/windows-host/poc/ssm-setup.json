@@ -1,0 +1,8 @@
+{
+  "commands": [
+    "New-Item -ItemType Directory -Force -Path C:\\poc | Out-Null",
+    "foreach ($f in 'PocHelper.cs','setup.ps1','interactive.ps1','run.ps1') { Copy-S3Object -BucketName playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i -Key \"_poc/windows/scripts/$f\" -LocalFile \"C:\\poc\\$f\" -Region us-east-2 | Out-Null }",
+    "& C:\\poc\\setup.ps1"
+  ],
+  "executionTimeout": ["3600"]
+}

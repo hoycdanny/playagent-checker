@@ -13,7 +13,8 @@ import { tenantPrefix } from './tenantCredentials.js';
  *   key: tenants/<t>/memory/<app>/<locality>/...
  * - Knowledge:使用者手寫的 App 長期事實,按 App 單一實例,權威源為可編輯檔案。
  *   key: tenants/<t>/knowledge/<app>.md
- * 衝突時 Knowledge 優先於 Memory(Req 9.3);清 Memory / 刪 App 不動 Knowledge(Req 9.4)。
+ * 衝突時 Knowledge 優先於 Memory(Req 9.3);清 Memory 不動 Knowledge(Req 9.4)。
+ * 刪除整個工作區(App)則連帶刪除 Knowledge(見 appPurge.ts)。
  */
 
 export type Locality = 'cloud' | 'attached';

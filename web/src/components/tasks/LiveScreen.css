@@ -39,6 +39,8 @@
 .liveplayer {
   position: relative;
   display: grid;
+  /* 格線固定等於外框;否則 auto 列會被影片/截圖原始高度撐大,畫面被裁切或偏移 */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   width: 100%;
   height: 100%;
   border-radius: 14px;
@@ -200,6 +202,30 @@
 .livescreen__mode.is-live::before { background: var(--status-fail); }
 .livescreen__mode.is-sound { color: var(--brand); }
 .livescreen__mode.is-sound::before { background: var(--brand); }
+
+/* 錄影狀態(測試中不播聲音,整場錄影結束後回放) */
+.livescreen__rec {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.livescreen__rec::before {
+  content: '';
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-fail);
+}
+.livescreen__rec.is-off::before {
+  background: var(--text-tertiary);
+}
 
 .livescreen__btn {
   width: 28px;

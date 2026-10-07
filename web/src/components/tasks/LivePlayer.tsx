@@ -92,7 +92,8 @@ export function LivePlayer({
   const [playing, setPlaying] = useState(false);
   const queue = useRef<Segment[]>([]);
   const cursor = useRef<string | undefined>(undefined);
-  const backReady = useRef(false); // 背面 video 是否已預載好下一段
+  const backReady = useRef(false); // 背面 video 已指定下一段(載入中或已可播)
+  const backLoaded = useRef(false); // 背面 video 的第一幀已解碼(換上去才不會黑一下)
   const frontRef = useRef(0);
   const lastSegT = useRef<number | undefined>(undefined);
   const lastArrival = useRef(0);
@@ -104,6 +105,7 @@ export function LivePlayer({
     queue.current = [];
     cursor.current = undefined;
     backReady.current = false;
+    backLoaded.current = false;
     lastArrival.current = 0;
     setPlaying(false);
     for (const r of vids) {
@@ -174,11 +176,13 @@ export function LivePlayer({
     if (!backReady.current && queue.current.length) {
       const seg = queue.current.shift()!;
       backReady.current = true;
+      backLoaded.current = false;
       back.src = seg.url;
       back.dataset['t'] = String(seg.t);
       back.load();
     }
-    if (frontIdle && backReady.current) swap();
+    // 下一段的第一幀解碼完才換上;還沒好就讓目前這段停在最後一幀(不會黑一下)。
+    if (frontIdle && backReady.current && backLoaded.current) swap();
   }
 
   function swap() {
@@ -186,6 +190,7 @@ export function LivePlayer({
     const back = vids[backIdx]!.current;
     if (!back) return;
     backReady.current = false;
+    backLoaded.current = false;
     frontRef.current = backIdx;
     setFront(backIdx);
     setPlaying(true);
@@ -201,8 +206,8 @@ export function LivePlayer({
 
   function onEnded(idx: number) {
     if (idx !== frontRef.current) return;
-    if (backReady.current) swap();
-    else pump();
+    if (backReady.current && backLoaded.current) swap();
+    else pump(); // 下一段還沒載好:停在最後一幀,載好時(onLoadedData)再換
   }
 
   useEffect(() => { if (!playing) stateCb.current?.({ playing: false }); }, [playing]);
@@ -257,8 +262,9 @@ export function LivePlayer({
           onLoadedMetadata={(e) => { if (i === frontRef.current) measure(e.currentTarget.videoWidth, e.currentTarget.videoHeight); }}
           onResize={(e) => { if (i === frontRef.current) measure(e.currentTarget.videoWidth, e.currentTarget.videoHeight); }}
           onEnded={() => onEnded(i)}
-          onCanPlay={() => { if (i !== frontRef.current) pump(); }}
-          onError={() => { if (i !== frontRef.current) { backReady.current = false; pump(); } }}
+          onLoadedData={() => { if (i !== frontRef.current) { backLoaded.current = true; pump(); } }}
+          onCanPlay={() => { if (i !== frontRef.current) { backLoaded.current = true; pump(); } }}
+          onError={() => { if (i !== frontRef.current) { backReady.current = false; backLoaded.current = false; pump(); } }}
           aria-hidden={!(playing && front === i)}
         />
       ))}

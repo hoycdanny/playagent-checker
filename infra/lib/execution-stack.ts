@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -109,6 +109,13 @@ export class ExecutionStack extends Stack {
         },
       }),
     );
+    // 新 runner(與 Device Farm 同一套)會讀測試憑證、可選用 UI-TARS。
+    emuRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['secretsmanager:GetSecretValue'],
+        resources: [`arn:aws:secretsmanager:*:${Stack.of(this).account}:secret:playagent/tenant/*`],
+      }),
+    );
     const emuProfile = new iam.CfnInstanceProfile(this, 'EmulatorHostProfile', {
       roles: [emuRole.roleName],
     });
@@ -123,6 +130,19 @@ export class ExecutionStack extends Stack {
         }),
       ],
       prune: false,
+    });
+
+    // AI runner(agent/*.mjs,與 Device Farm 容器同一份)→ s3://<bucket>/_engine/runner/;Redroid 主機開機時下載執行。
+    new s3deploy.BucketDeployment(this, 'AgentRunnerDeploy', {
+      destinationBucket: props.dataBucket,
+      destinationKeyPrefix: '_engine/runner',
+      sources: [
+        Source.asset(path.join(currentDir, '..', '..', 'agent'), {
+          // 只帶頂層 runner 模組(+ Windows 驅動 WinHelper.cs / winHost.ps1);子資料夾一律排除。
+          exclude: ['**', '!*.mjs', '!exploration-runner.package.json', '!WinHelper.cs', '!winHost.ps1', '_*.mjs', '*/**'],
+        }),
+      ],
+      prune: true,
     });
 
     // 解析官方 Ubuntu AMI(部署時 SSM 解析成 AMI ID)。
@@ -161,6 +181,19 @@ export class ExecutionStack extends Stack {
       bundling: {
         format: OutputFormat.ESM,
         target: 'node22',
+        // 打包進來的 AWS SDK(gameliftstreams / ssm)內部有 CJS 的 require('node:https');
+        // ESM 輸出沒有 require,需要補一個 createRequire 的 shim,否則執行時會丟
+        // 「Dynamic require of "node:https" is not supported」。
+        banner: "import{createRequire as __paCreateRequire}from'module';const require=__paCreateRequire(import.meta.url);",
+        // 預設會把 @aws-sdk/* 全部當成 Lambda runtime 內建;GameLift Streams 的 RoleArn(2026-07)/ SSM 用打包的版本,
+        // 不依賴 runtime 內建 SDK 的版本。其餘 client 仍用 runtime 內建。
+        externalModules: [
+          '@aws-sdk/client-bedrock-runtime', '@aws-sdk/client-bedrock-agent', '@aws-sdk/client-bedrock-agent-runtime',
+          '@aws-sdk/client-device-farm', '@aws-sdk/client-ec2', '@aws-sdk/client-ecs', '@aws-sdk/client-s3',
+          '@aws-sdk/client-s3vectors', '@aws-sdk/client-secrets-manager', '@aws-sdk/client-sts', '@aws-sdk/client-lambda',
+          '@aws-sdk/client-sqs', '@aws-sdk/client-apigatewaymanagementapi', '@aws-sdk/client-cognito-identity-provider',
+          '@aws-sdk/client-cost-explorer', '@aws-sdk/s3-request-presigner',
+        ],
         // emulator-userdata.sh 是執行期以 readFileSync 讀取的資產,需隨 bundle 複製到輸出目錄。
         commandHooks: {
           beforeBundling: () => [],
@@ -298,6 +331,51 @@ export class ExecutionStack extends Stack {
         resources: [this.emulatorHost.hostRole.roleArn],
       }),
     );
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Windows:Amazon GameLift Streams(GPU 主機)。Application / Stream Group 由
+    // worker/windows-host/gamelift/setup.mjs 建立並把 ID 寫進 SSM(${glsParamPrefix}/*);
+    // 這裡只建 session 角色(名稱必須以 GameLiftStreams- 開頭)與引擎權限。
+    const glsParamPrefix = `/playagent/${this.stackName}/windows-gls`;
+    const glsRole = new iam.Role(this, 'WindowsGlsSessionRole', {
+      roleName: `GameLiftStreams-${this.stackName}`.slice(0, 64),
+      description: 'PlayAgent Windows host (GameLift Streams session): runner reads/writes job data and calls Bedrock',
+      assumedBy: new iam.ServicePrincipal('gameliftstreams.amazonaws.com', {
+        conditions: {
+          StringEquals: { 'aws:SourceAccount': this.account },
+          ArnLike: { 'aws:SourceArn': `arn:aws:gameliftstreams:*:${this.account}:streamsession/*` },
+        },
+      }),
+    });
+    glsRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
+      resources: [props.dataBucket.bucketArn, `${props.dataBucket.bucketArn}/*`],
+    }));
+    glsRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['bedrock:InvokeModel'],
+      resources: ['arn:aws:bedrock:*::foundation-model/*', `arn:aws:bedrock:*:${this.account}:inference-profile/*`],
+    }));
+    glsRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:*:${this.account}:secret:playagent/tenant/*`],
+    }));
+    this.engineFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['gameliftstreams:StartStreamSession', 'gameliftstreams:GetStreamSession', 'gameliftstreams:TerminateStreamSession'],
+      resources: [`arn:aws:gameliftstreams:${this.region}:${this.account}:*`],
+    }));
+    this.engineFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['iam:PassRole'],
+      resources: [glsRole.roleArn],
+      conditions: { StringEquals: { 'iam:PassedToService': 'gameliftstreams.amazonaws.com' } },
+    }));
+    this.engineFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameters', 'ssm:GetParameter'],
+      resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter${glsParamPrefix}/*`],
+    }));
+    this.engineFn.addEnvironment('WINDOWS_GLS_ROLE_ARN', glsRole.roleArn);
+    this.engineFn.addEnvironment('WINDOWS_GLS_PARAM_PREFIX', glsParamPrefix);
+    new CfnOutput(this, 'WindowsGlsParamPrefix', { value: glsParamPrefix });
+    new CfnOutput(this, 'WindowsGlsRoleArn', { value: glsRole.roleArn });
 
     // emulator 承載所需環境(主機自驅動:引擎只 RunInstances,其餘由 userdata 完成)。
     this.engineFn.addEnvironment('DEVICE_VPC_ID', this.vpc.vpcId);

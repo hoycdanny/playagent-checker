@@ -1,0 +1,171 @@
+/* Excel / CSV 匯入測試項目 */
+.xlimport {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.xlimport__muted {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+.xlimport__drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  border: 2px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  text-align: center;
+}
+.xlimport__drop.is-over {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 8%, var(--surface-raised));
+}
+.xlimport__pick {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--brand);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.xlimport__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.xlimport__link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.xlimport__pick:focus-visible,
+.xlimport__link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.xlimport__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 13px;
+}
+.xlimport__file {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xlimport__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+}
+.xlimport__spacer {
+  flex: 1;
+}
+
+.xlimport__map {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.xlimport__map legend {
+  padding: 0 var(--space-1);
+  font-size: 13px;
+  font-weight: 600;
+}
+.xlimport__map-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.xlimport__map-item select {
+  min-width: 0;
+}
+
+.xlimport__table-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.xlimport__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.xlimport__table th,
+.xlimport__table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.xlimport__table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-raised);
+  color: var(--text-secondary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.xlimport__table tr.is-failed td {
+  background: color-mix(in srgb, var(--status-fail) 8%, transparent);
+}
+.xlimport__num {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+.xlimport__steps {
+  margin: 0;
+  padding-left: 1.2em;
+}
+.xlimport__err {
+  margin-top: 2px;
+  color: var(--status-fail);
+  font-size: 12px;
+}
+.xlimport__yaml {
+  margin: 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.xlimport__result {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.xlimport__result.is-ok { color: var(--status-pass); }
+.xlimport__result.is-warn { color: var(--status-fail); }
+
+.xlimport__actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-3);
+}

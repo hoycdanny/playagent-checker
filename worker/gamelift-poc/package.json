@@ -1,0 +1,11 @@
+{
+  "name": "@playagent/gamelift-poc",
+  "private": true,
+  "type": "module",
+  "description": "PoC:用 Amazon GameLift Streams 的 Windows 執行環境跑遊戲 + AI 代理(驗證解析度、輸入、無人連線時的閒置行為)",
+  "dependencies": {
+    "@aws-sdk/client-gameliftstreams": "3.1146.0",
+    "@aws-sdk/client-s3": "3.1146.0",
+    "@aws-sdk/s3-presigned-post": "3.1146.0"
+  }
+}

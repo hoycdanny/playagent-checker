@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "PocArtifacts",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject"],
+      "Resource": "arn:aws:s3:::playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i/_poc/*"
+    },
+    {
+      "Sid": "NvidiaGridDrivers",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::ec2-windows-nvidia-drivers", "arn:aws:s3:::ec2-windows-nvidia-drivers/*"]
+    }
+  ]
+}

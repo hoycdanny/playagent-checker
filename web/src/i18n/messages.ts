@@ -128,6 +128,7 @@ export type MessageKey =
   | 'apps.artifact'
   | 'apps.uploadFile'
   | 'apps.apkHint'
+  | 'apps.winHint'
   | 'apps.xapkDetected'
   | 'apps.uploading'
   | 'apps.uploadDone'
@@ -143,6 +144,9 @@ export type MessageKey =
   | 'apps.savingEdit'
   | 'apps.delete'
   | 'apps.deleteConfirm'
+  | 'apps.deleteNameMismatch'
+  | 'apps.deleteRunning'
+  | 'apps.deleteFailed'
   | 'apps.icon'
   | 'apps.iconHint'
   | 'apps.iconUpload'
@@ -311,6 +315,7 @@ export type MessageKey =
   | 'cases.refine'
   | 'cases.tabNL'
   | 'cases.tabYaml'
+  | 'cases.tabExcel'
   | 'cases.yamlLabel'
   | 'cases.save'
   | 'cases.saving'
@@ -515,6 +520,13 @@ export type MessageKey =
   | 'tasks.maxStepsHint'
   | 'tasks.budgetUsd'
   | 'tasks.budgetUsdHint'
+  | 'tasks.runDuration'
+  | 'tasks.runDurationHint'
+  | 'tasks.runSingle'
+  | 'tasks.runLong2'
+  | 'tasks.runLong4'
+  | 'tasks.runLongUnlimited'
+  | 'tasks.runLongNote'
   | 'tasks.unlimited'
   | 'tasks.modelAgent'
   | 'tasks.modelVlm'
@@ -693,6 +705,7 @@ const zhHant: Catalog = {
   'apps.artifact': '被測產物',
   'apps.uploadFile': '上傳檔案',
   'apps.apkHint': '支援 APK 與 XAPK(含 split 分包);XAPK 會在執行時自動合併為單一 APK。',
+  'apps.winHint': '支援 .exe 安裝檔(Inno Setup 會直接解開,其他用靜默安裝)或 .zip 免安裝資料夾;「識別碼」可填遊戲執行檔名稱,空白則自動挑最大的 .exe。',
   'apps.xapkDetected': '✓ 已偵測為 XAPK,執行時會自動合併成單一 APK',
   'apps.uploading': '上傳中…',
   'apps.uploadDone': '上傳完成',
@@ -707,7 +720,10 @@ const zhHant: Catalog = {
   'apps.saveEdit': '儲存變更',
   'apps.savingEdit': '儲存中…',
   'apps.delete': '刪除',
-  'apps.deleteConfirm': '確定要刪除這個應用程式?相關產物不會被連帶刪除。',
+  'apps.deleteConfirm': '刪除工作區「{name}」會一併永久刪除底下所有資料:測試情境(含版本紀錄)、測試任務與報告(截圖、影片)、記憶地圖、知識、上傳的安裝檔與測試帳密。此操作無法復原。\n\n請輸入工作區名稱確認刪除:',
+  'apps.deleteNameMismatch': '輸入的名稱不符,未刪除。',
+  'apps.deleteRunning': '這個工作區還有 {n} 個測試正在執行,請先停止後再刪除。',
+  'apps.deleteFailed': '刪除失敗:{msg}',
   'apps.icon': '圖示 / 代表截圖',
   'apps.iconHint': '上傳一張 PNG(遊戲圖示或首頁截圖),列表會顯示小截圖。',
   'apps.iconUpload': '上傳圖示',
@@ -876,6 +892,7 @@ const zhHant: Catalog = {
   'cases.refine': '用 AI 編修',
   'cases.tabNL': '自然語言',
   'cases.tabYaml': '原始 YAML',
+  'cases.tabExcel': '從 Excel 匯入',
   'cases.yamlLabel': '案例 YAML',
   'cases.save': '儲存案例',
   'cases.saving': '儲存中…',
@@ -1080,6 +1097,13 @@ const zhHant: Catalog = {
   'tasks.maxStepsHint': '留空 = 無上限;跑到完成或卡住才停',
   'tasks.budgetUsd': '預算上限(美元)',
   'tasks.budgetUsdHint': '留空 = 無上限;達此金額即停止',
+  'tasks.runDuration': "執行時長",
+  'tasks.runDurationHint': "Device Farm 單次連線最長 150 分鐘(AWS 固定上限,無法延長);第 140 分鐘會開始收尾,保留錄影與報告。",
+  'tasks.runSingle': "單段:最長約 140 分鐘",
+  'tasks.runLong2': "長時:最多 2 段(約 4.5 小時)",
+  'tasks.runLong4': "長時:最多 4 段(約 9 小時)",
+  'tasks.runLongUnlimited': "長時:不限段數(直到完成或手動停止)",
+  'tasks.runLongNote': "長時模式每 140 分鐘自動換一條新連線接續,換線時遊戲會重新安裝、重新啟動:帳號與遊戲狀態可能重置(例如訪客帳號、餘額重新開始),報告依段分開計算 RTP。",
   'tasks.unlimited': '無上限',
   'tasks.modelAgent': '控制遊戲模型(Agent)',
   'tasks.modelVlm': '分析畫面模型(VLM)',
@@ -1257,6 +1281,7 @@ const en: Catalog = {
   'apps.artifact': 'App under test',
   'apps.uploadFile': 'Upload file',
   'apps.apkHint': 'Supports APK and XAPK (incl. split bundles); XAPK is auto-merged into a single APK at run time.',
+  'apps.winHint': 'Supports an .exe installer (Inno Setup is unpacked; others run silently) or a portable .zip; set Identifier to the game exe name, or leave it blank to pick the largest .exe.',
   'apps.xapkDetected': '✓ Detected as XAPK; it will be auto-merged into a single APK at run time',
   'apps.uploading': 'Uploading…',
   'apps.uploadDone': 'Upload complete',
@@ -1271,7 +1296,10 @@ const en: Catalog = {
   'apps.saveEdit': 'Save changes',
   'apps.savingEdit': 'Saving…',
   'apps.delete': 'Delete',
-  'apps.deleteConfirm': 'Delete this app? Uploaded artifacts are not removed.',
+  'apps.deleteConfirm': 'Deleting the workspace "{name}" permanently deletes everything in it: test cases (with version history), test runs and reports (screenshots, videos), the memory map, knowledge, uploaded builds and test credentials. This cannot be undone.\n\nType the workspace name to confirm:',
+  'apps.deleteNameMismatch': 'The name does not match. Nothing was deleted.',
+  'apps.deleteRunning': 'This workspace still has {n} test(s) running. Stop them first, then delete.',
+  'apps.deleteFailed': 'Delete failed: {msg}',
   'apps.icon': 'Icon / screenshot',
   'apps.iconHint': 'Upload a PNG (game icon or home screen). The list shows it as a thumbnail.',
   'apps.iconUpload': 'Upload icon',
@@ -1440,6 +1468,7 @@ const en: Catalog = {
   'cases.refine': 'Refine with AI',
   'cases.tabNL': 'Natural language',
   'cases.tabYaml': 'Raw YAML',
+  'cases.tabExcel': 'Import from Excel',
   'cases.yamlLabel': 'Case YAML',
   'cases.save': 'Save case',
   'cases.saving': 'Saving…',
@@ -1645,6 +1674,13 @@ const en: Catalog = {
   'tasks.maxStepsHint': 'Leave empty = unlimited; stops only when done or stuck',
   'tasks.budgetUsd': 'Budget cap (USD)',
   'tasks.budgetUsdHint': 'Leave empty = unlimited; stops when spend hits this',
+  'tasks.runDuration': "Run duration",
+  'tasks.runDurationHint': "A Device Farm session lasts at most 150 minutes (fixed AWS limit, cannot be extended); wrap-up starts at minute 140 so the recording and report are kept.",
+  'tasks.runSingle': "Single session: up to ~140 minutes",
+  'tasks.runLong2': "Long run: up to 2 sessions (~4.5 h)",
+  'tasks.runLong4': "Long run: up to 4 sessions (~9 h)",
+  'tasks.runLongUnlimited': "Long run: unlimited sessions (until done or stopped)",
+  'tasks.runLongNote': "Long run opens a new session every 140 minutes. The game is reinstalled and relaunched each time, so the account and game state may reset (e.g. guest account, balance); the report computes RTP per session.",
   'tasks.unlimited': 'unlimited',
   'tasks.modelAgent': 'Game control model (Agent)',
   'tasks.modelVlm': 'Screen analysis model (VLM)',
@@ -1826,6 +1862,7 @@ const zhHans: Catalog = {
   'apps.artifact': '被测产物',
   'apps.uploadFile': '上传文件',
   'apps.apkHint': '支持 APK 与 XAPK(含 split 分包);XAPK 会在执行时自动合并为单一 APK。',
+  'apps.winHint': '支持 .exe 安装包(Inno Setup 会直接解开,其他用静默安装)或 .zip 免安装文件夹;「标识符」可填游戏可执行文件名称,留空则自动挑最大的 .exe。',
   'apps.xapkDetected': '✓ 已检测为 XAPK,执行时会自动合并成单一 APK',
   'apps.uploading': '上传中…',
   'apps.uploadDone': '上传完成',
@@ -1840,7 +1877,10 @@ const zhHans: Catalog = {
   'apps.saveEdit': '保存更改',
   'apps.savingEdit': '保存中…',
   'apps.delete': '删除',
-  'apps.deleteConfirm': '确定要删除这个应用程序?相关产物不会被连带删除。',
+  'apps.deleteConfirm': '删除工作区「{name}」会一并永久删除其下所有数据:测试用例(含版本记录)、测试任务与报告(截图、视频)、记忆地图、知识、上传的安装包与测试账号密码。此操作无法恢复。\n\n请输入工作区名称确认删除:',
+  'apps.deleteNameMismatch': '输入的名称不符,未删除。',
+  'apps.deleteRunning': '这个工作区还有 {n} 个测试正在执行,请先停止后再删除。',
+  'apps.deleteFailed': '删除失败:{msg}',
   'apps.icon': '图标 / 代表截图',
   'apps.iconHint': '上传一张 PNG(游戏图标或首页截图),列表会显示小截图。',
   'apps.iconUpload': '上传图标',
@@ -2009,6 +2049,7 @@ const zhHans: Catalog = {
   'cases.refine': '用 AI 编修',
   'cases.tabNL': '自然语言',
   'cases.tabYaml': '原始 YAML',
+  'cases.tabExcel': '从 Excel 导入',
   'cases.yamlLabel': '用例 YAML',
   'cases.save': '保存用例',
   'cases.saving': '保存中…',
@@ -2213,6 +2254,13 @@ const zhHans: Catalog = {
   'tasks.maxStepsHint': '留空 = 无上限;跑到完成或卡住才停',
   'tasks.budgetUsd': '预算上限(美元)',
   'tasks.budgetUsdHint': '留空 = 无上限;达此金额即停止',
+  'tasks.runDuration': "执行时长",
+  'tasks.runDurationHint': "Device Farm 单次连接最长 150 分钟(AWS 固定上限,无法延长);第 140 分钟会开始收尾,保留录像与报告。",
+  'tasks.runSingle': "单段:最长约 140 分钟",
+  'tasks.runLong2': "长时:最多 2 段(约 4.5 小时)",
+  'tasks.runLong4': "长时:最多 4 段(约 9 小时)",
+  'tasks.runLongUnlimited': "长时:不限段数(直到完成或手动停止)",
+  'tasks.runLongNote': "长时模式每 140 分钟自动换一条新连接接续,换线时游戏会重新安装、重新启动:账号与游戏状态可能重置(例如访客账号、余额重新开始),报告按段分开计算 RTP。",
   'tasks.unlimited': '无上限',
   'tasks.modelAgent': '控制游戏模型(Agent)',
   'tasks.modelVlm': '分析画面模型(VLM)',
@@ -2390,6 +2438,7 @@ const ja: Catalog = {
   'apps.artifact': 'テスト対象',
   'apps.uploadFile': 'ファイルをアップロード',
   'apps.apkHint': 'APK と XAPK(split 分割含む)に対応。XAPK は実行時に単一 APK へ自動結合されます。',
+  'apps.winHint': '.exe インストーラー(Inno Setup は展開、その他はサイレントインストール)または .zip(ポータブル)に対応。識別子にゲームの exe 名を指定、空欄なら最大の .exe を使います。',
   'apps.xapkDetected': '✓ XAPK を検出しました。実行時に単一 APK へ自動結合されます',
   'apps.uploading': 'アップロード中…',
   'apps.uploadDone': 'アップロード完了',
@@ -2404,7 +2453,10 @@ const ja: Catalog = {
   'apps.saveEdit': '変更を保存',
   'apps.savingEdit': '保存中…',
   'apps.delete': '削除',
-  'apps.deleteConfirm': 'このアプリを削除しますか?アップロード済みの成果物は削除されません。',
+  'apps.deleteConfirm': 'ワークスペース「{name}」を削除すると、テストケース(版履歴を含む)、テスト実行とレポート(スクリーンショット・動画)、メモリマップ、ナレッジ、アップロードしたビルド、テスト用認証情報がすべて完全に削除されます。元に戻せません。\n\n確認のためワークスペース名を入力してください:',
+  'apps.deleteNameMismatch': '名前が一致しないため、削除しませんでした。',
+  'apps.deleteRunning': 'このワークスペースでは {n} 件のテストが実行中です。停止してから削除してください。',
+  'apps.deleteFailed': '削除に失敗しました:{msg}',
   'apps.icon': 'アイコン / スクリーンショット',
   'apps.iconHint': 'PNG(ゲームアイコンやホーム画面)をアップロードすると、一覧にサムネイルが表示されます。',
   'apps.iconUpload': 'アイコンをアップロード',
@@ -2573,6 +2625,7 @@ const ja: Catalog = {
   'cases.refine': 'AI で編集',
   'cases.tabNL': '自然言語',
   'cases.tabYaml': 'YAML',
+  'cases.tabExcel': 'Excel から取り込み',
   'cases.yamlLabel': 'ケース YAML',
   'cases.save': 'ケースを保存',
   'cases.saving': '保存中…',
@@ -2778,6 +2831,13 @@ const ja: Catalog = {
   'tasks.maxStepsHint': '空欄 = 無制限;完了または行き詰まりでのみ停止',
   'tasks.budgetUsd': '予算上限(USD)',
   'tasks.budgetUsdHint': '空欄 = 無制限;この額に達すると停止',
+  'tasks.runDuration': "実行時間",
+  'tasks.runDurationHint': "Device Farm の 1 セッションは最長 150 分(AWS の固定上限で延長不可)。140 分の時点で終了処理を始め、録画とレポートを保存します。",
+  'tasks.runSingle': "単一セッション:最長約 140 分",
+  'tasks.runLong2': "長時間:最大 2 セッション(約 4.5 時間)",
+  'tasks.runLong4': "長時間:最大 4 セッション(約 9 時間)",
+  'tasks.runLongUnlimited': "長時間:無制限(完了または手動停止まで)",
+  'tasks.runLongNote': "長時間モードは 140 分ごとに新しいセッションへ切り替えます。そのたびにゲームを再インストール・再起動するため、アカウントやゲーム状態(ゲストアカウント、残高など)がリセットされることがあります。RTP はセッションごとに計算します。",
   'tasks.unlimited': '無制限',
   'tasks.modelAgent': 'ゲーム操作モデル(Agent)',
   'tasks.modelVlm': '画面解析モデル(VLM)',
@@ -2955,6 +3015,7 @@ const ko: Catalog = {
   'apps.artifact': '테스트 대상',
   'apps.uploadFile': '파일 업로드',
   'apps.apkHint': 'APK 및 XAPK(split 번들 포함) 지원. XAPK는 실행 시 단일 APK로 자동 병합됩니다.',
+  'apps.winHint': '.exe 설치 파일(Inno Setup은 압축 해제, 그 외는 자동 설치) 또는 .zip(포터블)을 지원합니다. 식별자에 게임 exe 이름을 넣거나 비워 두면 가장 큰 .exe를 사용합니다.',
   'apps.xapkDetected': '✓ XAPK로 감지됨. 실행 시 단일 APK로 자동 병합됩니다',
   'apps.uploading': '업로드 중…',
   'apps.uploadDone': '업로드 완료',
@@ -2969,7 +3030,10 @@ const ko: Catalog = {
   'apps.saveEdit': '변경 사항 저장',
   'apps.savingEdit': '저장 중…',
   'apps.delete': '삭제',
-  'apps.deleteConfirm': '이 앱을 삭제하시겠습니까? 업로드된 산출물은 함께 삭제되지 않습니다.',
+  'apps.deleteConfirm': '워크스페이스 "{name}"을(를) 삭제하면 테스트 케이스(버전 기록 포함), 테스트 실행과 보고서(스크린샷, 동영상), 메모리 맵, 지식, 업로드한 빌드와 테스트 자격 증명이 모두 영구 삭제됩니다. 되돌릴 수 없습니다.\n\n확인을 위해 워크스페이스 이름을 입력하세요:',
+  'apps.deleteNameMismatch': '이름이 일치하지 않아 삭제하지 않았습니다.',
+  'apps.deleteRunning': '이 워크스페이스에서 테스트 {n}개가 실행 중입니다. 먼저 중지한 후 삭제하세요.',
+  'apps.deleteFailed': '삭제 실패: {msg}',
   'apps.icon': '아이콘 / 스크린샷',
   'apps.iconHint': 'PNG(게임 아이콘 또는 홈 화면)를 업로드하면 목록에 썸네일로 표시됩니다.',
   'apps.iconUpload': '아이콘 업로드',
@@ -3138,6 +3202,7 @@ const ko: Catalog = {
   'cases.refine': 'AI로 편집',
   'cases.tabNL': '자연어',
   'cases.tabYaml': '원본 YAML',
+  'cases.tabExcel': 'Excel에서 가져오기',
   'cases.yamlLabel': '케이스 YAML',
   'cases.save': '케이스 저장',
   'cases.saving': '저장 중…',
@@ -3343,6 +3408,13 @@ const ko: Catalog = {
   'tasks.maxStepsHint': '비우면 = 무제한; 완료 또는 막힐 때만 중지',
   'tasks.budgetUsd': '예산 상한(USD)',
   'tasks.budgetUsdHint': '비우면 = 무제한; 이 금액에 도달하면 중지',
+  'tasks.runDuration': "실행 시간",
+  'tasks.runDurationHint': "Device Farm 세션은 최대 150분입니다(AWS 고정 한도, 연장 불가). 140분에 마무리를 시작해 녹화와 보고서를 보존합니다.",
+  'tasks.runSingle': "단일 세션: 최대 약 140분",
+  'tasks.runLong2': "장시간: 최대 2세션(약 4.5시간)",
+  'tasks.runLong4': "장시간: 최대 4세션(약 9시간)",
+  'tasks.runLongUnlimited': "장시간: 세션 수 무제한(완료 또는 수동 중지까지)",
+  'tasks.runLongNote': "장시간 모드는 140분마다 새 세션으로 이어 갑니다. 매번 게임을 다시 설치·실행하므로 계정과 게임 상태(게스트 계정, 잔액 등)가 초기화될 수 있으며, 보고서는 세션별로 RTP를 계산합니다.",
   'tasks.unlimited': '무제한',
   'tasks.modelAgent': '게임 제어 모델(Agent)',
   'tasks.modelVlm': '화면 분석 모델(VLM)',

@@ -295,7 +295,7 @@ export async function createSession(client, params) {
   const result = await waitForSession(client, sessionArn, 300_000, params.onStatus);
   try { await params.onConnecting?.(result.deviceModel); } catch { /* ignore */ }
   await sleep(10_000); // Appium 端點初始化緩衝
-  return { ...result, sessionArn };
+  return { ...result, sessionArn, deviceArn };
 }
 
 /**
@@ -374,7 +374,8 @@ export async function setupDeviceFarmSession(deps, params) {
       ...(params.minOsVersion !== undefined ? { minOsVersion: params.minOsVersion } : {}),
     });
     // 附上偵測到的套件名(runner 在 PA_PKG 為空時據此自動啟動遊戲)。
-    return { ...session, ...(detectedPackage ? { detectedPackage } : {}) }; // { appiumUrl, sessionArn, deviceModel, detectedPackage? }
+    // projectArn / appArn / deviceArn:長時模式換新連線時直接重開 session(不必重新下載、上傳 APK)。
+    return { ...session, projectArn, appArn, ...(prefer32bit ? { prefer32bit: true } : {}), ...(detectedPackage ? { detectedPackage } : {}) };
   } finally {
     await unlink(artifact.path).catch(() => {});
     if (mergedPath) await unlink(mergedPath).catch(() => {});

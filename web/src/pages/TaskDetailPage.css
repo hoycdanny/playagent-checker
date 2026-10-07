@@ -37,6 +37,22 @@
   background: currentColor;
 }
 
+.detail__conn--icon {
+  padding: 4px;
+}
+.detail__conn--icon::before {
+  display: none;
+}
+.detail__conn--on.detail__conn--icon svg {
+  animation: detail-conn-pulse 2s ease-in-out infinite;
+}
+@keyframes detail-conn-pulse {
+  50% { opacity: 0.55; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .detail__conn--on.detail__conn--icon svg { animation: none; }
+}
+
 .detail__conn--on {
   color: var(--status-running);
 }
@@ -45,11 +61,35 @@
   color: var(--text-tertiary);
 }
 
-/* 頂列右側:報告 / Log / 連線指示 */
-.detail__topline-right {
+/* 標題列右側:報告 / 連線指示 */
+.detail__head-end {
   display: inline-flex;
   align-items: center;
   gap: var(--space-3);
+}
+/* 沒有資訊晶片時,報告/連線圖示自己靠右 */
+.detail__head-row:not(:has(.dchips)) .detail__head-end {
+  margin-left: auto;
+}
+
+/* 返回任務列表:只留圖示 */
+.detail__back--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  line-height: 1;
+}
+.detail__back--icon:hover {
+  border-color: var(--border-strong, var(--text-tertiary));
+}
+.detail__back--icon:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
 }
 
 .detail__report-link {
@@ -127,11 +167,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 目前狀態訊息:標題列步數後面,淺灰一行(太長以 … 省略,滑過看全文) */
 .detail__state {
-  margin: var(--space-1) 0 0;
+  min-width: 0;
+  max-width: 48ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
-  color: var(--text-secondary);
-  line-height: 1.5;
+  color: var(--text-tertiary);
 }
 .detail__state:empty { display: none; }
 
@@ -158,6 +202,7 @@
 /* 資訊晶片(TaskInfoStrip):值精簡顯示,細節在 hover / focus 提示框 */
 .dchips {
   list-style: none;
+  /* 靠右:任務資訊晶片 + 報告/連線圖示一起推到標題列右側 */
   margin: 0 0 0 auto;
   padding: 0;
   display: flex;
@@ -261,12 +306,69 @@
 }
 
 /* ───────────── 主區三欄 ───────────── */
+/* 左:即時畫面(下方可收合的下指令 / 測試腳本)| 中:執行軌跡 | 右:裝置 Log;整頁一屏看完,各欄內自己捲動 */
 .detail__layout {
   display: grid;
   grid-template-columns: minmax(260px, 0.85fr) minmax(300px, 1fr) minmax(320px, 1.15fr);
+  grid-template-areas: 'live trace devlogs';
   gap: var(--space-3);
   height: calc(100vh - 215px);
   min-height: 560px;
+}
+.detail__layout > .detail__col--live { grid-area: live; }
+.detail__layout > .detail__col--trace { grid-area: trace; }
+.detail__layout > .detail__col--devlogs { grid-area: devlogs; }
+/* 沒有裝置 Log(非真機任務)時兩欄 */
+.detail__layout:not(:has(.detail__col--devlogs)) {
+  grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.3fr);
+  grid-template-areas: 'live trace';
+}
+
+/* 即時畫面底下:下指令 / 測試腳本(收合時只佔標題列;展開時這塊自己捲動,畫面不被擠掉) */
+.detail__live-ops {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 45%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.detail__live-ops > * {
+  flex-shrink: 0;
+}
+.detail__live-ops .opchat {
+  margin: 0;
+  padding: 0;
+  border-top: none;
+}
+.detail__live-ops .opchat__list {
+  max-height: 28vh;
+  min-height: 100px;
+}
+.detail__fold-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.detail__fold-btn:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.detail__col--devlogs {
+  overflow: hidden;
 }
 
 .detail__col {
@@ -414,6 +516,26 @@
   color: var(--text-tertiary);
   font-variant-numeric: tabular-nums;
 }
+
+/* 收合按鈕(接在計時後面);收合時只剩一行計時 */
+.dboot__fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.dboot__fold:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+.dboot__fold:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.dboot:has(.dboot__steps[hidden]) .dboot__summary { margin-bottom: 0; }
+.dboot__steps[hidden] { display: none; }
 
 .dboot__steps {
   list-style: none;
@@ -804,6 +926,53 @@
   color: var(--text-primary);
 }
 
+/* 決策 Agent 目標 + 輔助 Agent 判斷 */
+.detail__step-team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px var(--space-2);
+  margin-top: 2px;
+  font-size: 12px;
+}
+.detail__step-goal {
+  color: var(--text-secondary);
+}
+.detail__step-effect {
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  background: var(--surface-raised);
+  color: var(--text-tertiary);
+}
+.detail__step-effect.is-ok { color: var(--status-pass); }
+.detail__step-effect.is-no_effect { color: var(--status-fail); }
+.detail__step-effect.is-unexpected { color: var(--status-error); }
+
+/* 回放:正在播的那一步 + 「▶ 回放」按鈕 */
+.detail__step--playing {
+  border-color: var(--status-fail);
+  box-shadow: inset 3px 0 0 var(--status-fail);
+}
+.detail__step-replay {
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--brand);
+  font-size: 11px;
+  cursor: pointer;
+}
+.detail__step-replay:hover {
+  border-color: var(--brand);
+}
+.detail__step-replay:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
 .detail__step-action {
   font-size: 11px;
   padding: 0 var(--space-2);
@@ -844,24 +1013,26 @@
   color: var(--text-primary);
 }
 
-/* 中寬:即時畫面 + 軌跡並排,下指令/腳本在下方整列 */
+/* 中寬:即時畫面 + 軌跡並排,裝置 Log 在下方整列 */
 @media (max-width: 1080px) {
-  .detail__layout {
+  .detail__layout,
+  .detail__layout:not(:has(.detail__col--devlogs)) {
     grid-template-columns: minmax(240px, 0.9fr) minmax(300px, 1.1fr);
-    grid-template-areas: 'live trace' 'ops ops';
+    grid-template-areas: 'live trace' 'devlogs devlogs';
     grid-template-rows: calc(100vh - 215px) auto;
     height: auto;
   }
-  .detail__col--live { grid-area: live; min-height: 520px; }
-  .detail__col--trace { grid-area: trace; min-height: 520px; }
-  .detail__col--ops { grid-area: ops; overflow: visible; }
+  .detail__col--live { min-height: 520px; }
+  .detail__col--trace { min-height: 520px; }
+  .detail__col--devlogs { height: 520px; }
 }
 
 /* 窄螢幕:單欄 */
 @media (max-width: 720px) {
-  .detail__layout {
+  .detail__layout,
+  .detail__layout:not(:has(.detail__col--devlogs)) {
     grid-template-columns: 1fr;
-    grid-template-areas: 'live' 'ops' 'trace';
+    grid-template-areas: 'live' 'trace' 'devlogs';
     grid-template-rows: auto;
   }
   .detail__col--live .detail__screen { flex: 0 0 auto; }

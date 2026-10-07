@@ -3,9 +3,29 @@ import { apiGet } from '../../api/client.ts';
 
 /** runner 的音量時間軸(GET /tasks/{id}/audio-levels)。 */
 export interface AudioLevels {
-  state: 'on' | 'unavailable' | 'stopped' | 'none';
+  /** recording = 測試中正在整場錄影(結束後才有檔案);on = 已有錄影可回放。 */
+  state: 'on' | 'recording' | 'unavailable' | 'stopped' | 'none';
   dt: number;
-  chunks: Array<{ name: string; t: number; dur: number; rms: number[] }>;
+  /** 各錄影段;url = 含聲音的錄影(回放用,限時連結)。 */
+  chunks: Array<{ name: string; t: number; dur: number; rms: number[]; url?: string }>;
+}
+
+/** dB → 0–1 音量條高度(-60 dB 以下視為靜音)。 */
+export const levelOf = (db: number) => Math.max(0, Math.min(1, (db - SILENT_DB) / -SILENT_DB));
+
+/** 把 RMS 序列下採樣成 n 條(每條取區間最大值,短促音效不會被平均掉)。 */
+export function downsampleBars(rms: number[], n: number): number[] {
+  if (!rms.length || n <= 0) return [];
+  const out: number[] = [];
+  const span = rms.length / n;
+  for (let b = 0; b < n; b++) {
+    const lo = Math.floor(b * span);
+    const hi = Math.max(lo + 1, Math.floor((b + 1) * span));
+    let m = -120;
+    for (let i = lo; i < hi && i < rms.length; i++) m = Math.max(m, rms[i]!);
+    out.push(levelOf(m));
+  }
+  return out;
 }
 
 export const SILENT_DB = -60;
@@ -62,22 +82,32 @@ export function soundInWindow(levels: AudioLevels | null | undefined, from: numb
     const hi = lo + span;
     const vs = samples.filter((s) => s.t >= lo && s.t < hi).map((s) => s.v);
     const m = vs.length ? Math.max(...vs) : -120;
-    bars.push(Math.max(0, Math.min(1, (m - SILENT_DB) / -SILENT_DB)));
+    bars.push(levelOf(m));
   }
   return { covered: true, coverage, peakDb: Math.round(peakDb), bars, onsets };
 }
 
-/** 輪詢音量時間軸:執行中每 10 秒一次,結束後讀一次。 */
+/**
+ * 讀音量時間軸 + 錄影連結:執行中每 10 秒一次;結束後再補讀,直到錄影上傳完成
+ * (runner 收尾上傳 + 分析要一點時間,剛結束時常還是 recording)。
+ */
 export function useAudioLevels(jobId: string | undefined, isLive: boolean, enabled: boolean) {
   const [levels, setLevels] = useState<AudioLevels | null>(null);
   useEffect(() => {
     if (!jobId || !enabled) return;
     let stop = false;
-    const load = () => apiGet<AudioLevels>(`/tasks/${jobId}/audio-levels`).then((r) => { if (!stop) setLevels(r); }).catch(() => {});
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let tries = 0;
+    const load = async () => {
+      const r = await apiGet<AudioLevels>(`/tasks/${jobId}/audio-levels`).catch(() => null);
+      if (stop) return;
+      if (r) setLevels(r);
+      // 結束後:錄影還在收尾(recording)→ 每 10 秒再讀,最多約 5 分鐘。
+      const pending = !r || r.state === 'recording';
+      if (isLive || (pending && ++tries < 30)) timer = setTimeout(() => void load(), 10_000);
+    };
     void load();
-    if (!isLive) return () => { stop = true; };
-    const t = setInterval(() => void load(), 10_000);
-    return () => { stop = true; clearInterval(t); };
+    return () => { stop = true; if (timer) clearTimeout(timer); };
   }, [jobId, isLive, enabled]);
   return levels;
 }

@@ -14,7 +14,7 @@
  *   PA_ARTIFACT_KEY     被測 APK/IPA 的 S3 key(runner 自行讀取 → 上傳 Device Farm → 開 session)
  *   PA_APPIUM_URL       (選)已建好的 Device Farm remoteDriverEndpoint;有則跳過前置
  *   PA_SESSION_ARN      (選)已建好的 Device Farm session ARN(供 endpoint 刷新)
- *   PA_PLATFORM         android | ios
+ *   PA_PLATFORM         android | ios | windows
  *   PA_JOB / PA_TENANT / PA_BUCKET / PA_PREFIX   S3 位置(us-east-2 資料桶)
  *   PA_VLM              VLM modelId
  *   PA_PKG              app 包名(啟動用)
@@ -34,10 +34,17 @@ import {
   StopRemoteAccessSessionCommand,
 } from '@aws-sdk/client-device-farm';
 import { AppiumClient } from './appiumClient.mjs';
+import { AdbClient } from './adbClient.mjs';
+import { WindowsClient } from './windowsClient.mjs';
 import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
-import { setupDeviceFarmSession } from './deviceFarmSetup.mjs';
+import { createSession, setupDeviceFarmSession } from './deviceFarmSetup.mjs';
+import { createObsGuard } from './obsGuard.mjs';
 import { createLiveVideo, recordSize } from './liveVideo.mjs';
-import { createMediaAudio } from './mediaAudio.mjs';
+import { createMediaRecorder } from './mediaAudio.mjs';
+import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
+import { createDeviceLogs } from './deviceLogs.mjs';
+import { createAgentTeam, normalizeElements, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -54,7 +61,11 @@ const MAX_OS = process.env.PA_MAX_OS ? Number(process.env.PA_MAX_OS) : undefined
 const MIN_OS = process.env.PA_MIN_OS ? Number(process.env.PA_MIN_OS) : undefined;
 // 使用者提交時明選的實體裝置 ARN(有帶就用這台;沒帶才由 OS 區間挑第一台可用真機)。
 const DEVICE_ARN = process.env.PA_DEVICE_ARN || undefined;
-const PLATFORM = process.env.PA_PLATFORM === 'ios' ? 'ios' : 'android';
+const PLATFORM = process.env.PA_PLATFORM === 'ios' ? 'ios' : process.env.PA_PLATFORM === 'windows' ? 'windows' : 'android';
+// 裝置驅動:appium(Device Farm 真機,預設)| adb(Redroid 容器等 adb 可連的 Android,runner 跑在同一台主機)。
+// windows(GameLift Streams Windows 主機,runner 與遊戲在同一個桌面 session,輸入 / 截圖走 WinHelper.cs)。
+const DRIVER = process.env.PA_DRIVER === 'adb' ? 'adb' : process.env.PA_DRIVER === 'windows' ? 'windows' : 'appium';
+const ADB_SERIAL = process.env.PA_ADB_SERIAL || '127.0.0.1:5555';
 const JOB = process.env.PA_JOB;
 const BUCKET = process.env.PA_BUCKET;
 const PREFIX = process.env.PA_PREFIX;
@@ -65,6 +76,9 @@ const DF_REGION = process.env.PA_DF_REGION || 'us-west-2';
 const BEDROCK_VLM_FALLBACK = 'qwen.qwen3-vl-235b-a22b';
 const _vlmRaw = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const VLM = _vlmRaw === 'uitars' ? BEDROCK_VLM_FALLBACK : _vlmRaw;
+// 決策 Agent(agent seat)/ 輔助 Agent(subagent seat)模型;engine 依任務設定注入,空 = 不啟用。
+const AGENT_MODEL = (process.env.PA_AGENT_MODEL || '').trim();
+const SUBAGENT_MODEL = (process.env.PA_SUBAGENT_MODEL || '').trim();
 const PKG = process.env.PA_PKG || '';
 // 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。憑證的真值「只在 type 到裝置那一刻」替換,
 // 不改寫 TASK,避免明文進入 prompt / trace / 報告 / log。
@@ -73,17 +87,23 @@ const TASK = process.env.PA_TASK || '啟動遊戲,通過開場動畫與任何彈
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
 const CONSEC_FAIL_LIMIT = 3;
+// Device Farm 單次連線最長 150 分鐘(AWS 固定上限,不能調整;從建立連線開始算,含配置真機的時間)。
+// 預設第 140 分鐘開始收尾,留 10 分鐘上傳錄影、寫報告。長時模式則在這時換一條新連線接續。
+const WRAP_MIN = Math.max(10, Math.min(145, Number(process.env.PA_WRAP_MIN) || 140));
 // runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
-const RUNNER_VERSION = 'devicefarm-runner/2.1 (evidence-v1, controls-v1)';
+const RUNNER_VERSION = 'devicefarm-runner/2.4 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1)';
 // 效能取樣間隔(步)。adb shell 取樣與 VLM 並行、且 FPS/CPU/GPU 為區間累計,預設每 2 步一次;0 = 停用。
 const PERF_EVERY = process.env.PA_PERF_EVERY ? Math.max(0, Number(process.env.PA_PERF_EVERY) || 0) : 2;
 /** 有啟用 adb 效能監測時的參照(main 例外收尾用,確保還原電池狀態)。 */
 let activePerfMon = null;
+// 進行中的整場錄影(runner 例外結束時盡力收尾,錄影才不會整段遺失)。
+let activeRecorder = null;
 
 const s3 = new S3Client({ region: DATA_REGION });
 const bedrock = new BedrockRuntimeClient({ region: DATA_REGION });
 const dfClient = new DeviceFarmClient({ region: DF_REGION });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 
 // 容器內是否有 ImageMagick(建置時裝);有才啟用網格疊圖/亮鈕吸附/落點標記等座標校正。
 const MAGICK = magickAvailable();
@@ -152,7 +172,8 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
     ? `hold 需 x,y,holdMs(按住);swipe 可加 durationMs(長=拖曳、短=快劃);combo 需 x,y(左手)、可選 dir、holdMs、tx,ty(右手按鈕)、taps;pinch 需 x,y 與 scale。只能使用上面列出的可用動作。`
     : '';
   const base =
-    `你是專業遊戲測試工程師,正在測試一個 ${PLATFORM === 'ios' ? 'iOS' : 'Android'} 遊戲。每一步你會看到一張最新截圖。` +
+    `你是專業遊戲測試工程師,正在測試一個 ${PLATFORM === 'ios' ? 'iOS' : PLATFORM === 'windows' ? 'Windows PC' : 'Android'} 遊戲。每一步你會看到一張最新截圖。` +
+    (PLATFORM === 'windows' ? '這是 Windows 桌面:tap = 滑鼠左鍵單擊、swipe = 按住左鍵拖曳、back = 按 Esc;沒有多點觸控。截圖是整個螢幕,遊戲視窗外的桌面/工作列不要點。' : '') +
     // A 路座標契約:直接回「這張圖的絕對像素座標」(Qwen-VL 系天生的定位方式),不要正規化。
     `【座標規則|最重要】座標一律用「你看到的這張截圖的絕對像素」:左上角是 (0,0),往右 x 變大、往下 y 變大,` +
     `右下角就是該張圖的寬與高。每張圖尺寸會在該回合訊息中告知(如「這張截圖尺寸為 952x2156 像素」)。` +
@@ -375,7 +396,7 @@ async function decide(system, messages, modelId = VLM) {
       // /\{[\s\S]*\}/ 抓不到配對的結尾 },JSON.parse 必定失敗。實測長任務(273 步)在局面
       // 變複雜時 thinking 變長,連續 10 次因此解析失敗而中止整個任務。配合上面把 prompt
       // 改成要求「thinking 30~60 字」雙重防護,這裡提高到 1000 留足夠餘裕。
-      const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 1000, system, messages };
+      const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 1600, system, messages };
       const res = await bedrock.send(new InvokeModelCommand({
         modelId, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body),
       }));
@@ -394,7 +415,7 @@ async function decide(system, messages, modelId = VLM) {
       modelId,
       system: [{ text: system }],
       messages: toConverseMessages(messages),
-      inferenceConfig: withSampling ? { maxTokens: 1000, temperature: 0.2, topP: 0.9 } : { maxTokens: 1000 },
+      inferenceConfig: withSampling ? { maxTokens: 1600, temperature: 0.2, topP: 0.9 } : { maxTokens: 1600 },
     }));
     let res;
     if (samplingUnsupportedModels.has(modelId)) {
@@ -468,6 +489,7 @@ function computeRtpStats(steps) {
   let sampleCount = 0;
   const series = []; // [{ n, rtp }],每抓到一筆有效 spin 就記一個點,n = 累積取樣次數
   for (const step of steps) {
+    if (step.warnings?.some((w) => w.kind === 'suspect_value' && /bet|win/.test(w.key))) continue; // 疑似讀錯不計入
     const result = extractSpinResult(step.thinking);
     if (!result) continue;
     totalBet += result.bet;
@@ -514,7 +536,28 @@ async function main() {
   // 有效套件名:優先用 job 帶來的 PA_PKG(App identifier);若為空,改用 runner 從 APK 解析到的套件名。
   // 這攸關「能不能自動啟動遊戲」——沒有套件名時 runner 只會停在桌面對著安裝中圖示空轉。
   let effectivePkg = PKG;
-  if (!APPIUM_URL) {
+  // 執行時長(job.json maxSegments):1 = 單段(第 ${WRAP_MIN} 分鐘收尾);N = 最多 N 段連線;0 = 不限段數。
+  let maxSegments = 1;
+  try {
+    const jm = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/job.json` }))).Body.transformToString());
+    const n = Number(jm?.maxSegments);
+    if (Number.isInteger(n) && n >= 0 && n <= 50) maxSegments = n;
+  } catch { /* 沒有就單段 */ }
+  let segment = 1;
+  let segStartedAt = 0; // 這一段 Device Farm 連線開始建立的時間
+  let sessionInfo = null; // { projectArn, appArn, deviceArn, prefer32bit }:長時模式換新連線用
+  console.log('執行時長', maxSegments === 1 ? `單段(${WRAP_MIN} 分鐘收尾)` : `長時:最多 ${maxSegments || '不限'} 段,每段 ${WRAP_MIN} 分鐘`);
+  if (DRIVER === 'windows') {
+    // 遊戲已由 GameLift 主機腳本(host.ps1)解開;runner 用 PA_PKG(exe 完整路徑)啟動。
+    bootPhase('connect', { deviceModel: 'Windows' });
+    deviceModel = process.env.PA_DEVICE_MODEL || 'Windows(GameLift Streams)';
+    await writeStatus('running', `Windows 主機就緒(${deviceModel}),啟動遊戲中`, 0);
+  } else if (DRIVER === 'adb') {
+    // 遊戲已由主機啟動腳本裝好;這裡只連 adb。
+    bootPhase('connect', { deviceModel: 'Redroid' });
+    deviceModel = process.env.PA_DEVICE_MODEL || 'Redroid(Android 容器)';
+    await writeStatus('running', `Android 容器就緒(${deviceModel}),連線中`, 0);
+  } else if (!APPIUM_URL) {
     if (!ARTIFACT_KEY) throw new Error('缺少 PA_ARTIFACT_KEY,無法建立 Device Farm session');
     bootPhase('download');
     await writeStatus('running', BOOT_MSG.download, 0);
@@ -522,6 +565,7 @@ async function main() {
       { dfClient, s3 },
       {
         onPhase: async (p, info) => {
+          if (p === 'device' && !segStartedAt) segStartedAt = Date.now();
           const changed = boot.phase !== p || (info?.deviceStatus && info.deviceStatus !== boot.deviceStatus);
           bootPhase(p, info);
           if (changed) await writeStatus('running', BOOT_MSG[p] ?? 'Device Farm 啟動中', 0);
@@ -542,6 +586,7 @@ async function main() {
     ownsSession = true;
     selfOwnedSessionArn = session.sessionArn;
     deviceModel = session.deviceModel;
+    sessionInfo = { projectArn: session.projectArn, appArn: session.appArn, deviceArn: session.deviceArn, prefer32bit: session.prefer32bit };
     if (!effectivePkg && session.detectedPackage) {
       effectivePkg = session.detectedPackage;
       console.log(`PA_PKG 未提供,改用從 APK 解析的套件名啟動:${effectivePkg}`);
@@ -553,10 +598,21 @@ async function main() {
     await writeStatus('running', 'Appium 連線中', 0);
   }
 
+  if (!segStartedAt) segStartedAt = Date.now();
+  const setSessionBoot = () => {
+    boot.session = { segment, maxSegments, startedAt: new Date(segStartedAt).toISOString(), wrapAt: new Date(segStartedAt + WRAP_MIN * 60_000).toISOString(), wrapMin: WRAP_MIN };
+  };
+  if (SESSION_ARN) setSessionBoot();
+
+  // 閉包讀 module 層的 SESSION_ARN:換新連線後自動改刷新新的 session。
   const refreshEndpoint = SESSION_ARN
     ? () => refreshRemoteDriverEndpoint(dfClient, SESSION_ARN)
     : undefined;
-  const client = await AppiumClient.create(APPIUM_URL, { platform: PLATFORM, autoLaunch: false, refreshEndpoint });
+  let client = DRIVER === 'windows'
+    ? await WindowsClient.create()
+    : DRIVER === 'adb'
+    ? await AdbClient.create(ADB_SERIAL)
+    : await AppiumClient.create(APPIUM_URL, { platform: PLATFORM, autoLaunch: false, refreshEndpoint });
 
   // 機型後備:engine 若已預建 session,runner 這邊沒有 session.deviceModel,
   // 改從 Appium 連上後的 capabilities 讀(UiAutomator2 通常帶 deviceModel/deviceManufacturer)。
@@ -581,11 +637,45 @@ async function main() {
   if (controls) console.log('操作行為', controls.ids.join(','), `(${controls.source})`, '可用動作', controls.allowedActions.join('/'));
 
   // 效能監測(Android:adb shell 收 FPS/CPU/GPU/記憶體/溫度/耗電;不可用時退回 getPerformanceData)。
-  const perfMon = PLATFORM === 'android' && effectivePkg && PERF_EVERY > 0 ? new PerfMonitor(client, effectivePkg) : null;
-  const perfShell = perfMon ? await perfMon.start() : false;
+  let perfMon = PLATFORM === 'android' && effectivePkg && PERF_EVERY > 0 ? new PerfMonitor(client, effectivePkg) : null;
+  let perfShell = perfMon ? await perfMon.start() : false;
   if (perfShell) activePerfMon = perfMon;
+  // 真機 log(任務詳情頁「裝置 Log」可展開查看):需要 mobile: shell。
+  const makeDevLogs = () => (PLATFORM === 'android' && perfShell && process.env.PA_DEVLOGS !== '0'
+    ? createDeviceLogs({ client, put: s3put, prefix: PREFIX, pkg: effectivePkg, log: (m) => console.log(m) })
+    : null);
+  let devLogs = makeDevLogs();
+  let devLogsPending = null;
+  console.log('真機 log 收集', devLogs ? '啟用(每步 logcat + 音效播放狀態)' : '停用');
   console.log('效能監測', perfShell ? `adb shell(每 ${PERF_EVERY} 步取樣)` : perfMon ? 'Appium getPerformanceData(僅 CPU/記憶體)' : '停用');
   let launchInfo = null;
+
+  // 遊戲錄影(含聲音,整場一段):必須在「啟動遊戲之前」開始 —— 開始錄影會跳一次系統權限畫面,
+  // 遊戲若已在跑會因失去焦點而自動暫停。結束時直傳 S3,供任務頁回放 + 每步音效判斷(見 mediaAudio.mjs)。
+  let recorder = null;
+  // prev = 前一條連線的 recorder:新連線接續段號與已收下的段(levels.json 不會被覆蓋)。
+  const makeRecorder = (prev) => createMediaRecorder({
+      ...(prev ? { startIndex: prev.nextIndex, initialChunks: prev.chunks } : {}),
+      client,
+      put: s3put,
+      prefix: PREFIX,
+      maxSec: Number(process.env.PA_RECORD_MAX_SEC) || 9000,
+      presignPost: (key) => createPresignedPost(s3, {
+        Bucket: BUCKET,
+        Key: key,
+        Conditions: [['content-length-range', 1, 5 * 1024 * 1024 * 1024]],
+        Fields: { 'Content-Type': 'video/mp4' },
+        Expires: 3600,
+      }),
+      download: async (key) => Buffer.from(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))).Body.transformToByteArray()),
+      log: (m) => console.log(m),
+    });
+  const recordingEnabled = PLATFORM === 'android' && process.env.PA_AUDIO !== '0';
+  if (recordingEnabled) {
+    recorder = makeRecorder(null);
+    if (await recorder.start()) { activeRecorder = recorder; await sleep(1500); } // 等權限畫面收掉再啟動遊戲
+    else recorder = null;
+  }
 
   // 啟動 app(可用 shell 時以 am start -W 冷啟動並量測啟動時間)。
   if (effectivePkg) {
@@ -615,7 +705,7 @@ async function main() {
   // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新;
   // 使用者在記憶地圖刪掉的畫面/路徑先移除(只套刪除,改名留在讀取端)。
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false });
-  const system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
+  let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
   console.log('ImageMagick 座標校正', MAGICK ? '啟用' : '不可用(裸座標)');
   console.log('定位模型', USE_UITARS ? `UI-TARS(SageMaker endpoint=${process.env.PA_UITARS_ENDPOINT})` : `Bedrock VLM(${VLM})`);
@@ -634,6 +724,10 @@ async function main() {
   let lastPhash = null;
   let stuckCount = 0;
   let battleMoveTick = 0; // 割草戰鬥強制走位的方向輪換計數
+  // 走位回饋:上一步實際執行的 move(方向 + 執行前的背景雜湊);本步被擋住的方向與連續被擋次數。
+  let lastMove = null;
+  let blockedDir = null;
+  let blockedStreak = 0;
   // 戰鬥自動走位(VLM 思考期間背景繞圈):僅「下方中央搖桿」方案或 PA_AUTOPILOT=1 啟用。
   const battleAutoEnabled = Boolean(controls?.battleMove) || process.env.PA_AUTOPILOT === '1';
   const AUTOPILOT_MS = Math.max(2000, Math.min(8000, Number(process.env.PA_AUTOPILOT_MS || 6000)));
@@ -647,6 +741,7 @@ async function main() {
   // (常見:此裝置無 Google/Facebook 登入環境,關掉彈窗又立刻重跳),提早收斂不空轉到步數上限。
   const screenSeen = new Map();
   const LOOP_ABORT_LIMIT = 8;
+  const loopRestarted = new Set(); // 已因「同畫面操作無效」重啟過的畫面(同一畫面只重啟一次)
   // 連續 wait 次數上限:2026-10-02 修正死循環偵測排除 wait 動作後的副作用——純等待不再計入
   // screenSeen,但若畫面本身真的卡死在載入階段(如 APK 配置下載失敗/逾時),會變成無上限空等,
   // 持續燒錢卻永遠不會觸發任何中止條件。這裡加一個獨立、簡單的「連續 wait 次數」硬上限,
@@ -667,6 +762,21 @@ async function main() {
   let controlNote = '';
   let perfPending = null; // 進行中的效能取樣(Promise)
 
+  // 三個 Agent 協作:決策 Agent 定每步目標、輔助 Agent 核對效果/數值/完成(視覺 Agent 照目標操作)。
+  // 沒給模型或 PA_AGENT_TEAM=0 → 只用視覺 Agent(舊行為)。任何呼叫失敗也自動退回只用視覺 Agent。
+  const team = process.env.PA_AGENT_TEAM !== '0' && (AGENT_MODEL || SUBAGENT_MODEL)
+    ? createAgentTeam({
+      bedrock, ConverseCommand, agentModel: AGENT_MODEL, subagentModel: SUBAGENT_MODEL, task: TASK,
+      controlsPrompt: controls?.prompt ?? '', knowledge, put: s3put, prefix: PREFIX, log: (m) => console.log(m),
+    })
+    : null;
+  console.log('Agent 協作', team ? `決策=${AGENT_MODEL || '停用'} 輔助=${SUBAGENT_MODEL || '停用'}` : '停用(只用視覺 Agent)');
+  let teamPending = null; // 進行中的輔助 Agent 核對(在動作後等待畫面穩定時跑)
+  let teamDoneRejects = 0;
+  const stepPlans = new Map(); // 步驟 index → 決策 Agent 這一步的決定
+  // 每一步:視覺 Agent 看圖並列出可操作元件 → 決策 Agent 選動作 → runner 執行 → 輔助 Agent 背景核對。
+  if (team?.enabled.agent && !USE_UITARS) system += VISION_ELEMENTS_NOTE;
+
   bootPhase('run');
   await writeStatus('running', 'AI 探索執行中', 0);
 
@@ -676,7 +786,7 @@ async function main() {
   const LIVE_KEY = `${PREFIX}/live`;
   // 即時影片(screenrecord 2 秒分段,30+ fps):Android 才有;啟動失敗就只用截圖輪播。
   let liveVideo = null;
-  if (PLATFORM !== 'ios' && process.env.PA_LIVE_VIDEO !== '0') {
+  if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
     try {
       liveVideo = createLiveVideo({ client, put: s3put, prefix: PREFIX, size: recordSize(w, h), log: (m) => console.log(m) });
       await liveVideo.start();
@@ -685,15 +795,10 @@ async function main() {
       liveVideo = null;
     }
   }
-  // 遊戲音效錄製(MediaProjection 分段,含聲音)+ 音量時間軸(判斷「金幣彈出有沒有音效」)。
-  let mediaAudio = null;
-  if (PLATFORM !== 'ios' && process.env.PA_AUDIO !== '0') {
-    mediaAudio = createMediaAudio({ client, put: s3put, prefix: PREFIX, chunkSec: Number(process.env.PA_AUDIO_CHUNK_SEC) || 20, log: (m) => console.log(m) });
-    mediaAudio.start();
-  }
+
   let liveBusy = false;
   let liveLastShotAt = 0;
-  const liveTimer = setInterval(async () => {
+  const liveTick = async () => {
     if (liveBusy) return;
     // 影片串流正常時,截圖幀只當備援/封面(每 5 秒一張),把 Appium 時間留給 AI 與影片。
     if (liveVideo?.healthy() && Date.now() - liveLastShotAt < 5000) return;
@@ -707,12 +812,134 @@ async function main() {
       await s3put(LIVE_KEY, jpg ?? png, jpg ? 'image/jpeg' : 'image/png');
     } catch { /* 幀丟失不影響 */ }
     finally { liveBusy = false; }
-  }, 400);
+  };
+  let liveTimer = setInterval(liveTick, 400);
   if (liveTimer.unref) liveTimer.unref();
+
+  // 即時數值把關(疑似讀錯 / 投注額變更)。
+  const obsGuard = createObsGuard();
+  // 時間到:單段 → 最後一步收尾;長時 → 換新連線接續。
+  let wrapUpAsked = false;
+
+  /**
+   * 長時模式:收下這條連線的錄影 / log / 效能 → 關掉 → 用同一個 App 上傳(appArn)開新連線
+   * (優先同一台裝置,不行就換一台)→ 重新開始錄影、啟動遊戲、即時串流。步驟編號接續。
+   * 成功回 null;失敗回錯誤訊息。
+   */
+  async function switchSession() {
+    console.log(`[segment] 第 ${segment} 段已到 ${WRAP_MIN} 分鐘,換新連線接續`);
+    await writeStatus('running', `第 ${segment} 段連線已到 ${WRAP_MIN} 分鐘,換新連線接續中`, steps.length);
+    if (teamPending) await Promise.race([teamPending, sleep(15_000)]);
+    if (devLogs) { if (devLogsPending) await devLogsPending; devLogsPending = null; await devLogs.collect(steps.length).catch(() => null); }
+    clearInterval(liveTimer);
+    if (liveVideo) { await liveVideo.stop().catch(() => {}); liveVideo = null; }
+    for (let w2 = 0; liveBusy && w2 < 20; w2++) await sleep(50);
+    const prevRecorder = recorder;
+    if (recorder) { activeRecorder = null; await recorder.stop().catch((e) => console.warn('[record] 收尾失敗', e?.message || e)); recorder = null; }
+    if (perfPending) { await perfPending.catch(() => null); perfPending = null; }
+    if (perfShell) await perfMon.stop().catch(() => {});
+    activePerfMon = null;
+    await client.quit().catch(() => {});
+    await stopSelfOwnedSession();
+
+    segment += 1;
+    segStartedAt = Date.now();
+    bootPhase('device', { deviceStatus: 'PENDING' });
+    setSessionBoot();
+    await writeStatus('running', `第 ${segment} 段:Device Farm 配置真機中`, steps.length);
+    let session = null;
+    let lastErr = '';
+    for (const deviceArn of [sessionInfo.deviceArn, undefined]) {
+      try {
+        session = await createSession(dfClient, {
+          projectArn: sessionInfo.projectArn,
+          appArn: sessionInfo.appArn,
+          platform: PLATFORM,
+          namePrefix: `pa-${JOB}-s${segment}`,
+          onStatus: (st) => { boot.deviceStatus = st; },
+          ...(sessionInfo.prefer32bit ? { prefer32bit: true } : {}),
+          ...(deviceArn ? { deviceArn } : {}),
+          ...(MAX_OS !== undefined ? { maxOsVersion: MAX_OS } : {}),
+          ...(MIN_OS !== undefined ? { minOsVersion: MIN_OS } : {}),
+        });
+        break;
+      } catch (e) {
+        lastErr = String(e?.message || e).slice(0, 300);
+        console.warn(`[segment] 開新連線失敗(${deviceArn ? '同一台裝置' : '任一台'}):${lastErr}`);
+      }
+    }
+    if (!session) return lastErr || '無法建立新連線';
+    APPIUM_URL = session.appiumUrl;
+    SESSION_ARN = session.sessionArn;
+    selfOwnedSessionArn = session.sessionArn;
+    if (session.deviceModel) deviceModel = session.deviceModel;
+    sessionInfo.deviceArn = session.deviceArn ?? sessionInfo.deviceArn;
+    bootPhase('connect', session.deviceModel ? { deviceModel: session.deviceModel } : {});
+    client = await AppiumClient.create(APPIUM_URL, { platform: PLATFORM, autoLaunch: false, refreshEndpoint });
+
+    perfMon = PLATFORM === 'android' && effectivePkg && PERF_EVERY > 0 ? new PerfMonitor(client, effectivePkg) : null;
+    perfShell = perfMon ? await perfMon.start() : false;
+    if (perfShell) activePerfMon = perfMon;
+    devLogs = makeDevLogs();
+    if (recordingEnabled) {
+      recorder = makeRecorder(prevRecorder);
+      if (await recorder.start()) { activeRecorder = recorder; await sleep(1500); } else recorder = null;
+    }
+    if (effectivePkg) {
+      let li = null;
+      if (perfShell) li = await perfMon.launch();
+      if (!li) { try { await client.launchPackage(effectivePkg); } catch { /* 交給 AI 找入口 */ } }
+      await sleep(8000);
+    }
+    // 換了裝置時解析度可能不同:重量畫面尺寸、重建系統提示。
+    try {
+      const dim = pngSize(Buffer.from(await client.takeScreenshot(), 'base64'));
+      if (dim && (dim.w !== w || dim.h !== h)) {
+        w = dim.w; h = dim.h;
+        system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
+          + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id)
+          + (team?.enabled.agent && !USE_UITARS ? VISION_ELEMENTS_NOTE : '');
+      }
+    } catch { /* 用原尺寸 */ }
+    if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
+      try {
+        liveVideo = createLiveVideo({ client, put: s3put, prefix: PREFIX, size: recordSize(w, h), log: (m) => console.log(m) });
+        await liveVideo.start();
+      } catch (e) { console.warn('[live-video] 新連線無法啟動,改用截圖輪播:', e?.message || e); liveVideo = null; }
+    }
+    liveTimer = setInterval(liveTick, 400);
+    if (liveTimer.unref) liveTimer.unref();
+    // 新遊戲狀態:卡住 / 死循環計數歸零,數值不跟前一段比。
+    lastPhash = null; stuckCount = 0; loadingStreak = 0; consecWaitCount = 0; lastMove = null;
+    screenSeen.clear();
+    obsGuard.reset();
+    prevAction = 'launch';
+    controlNote += `【系統】Device Farm 單次連線最長 150 分鐘,已換新連線(第 ${segment} 段)並重新安裝、啟動遊戲:帳號與遊戲狀態可能已重置(例如訪客帳號、餘額重新開始)。請從第一個畫面重新進入,接著完成測試腳本還沒做完的部分。`;
+    bootPhase('run');
+    await writeStatus('running', `第 ${segment} 段連線就緒(${deviceModel ?? '真機'}),繼續測試`, steps.length);
+    console.log(`[segment] 第 ${segment} 段就緒:${deviceModel ?? ''}`);
+    return null;
+  }
 
   for (let i = 0; i < MAX_STEPS; i++) {
     // 取消旗標檢查。
     try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); finalState = 'cancelled'; finalMsg = '使用者取消'; break; } catch { /* 無取消 */ }
+
+    // 執行時間:這段連線到第 WRAP_MIN 分鐘 → 長時模式換新連線;否則這一步當最後一步收尾。
+    if (!wrapUpAsked && SESSION_ARN && Date.now() - segStartedAt >= WRAP_MIN * 60_000) {
+      const more = maxSegments === 0 || segment < maxSegments;
+      if (more && ownsSession && sessionInfo?.appArn) {
+        const err = await switchSession().catch((e) => String(e?.message || e));
+        if (err) {
+          finalState = 'error';
+          finalMsg = `已達執行時間上限:第 ${segment} 段連線無法建立(${err}),測試在此結束。`;
+          break;
+        }
+      } else {
+        wrapUpAsked = true;
+        controlNote += `【系統|最後一步】已到 Device Farm 連線的時間上限(單次最長 150 分鐘),這是最後一張畫面,不會再執行動作。請在 thinking 寫出目前為止的進度與測試腳本要求的統計數字,並在 obs 回報畫面上的數值。`;
+      }
+    }
 
     const t0 = Date.now();
     // 前景守衛:AI 可能誤按 back 把遊戲退到背景/桌面。已知包名時,每步先確保遊戲在前景,
@@ -734,6 +961,8 @@ async function main() {
         ? perfMon.sample().catch(() => null)
         : client.perfSample(effectivePkg).catch(() => null);
     }
+    // 真機 log(logcat + 音效播放狀態)與 VLM 推理並行;動作送出前等它結束(Appium 指令不交錯)。
+    if (devLogs && !devLogsPending) devLogsPending = devLogs.collect(i).catch(() => null);
     let shot;
     try { shot = await client.takeScreenshot(); } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
     // 即時推截圖到 S3(前端即時顯示)。
@@ -744,6 +973,22 @@ async function main() {
     const screenChanged = lastPhash && curPhash ? pHashHamming(lastPhash, curPhash) > 40 : true;
     if (lastPhash && !screenChanged) stuckCount++; else stuckCount = 0;
     lastPhash = curPhash;
+
+    // 【走位回饋】有搖桿的遊戲,鏡頭跟著角色走:上一步 move 之後,背景區塊若完全沒捲動,
+    // 代表角色被障礙物(樹/石頭/牆)擋住 —— 角色會轉身、動畫在動,整張圖的 pHash 看不出來。
+    // 2026-10-05 job-muv1zsvi-0qbt8v:AI 連續往右推搖桿,角色右邊緊貼一棵樹,背景 0 bit 變化;
+    // 真的有走時同一區塊差 278 bit。
+    const curScene = MAGICK && controls?.joystick ? pHashHex(shot, SCENE_CROP) : null;
+    blockedDir = null;
+    if (lastMove?.scene && curScene) {
+      if (isBlocked(lastMove.scene, curScene, pHashHamming)) {
+        blockedDir = lastMove.dir;
+        blockedStreak++;
+        const alt = turnDir(blockedDir, blockedStreak);
+        controlNote += `【走位回饋】上一步 move dir=${blockedDir} 有按住搖桿,但背景完全沒有移動 —— 角色被障礙物(樹/石頭/牆)擋住了。不要再往 ${blockedDir},改往 ${alt} 或其他方向繞開。`;
+      } else blockedStreak = 0;
+    }
+    lastMove = null;
 
     // 每步以「當前這張截圖」的真實像素尺寸為原始基準(遊戲可能中途由直向轉橫向,尺寸會變)。
     const dimNow = pngSize(Buffer.from(shot, 'base64'));
@@ -810,9 +1055,10 @@ async function main() {
         .catch((e) => console.warn('[autopilot] kite 失敗', e?.message || e));
     }
     // UI-TARS 只看 instruction(不吃 system/回合文字):把測試人員指令與畫面記憶併進 instruction。
+    const uitarsBase = TASK;
     const uitarsInstr = operator.active.length || scoped.length
-      ? `${TASK}\n\nTester instructions (highest priority, follow now):\n${[...operator.active.slice(-3).map((c) => c.text), ...scoped.slice(0, 3).map((h) => h.text)].map((t) => `- ${t}`).join('\n')}`
-      : TASK;
+      ? `${uitarsBase}\n\nTester instructions (highest priority, follow now):\n${[...operator.active.slice(-3).map((c) => c.text), ...scoped.slice(0, 3).map((h) => h.text)].map((t) => `- ${t}`).join('\n')}`
+      : uitarsBase;
     // 測試人員直接在即時畫面上點了位置:不靠 AI 猜座標,這一步就點那個點(最準)。
     // point 是相對畫面的比例(0–1),換算到本步截圖(cw×ch)空間後走同一條點擊/標記鏈。
     const pointCmd = [...newCmds].reverse().find((c) => c.point);
@@ -847,8 +1093,50 @@ async function main() {
       if (!retry.cmd.parseFailed && model !== VLM) console.log(`[decide] 第 ${i} 步改由備援模型 ${model} 決策`);
     }
     const { cmd, usage, rawText, trace } = decided;
-    if (autopilotPromise) await autopilotPromise;
     const vlmMs = Date.now() - tVlm;
+    // 【決策 Agent】看視覺 Agent 的描述與元件清單,決定這一步的動作(座標取自元件清單)。
+    // 測試人員在畫面上直接點的位置、UI-TARS、視覺回應無法解析時不經決策。決策失敗 → 採用視覺 Agent 的建議。
+    let decisionMs;
+    if (team?.enabled.agent && !USE_UITARS && !pointCmd && !cmd.parseFailed && trace?.ok !== false) {
+      // 等輔助 Agent 對上一步的核對(多半已在上一步的等待時間做完;戰鬥走位中不等)。
+      if (teamPending) {
+        const settled = await Promise.race([teamPending.then(() => true), sleep(lastBattleMove ? 0 : 5000).then(() => false)]);
+        if (settled) teamPending = null;
+      }
+      const tDec = Date.now();
+      const elements = normalizeElements(cmd.elements, cw, ch);
+      const visionAction = cmd.action;
+      const res = await team.decideAction({
+        index: i,
+        observation: { screen: cmd.screen, seen: typeof cmd.seen === 'string' ? cmd.seen : '', thinking: String(cmd.thinking || ''), ...(cmd.obs ? { obs: cmd.obs } : {}) },
+        elements,
+        suggestion: { action: cmd.action, target: typeof cmd.target === 'string' ? cmd.target : '', dir: typeof cmd.dir === 'string' ? cmd.dir : '' },
+        screenChanged,
+        allowedActions: allowedActions ? [...allowedActions] : [],
+        dims: { cw, ch },
+        operator: operator.active.slice(-3).map((c2) => c2.text),
+        runnerNote: [
+          stuckCount > 0 ? `畫面已連續 ${stuckCount} 步沒有變化` : '',
+          blockedDir ? `上一步往 ${blockedDir} 走被擋住` : '',
+        ].filter(Boolean).join(';'),
+      }).catch(() => null);
+      decisionMs = Date.now() - tDec;
+      if (res) {
+        stepPlans.set(i, res.decision);
+        if (res.cmd) {
+          // 用決策的動作取代視覺的建議(保留視覺的畫面名 / 描述 / 證據欄位)。
+          for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'dir', 'direction', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'scale', 'target']) delete cmd[k];
+          Object.assign(cmd, res.cmd);
+          if (res.decision.expect) cmd.expect = res.decision.expect;
+          cmd.decidedBy = 'agent';
+          if (visionAction !== cmd.action) cmd.visionSuggested = visionAction;
+        } else {
+          cmd.decidedBy = 'vision';
+        }
+      }
+    }
+    // 戰鬥自動走位在「視覺 + 決策」整段思考期間持續。
+    if (autopilotPromise) await autopilotPromise;
     // AI 原始動作(runner 若覆寫,原始 expect 不再代表實際動作,報告不據以判定 assertion)。
     const aiAction = cmd.action;
     messages.push(makeAssistantTurn(rawText));
@@ -925,7 +1213,13 @@ async function main() {
     const strongLoadingScreen = /loading|載入中|载入中|請稍候|请稍候|installing|安裝中|安装中|connecting|連線中|连接中|config\s*ready/i;
     const aiConf = Number(cmd.conf);
     const confidentInteract = (cmd.action === 'tap' || cmd.action === 'swipe') && Number.isFinite(aiConf) && aiConf >= 0.8;
-    const looksLoading = confidentInteract
+    // 2026-10-05 修正(job-muv712gs-pvg7ow 第 4–5 步):大廳的「手指教學指引」被命名為「大廳開場教學」,
+    // 「開場」命中寬鬆規則,AI 要點手指指的地方被強制改成 wait,最後要測試人員手動點。
+    // 有教學手指 / 指引箭頭 = 畫面上一定有要點的東西,只看畫面名是否明確為載入中。
+    const tutorialHint = /教學|教学|指引|引導|引导|手指|箭頭|箭头|tutorial|guide|finger|arrow/i;
+    const guidedInteract = (cmd.action === 'tap' || cmd.action === 'swipe')
+      && (tutorialHint.test(String(cmd.thinking || '')) || tutorialHint.test(String(cmd.screen || '')));
+    const looksLoading = confidentInteract || guidedInteract
       ? strongLoadingScreen.test(String(cmd.screen || ''))
       : loadingHint.test(String(cmd.thinking || '')) || loadingHint.test(String(cmd.screen || ''));
 
@@ -1126,6 +1420,31 @@ async function main() {
       ...(foregroundLost ? { foregroundLost: true, ...(appState !== undefined ? { appState } : {}) } : {}),
       ...(perf ? { perf } : {}),
       ...(newCmds.length && !cmd.parseFailed ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}) };
+    // 決策 Agent 給這一步的目標(執行軌跡顯示「🎯 目標」;報告與除錯用)。
+    const usedPlan = stepPlans.get(i);
+    if (cmd.decidedBy) step.decidedBy = cmd.decidedBy;
+    if (cmd.visionSuggested) step.visionSuggested = cmd.visionSuggested;
+    if (decisionMs !== undefined) step.decisionMs = decisionMs;
+    if (usedPlan) {
+      step.plan = {
+        goal: usedPlan.goal,
+        ...(usedPlan.expect ? { expect: usedPlan.expect } : {}),
+        scriptStep: usedPlan.scriptStep,
+        ...(team?.scriptTotal ? { scriptTotal: team.scriptTotal } : {}),
+        ...(usedPlan.strategy ? { strategy: usedPlan.strategy } : {}),
+        ...(usedPlan.suggestFail ? { suggestFail: true, reason: usedPlan.reason } : {}),
+      };
+    }
+    if (maxSegments !== 1) step.segment = segment;
+    // 數值把關:疑似讀錯的值不交給輔助 Agent;投注額變更 → 警告並提醒 AI(每筆都記步驟與前後值)。
+    const guard = obsGuard.check(i, step.obs);
+    const guardedObs = guard.clean;
+    if (guard.warnings.length) step.warnings = guard.warnings;
+    for (const wv of guard.warnings) {
+      if (wv.kind === 'bet_changed') {
+        controlNote += `【數據警告】投注額(${wv.key})從 ${wv.from} 變成 ${wv.to}(第 ${wv.sinceStep} 步起)。如果測試腳本要求固定投注額,請先把投注額調回 ${wv.from} 再繼續。`;
+      }
+    }
     steps.push(step);
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     // 指令回執:AI 這一步怎麼回應(聊天室顯示)。回應無法解析 → 不算已處理,留到下一步再送。
@@ -1146,7 +1465,12 @@ async function main() {
     struct.lastUpdatedAt = new Date().toISOString();
     await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
 
-    await writeStatus('running', `第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
+    await writeStatus('running', `${segment > 1 ? `第 ${segment} 段 · ` : ''}第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
+    if (wrapUpAsked) {
+      finalState = 'fail';
+      finalMsg = `已達執行時間上限:Device Farm 單次連線最長 150 分鐘,已在第 ${WRAP_MIN} 分鐘提前收尾${segment > 1 ? `(共 ${segment} 段)` : ''},測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`;
+      break;
+    }
 
     // App 死循環偵測:累計每個「畫面名」出現次數;超過門檻代表卡在同一處(常見:登入失敗彈窗
     // 反覆跳,此裝置無對應第三方登入環境)。提早收斂為 fail 並在訊息點出原因,不空轉到步數上限。
@@ -1164,6 +1488,24 @@ async function main() {
     const countsForLoop = cmd.action !== 'wait' && !screenLoopExempt;
     const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
     if (countsForLoop) screenSeen.set(screenName, seen);
+    // 2026-10-05(job-muv712gs-pvg7ow):NEWBIE MISSION 彈窗在動畫還沒播完時被點了寶箱,之後整個
+    // 彈窗不再接受任何輸入(按鈕/back/滑動都沒反應,動畫照跑)——遊戲端卡住,不是 AI 點錯
+    // (同一按鈕在其他 8 次任務都點得動)。先重啟遊戲再試一次,同一畫面第二次卡住才判失敗。
+    if (countsForLoop && seen >= LOOP_ABORT_LIMIT && effectivePkg && appRestarts < 3 && !loopRestarted.has(screenName) && !operatorDirected) {
+      loopRestarted.add(screenName);
+      appRestarts++;
+      screenSeen.delete(screenName);
+      stuckCount = 0;
+      console.log(`[recover] 畫面「${screenName}」操作 ${seen} 次沒有進展,重啟 App(第 ${appRestarts} 次)`);
+      try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
+      step.override = 'app_restart';
+      step.thinking = `[runner 重啟 App] 畫面「${screenName}」操作 ${seen} 次都沒有反應(遊戲可能卡住),已重新啟動遊戲。` + String(step.thinking || '');
+      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+      controlNote = `【系統】畫面「${screenName}」操作 ${seen} 次都沒有反應(遊戲可能卡住),已重新啟動遊戲。請從第一個畫面重新進入;再遇到這個畫面時,先等它的動畫播完、主要按鈕出現後再點主要按鈕。`;
+      prevAction = 'launch';
+      await sleep(1000);
+      continue;
+    }
     if (countsForLoop && seen >= LOOP_ABORT_LIMIT) {
       finalState = 'fail';
       finalMsg = `偵測到 App 死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進,可能此裝置環境無法完成該步驟(如第三方登入服務不可用)。已提早結束以節省時間與成本。`;
@@ -1211,7 +1553,24 @@ async function main() {
         step.action = cmd.action; step.override = 'reject_done'; step.thinking = cmd.thinking; delete step.expect;
         stuckCount = 0;
       } else {
-        finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break;
+        // 輔助 Agent 核對「完成」宣告:證據不足就退回繼續(最多 3 次,之後交給視覺 Agent 判斷)。
+        // 測試人員正在指揮時不擋。核對失敗 / 無法核對 → 照舊結束。
+        const vd = team && !operatorDirected && teamDoneRejects < 3
+          ? await team.verifyDone({ index: i, observation: { screen: cmd.screen, thinking: cmd.thinking, obs: cmd.obs } }).catch(() => null)
+          : null;
+        if (vd && vd.ok === false) {
+          teamDoneRejects++;
+          cmd.action = 'wait'; cmd.duration = 2;
+          cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined;
+          cmd.thinking = `[拒絕假完成] 輔助 Agent 核對未通過(第 ${teamDoneRejects} 次):${vd.missing || '腳本還沒全部完成'}。` + String(cmd.thinking || '');
+          cmd.override = 'reject_done';
+          step.action = 'wait'; step.override = 'reject_done'; step.thinking = cmd.thinking; step.doneCheck = vd; delete step.expect;
+          controlNote = `【輔助 Agent 核對】你宣告測試完成,但還缺:${vd.missing || '腳本還沒全部完成'}。請繼續完成測試腳本,不要再提早 done。`;
+          stuckCount = 0;
+        } else {
+          if (vd) step.doneCheck = vd;
+          finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break;
+        }
       }
     }
 
@@ -1241,12 +1600,24 @@ async function main() {
       stuckCount = 0;
     }
 
+    // 【走位被擋改向】上一步往某方向推搖桿但背景沒動(被障礙物擋住),AI 這步又往同一方向 → 改向繞開。
+    // 測試人員正在指揮時不覆寫。
+    if (blockedDir && !operatorDirected && cmd.action === 'move' && normDir(cmd.dir ?? cmd.direction) === blockedDir && !Number.isFinite(cmd.x2)) {
+      const alt = turnDir(blockedDir, blockedStreak);
+      cmd.dir = alt; delete cmd.direction;
+      cmd.thinking = `[走位被擋改向] 上一步往 ${blockedDir} 背景沒有移動(被障礙物擋住),改往 ${alt}。` + String(cmd.thinking || '');
+      cmd.override = 'blocked_move';
+      step.dir = alt; step.blockedFrom = blockedDir; step.override = 'blocked_move'; step.thinking = cmd.thinking; delete step.expect;
+    } else if (blockedDir) {
+      step.blockedFrom = blockedDir;
+    }
+
     lastBattleMove = battleAutoEnabled && inBattle && !isPopup && cmd.action === 'move';
     popupLastStep = isPopup;
     if (autopilot) { step.autopilotMs = AUTOPILOT_MS; }
 
-    // runner 在 step 落地後才改寫動作(拒絕假完成/戰鬥強制走位)時,重寫 step json 讓證據與實際執行一致。
-    if (step.override === 'reject_done' || step.override === 'battle_move' || autopilot) {
+    // runner 在 step 落地後才改寫動作(拒絕假完成/戰鬥強制走位/走位被擋)時,重寫 step json 讓證據與實際執行一致。
+    if (step.override === 'reject_done' || step.override === 'battle_move' || step.override === 'blocked_move' || step.blockedFrom || autopilot) {
       await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     }
 
@@ -1272,7 +1643,15 @@ async function main() {
     if (deviceCmd.action === 'launch' && !deviceCmd.app && effectivePkg) {
       try { await client.restartApp(effectivePkg); await sleep(8000); consecFail = 0; } catch (e) { console.warn('[launch] 重啟失敗', e?.message || e); }
     } else
-    try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
+    try {
+      if (devLogsPending) { await devLogsPending; devLogsPending = null; }
+      await client.act(deviceCmd);
+      consecFail = 0;
+      // 記下這次走位(方向 + 走位前的背景),下一步比對背景有沒有捲動。
+      const moved = cmd.action === 'move' || (cmd.action === 'combo' && cmd.dir);
+      const mdir = moved && !Number.isFinite(cmd.x2) ? normDir(cmd.dir ?? cmd.direction) : null;
+      if (mdir && curScene) lastMove = { dir: mdir, scene: curScene };
+    } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
     prevOrient = isLandscape;
     // 導覽圖用的「上一畫面/上一動作」:AI 沒給畫面名(pid=null,如解析失敗)時沿用上一個已知畫面,
     // 且該步若只是 wait 不覆蓋真正造成轉場的動作(如先 tap Slots → 解析失敗 wait → 機台選擇)。
@@ -1285,14 +1664,60 @@ async function main() {
     } else if (cmd.action !== 'wait') {
       navAction = cmd.action; prevTarget = '';
     }
+    // 輔助 Agent 核對上一步 + 決策 Agent 規劃下一步:在等待畫面穩定的這段時間背景進行(依序串接,不交錯)。
+    if (team) {
+      const idx = i;
+      const observation = { screen: screenName, thinking: String(cmd.thinking || ''), ...(guardedObs ? { obs: guardedObs } : {}) };
+      const actionText = [cmd.action, cmd.dir ? `dir=${cmd.dir}` : '', cmd.target ? `→ ${cmd.target}` : '', cmd.override ? `(runner 改寫:${cmd.override})` : '']
+        .filter(Boolean).join(' ');
+      const prevStep = steps.find((s) => s.index === idx - 1);
+      const prevPlan = stepPlans.get(idx - 1) ?? null;
+      const changed = screenChanged;
+      const opTexts = operator.active.slice(-3).map((c) => c.text);
+      const runnerNote = [
+        stuckCount > 0 ? `畫面已連續 ${stuckCount} 步沒有變化` : '',
+        (screenSeen.get(screenName) || 0) >= 4 ? `「${screenName}」已操作 ${screenSeen.get(screenName)} 次` : '',
+        cmd.override === 'app_restart' ? '遊戲剛被重新啟動' : '',
+        blockedDir ? `往 ${blockedDir} 走被擋住` : '',
+      ].filter(Boolean).join(';');
+      const work = async () => {
+        // 這一步的畫面 = 上一步動作的結果 → 判斷上一步有沒有生效,寫回上一步的紀錄。
+        const rv = idx > 0
+          ? await team.review({ index: idx, prevAction: prevStep ? `${prevStep.action}${prevStep.dir ? ` dir=${prevStep.dir}` : ''}` : '', prevPlan, observation, screenChanged: changed }).catch(() => null)
+          : null;
+        if (rv && prevStep) {
+          prevStep.review = { effect: rv.effect, ...(rv.note ? { note: rv.note } : {}), ...(rv.issues.length ? { issues: rv.issues } : {}) };
+          await s3put(`${PREFIX}/steps/${prevStep.index}.json`, JSON.stringify(prevStep), 'application/json').catch(() => {});
+        }
+        const cur = steps.find((s) => s.index === idx);
+        if (rv && cur && Object.keys(rv.facts).length) {
+          cur.facts = rv.facts;
+          await s3put(`${PREFIX}/steps/${idx}.json`, JSON.stringify(cur), 'application/json').catch(() => {});
+        }
+        team.record({ index: idx, screen: observation.screen, action: actionText, effect: rv?.effect });
+        await team.maybeSummarize(idx).catch(() => {});
+      };
+      teamPending = (teamPending ?? Promise.resolve()).then(work, work);
+    }
     // 戰鬥走位中不額外等待(站著不動就會被包圍);其餘維持 3 秒讓畫面穩定。
     await sleep(lastBattleMove ? 300 : 3000);
   }
 
+  // 等最後一輪 Agent 協作寫完紀錄(最多 15 秒)。
+  if (teamPending) await Promise.race([teamPending, sleep(15_000)]);
+
+  // 收最後一段真機 log(結束前的 crash / 錯誤最有價值)。
+  if (devLogs) {
+    if (devLogsPending) await devLogsPending;
+    await devLogs.collect(steps.length).catch(() => null);
+  }
   // 停止即時串流(先停,避免 quit session 後仍嘗試截圖)。
   clearInterval(liveTimer);
   if (liveVideo) await liveVideo.stop();
-  if (mediaAudio) await mediaAudio.stop();
+  if (recorder) {
+    activeRecorder = null;
+    await recorder.stop().catch((e) => console.warn('[record] 收尾失敗', e?.message || e));
+  }
   // 等待可能仍在飛行中的最後一張 live 截圖結束,避免對已關閉 session 發請求。
   for (let w2 = 0; liveBusy && w2 < 20; w2++) await sleep(50);
   // 效能監測收尾:讀最終耗電、還原電池「未接電」模擬與 timestats(必須在 quit session 前)。
@@ -1309,9 +1734,19 @@ async function main() {
     ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}),
     ...(controls ? { controls: { ids: controls.ids, source: controls.source } } : {}),
     ...(deviceModel ? { deviceModel } : {}),
+    ...(maxSegments !== 1 ? { segments: segment } : {}),
     ...(rtp ? { rtp } : {}),
     ...(perfShell ? { perfMeta: perfMon.meta(launchInfo) } : {}),
-    stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
+    // tokens = 三個 Agent 合計;tokensBySeat 分開記(花費依各 Agent 的模型單價分別計算)。
+    ...(team ? {
+      tokensBySeat: { vlm: { ...tok }, agent: { ...team.tokens.agent }, subagent: { ...team.tokens.subagent } },
+      seatModels: { vlm: VLM, ...(AGENT_MODEL ? { agent: AGENT_MODEL } : {}), ...(SUBAGENT_MODEL ? { subagent: SUBAGENT_MODEL } : {}) },
+    } : {}),
+    stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges },
+    tokens: team
+      ? { input: tok.input + team.tokens.agent.input + team.tokens.subagent.input, output: tok.output + team.tokens.agent.output + team.tokens.subagent.output }
+      : tok,
+    generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);
   await client.quit().catch(() => {});
@@ -1321,6 +1756,8 @@ async function main() {
 
 main().catch(async (e) => {
   await writeStatus('error', String(e), 0);
+  // 整場錄影盡力收下(session 還活著才拿得到;拿不到就算了)。
+  if (activeRecorder) await activeRecorder.stop().catch(() => {});
   // 還原「未接電」模擬(盡力;session 隨後也會被釋放並由 Device Farm 清機)。
   if (activePerfMon) await activePerfMon.stop().catch(() => {});
   await stopSelfOwnedSession(); // 中途失敗也要釋放真機/停計費

@@ -1,19 +1,15 @@
 import { useEffect, useState } from 'react';
 import type { RLang } from '../report/reportText.ts';
 import { LivePlayer, type LivePlayerState, type PickPoint } from './LivePlayer.tsx';
-import { useLiveSound } from './useLiveSound.ts';
 import './LiveScreen.css';
 
 const T = {
-  soundOn: ['開啟音效', 'Turn sound on'],
-  soundOff: ['靜音', 'Mute'],
-  volume: ['音量', 'Volume'],
-  delayed: ['含音效 · 延遲約 {n} 秒', 'With sound · ~{n}s behind'],
   realtime: ['即時', 'Live'],
   frames: ['截圖', 'Snapshots'],
   popout: ['在新視窗開啟(雙螢幕)', 'Open in a new window'],
-  noAudio: ['此裝置無法錄製音效', 'Sound capture unavailable on this device'],
-  waitingAudio: ['音效緩衝中…(第一段約 25 秒後出現)', 'Buffering sound… (first clip in ~25s)'],
+  noAudio: ['此裝置無法錄製聲音', 'Sound recording unavailable on this device'],
+  recording: ['錄影中(含聲音)· 測試結束後可回放', 'Recording with sound · replay after the test'],
+  recordingHint: ['為了不打斷遊戲,測試中不播放聲音;整場錄影(含聲音)會在結束後出現在這裡。', 'To avoid pausing the game, sound is not played live; the full recording with sound appears here after the test.'],
   pickHint: ['點畫面可指定位置讓 AI 點', 'Click the screen to tell the AI where to tap'],
   pickTitle: ['指定點擊位置', 'Tap position'],
   tapHere: ['讓 AI 點這裡', 'Tap here'],
@@ -23,14 +19,6 @@ const T = {
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 
-function SpeakerIcon({ on }: { on: boolean }) {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
-      <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-      {on ? <><path d="M15.5 8.5a5 5 0 0 1 0 7" /><path d="M18.5 5.5a9 9 0 0 1 0 13" /></> : <path d="m16 9 5 6M21 9l-5 6" />}
-    </svg>
-  );
-}
 function PopoutIcon() {
   return (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
@@ -55,9 +43,9 @@ export function openLivePopout(jobId: string, aspect = 9 / 20) {
 }
 
 /**
- * 即時畫面 + 精簡控制列(聲音開關 / 音量 / 新視窗)。
- * 聲音關:播 screenrecord 即時段落(無聲、延遲約 3–5 秒)。
- * 聲音開:改播含音效的錄影段落(畫面與聲音同步,延遲約 25–30 秒)。
+ * 即時畫面 + 精簡控制列(錄影狀態 / 新視窗)。
+ * 即時畫面播 screenrecord 段落(無聲、延遲約 3–5 秒)。聲音不即時播放:分段錄音每次重開都會
+ * 讓遊戲失去焦點而暫停,改成整場連續錄影(含聲音),測試結束後在任務頁回放。
  */
 export function LiveScreen({
   jobId,
@@ -78,7 +66,7 @@ export function LiveScreen({
   fallbackUrl?: string | null;
   alt: string;
   lang: RLang;
-  /** audio-levels 的 state:'on' | 'unavailable' | 'none' … */
+  /** audio-levels 的 state:'recording' | 'on' | 'unavailable' | 'none' … */
   audioState?: string;
   popout?: boolean;
   className?: string;
@@ -90,16 +78,12 @@ export function LiveScreen({
   /** 「讓 AI 點這裡」:只送位置。 */
   onSendPoint?: (p: PickPoint) => Promise<void>;
 }) {
-  const sound = useLiveSound();
   const [ps, setPs] = useState<LivePlayerState>({ playing: false });
   const [aspect, setAspect] = useState(9 / 20);
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState(0);
   const handleAspect = (a: number) => { setAspect(a); onAspect?.(a); };
   const open = () => openLivePopout(jobId, aspect);
-  const audioUsable = audioState !== 'unavailable';
-  const withSound = sound.on && audioUsable;
-  const mode = withSound ? 'audio' : 'live';
   const delay = ps.delaySec !== undefined ? Math.max(1, Math.round(ps.delaySec)) : undefined;
   // 執行中且外層有接收 → 點畫面 = 選位置(新視窗改由 ↗ 按鈕開)。
   const pickable = isLive && !!onPoint;
@@ -132,9 +116,8 @@ export function LiveScreen({
     <LivePlayer
       jobId={jobId}
       isLive={isLive}
-      source={mode}
-      muted={!withSound}
-      volume={sound.volume}
+      source="live"
+      muted
       fallbackUrl={fallbackUrl ?? null}
       alt={alt}
       onState={setPs}
@@ -151,7 +134,6 @@ export function LiveScreen({
             {player}
           </button>
         )}
-        {withSound && isLive && !ps.playing && !point && <span className="livescreen__note">{tx('waitingAudio', lang)}</span>}
         {pickable && !point && !sentAt && <span className="livescreen__hint">{tx('pickHint', lang)}</span>}
         {sentAt > 0 && <span className="livescreen__note is-ok" role="status">{tx('pointSent', lang)}</span>}
         {pickable && point && (
@@ -169,35 +151,14 @@ export function LiveScreen({
 
       {isLive && (
         <div className="livescreen__bar">
-          <span className={`livescreen__mode ${withSound ? 'is-sound' : ps.playing ? 'is-live' : ''}`}>
-            {withSound
-              ? tx('delayed', lang).replace('{n}', String(delay ?? 25))
-              : ps.playing ? `${tx('realtime', lang)}${delay ? ` · ~${delay}s` : ''}` : tx('frames', lang)}
+          <span className={`livescreen__mode ${ps.playing ? 'is-live' : ''}`}>
+            {ps.playing ? `${tx('realtime', lang)}${delay ? ` · ~${delay}s` : ''}` : tx('frames', lang)}
           </span>
           <span className="livescreen__spacer" />
-          <button
-            type="button"
-            className={`livescreen__btn ${withSound ? 'is-on' : ''}`}
-            onClick={sound.toggle}
-            disabled={!audioUsable}
-            aria-pressed={withSound}
-            title={!audioUsable ? tx('noAudio', lang) : withSound ? tx('soundOff', lang) : tx('soundOn', lang)}
-            aria-label={withSound ? tx('soundOff', lang) : tx('soundOn', lang)}
-          >
-            <SpeakerIcon on={withSound} />
-          </button>
-          <input
-            type="range"
-            className="livescreen__vol"
-            min={0}
-            max={1}
-            step={0.05}
-            value={withSound ? sound.volume : 0}
-            onChange={(e) => sound.setVolume(Number(e.target.value))}
-            disabled={!audioUsable}
-            aria-label={tx('volume', lang)}
-            style={{ ['--vol' as string]: `${Math.round((withSound ? sound.volume : 0) * 100)}%` }}
-          />
+          {audioState === 'recording' && (
+            <span className="livescreen__rec" title={tx('recordingHint', lang)}>{tx('recording', lang)}</span>
+          )}
+          {audioState === 'unavailable' && <span className="livescreen__rec is-off">{tx('noAudio', lang)}</span>}
           {popout && (
             <button type="button" className="livescreen__btn" onClick={open} title={tx('popout', lang)} aria-label={tx('popout', lang)}>
               <PopoutIcon />
