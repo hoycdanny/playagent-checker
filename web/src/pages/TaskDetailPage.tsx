@@ -46,8 +46,16 @@ const PT = {
   newestFirst: ['最新在上', 'Newest first'],
   current: ['目前', 'Now'],
   stepCount: ['{n} 步', '{n} steps'],
-  booting: ['真機啟動中…', 'Starting the device…'],
-  bootingHint: ['Device Farm 開機通常需要 3–5 分鐘,畫面就緒後會自動出現。', 'Device Farm usually takes 3–5 minutes; the screen appears automatically.'],
+  booting: ['啟動中…', 'Starting…'],
+  bootingDevicefarm: ['真機啟動中…', 'Starting the device…'],
+  bootingEmulator: ['Android 容器啟動中…', 'Starting the Android container…'],
+  bootingWeb: ['瀏覽器啟動中…', 'Starting the browser…'],
+  bootingWindows: ['Windows 主機啟動中…', 'Starting the Windows host…'],
+  bootingHint: ['畫面就緒後會自動出現。', 'The screen appears automatically once ready.'],
+  bootingHintDevicefarm: ['Device Farm 開機通常需要 3–5 分鐘,畫面就緒後會自動出現。', 'Device Farm usually takes 3–5 minutes; the screen appears automatically.'],
+  bootingHintEmulator: ['正在準備 Android 容器(Redroid 雲端主機),畫面就緒後會自動出現。', 'Preparing the Android container (Redroid cloud host); the screen appears automatically.'],
+  bootingHintWeb: ['正在啟動雲端瀏覽器,畫面就緒後會自動出現。', 'Starting the cloud browser; the screen appears automatically.'],
+  bootingHintWindows: ['Windows 主機(GameLift Streams)首次啟動約需 10–15 分鐘,畫面就緒後會自動出現。', 'The Windows host (GameLift Streams) takes about 10–15 minutes on first start; the screen appears automatically.'],
   replay: ['回放', 'Replay'],
   chat: ['對 AI 下指令', 'Instruct the AI'],
   goalHint: ['決策 Agent 給這一步的目標', 'Goal set by the Decision Agent for this step'],
@@ -62,6 +70,21 @@ const PT = {
   replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
 } as const;
 const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
+
+/** 開機中的標題/說明依執行環境而定(不是每個任務都跑 Device Farm);未知後端用通用文案。 */
+const BOOT_SUFFIX: Record<string, 'Devicefarm' | 'Emulator' | 'Web' | 'Windows'> = {
+  devicefarm: 'Devicefarm',
+  emulator: 'Emulator',
+  web: 'Web',
+  windows: 'Windows',
+};
+export function bootText(backend: string | undefined, lang: RLang): { title: string; hint: string } {
+  const s = backend ? BOOT_SUFFIX[backend] : undefined;
+  return {
+    title: pt(s ? (`booting${s}` as const) : 'booting', lang),
+    hint: pt(s ? (`bootingHint${s}` as const) : 'bootingHint', lang),
+  };
+}
 
 export default function TaskDetailPage() {
   const { t, locale } = useI18n();
@@ -258,8 +281,8 @@ export default function TaskDetailPage() {
                 <InfoIcon name={boot?.phase === 'connect' ? 'plug' : boot?.phase === 'upload' ? 'upload' : boot?.phase === 'download' ? 'package' : boot?.phase === 'device' ? 'phone' : 'cloud'} size={30} />
                 <span className="detail__booting-ring" />
               </div>
-              <p className="detail__booting-text">{message || pt('booting', lang)}</p>
-              <p className="detail__booting-sub">{pt('bootingHint', lang)}</p>
+              <p className="detail__booting-text">{message || bootText(backend, lang).title}</p>
+              <p className="detail__booting-sub">{bootText(backend, lang).hint}</p>
             </div>
           ) : (
             <div className="detail__no-live">{t('detail.noLiveView')}</div>
