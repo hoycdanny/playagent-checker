@@ -40,6 +40,12 @@ export interface UpdaterStackProps extends StackProps {
   imageBuildProjects: string[];
   /** 映像建置專案所用的既有角色名(更新器需要 PassRole 給它)。 */
   imageBuildRoleName: string;
+  /**
+   * 前端建置期設定(web/.env)的來源 stack。web/.env 不進版控,乾淨 clone 沒有它,
+   * 直接 build 會產出沒有 Cognito / API 位址的前端(整站壞掉),所以 buildspec 從這兩個
+   * stack 的 Outputs 重新產生。
+   */
+  frontendConfigStacks: { foundation: string; controlPlane: string };
 }
 
 /** Node.js 版本:與本機開發、runner 容器一致,不依賴 CodeBuild 映像內建版本。 */
@@ -79,6 +85,8 @@ export class UpdaterStack extends Stack {
         PA_STATE_PARAM: { value: props.stateParamName },
         PA_SECRET_NAME: { value: props.githubSecretName },
         PA_NODE_VERSION: { value: NODE_VERSION },
+        PA_FOUNDATION_STACK: { value: props.frontendConfigStacks.foundation },
+        PA_CONTROLPLANE_STACK: { value: props.frontendConfigStacks.controlPlane },
         // 由 StartBuild 覆寫:PA_REF(要部署的 tag/sha)、PA_BY(觸發者)、PA_RUN_TESTS。
         PA_REF: { value: 'main' },
         PA_BY: { value: 'unknown' },
@@ -120,6 +128,13 @@ export class UpdaterStack extends Stack {
     role.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['codebuild:CreateProject', 'codebuild:UpdateProject', 'codebuild:BatchGetProjects', 'codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
       resources: props.imageBuildProjects.map((p) => `arn:aws:codebuild:${this.region}:${this.account}:project/${p}`),
+    }));
+    // 產生 web/.env:只讀這兩個 stack 的 Outputs(唯讀,不含任何變更權限)。
+    role.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['cloudformation:DescribeStacks'],
+      resources: [props.frontendConfigStacks.foundation, props.frontendConfigStacks.controlPlane].map(
+        (name) => `arn:aws:cloudformation:${this.region}:${this.account}:stack/${name}/*`,
+      ),
     }));
     role.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['iam:GetRole', 'iam:PassRole'],
@@ -187,7 +202,14 @@ function buildSpec(): Record<string, unknown> {
           // 且目前有兩個與本功能無關的既有失敗(app-credentials、emulatorCoordTransform),
           // 放進閘門會讓每次更新都被擋下。修好那兩個之後應把 test:infra 加回來。
           'if [ "$PA_RUN_TESTS" = "1" ]; then npm run test:web && npm run test:worker; else echo "skip tests"; fi',
+          // web/.env 不進版控:從已部署 stack 的 Outputs 產生(Cognito / API 位址在更新前後不變)。
+          // 任何一個值缺少就中止,絕不部署沒有設定的前端。
+          'aws cloudformation describe-stacks --stack-name "$PA_FOUNDATION_STACK" --query "Stacks[0].Outputs" --output json > /tmp/out-foundation.json',
+          'aws cloudformation describe-stacks --stack-name "$PA_CONTROLPLANE_STACK" --query "Stacks[0].Outputs" --output json > /tmp/out-cp.json',
+          'node -e \'const fs=require("fs");const rd=(p)=>JSON.parse(fs.readFileSync(p,"utf8"))||[];const f=rd("/tmp/out-foundation.json");const c=rd("/tmp/out-cp.json");const pick=(a,p)=>((a.find((o)=>String(o.OutputKey).startsWith(p))||{}).OutputValue||"");const env={VITE_COGNITO_REGION:process.env.AWS_REGION||"",VITE_COGNITO_USER_POOL_ID:pick(f,"AuthUserPoolId"),VITE_COGNITO_CLIENT_ID:pick(f,"AuthUserPoolClientId"),VITE_API_URL:pick(c,"ApiUrl"),VITE_WS_URL:pick(c,"WsUrl")};const miss=Object.keys(env).filter((k)=>!env[k]);if(miss.length){console.error("frontend config missing: "+miss.join(","));process.exit(1);}fs.writeFileSync("web/.env",Object.entries(env).map(([k,v])=>k+"="+v).join("\\n")+"\\n");console.log("web/.env generated: "+Object.keys(env).join(","));\'',
           'npm run build:web',
+          // 保險:確認 API 位址真的被編進前端 bundle。
+          'API_URL="$(grep "^VITE_API_URL=" web/.env | cut -d= -f2-)"; grep -rqF "$API_URL" web/dist/assets || { echo "web build does not contain VITE_API_URL"; exit 1; }',
           'cd /tmp/src/infra',
           'npx cdk deploy $PA_TARGET_STACKS --require-approval never --concurrency 2 --progress events',
           'cd /tmp/src',
