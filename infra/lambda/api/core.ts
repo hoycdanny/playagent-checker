@@ -1285,8 +1285,62 @@ export async function handleRequest(
           if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
           const username = decodeURIComponent(memberToggle[1]!);
           const enable = memberToggle[2] === 'enable';
+          // 自己停用自己 = 立刻把自己鎖在門外,而且沒有別人能幫你開(可能只有一個管理員)。
+          if (!enable && isSelf(req.claims, username)) {
+            return json(400, { error: '不能停用自己的帳號' });
+          }
           await deps.userAdmin.setEnabled(username, enable);
           return json(200, { username, enabled: enable });
+        }
+        // 動態路由:成員的其他管理動作(全部 admin 專用)。
+        //   POST   /users/{u}/password  { password }   重設密碼
+        //   POST   /users/{u}/admin     { admin }      設/取消管理員
+        //   PUT    /users/{u}           { tenantId }   改租戶
+        //   DELETE /users/{u}                          永久刪除
+        const memberPassword = req.method === 'POST' && /^\/users\/([^/]+)\/password$/.exec(req.path);
+        if (memberPassword) {
+          requireAdmin(req.claims);
+          if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+          const b = (req.body ?? {}) as { password?: unknown };
+          const password = typeof b.password === 'string' ? b.password : '';
+          if (password.length < 8) return json(400, { error: '密碼至少 8 碼' });
+          await deps.userAdmin.resetPassword(decodeURIComponent(memberPassword[1]!), password);
+          return json(200, { username: decodeURIComponent(memberPassword[1]!) });
+        }
+        const memberAdmin = req.method === 'POST' && /^\/users\/([^/]+)\/admin$/.exec(req.path);
+        if (memberAdmin) {
+          requireAdmin(req.claims);
+          if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+          const username = decodeURIComponent(memberAdmin[1]!);
+          const b = (req.body ?? {}) as { admin?: unknown };
+          const admin = b.admin === true;
+          // 自己取消自己的管理員 = 之後連這頁都進不來。
+          if (!admin && isSelf(req.claims, username)) {
+            return json(400, { error: '不能取消自己的管理員權限' });
+          }
+          await deps.userAdmin.setAdmin(username, admin);
+          return json(200, { username, admin });
+        }
+        const memberUpdate = req.method === 'PUT' && /^\/users\/([^/]+)$/.exec(req.path);
+        if (memberUpdate) {
+          requireAdmin(req.claims);
+          if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+          const b = (req.body ?? {}) as { tenantId?: unknown };
+          const tenantId = typeof b.tenantId === 'string' ? b.tenantId.trim() : '';
+          if (!TENANT_ID_RE.test(tenantId)) {
+            return json(400, { error: 'tenantId 僅允許英數與 - _,長度 2~64' });
+          }
+          await deps.userAdmin.setTenant(decodeURIComponent(memberUpdate[1]!), tenantId);
+          return json(200, { username: decodeURIComponent(memberUpdate[1]!), tenantId });
+        }
+        const memberDelete = req.method === 'DELETE' && /^\/users\/([^/]+)$/.exec(req.path);
+        if (memberDelete) {
+          requireAdmin(req.claims);
+          if (!deps.userAdmin) return json(501, { error: '成員管理未設定' });
+          const username = decodeURIComponent(memberDelete[1]!);
+          if (isSelf(req.claims, username)) return json(400, { error: '不能刪除自己的帳號' });
+          await deps.userAdmin.deleteMember(username);
+          return json(200, { username, deleted: true });
         }
         // 動態路由:GET /system/update/{buildId}(進度)與 .../log(建置輸出)。
         const buildLog = req.method === 'GET' && /^\/system\/update\/([^/]+)\/log$/.exec(req.path);
@@ -1544,6 +1598,22 @@ export function extractCaseTask(yaml: string): string | undefined {
 /** 要求呼叫者為 admin(JWT cognito:groups 含 admins);否則丟 ForbiddenError → 403。 */
 function requireAdmin(claims: unknown): void {
   if (!isAdmin(claims)) throw new ForbiddenError('需要管理員權限');
+}
+
+/** 租戶 id 允許的格式(用在改租戶;S3 前綴的一段,不能有斜線或空白)。 */
+const TENANT_ID_RE = /^[A-Za-z0-9_-]{2,64}$/;
+
+/**
+ * 這個動作的對象是不是「操作者自己」。
+ * 成員 username 就是 email(建立時以 email 當 username),所以比對 email;
+ * 另外也比對 cognito:username,避免 pool 設定改成非 email username 時誤判。
+ */
+function isSelf(claims: unknown, username: string): boolean {
+  const c = (claims ?? {}) as Record<string, unknown>;
+  const target = username.trim().toLowerCase();
+  const email = String(c['email'] ?? '').trim().toLowerCase();
+  const name = String(c['cognito:username'] ?? '').trim().toLowerCase();
+  return target !== '' && (target === email || target === name);
 }
 
 /** 驗證新增成員輸入。email/password/tenantId 必填;密碼長度 >= 8(對齊 pool 政策)。 */

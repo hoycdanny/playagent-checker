@@ -56,6 +56,44 @@ export type MessageKey =
   | 'members.enable'
   | 'members.disable'
   | 'members.empty'
+  | 'members.role'
+  | 'members.roleAdmin'
+  | 'members.roleMember'
+  | 'members.you'
+  | 'members.statTotal'
+  | 'members.statActive'
+  | 'members.statDisabled'
+  | 'members.statAdmins'
+  | 'members.statTenants'
+  | 'members.searchPlaceholder'
+  | 'members.filterAll'
+  | 'members.filterActive'
+  | 'members.filterDisabled'
+  | 'members.filterAdmins'
+  | 'members.noMatch'
+  | 'members.updatedAt'
+  | 'members.updatedHint'
+  | 'members.pending'
+  | 'members.actions'
+  | 'members.resetPassword'
+  | 'members.resetPasswordPrompt'
+  | 'members.resetDone'
+  | 'members.grantAdmin'
+  | 'members.revokeAdmin'
+  | 'members.adminConfirm'
+  | 'members.revokeConfirm'
+  | 'members.changeTenant'
+  | 'members.changeTenantPrompt'
+  | 'members.delete'
+  | 'members.deleteConfirm'
+  | 'members.deleteMismatch'
+  | 'members.disableConfirm'
+  | 'members.actionFailed'
+  | 'members.generate'
+  | 'members.copied'
+  | 'members.addTitle'
+  | 'members.cancel'
+  | 'members.tenantHint'
   | 'cost.intro'
   | 'cost.tabReal'
   | 'cost.tabEstimated'
@@ -675,6 +713,44 @@ const zhHant: Catalog = {
   'members.enable': '啟用',
   'members.disable': '停用',
   'members.empty': '尚無成員。',
+  'members.role': "角色",
+  'members.roleAdmin': "管理員",
+  'members.roleMember': "成員",
+  'members.you': "你",
+  'members.statTotal': "成員",
+  'members.statActive': "啟用中",
+  'members.statDisabled': "已停用",
+  'members.statAdmins': "管理員",
+  'members.statTenants': "租戶",
+  'members.searchPlaceholder': "搜尋電子郵件或租戶…",
+  'members.filterAll': "全部",
+  'members.filterActive': "啟用中",
+  'members.filterDisabled': "已停用",
+  'members.filterAdmins': "管理員",
+  'members.noMatch': "沒有符合條件的成員。",
+  'members.updatedAt': "最後更新",
+  'members.updatedHint': "「最後更新」是帳號資料最後被修改的時間,不是最後登入時間(Cognito 不提供登入時間)。",
+  'members.pending': "待設定密碼",
+  'members.actions': "操作",
+  'members.resetPassword': "重設密碼",
+  'members.resetPasswordPrompt': "為「{email}」設定新密碼(至少 8 碼,含大小寫與數字)。設定後使用者下次登入即用新密碼。",
+  'members.resetDone': "已為「{email}」設定新密碼。請用安全管道把密碼交給對方。",
+  'members.grantAdmin': "設為管理員",
+  'members.revokeAdmin': "取消管理員",
+  'members.adminConfirm': "把「{email}」設為管理員?管理員可以管理成員、看全部租戶的費用、觸發系統更新。",
+  'members.revokeConfirm': "取消「{email}」的管理員權限?",
+  'members.changeTenant': "改租戶",
+  'members.changeTenantPrompt': "把「{email}」移到哪個租戶?(只允許英數與 - _)移動後他只看得到新租戶的應用與資料。",
+  'members.delete': "刪除成員",
+  'members.deleteConfirm': "永久刪除成員「{email}」?這個帳號無法再登入,且不可復原。該租戶的測試資料不會被刪除。\n\n請輸入電子郵件確認:",
+  'members.deleteMismatch': "輸入的電子郵件不符,未刪除。",
+  'members.disableConfirm': "停用「{email}」?他會立刻無法登入,資料保留,之後可再啟用。",
+  'members.actionFailed': "操作失敗:{msg}",
+  'members.generate': "產生密碼",
+  'members.copied': "已複製",
+  'members.addTitle': "新增成員",
+  'members.cancel': "取消",
+  'members.tenantHint': "同一個租戶的人看到同一份應用與測試資料。",
   'page.cost.title': '費用分析',
   'cost.intro':
     'AWS 真實成本來自 Cost Explorer(帳號實際帳單,含全部基礎設施);任務估算成本為 token × 單價估算,兩者口徑不同,不應直接相減。',
@@ -1299,6 +1375,44 @@ const en: Catalog = {
   'members.enable': 'Enable',
   'members.disable': 'Disable',
   'members.empty': 'No members yet.',
+  'members.role': "Role",
+  'members.roleAdmin': "Admin",
+  'members.roleMember': "Member",
+  'members.you': "you",
+  'members.statTotal': "Members",
+  'members.statActive': "Active",
+  'members.statDisabled': "Disabled",
+  'members.statAdmins': "Admins",
+  'members.statTenants': "Tenants",
+  'members.searchPlaceholder': "Search email or tenant…",
+  'members.filterAll': "All",
+  'members.filterActive': "Active",
+  'members.filterDisabled': "Disabled",
+  'members.filterAdmins': "Admins",
+  'members.noMatch': "No members match these filters.",
+  'members.updatedAt': "Last updated",
+  'members.updatedHint': "\"Last updated\" is when the account record last changed, not the last sign-in (Cognito does not expose sign-in times).",
+  'members.pending': "Password not set",
+  'members.actions': "Actions",
+  'members.resetPassword': "Reset password",
+  'members.resetPasswordPrompt': "Set a new password for \"{email}\" (at least 8 chars, upper/lower + digit). They can sign in with it immediately.",
+  'members.resetDone': "New password set for \"{email}\". Share it through a secure channel.",
+  'members.grantAdmin': "Make admin",
+  'members.revokeAdmin': "Revoke admin",
+  'members.adminConfirm': "Make \"{email}\" an admin? Admins manage members, see every tenant’s cost and can trigger platform updates.",
+  'members.revokeConfirm': "Revoke admin rights from \"{email}\"?",
+  'members.changeTenant': "Change tenant",
+  'members.changeTenantPrompt': "Move \"{email}\" to which tenant? (letters, digits, - and _ only) They will then only see the new tenant’s apps and data.",
+  'members.delete': "Delete member",
+  'members.deleteConfirm': "Permanently delete \"{email}\"? The account can no longer sign in and this cannot be undone. The tenant’s test data is kept.\n\nType the email to confirm:",
+  'members.deleteMismatch': "The email does not match. Nothing was deleted.",
+  'members.disableConfirm': "Disable \"{email}\"? They lose access immediately; data is kept and you can re-enable later.",
+  'members.actionFailed': "Action failed: {msg}",
+  'members.generate': "Generate",
+  'members.copied': "Copied",
+  'members.addTitle': "Add member",
+  'members.cancel': "Cancel",
+  'members.tenantHint': "People in the same tenant see the same apps and test data.",
   'page.cost.title': 'Cost Analysis',
   'cost.intro':
     'Real AWS cost comes from Cost Explorer (actual account billing, including all infrastructure); task estimated cost is a token × price estimate. The two use different bases and should not be subtracted from each other.',
@@ -1928,6 +2042,44 @@ const zhHans: Catalog = {
   'members.enable': '启用',
   'members.disable': '停用',
   'members.empty': '尚无成员。',
+  'members.role': "角色",
+  'members.roleAdmin': "管理员",
+  'members.roleMember': "成员",
+  'members.you': "你",
+  'members.statTotal': "成员",
+  'members.statActive': "启用中",
+  'members.statDisabled': "已停用",
+  'members.statAdmins': "管理员",
+  'members.statTenants': "租户",
+  'members.searchPlaceholder': "搜索电子邮件或租户…",
+  'members.filterAll': "全部",
+  'members.filterActive': "启用中",
+  'members.filterDisabled': "已停用",
+  'members.filterAdmins': "管理员",
+  'members.noMatch': "没有符合条件的成员。",
+  'members.updatedAt': "最后更新",
+  'members.updatedHint': "「最后更新」是账号资料最后被修改的时间,不是最后登录时间(Cognito 不提供登录时间)。",
+  'members.pending': "待设定密码",
+  'members.actions': "操作",
+  'members.resetPassword': "重设密码",
+  'members.resetPasswordPrompt': "为「{email}」设定新密码(至少 8 位,含大小写与数字)。设定后用户下次登录即用新密码。",
+  'members.resetDone': "已为「{email}」设定新密码。请用安全渠道把密码交给对方。",
+  'members.grantAdmin': "设为管理员",
+  'members.revokeAdmin': "取消管理员",
+  'members.adminConfirm': "把「{email}」设为管理员?管理员可以管理成员、看全部租户的费用、触发系统更新。",
+  'members.revokeConfirm': "取消「{email}」的管理员权限?",
+  'members.changeTenant': "改租户",
+  'members.changeTenantPrompt': "把「{email}」移到哪个租户?(只允许英数与 - _)移动后他只看得到新租户的应用与数据。",
+  'members.delete': "删除成员",
+  'members.deleteConfirm': "永久删除成员「{email}」?这个账号无法再登录,且不可恢复。该租户的测试数据不会被删除。\n\n请输入电子邮件确认:",
+  'members.deleteMismatch': "输入的电子邮件不符,未删除。",
+  'members.disableConfirm': "停用「{email}」?他会立刻无法登录,数据保留,之后可再启用。",
+  'members.actionFailed': "操作失败:{msg}",
+  'members.generate': "生成密码",
+  'members.copied': "已复制",
+  'members.addTitle': "新增成员",
+  'members.cancel': "取消",
+  'members.tenantHint': "同一个租户的人看到同一份应用与测试数据。",
   'page.cost.title': '费用分析',
   'cost.intro':
     'AWS 真实成本来自 Cost Explorer(账号实际账单,含全部基础设施);任务估算成本为 token × 单价估算,两者口径不同,不应直接相减。',
@@ -2552,6 +2704,44 @@ const ja: Catalog = {
   'members.enable': '有効化',
   'members.disable': '無効化',
   'members.empty': 'メンバーがまだいません。',
+  'members.role': "ロール",
+  'members.roleAdmin': "管理者",
+  'members.roleMember': "メンバー",
+  'members.you': "自分",
+  'members.statTotal': "メンバー",
+  'members.statActive': "有効",
+  'members.statDisabled': "無効",
+  'members.statAdmins': "管理者",
+  'members.statTenants': "テナント",
+  'members.searchPlaceholder': "メールまたはテナントを検索…",
+  'members.filterAll': "すべて",
+  'members.filterActive': "有効",
+  'members.filterDisabled': "無効",
+  'members.filterAdmins': "管理者",
+  'members.noMatch': "条件に合うメンバーがいません。",
+  'members.updatedAt': "最終更新",
+  'members.updatedHint': "「最終更新」はアカウント情報が最後に変更された時刻で、最終サインイン時刻ではありません(Cognito は提供しません)。",
+  'members.pending': "パスワード未設定",
+  'members.actions': "操作",
+  'members.resetPassword': "パスワード再設定",
+  'members.resetPasswordPrompt': "「{email}」の新しいパスワードを設定します(8 文字以上、大小文字 + 数字)。設定後すぐに使えます。",
+  'members.resetDone': "「{email}」のパスワードを設定しました。安全な方法で本人に伝えてください。",
+  'members.grantAdmin': "管理者にする",
+  'members.revokeAdmin': "管理者を解除",
+  'members.adminConfirm': "「{email}」を管理者にしますか?管理者はメンバー管理、全テナントのコスト閲覧、プラットフォーム更新ができます。",
+  'members.revokeConfirm': "「{email}」の管理者権限を解除しますか?",
+  'members.changeTenant': "テナント変更",
+  'members.changeTenantPrompt': "「{email}」をどのテナントに移しますか?(英数と - _ のみ)移動後は新しいテナントのデータのみ見えます。",
+  'members.delete': "メンバー削除",
+  'members.deleteConfirm': "「{email}」を完全に削除しますか?このアカウントはサインインできなくなり、元に戻せません。テナントのテストデータは残ります。\n\n確認のためメールアドレスを入力してください:",
+  'members.deleteMismatch': "メールアドレスが一致しないため、削除しませんでした。",
+  'members.disableConfirm': "「{email}」を無効化しますか?直ちにサインインできなくなります(データは保持、後で再有効化可)。",
+  'members.actionFailed': "操作に失敗しました:{msg}",
+  'members.generate': "パスワード生成",
+  'members.copied': "コピーしました",
+  'members.addTitle': "メンバー追加",
+  'members.cancel': "キャンセル",
+  'members.tenantHint': "同じテナントのメンバーは同じアプリとテストデータを見ます。",
   'page.cost.title': 'コスト分析',
   'cost.intro':
     'AWS 実コストは Cost Explorer(アカウントの実際の請求、全インフラ含む)から取得します。タスク推定コストは token × 単価の見積りで、基準が異なるため直接引き算しないでください。',
@@ -3177,6 +3367,44 @@ const ko: Catalog = {
   'members.enable': '활성화',
   'members.disable': '비활성화',
   'members.empty': '아직 멤버가 없습니다.',
+  'members.role': "역할",
+  'members.roleAdmin': "관리자",
+  'members.roleMember': "멤버",
+  'members.you': "나",
+  'members.statTotal': "멤버",
+  'members.statActive': "활성",
+  'members.statDisabled': "비활성",
+  'members.statAdmins': "관리자",
+  'members.statTenants': "테넌트",
+  'members.searchPlaceholder': "이메일 또는 테넌트 검색…",
+  'members.filterAll': "전체",
+  'members.filterActive': "활성",
+  'members.filterDisabled': "비활성",
+  'members.filterAdmins': "관리자",
+  'members.noMatch': "조건에 맞는 멤버가 없습니다.",
+  'members.updatedAt': "최근 수정",
+  'members.updatedHint': "\"최근 수정\"은 계정 정보가 마지막으로 변경된 시각이며 마지막 로그인 시각이 아닙니다(Cognito는 로그인 시각을 제공하지 않습니다).",
+  'members.pending': "비밀번호 미설정",
+  'members.actions': "작업",
+  'members.resetPassword': "비밀번호 재설정",
+  'members.resetPasswordPrompt': "\"{email}\"의 새 비밀번호를 설정합니다(8자 이상, 대소문자 + 숫자). 설정 후 바로 사용할 수 있습니다.",
+  'members.resetDone': "\"{email}\"의 비밀번호를 설정했습니다. 안전한 경로로 전달하세요.",
+  'members.grantAdmin': "관리자로 지정",
+  'members.revokeAdmin': "관리자 해제",
+  'members.adminConfirm': "\"{email}\"을 관리자로 지정할까요? 관리자는 멤버 관리, 모든 테넌트 비용 조회, 플랫폼 업데이트를 할 수 있습니다.",
+  'members.revokeConfirm': "\"{email}\"의 관리자 권한을 해제할까요?",
+  'members.changeTenant': "테넌트 변경",
+  'members.changeTenantPrompt': "\"{email}\"을 어느 테넌트로 옮길까요?(영문·숫자와 - _ 만) 옮기면 새 테넌트의 데이터만 보입니다.",
+  'members.delete': "멤버 삭제",
+  'members.deleteConfirm': "\"{email}\"을 영구 삭제할까요? 이 계정은 더 이상 로그인할 수 없고 되돌릴 수 없습니다. 테넌트의 테스트 데이터는 유지됩니다.\n\n확인을 위해 이메일을 입력하세요:",
+  'members.deleteMismatch': "이메일이 일치하지 않아 삭제하지 않았습니다.",
+  'members.disableConfirm': "\"{email}\"을 비활성화할까요? 즉시 로그인할 수 없게 되며 데이터는 유지됩니다.",
+  'members.actionFailed': "작업 실패: {msg}",
+  'members.generate': "비밀번호 생성",
+  'members.copied': "복사했습니다",
+  'members.addTitle': "멤버 추가",
+  'members.cancel': "취소",
+  'members.tenantHint': "같은 테넌트의 사용자는 동일한 앱과 테스트 데이터를 봅니다.",
   'page.cost.title': '비용 분석',
   'cost.intro':
     'AWS 실제 비용은 Cost Explorer(계정 실제 청구, 모든 인프라 포함)에서 가져옵니다. 작업 추정 비용은 token × 단가 추정이며 기준이 다르므로 직접 빼면 안 됩니다.',
