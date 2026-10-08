@@ -351,6 +351,12 @@ export class HttpApiLambda extends Construct {
           'cognito-idp:AdminEnableUser',
           'cognito-idp:AdminAddUserToGroup',
           'cognito-idp:AdminListGroupsForUser',
+          // 成員管理頁的其餘動作:取消管理員、改租戶、刪成員、列管理員群組成員。
+          // 全部 scope 在本 user pool;真正的守門是後端 requireAdmin。
+          'cognito-idp:AdminRemoveUserFromGroup',
+          'cognito-idp:AdminUpdateUserAttributes',
+          'cognito-idp:AdminDeleteUser',
+          'cognito-idp:ListUsersInGroup',
         ],
         resources: [props.userPool.userPoolArn],
       }),
