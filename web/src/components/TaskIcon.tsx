@@ -17,23 +17,30 @@ const BACKEND_MARK: Record<string, ReactNode> = {
       <line x1="10.5" y1="18.6" x2="13.5" y2="18.6" />
     </>
   ),
-  // web / Lambda:無伺服器函數,以 λ 折線表示
+  // web:瀏覽器視窗(標題列 + 三個圓點)。以前畫成 λ(Lambda),但使用者看到的是
+  // 「在瀏覽器裡跑」這件事,不是它背後是哪個 AWS 服務。
   web: (
     <>
-      <path d="M7 19c2.2 0 2.9-1.5 3.8-3.9L13 8" />
-      <path d="M10 12l4.5 7" />
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 8.5h18" />
+      {/* 零長度線段 + 圓端 = 三個小圓點(stroke-only 圖示不能用 fill 的圓) */}
+      <path d="M5.9 6.25h0.01M8.1 6.25h0.01M10.3 6.25h0.01" />
     </>
   ),
+  // Android 容器(Redroid):貨櫃 —— 箱體 + 直向波紋
   emulator: (
     <>
-      <rect x="3.5" y="4.5" width="17" height="11" rx="1.5" />
-      <path d="M9 19.5h6M12 15.5v4" />
+      <rect x="2.5" y="7" width="19" height="10" rx="1" />
+      <path d="M6.5 7v10M10.5 7v10M14.5 7v10M18.5 7v10" />
     </>
   ),
+  // Windows(GameLift Streams GPU 主機):2×2 四格窗
   windows: (
     <>
-      <rect x="4" y="4.5" width="16" height="15" rx="1.5" />
-      <path d="M4 9.5h16M12 9.5v10" />
+      <rect x="3.5" y="3.5" width="7.5" height="7.5" rx="1" />
+      <rect x="13" y="3.5" width="7.5" height="7.5" rx="1" />
+      <rect x="3.5" y="13" width="7.5" height="7.5" rx="1" />
+      <rect x="13" y="13" width="7.5" height="7.5" rx="1" />
     </>
   ),
   attached: (
