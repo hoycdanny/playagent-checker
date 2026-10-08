@@ -11,6 +11,7 @@
 export type ImportField =
   | 'id'
   | 'name'
+  | 'purpose'
   | 'module'
   | 'category'
   | 'priority'
@@ -21,12 +22,14 @@ export type ImportField =
   | 'tags'
   | 'url';
 
-export const IMPORT_FIELDS: ImportField[] = ['id', 'name', 'module', 'category', 'priority', 'severity', 'precondition', 'steps', 'expected', 'tags', 'url'];
+export const IMPORT_FIELDS: ImportField[] = ['id', 'name', 'purpose', 'module', 'category', 'priority', 'severity', 'precondition', 'steps', 'expected', 'tags', 'url'];
 
 /** 欄位 → 表頭同義詞(比對前會去空白、轉小寫)。 */
 const SYNONYMS: Record<ImportField, string[]> = {
   id: ['編號', '案例編號', '用例編號', '測試編號', '項目編號', '項次', '序號', '用例id', 'id', 'no', 'no.', 'caseid', 'testcaseid', 'tcid', 'tc'],
   name: ['測試項目', '測試名稱', '案例名稱', '用例名稱', '測試案例', '測試情境', '測試場景', '測試標題', '標題', '名稱', '項目', '測試點', 'title', 'name', 'testcase', 'testcasename', 'scenario', 'summary', 'testitem'],
+  // 測試目的/目標:常與「項目」並存(項目=功能名,目的=這條要驗什麼),之前會被整欄丟掉。
+  purpose: ['測試目的', '目的', '測試目標', '目標', '測試說明', '說明', '驗證目的', 'purpose', 'objective', 'goal', 'intent', 'description'],
   module: ['模組', '功能模組', '模塊', '功能模塊', '功能', '功能名稱', '頁面', 'module', 'feature', 'area', 'component'],
   category: ['分類', '類別', '類型', '測試類型', 'category', 'type', 'testtype'],
   priority: ['優先級', '優先順序', '優先權', '優先度', '重要性', '等級', 'priority', 'level'],
@@ -93,6 +96,8 @@ export interface ImportedCase {
   row: number;
   id?: string;
   name: string;
+  /** 測試目的(這條項目要驗證什麼)。 */
+  purpose?: string;
   module?: string;
   category?: string;
   priority?: string;
@@ -162,6 +167,7 @@ export function rowsToCases(rows: unknown[][], headerRow: number, map: ColumnMap
       row: r + 1,
       ...(id ? { id } : {}),
       name,
+      ...opt('purpose'),
       ...opt('module'),
       ...opt('category'),
       ...opt('priority'),
@@ -200,6 +206,7 @@ export function buildTask(c: ImportedCase, lang: 'zh' | 'en' = 'zh'): string {
     ? { pre: '前置條件', exp: '預期結果' }
     : { pre: 'Precondition', exp: 'Expected result' };
   const lines: string[] = [];
+  if (c.purpose && c.purpose !== c.name) lines.push(`${lang === 'zh' ? '測試目的' : 'Purpose'}: ${c.purpose}`);
   if (c.precondition) lines.push(`${L.pre}: ${c.precondition.replace(/\s*\n\s*/g, '; ')}`);
   const steps = c.steps.length ? c.steps : [c.name];
   steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
@@ -207,10 +214,68 @@ export function buildTask(c: ImportedCase, lang: 'zh' | 'en' = 'zh'): string {
   return lines.join('\n');
 }
 
+/**
+ * 整份 Excel → 一個「測試套件」案例(一份 Excel = 一個測試任務)。
+ *
+ * 每個項目完整保留在 `items:`(編號/類別/項目/目的/步驟/預期),報告要逐項判定時讀這裡;
+ * `task:` 則是給 AI 的執行清單(目前執行引擎只吃單一 task 文字)。
+ */
+export function suiteToYaml(
+  items: ImportedCase[],
+  appId: string,
+  opts: { name: string; lang?: 'zh' | 'en'; source?: string },
+): string {
+  const zh = (opts.lang ?? 'zh') === 'zh';
+  const parts: string[] = [
+    `name: ${scalar(opts.name)}`,
+    `app: ${scalar(appId)}`,
+    'kind: suite',
+    `itemCount: ${items.length}`,
+  ];
+  const head = zh
+    ? `依序完成以下 ${items.length} 個測試項目,每一項都要判定是否符合預期結果。`
+    : `Work through the following ${items.length} test items in order and judge each against its expected result.`;
+  const taskLines: string[] = [head];
+  items.forEach((it, i) => {
+    const ref = it.id ? `[${it.id}] ` : '';
+    const title = [it.module, it.category, it.purpose && it.purpose !== it.name ? it.purpose : '', it.name]
+      .filter(Boolean)
+      .join(' / ');
+    taskLines.push(`${i + 1}. ${ref}${title}`);
+    it.steps.forEach((s) => taskLines.push(`   - ${s}`));
+    if (it.expected.length) taskLines.push(`   ${zh ? '預期' : 'Expected'}: ${it.expected.join('; ')}`);
+  });
+  parts.push(block('task', taskLines.join('\n')));
+
+  // 結構化項目清單:縮排手寫,避免為了一個清單引入 YAML 套件。
+  const itemLines: string[] = ['items:'];
+  for (const it of items) {
+    itemLines.push(`  - ref: ${scalar(it.id ?? String(it.row))}`);
+    itemLines.push(`    title: ${scalar(it.name)}`);
+    if (it.purpose) itemLines.push(`    purpose: ${scalar(it.purpose)}`);
+    if (it.category) itemLines.push(`    category: ${scalar(it.category)}`);
+    if (it.module) itemLines.push(`    module: ${scalar(it.module)}`);
+    if (it.precondition) itemLines.push(`    precondition: ${scalar(it.precondition)}`);
+    if (it.steps.length) {
+      itemLines.push('    steps:');
+      for (const s of it.steps) itemLines.push(`      - ${scalar(s)}`);
+    }
+    if (it.expected.length) {
+      itemLines.push('    expected:');
+      for (const e of it.expected) itemLines.push(`      - ${scalar(e)}`);
+    }
+    itemLines.push(`    row: ${it.row}`);
+  }
+  parts.push(itemLines.join('\n'));
+  if (opts.source) parts.push(`source: ${scalar(opts.source)}`);
+  return `${parts.join('\n')}\n`;
+}
+
 /** 案例 → YAML(controls 由呼叫端用 applyControls 套上)。 */
 export function caseToYaml(c: ImportedCase, appId: string, opts: { lang?: 'zh' | 'en'; source?: string } = {}): string {
   const parts: string[] = [`name: ${scalar(c.name)}`, `app: ${scalar(appId)}`];
   if (c.id) parts.push(`caseRef: ${scalar(c.id)}`);
+  if (c.purpose) parts.push(`purpose: ${scalar(c.purpose)}`);
   if (c.module) parts.push(`module: ${scalar(c.module)}`);
   if (c.category) parts.push(`category: ${scalar(c.category)}`);
   if (c.priority) parts.push(`priority: ${scalar(c.priority)}`);

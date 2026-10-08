@@ -373,6 +373,10 @@ export interface TaskListItem {
   caseVersion?: string;
   /** 執行時的案例名稱快照。 */
   caseName?: string;
+  /** token 用量(三個 seat 合計);費用分析頁的明細用。舊報告可能缺欄位。 */
+  tokens?: { input?: number; output?: number };
+  /** 各 seat 的 token 用量(agent=控制遊戲、vlm=分析畫面、subagent=子代理)。 */
+  tokensBySeat?: Partial<Record<'agent' | 'vlm' | 'subagent', { input?: number; output?: number }>>;
 }
 
 /** 讀某物件 JSON(不存在回 null)。 */
@@ -523,6 +527,9 @@ export async function listJobs(
         ...((report?.generatedAt ?? status?.updatedAt) ? { finishedAt: report?.generatedAt ?? status?.updatedAt } : {}),
         ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
         ...(job.caseName ? { caseName: job.caseName } : {}),
+        // token 用量照原樣帶出(不另外讀 S3,report 已經在手上),費用頁的逐筆明細要用。
+        ...(report?.tokens ? { tokens: report.tokens } : {}),
+        ...(report?.tokensBySeat ? { tokensBySeat: report.tokensBySeat } : {}),
       };
       return item;
     }),

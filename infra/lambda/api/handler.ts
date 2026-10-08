@@ -24,6 +24,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { handleRequest, type ApiDeps, type ApiRequest, type CloudDevice, type RuntimeInfra } from './core.js';
 import { assumeTenantS3 } from './tenantCredentials.js';
 import { draftCaseYaml, makeBedrockClient } from './draft.js';
+import { parseSheetLayout } from './sheetParse.js';
 import { getRealCost, jobIdFromSessionName, makeCostExplorerClient, type DeviceSessionUsage, type RealCost } from './cost.js';
 import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
 import { makeSecretWriter } from './secretValueStore.js';
@@ -307,6 +308,7 @@ const deps: ApiDeps = {
   },
   listCloudDevices,
   listRuntimeInfra,
+  parseSheet: (grid) => parseSheetLayout({ bedrock }, grid),
   listDeviceSessions,
   // Cost Explorer 每次查詢約 US$0.01 且資料本來就有 ~24h 延遲:同一 Lambda 實例快取 10 分鐘。
   getRealCost: async (opts) => {

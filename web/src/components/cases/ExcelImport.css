@@ -169,3 +169,100 @@
   align-items: center;
   gap: var(--space-3);
 }
+
+/* AI 判讀格式按鈕 */
+.xlimport__ai {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--brand);
+  font-size: 13px;
+  cursor: pointer;
+}
+.xlimport__ai:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* AI 的判讀說明 */
+.xlimport__note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--brand);
+  background: var(--surface-raised);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 整份 = 一個測試任務 */
+.xlimport__suite {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.xlimport__check {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* 已手動修改過的列 */
+.xlimport__badge {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--brand);
+  border: 1px solid var(--brand);
+}
+
+.xlimport__row-actions {
+  display: flex;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+/* 逐列編輯面板 */
+.xlimport__edit-row > td {
+  background: var(--surface-raised);
+}
+
+.xlimport__edit {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+
+.xlimport__edit-f {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.xlimport__edit-f--sm {
+  flex: 0 1 110px;
+}
+.xlimport__edit-f--wide {
+  flex: 1 1 100%;
+}
+.xlimport__edit-f textarea {
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+}

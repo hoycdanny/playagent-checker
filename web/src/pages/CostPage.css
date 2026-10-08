@@ -256,3 +256,27 @@
 .cost__share-track { width: 90px; height: 6px; border-radius: 3px; background: var(--surface-raised); overflow: hidden; }
 .cost__share-track span { display: block; height: 100%; }
 .cost__details summary { cursor: pointer; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+
+/* 逐筆明細 / 用量明細表格的輔助樣式 */
+.cost__link {
+  color: var(--brand);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cost__link:hover {
+  text-decoration: underline;
+}
+
+/* 過長的案例名稱/服務名稱不要把表格撐爆 */
+.cost__ellipsis {
+  max-width: 18ch;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cost__mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+}

@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { apiGet } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import type { MessageKey } from '../i18n/messages.ts';
 import { modelLabel } from '../components/modelProvider.ts';
 import AppBadge, { useAppLookup } from '../components/AppRef.tsx';
 import { SERIES_COLORS, StackedBarChart, type StackSeries } from '../components/charts/StackedBarChart.tsx';
@@ -21,6 +23,7 @@ interface RealCost {
   byComponent: CostBucket[];
   byMonth: MonthlyCost[];
   byDay?: Array<{ date: string; totalUsd: number; byService: Record<string, number> }>;
+  byUsageType?: Array<{ service: string; usageType: string; quantity: number; unit: string; amountUsd: number }>;
   projectFilter?: { key: string; value: string };
   includedServices?: string[];
   note?: string;
@@ -33,10 +36,32 @@ interface EstimatedCost {
   byModel: CostBucket[];
   byMonth: MonthlyCost[];
 }
+/** 逐筆測試的花費明細(/cost 的 daily.tasks)。 */
+interface TaskCostRow {
+  jobId: string;
+  appId: string;
+  caseId: string;
+  caseName?: string;
+  createdAt: string;
+  state: string;
+  backend: string;
+  model?: string;
+  steps?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  tokensBySeat?: Partial<Record<'agent' | 'vlm' | 'subagent', { input?: number; output?: number }>>;
+  modelUsd: number;
+  deviceUsd: number;
+  deviceMinutes: number;
+  totalUsd: number;
+  estimated?: boolean;
+}
+
 interface DailyCost {
   from: string;
   to: string;
   days: Array<{ date: string; totalUsd: number; modelUsd: number; deviceUsd: number; runs: number; byApp: Record<string, number> }>;
+  tasks?: TaskCostRow[];
   byApp: Array<{ appId: string; totalUsd: number; modelUsd: number; deviceUsd: number; deviceMinutes: number; runs: number }>;
   totals: { totalUsd: number; modelUsd: number; deviceUsd: number; deviceMinutes: number; runs: number };
   deviceDataAvailable: boolean;
@@ -80,6 +105,30 @@ const T = {
   dayTable: ['每日明細', 'Daily breakdown'],
   colDate: ['日期', 'Date'],
   noData: ['此區間沒有測試費用。', 'No testing cost in this range.'],
+  taskTable: ['每次測試明細', 'Per-run breakdown'],
+  taskHint: [
+    '每一列是一次測試。token 是該次執行三個 AI 座位的實際用量(報告記錄);步數 ≈ 分析畫面的模型呼叫次數(每步一次)。',
+    'One row per run. Tokens are the actual usage of the three AI seats recorded in the report; steps ≈ the number of screen-analysis model calls (one per step).',
+  ],
+  colTime: ['時間', 'Time'],
+  colCase: ['案例', 'Case'],
+  colBackend: ['環境', 'Runtime'],
+  colSteps: ['步數', 'Steps'],
+  colTokIn: ['輸入 token', 'Input tokens'],
+  colTokOut: ['輸出 token', 'Output tokens'],
+  colSeatTokens: ['各座位 token', 'Tokens by seat'],
+  showAll: ['顯示全部 {n} 筆', 'Show all {n}'],
+  showLess: ['只顯示前 {n} 筆', 'Show first {n}'],
+  estTag: ['估', 'est.'],
+  usageTable: ['用量明細(依服務 × 用量類型)', 'Usage detail (service × usage type)'],
+  usageHint: [
+    '數量是 AWS 自己的計量值,不是我們記的:例如 Requests-Tier1 = S3 寫入次數、Lambda-GB-Second = 執行時間、InputTokenCount = 送進模型的 token。免費額度內的項目金額會是 $0,但數量看得到。',
+    'Quantities come from AWS metering, not from our own counters: e.g. Requests-Tier1 = S3 writes, Lambda-GB-Second = execution time, InputTokenCount = tokens sent to the model. Items inside the free tier cost $0 but still show their quantity.',
+  ],
+  colService: ['服務', 'Service'],
+  colUsageType: ['用量類型', 'Usage type'],
+  colQty: ['數量', 'Quantity'],
+  colUnit: ['單位', 'Unit'],
   method: [
     '計算方式:模型費用以每次任務的 token 用量 × 官方單價估算;真機費用取 Device Farm 每個 session 的實際計量分鐘(session 由任務建立,名稱帶任務編號),× US$0.17/分鐘。日期以台北時間、任務建立時間為準。不含 Fargate、S3、API 等基礎設施(見「AWS 帳單」分頁)。',
     'Method: model cost = tokens per run × list price; device cost = each Device Farm session’s actual metered minutes (sessions are named after the run) × US$0.17/min. Days use Taipei time of run creation. Infrastructure (Fargate, S3, API) is excluded — see the AWS bill tab.',
@@ -109,6 +158,25 @@ function usd(n: number): string {
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 const shortDate = (d: string) => `${d.slice(5, 7)}/${d.slice(8, 10)}`;
+/** 逐筆明細預設顯示筆數(其餘按「顯示全部」展開)。 */
+const TASK_ROWS = 25;
+const num = (n: number | undefined) => (typeof n === 'number' ? n.toLocaleString() : '—');
+/** 各座位 token 的 tooltip 文字:agent/vlm/subagent 各自的進出量。 */
+function seatTokenText(r: TaskCostRow): string {
+  const parts = (['agent', 'vlm', 'subagent'] as const)
+    .map((s) => {
+      const v = r.tokensBySeat?.[s];
+      return v ? `${s}: ${num(v.input)} / ${num(v.output)}` : null;
+    })
+    .filter(Boolean);
+  return parts.length > 0 ? parts.join('\n') : '';
+}
+/** 大數字縮寫(用量明細的數量欄:1,234,567 → 1.23M)。 */
+function qty(n: number, unit: string): string {
+  const abs = Math.abs(n);
+  const s = abs >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : abs >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : abs >= 1e4 ? `${(n / 1e3).toFixed(1)}K` : n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return unit ? `${s}` : s;
+}
 
 export default function CostPage() {
   const { t, locale } = useI18n();
@@ -117,12 +185,18 @@ export default function CostPage() {
   const [appFilter, setAppFilter] = useState<string>('all');
   const [stack, setStack] = useState<'app' | 'type'>('app');
   const [tab, setTab] = useState<'test' | 'real'>('test');
+  const [showAllTasks, setShowAllTasks] = useState(false);
   const { data, loading, error, refetch } = useQuery<CostResponse>(`cost:${days}`, () => apiGet<CostResponse>(`/cost?days=${days}`));
   const { lookup } = useAppLookup();
   const appName = (id: string) => lookup(id)?.name ?? id;
 
   const daily = data?.daily;
   const real = data?.real;
+  // 逐筆明細:套用上方的應用篩選(其餘排序由後端給好,依花費高到低)。
+  const taskRows = useMemo(
+    () => (daily?.tasks ?? []).filter((r) => appFilter === 'all' || r.appId === appFilter),
+    [daily, appFilter],
+  );
 
   // 應用篩選後的資料。
   const view = useMemo(() => {
@@ -275,6 +349,65 @@ export default function CostPage() {
               )}
             </div>
 
+            {/* 逐筆測試明細:最細的一層,回答「這一次測試到底花在哪」。 */}
+            {taskRows.length > 0 && (
+              <div className="cost__card">
+                <h2 className="cost__section-title">{tx('taskTable', lang)}</h2>
+                <p className="cost__muted">{tx('taskHint', lang)}</p>
+                <div className="cost__table-wrap">
+                  <table className="cost__table">
+                    <thead>
+                      <tr>
+                        <th scope="col">{tx('colTime', lang)}</th>
+                        <th scope="col">{tx('colApp', lang)}</th>
+                        <th scope="col">{tx('colCase', lang)}</th>
+                        <th scope="col">{tx('colBackend', lang)}</th>
+                        <th scope="col" className="num">{tx('colSteps', lang)}</th>
+                        <th scope="col" className="num">{tx('colTokIn', lang)}</th>
+                        <th scope="col" className="num">{tx('colTokOut', lang)}</th>
+                        <th scope="col" className="num">{tx('colMinutes', lang)}</th>
+                        <th scope="col" className="num">{tx('colModel', lang)}</th>
+                        <th scope="col" className="num">{tx('colDevice', lang)}</th>
+                        <th scope="col" className="num">{tx('colTotal', lang)}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(showAllTasks ? taskRows : taskRows.slice(0, TASK_ROWS)).map((r) => (
+                        <tr key={r.jobId}>
+                          <th scope="row">
+                            <Link to={`/tasks/${r.jobId}`} className="cost__link">
+                              {r.createdAt.slice(5, 16).replace('T', ' ')}
+                            </Link>
+                          </th>
+                          <td><AppBadge app={lookup(r.appId)} fallbackId={r.appId} /></td>
+                          <td className="cost__ellipsis" title={r.caseName ?? r.caseId}>{r.caseName ?? r.caseId}</td>
+                          <td>{t(`backend.${r.backend}` as MessageKey)}</td>
+                          <td className="num">{r.steps ?? '—'}</td>
+                          {/* token 總量 + hover 看各座位拆分(agent / vlm / subagent) */}
+                          <td className="num" title={seatTokenText(r)}>{num(r.tokensIn)}</td>
+                          <td className="num" title={seatTokenText(r)}>{num(r.tokensOut)}</td>
+                          <td className="num">{r.deviceMinutes > 0 ? r.deviceMinutes.toFixed(1) : '—'}</td>
+                          <td className="num">
+                            {usd(r.modelUsd)}
+                            {r.estimated && <small> {tx('estTag', lang)}</small>}
+                          </td>
+                          <td className="num">{usd(r.deviceUsd)}</td>
+                          <td className="num"><strong>{usd(r.totalUsd)}</strong></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {taskRows.length > TASK_ROWS && (
+                  <button type="button" className="cost__retry" onClick={() => setShowAllTasks((v) => !v)}>
+                    {showAllTasks
+                      ? tx('showLess', lang).replace('{n}', String(TASK_ROWS))
+                      : tx('showAll', lang).replace('{n}', String(taskRows.length))}
+                  </button>
+                )}
+              </div>
+            )}
+
             <details className="cost__card cost__details">
               <summary>{tx('dayTable', lang)}</summary>
               <div className="cost__table-wrap">
@@ -344,6 +477,38 @@ export default function CostPage() {
               />
             </div>
           )}
+          {/* 用量明細:API 呼叫次數、S3 請求數、token 數…都在這裡(AWS 自己的計量值)。 */}
+          {real.byUsageType && real.byUsageType.length > 0 && (
+            <div className="cost__card">
+              <h2 className="cost__section-title">{tx('usageTable', lang)}</h2>
+              <p className="cost__muted">{tx('usageHint', lang)}</p>
+              <div className="cost__table-wrap">
+                <table className="cost__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{tx('colService', lang)}</th>
+                      <th scope="col">{tx('colUsageType', lang)}</th>
+                      <th scope="col" className="num">{tx('colQty', lang)}</th>
+                      <th scope="col">{tx('colUnit', lang)}</th>
+                      <th scope="col" className="num">{tx('colTotal', lang)}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {real.byUsageType.map((u) => (
+                      <tr key={`${u.service}-${u.usageType}`}>
+                        <th scope="row" className="cost__ellipsis" title={u.service}>{u.service}</th>
+                        <td className="cost__mono">{u.usageType}</td>
+                        <td className="num" title={u.quantity.toLocaleString()}>{qty(u.quantity, u.unit)}</td>
+                        <td className="cost__muted">{u.unit}</td>
+                        <td className="num"><strong>{usd(u.amountUsd)}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="cost__grid2">
             <div className="cost__card">
               <h2 className="cost__section-title">{tx('byService', lang)}</h2>
