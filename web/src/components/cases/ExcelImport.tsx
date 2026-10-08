@@ -11,8 +11,10 @@ import {
   findHeaderRow,
   guessMap,
   rowsToCases,
+  suiteToYaml,
   type ColumnMap,
   type ImportField,
+  type ImportedCase,
 } from './excelImport.ts';
 import './ExcelImport.css';
 
@@ -44,12 +46,33 @@ const T = {
   failed: ['{n} 個失敗', '{n} failed'],
   retry: ['重試失敗的項目', 'Retry failed rows'],
   reset: ['換一個檔案', 'Choose another file'],
+  ai: ['AI 判讀格式', 'Let AI read the layout'],
+  aiBusy: ['判讀中…', 'Reading…'],
+  aiHint: ['表格格式不固定(多層表頭、欄位名不一樣)時按這個,AI 會判斷表頭在哪、每欄是什麼。判錯可以直接改下面的對應或逐列編輯。', 'Use this when the layout varies (multi-row headers, different column names). The AI decides where the header is and what each column means; you can still fix the mapping or edit any row below.'],
+  aiFail: ['AI 判讀失敗:{msg}', 'AI could not read the layout: {msg}'],
+  dataStart: ['資料從第 {n} 列開始', 'Data starts on row {n}'],
+  suiteMode: ['整份 = 一個測試任務', 'Whole file = one test task'],
+  suiteHint: ['勾選:整份 Excel 變成一個「測試套件」案例,送出一次測試任務,報告涵蓋全部項目。不勾:每一列各建一個獨立案例。', 'Checked: the whole file becomes one test-suite case, submitted as a single task whose report covers every item. Unchecked: one independent case per row.'],
+  suiteName: ['套件名稱', 'Suite name'],
+  createSuite: ['建立 1 個測試套件({n} 個項目)', 'Create 1 test suite ({n} items)'],
+  doneSuite: ['已建立測試套件({n} 個項目)', 'Test suite created ({n} items)'],
+  edit: ['編輯', 'Edit'],
+  editDone: ['完成', 'Done'],
+  colPurpose: ['測試目的', 'Purpose'],
+  fId: ['編號', 'ID'],
+  fName: ['項目', 'Item'],
+  fPurpose: ['測試目的', 'Purpose'],
+  fCategory: ['類別', 'Category'],
+  fSteps: ['步驟(一行一個)', 'Steps (one per line)'],
+  fExpected: ['預期結果(一行一個)', 'Expected results (one per line)'],
+  edited: ['已修改', 'edited'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 
 const FIELD_LABEL: Record<ImportField, [string, string]> = {
   id: ['編號', 'ID'],
   name: ['名稱', 'Name'],
+  purpose: ['測試目的', 'Purpose'],
   module: ['模組', 'Module'],
   category: ['分類', 'Category'],
   priority: ['優先級', 'Priority'],
@@ -97,14 +120,33 @@ export function ExcelImport({
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [result, setResult] = useState<{ ok: number; failed: Array<{ row: number; name: string; error: string }> } | null>(null);
   const [yamlRow, setYamlRow] = useState<number | null>(null);
+  // AI 判讀出的「資料起始列」(多層表頭時 ≠ headerRow+1);null = 照 headerRow+1。
+  const [dataStart, setDataStart] = useState<number | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
+  // 逐列修正:列號 → 覆寫欄位(疊在解析結果上,不動原檔)。
+  const [edits, setEdits] = useState<Record<number, Partial<ImportedCase>>>({});
+  const [editRow, setEditRow] = useState<number | null>(null);
+  // 整份 = 一個測試套件(一個測試任務);預設開啟 —— 多數人上傳整張表就是要一次測完。
+  const [suiteMode, setSuiteMode] = useState(true);
+  const [suiteName, setSuiteName] = useState('');
 
   const rows = book?.sheets[sheetIdx]?.rows ?? [];
   const headers = headerRow >= 0 ? (rows[headerRow] ?? []) : [];
   const width = Math.max(headers.length, ...rows.slice(0, 50).map((r) => r.length), 0);
   const baseName = book?.fileName.replace(/\.[^.]+$/, '') ?? 'Case';
+  const parsed = useMemo(
+    () =>
+      book && (map.name >= 0 || map.steps >= 0)
+        // dataStart 指定時以它為起點(rowsToCases 從 headerRow+1 開始讀資料)。
+        ? rowsToCases(rows, dataStart !== null ? dataStart - 1 : headerRow, map, baseName)
+        : [],
+    [book, rows, headerRow, dataStart, map, baseName],
+  );
+  // 使用者的逐列修正疊上去(name 空白時退回原值,避免改成空的)。
   const cases = useMemo(
-    () => (book && (map.name >= 0 || map.steps >= 0) ? rowsToCases(rows, headerRow, map, baseName) : []),
-    [book, rows, headerRow, map, baseName],
+    () => parsed.map((c) => (edits[c.row] ? { ...c, ...edits[c.row], name: edits[c.row]?.name?.trim() || c.name } : c)),
+    [parsed, edits],
   );
   const selected = cases.filter((c) => !excluded.has(c.row));
   const yamlOf = (c: (typeof cases)[number]) =>
@@ -161,6 +203,67 @@ export function ExcelImport({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, lang === 'zh' ? '測試項目' : 'Test cases');
     XLSX.writeFile(wb, lang === 'zh' ? '測試項目範本.xlsx' : 'test-cases-template.xlsx');
+  }
+
+  /** 逐列修正:把這一列的覆寫值疊上去(空字串代表清掉該欄)。 */
+  function patchRow(row: number, patch: Partial<ImportedCase>) {
+    setEdits((prev) => ({ ...prev, [row]: { ...prev[row], ...patch } }));
+  }
+  /** 多行文字 → 清單(編輯步驟/預期結果用)。 */
+  const toLines = (v: string) => v.split('\n').map((s) => s.trim()).filter(Boolean);
+
+  /** 問後端:這份表的表頭在哪、每欄是什麼(格式不固定時用)。 */
+  async function readLayout() {
+    if (!book) return;
+    setAiBusy(true);
+    setError(null);
+    setAiNote(null);
+    try {
+      const res = await apiPost<{
+        headerRow: number;
+        dataStartRow: number;
+        columns: Partial<Record<ImportField, number>>;
+        notes: string;
+        confidence: number;
+      }>('/cases/parse-sheet', { grid: rows.slice(0, 25) });
+      const next = emptyMap();
+      for (const k of Object.keys(res.columns ?? {}) as ImportField[]) {
+        const v = res.columns[k];
+        if (typeof v === 'number' && v >= 0) next[k] = v;
+      }
+      setMap(next);
+      if (res.headerRow >= 0) setHeaderRow(res.headerRow);
+      setDataStart(typeof res.dataStartRow === 'number' && res.dataStartRow > 0 ? res.dataStartRow : null);
+      setEdits({});
+      setExcluded(new Set());
+      setAiNote(res.notes || null);
+    } catch (e) {
+      setError(tx('aiFail', lang).replace('{msg}', e instanceof Error ? e.message : String(e)));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  /** 整份 Excel → 一個測試套件案例(一份 Excel = 一個測試任務)。 */
+  async function createSuite() {
+    if (!appId) { setError(tx('needApp', lang)); return; }
+    if (selected.length === 0) { setError(tx('noRows', lang)); return; }
+    setError(null);
+    setProgress({ done: 0, total: 1 });
+    try {
+      const name = suiteName.trim() || baseName;
+      const yaml = applyControls(
+        suiteToYaml(selected, appId, { name, lang, source: book?.fileName ?? '' }),
+        controls,
+      );
+      await apiPost('/cases', { app: appId, name, yaml });
+      setResult({ ok: selected.length, failed: [] });
+      onCreated(true);
+    } catch (e) {
+      setResult({ ok: 0, failed: [{ row: 0, name: suiteName || baseName, error: e instanceof Error ? e.message : String(e) }] });
+    } finally {
+      setProgress(null);
+    }
   }
 
   async function createAll(list = selected) {
@@ -261,10 +364,33 @@ export function ExcelImport({
             {rows.slice(0, 15).map((_, i) => <option key={i} value={i}>{i + 1}</option>)}
           </select>
         </label>
+        {dataStart !== null && (
+          <span className="xlimport__muted">{tx('dataStart', lang).replace('{n}', String(dataStart + 1))}</span>
+        )}
+        <button type="button" className="xlimport__ai" onClick={() => void readLayout()} disabled={busy || aiBusy}>
+          {aiBusy ? tx('aiBusy', lang) : tx('ai', lang)}
+        </button>
         <span className="xlimport__spacer" />
-        <button type="button" className="xlimport__link" onClick={() => { setBook(null); setResult(null); setError(null); }} disabled={busy}>
+        <button type="button" className="xlimport__link" onClick={() => { setBook(null); setResult(null); setError(null); setEdits({}); setDataStart(null); setAiNote(null); }} disabled={busy}>
           {tx('reset', lang)}
         </button>
+      </div>
+
+      <p className="xlimport__muted">{tx('aiHint', lang)}</p>
+      {aiNote && <p className="xlimport__note" role="status">{aiNote}</p>}
+
+      <div className="xlimport__suite">
+        <label className="xlimport__check">
+          <input type="checkbox" checked={suiteMode} disabled={busy} onChange={(e) => setSuiteMode(e.target.checked)} />
+          <span>{tx('suiteMode', lang)}</span>
+        </label>
+        {suiteMode && (
+          <label className="xlimport__inline">
+            <span>{tx('suiteName', lang)}</span>
+            <input value={suiteName} placeholder={baseName} disabled={busy} onChange={(e) => setSuiteName(e.target.value)} />
+          </label>
+        )}
+        <span className="xlimport__muted">{tx('suiteHint', lang)}</span>
       </div>
 
       <fieldset className="xlimport__map" disabled={busy}>
@@ -303,10 +429,10 @@ export function ExcelImport({
                 </th>
                 <th scope="col">{tx('colRow', lang)}</th>
                 <th scope="col">{tx('colName', lang)}</th>
-                <th scope="col">{tx('colModule', lang)}</th>
+                <th scope="col">{tx('colPurpose', lang)}</th>
                 <th scope="col">{tx('colSteps', lang)}</th>
                 <th scope="col">{tx('colExpected', lang)}</th>
-                <th scope="col"><span className="visually-hidden">YAML</span></th>
+                <th scope="col"><span className="visually-hidden">{tx('edit', lang)}</span></th>
               </tr>
             </thead>
             <tbody>
@@ -327,21 +453,60 @@ export function ExcelImport({
                       <td className="xlimport__num">{c.row}</td>
                       <td>
                         {c.name}
+                        {edits[c.row] && <span className="xlimport__badge">{tx('edited', lang)}</span>}
                         {fail && <div className="xlimport__err">{fail.error}</div>}
                       </td>
-                      <td>{c.module ?? '—'}</td>
+                      <td>{c.purpose ?? c.module ?? '—'}</td>
                       <td>
                         {c.steps.length > 0 ? (
                           <ol className="xlimport__steps">{c.steps.slice(0, 4).map((s, i) => <li key={i}>{s}</li>)}{c.steps.length > 4 && <li>…(+{c.steps.length - 4})</li>}</ol>
                         ) : '—'}
                       </td>
                       <td>{c.expected.length ? c.expected.join(';') : '—'}</td>
-                      <td>
-                        <button type="button" className="xlimport__link" aria-expanded={yamlRow === c.row} onClick={() => setYamlRow((r) => (r === c.row ? null : c.row))}>
-                          {tx('showYaml', lang)}
+                      <td className="xlimport__row-actions">
+                        {/* 判讀錯誤就直接在這裡改;只改這一列的覆寫值,原檔與其他列不動。 */}
+                        <button type="button" className="xlimport__link" aria-expanded={editRow === c.row} onClick={() => { setEditRow((r) => (r === c.row ? null : c.row)); setYamlRow(null); }}>
+                          {editRow === c.row ? tx('editDone', lang) : tx('edit', lang)}
                         </button>
+                        {!suiteMode && (
+                          <button type="button" className="xlimport__link" aria-expanded={yamlRow === c.row} onClick={() => { setYamlRow((r) => (r === c.row ? null : c.row)); setEditRow(null); }}>
+                            {tx('showYaml', lang)}
+                          </button>
+                        )}
                       </td>
                     </tr>
+                    {editRow === c.row && (
+                      <tr className="xlimport__edit-row">
+                        <td colSpan={7}>
+                          <div className="xlimport__edit">
+                            <label className="xlimport__edit-f xlimport__edit-f--sm">
+                              <span>{tx('fId', lang)}</span>
+                              <input value={c.id ?? ''} onChange={(e) => patchRow(c.row, { id: e.target.value })} />
+                            </label>
+                            <label className="xlimport__edit-f">
+                              <span>{tx('fName', lang)}</span>
+                              <input value={c.name} onChange={(e) => patchRow(c.row, { name: e.target.value })} />
+                            </label>
+                            <label className="xlimport__edit-f">
+                              <span>{tx('fPurpose', lang)}</span>
+                              <input value={c.purpose ?? ''} onChange={(e) => patchRow(c.row, { purpose: e.target.value })} />
+                            </label>
+                            <label className="xlimport__edit-f xlimport__edit-f--sm">
+                              <span>{tx('fCategory', lang)}</span>
+                              <input value={c.category ?? ''} onChange={(e) => patchRow(c.row, { category: e.target.value })} />
+                            </label>
+                            <label className="xlimport__edit-f xlimport__edit-f--wide">
+                              <span>{tx('fSteps', lang)}</span>
+                              <textarea rows={Math.min(6, Math.max(2, c.steps.length))} value={c.steps.join('\n')} onChange={(e) => patchRow(c.row, { steps: toLines(e.target.value) })} />
+                            </label>
+                            <label className="xlimport__edit-f xlimport__edit-f--wide">
+                              <span>{tx('fExpected', lang)}</span>
+                              <textarea rows={Math.min(6, Math.max(2, c.expected.length))} value={c.expected.join('\n')} onChange={(e) => patchRow(c.row, { expected: toLines(e.target.value) })} />
+                            </label>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                     {yamlRow === c.row && (
                       <tr className="xlimport__yaml-row">
                         <td colSpan={7}><pre className="xlimport__yaml">{yamlOf(c)}</pre></td>
@@ -358,7 +523,9 @@ export function ExcelImport({
       {error && <p className="cases__error" role="alert">{error}</p>}
       {result && (
         <p className={`xlimport__result ${result.failed.length ? 'is-warn' : 'is-ok'}`} role="status">
-          {tx('done', lang).replace('{ok}', String(result.ok))}
+          {suiteMode && result.ok > 0
+            ? tx('doneSuite', lang).replace('{n}', String(result.ok))
+            : tx('done', lang).replace('{ok}', String(result.ok))}
           {result.failed.length > 0 && <> · {tx('failed', lang).replace('{n}', String(result.failed.length))}</>}
         </p>
       )}
@@ -369,10 +536,17 @@ export function ExcelImport({
             {tx('retry', lang)}
           </button>
         ) : (
-          <button type="button" className="cases__submit" onClick={() => void createAll()} disabled={busy || selected.length === 0 || !appId}>
+          <button
+            type="button"
+            className="cases__submit"
+            onClick={() => void (suiteMode ? createSuite() : createAll())}
+            disabled={busy || selected.length === 0 || !appId}
+          >
             {busy
               ? tx('creating', lang).replace('{done}', String(progress.done)).replace('{total}', String(progress.total))
-              : tx('create', lang).replace('{n}', String(Math.min(selected.length, MAX_CASES)))}
+              : suiteMode
+                ? tx('createSuite', lang).replace('{n}', String(selected.length))
+                : tx('create', lang).replace('{n}', String(Math.min(selected.length, MAX_CASES)))}
           </button>
         )}
         {!appId && <span className="cases__error">{tx('needApp', lang)}</span>}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { caseToYaml, findHeaderRow, guessField, guessMap, rowsToCases, splitLines } from './excelImport.ts';
+import { caseToYaml, findHeaderRow, guessField, guessMap, rowsToCases, splitLines, suiteToYaml } from './excelImport.ts';
 
 describe('guessField', () => {
   it('maps common Chinese / English headers', () => {
@@ -109,5 +109,77 @@ describe('caseToYaml', () => {
     const header = ['測試項目'];
     const [c] = rowsToCases([header, ['確認大廳音樂播放']], 0, guessMap(header));
     expect(caseToYaml(c!, 'a')).toContain('task: |\n  1. 確認大廳音樂播放\n');
+  });
+});
+
+// ── 測試目的欄 + 整份 = 一個測試套件 ─────────────────────────────────────
+
+describe('purpose 欄(測試目的)', () => {
+  it('認得「測試目的」並和「項目」分開', () => {
+    expect(guessField('測試目的')).toBe('purpose');
+    expect(guessField('項目')).toBe('name');
+    const m = guessMap(['編號', '類別', '項目', '測試目的', '步驟', '預期結果']);
+    expect(m.id).toBe(0);
+    expect(m.category).toBe(1);
+    expect(m.name).toBe(2);
+    expect(m.purpose).toBe(3);
+    expect(m.steps).toBe(4);
+    expect(m.expected).toBe(5);
+  });
+
+  it('目的會進到案例與任務描述', () => {
+    const rows = [
+      ['編號', '類別', '項目', '測試目的', '步驟', '預期結果'],
+      ['184', '中央畫面區', '神秘商人', '神秘商人頁面', '1.大廳點擊神秘商人ICON\n2.檢視神秘商人頁面', '1.圖片、文字無破圖模糊'],
+    ];
+    const [c] = rowsToCases(rows, 0, guessMap(rows[0]!));
+    expect(c?.purpose).toBe('神秘商人頁面');
+    expect(c?.steps).toEqual(['大廳點擊神秘商人ICON', '檢視神秘商人頁面']);
+    const yaml = caseToYaml(c!, 'app-1');
+    expect(yaml).toContain('purpose: 神秘商人頁面');
+    expect(yaml).toContain('測試目的: 神秘商人頁面');
+  });
+});
+
+describe('suiteToYaml(整份 = 一個測試任務)', () => {
+  const rows = [
+    ['編號', '類別', '項目', '測試目的', '步驟', '預期結果'],
+    ['184', '中央畫面區', '神秘商人', '神秘商人頁面', '1.點 ICON\n2.檢視頁面', '1.無破圖'],
+    ['185', '中央畫面區', '神秘商人', '檢視詳細', '1.點任意品項', '1.可正常開啟/關閉'],
+  ];
+  const items = rowsToCases(rows, 0, guessMap(rows[0]!));
+
+  it('一份表只產生一個案例,並保留每個項目', () => {
+    const yaml = suiteToYaml(items, 'app-1', { name: '測試項目表' });
+    expect(yaml).toContain('kind: suite');
+    expect(yaml).toContain('itemCount: 2');
+    // 結構化項目清單:編號、標題、步驟、預期都在
+    expect(yaml).toContain('- ref: "184"');
+    expect(yaml).toContain('- ref: "185"');
+    expect(yaml).toContain('    purpose: 神秘商人頁面');
+    expect(yaml).toContain('      - 點 ICON');
+    expect(yaml).toContain('      - 無破圖');
+  });
+
+  it('task 是整份清單(給執行引擎的單一目標)', () => {
+    const yaml = suiteToYaml(items, 'app-1', { name: '測試項目表' });
+    const task = yaml.slice(yaml.indexOf('task: |'), yaml.indexOf('items:'));
+    expect(task).toContain('2 個測試項目');
+    expect(task).toContain('[184]');
+    expect(task).toContain('[185]');
+    expect(task).toContain('預期: 無破圖');
+  });
+
+  it('含引號/冒號的文字不會壞掉 YAML', () => {
+    const tricky = rowsToCases(
+      [['編號', '項目', '步驟', '預期結果'], ['1', 'a: b', '點 "確定"', '顯示: ok']],
+      0,
+      guessMap(['編號', '項目', '步驟', '預期結果']),
+    );
+    const yaml = suiteToYaml(tricky, 'app-1', { name: 'x' });
+    // 冒號會讓純量歧義 → 必須加引號;句中的雙引號在 YAML 純量裡合法,不必轉義。
+    expect(yaml).toContain('"a: b"');
+    expect(yaml).toContain('"顯示: ok"');
+    expect(yaml).toContain('- 點 "確定"');
   });
 });

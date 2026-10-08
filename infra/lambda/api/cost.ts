@@ -29,6 +29,23 @@ export interface MonthlyCost {
   amountUsd: number;
 }
 
+/**
+ * 用量明細(依服務 × 用量類型)。
+ *
+ * 這是「訪問幾次 API / 寫了幾次 S3 / 送了多少 token」的唯一可信來源:
+ * Cost Explorer 的 UsageQuantity 就是 AWS 實際計費的計量數字(如
+ * `USE2-Requests-Tier1` = S3 PUT 次數、`Lambda-GB-Second`、`...-InputTokenCount`)。
+ * 不是我們自己數的,所以不會因為漏記而偏低;代價是和成本一樣有 ~24h 延遲。
+ */
+export interface UsageTypeRow {
+  service: string;
+  usageType: string;
+  /** AWS 計量數量(單位見 unit)。 */
+  quantity: number;
+  unit: string;
+  amountUsd: number;
+}
+
 export interface RealCost {
   available: boolean;
   /** 查詢起訖(YYYY-MM-DD,end 為排他)。 */
@@ -41,6 +58,8 @@ export interface RealCost {
   byMonth: MonthlyCost[];
   /** 近 N 天每日成本(依服務;Cost Explorer 日界線為 UTC)。 */
   byDay?: Array<{ date: string; totalUsd: number; byService: Record<string, number> }>;
+  /** 用量明細(依服務 × 用量類型;含計量數量)。 */
+  byUsageType?: UsageTypeRow[];
   /** 已套用的專案篩選標籤(前端可顯示「僅本專案:project=playagent-checker」)。 */
   projectFilter?: { key: string; value: string };
   /** 無法貼標、以服務名稱另外納入的服務(如 AWS Device Farm)。 */
@@ -119,11 +138,36 @@ export interface DailyPoint {
   byApp: Record<string, number>;
 }
 
+/** 逐筆測試的花費明細(費用頁最細的一層:這一次測試花在哪)。 */
+export interface TaskCostRow {
+  jobId: string;
+  appId: string;
+  caseId: string;
+  caseName?: string;
+  createdAt: string;
+  state: string;
+  backend: string;
+  model?: string;
+  steps?: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  /** 每個 seat 的 token(agent/vlm/subagent);舊報告可能缺欄位。 */
+  tokensBySeat?: Partial<Record<'agent' | 'vlm' | 'subagent', { input?: number; output?: number }>>;
+  modelUsd: number;
+  deviceUsd: number;
+  deviceMinutes: number;
+  totalUsd: number;
+  /** 金額是估算(token × 單價)而非引擎直接記錄。 */
+  estimated?: boolean;
+}
+
 export interface DailyCost {
   /** 統計區間(台北時間,含頭尾)。 */
   from: string;
   to: string;
   days: DailyPoint[];
+  /** 區間內的逐筆測試明細(依花費高到低)。 */
+  tasks: TaskCostRow[];
   /** 依區間總額排序(高 → 低)。 */
   byApp: DailyAppCost[];
   totals: { totalUsd: number; modelUsd: number; deviceUsd: number; deviceMinutes: number; runs: number };
@@ -167,6 +211,7 @@ export function buildDailyCost(
     dayMap.set(date, { date, totalUsd: 0, modelUsd: 0, deviceUsd: 0, runs: 0, byApp: {} });
   }
   const appMap = new Map<string, DailyAppCost>();
+  const taskRows: TaskCostRow[] = [];
   for (const t of tasks) {
     const date = taipeiDate(t.createdAt);
     const day = dayMap.get(date);
@@ -187,6 +232,24 @@ export function buildDailyCost(
     a.deviceMinutes += minutes;
     a.runs += 1;
     appMap.set(t.appId, a);
+    taskRows.push({
+      jobId: t.jobId,
+      appId: t.appId,
+      caseId: t.caseId,
+      ...(t.caseName ? { caseName: t.caseName } : {}),
+      createdAt: t.createdAt,
+      state: t.state,
+      backend: t.backend,
+      ...(t.seatModels?.vlm ?? t.vlmModel ? { model: t.seatModels?.vlm ?? t.vlmModel } : {}),
+      ...(typeof t.stepCount === 'number' ? { steps: t.stepCount } : {}),
+      ...(t.tokens ? { tokensIn: t.tokens.input, tokensOut: t.tokens.output } : {}),
+      ...(t.tokensBySeat ? { tokensBySeat: t.tokensBySeat } : {}),
+      modelUsd: round4(model),
+      deviceUsd: round4(device),
+      deviceMinutes: round2(minutes),
+      totalUsd: round4(total),
+      ...(t.spendEstimated ? { estimated: true } : {}),
+    });
   }
 
   const days = [...dayMap.values()].map((d) => ({
@@ -205,6 +268,7 @@ export function buildDailyCost(
     from,
     to,
     days,
+    tasks: taskRows.sort((a, b) => b.totalUsd - a.totalUsd || b.createdAt.localeCompare(a.createdAt)),
     byApp,
     totals: { totalUsd: round2(sum('totalUsd')), modelUsd: round2(sum('modelUsd')), deviceUsd: round2(sum('deviceUsd')), deviceMinutes: round2(sum('deviceMinutes')), runs: sum('runs') },
     deviceDataAvailable: sessions !== null,
@@ -312,7 +376,7 @@ export async function getRealCost(
   const dailyEnd = ymd(new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate() + 1)));
   const dailyStart = ymd(new Date(Date.UTC(nowD.getUTCFullYear(), nowD.getUTCMonth(), nowD.getUTCDate() + 1 - (opts.dailyDays ?? 30))));
 
-  const [byServiceResp, byComponentResp, byMonthResp, byDayResp] = await Promise.all([
+  const [byServiceResp, byComponentResp, byMonthResp, byDayResp, byUsageResp] = await Promise.all([
     client.send(
       new GetCostAndUsageCommand({
         TimePeriod,
@@ -348,7 +412,43 @@ export async function getRealCost(
         GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
       }),
     ),
+    // 用量明細:同一區間、依服務 × 用量類型,同時取「花多少錢」與「用了多少次/多少量」。
+    // Cost Explorer 一次最多兩個 GroupBy,所以服務與用量類型一起分組。
+    client.send(
+      new GetCostAndUsageCommand({
+        TimePeriod: { Start: dailyStart, End: dailyEnd },
+        Granularity: 'MONTHLY',
+        Metrics: ['UnblendedCost', 'UsageQuantity'],
+        Filter,
+        GroupBy: [
+          { Type: 'DIMENSION', Key: 'SERVICE' },
+          { Type: 'DIMENSION', Key: 'USAGE_TYPE' },
+        ],
+      }),
+    ),
   ]);
+  // 同一個(服務, 用量類型)可能跨多個月份區段,累加數量與金額。
+  const usageMap = new Map<string, UsageTypeRow>();
+  for (const r of byUsageResp.ResultsByTime ?? []) {
+    for (const g of r.Groups ?? []) {
+      const service = g.Keys?.[0] ?? '(未知)';
+      const usageType = g.Keys?.[1] ?? '(未知)';
+      const cost = Number(g.Metrics?.['UnblendedCost']?.Amount ?? '0');
+      const qty = Number(g.Metrics?.['UsageQuantity']?.Amount ?? '0');
+      const unit = g.Metrics?.['UsageQuantity']?.Unit ?? '';
+      if (!(qty > 0) && !(cost > 0)) continue;
+      const k = `${service}\u0000${usageType}`;
+      const cur = usageMap.get(k) ?? { service, usageType, quantity: 0, unit, amountUsd: 0 };
+      cur.quantity += qty;
+      cur.amountUsd += cost;
+      if (!cur.unit && unit) cur.unit = unit;
+      usageMap.set(k, cur);
+    }
+  }
+  const byUsageType = [...usageMap.values()]
+    .map((u) => ({ ...u, quantity: round4(u.quantity), amountUsd: round4(u.amountUsd) }))
+    // 先按金額排,金額同為 0(免費額度內)時按數量排 —— 使用者想看的是「誰在動」。
+    .sort((a, b) => b.amountUsd - a.amountUsd || b.quantity - a.quantity);
   const byDay = (byDayResp.ResultsByTime ?? []).map((r) => {
     const bySvc: Record<string, number> = {};
     for (const g of r.Groups ?? []) {
@@ -401,6 +501,7 @@ export async function getRealCost(
     byComponent: toBuckets(comp),
     byMonth,
     byDay,
+    byUsageType,
     projectFilter: { key: projectKey, value: projectValue },
     ...(includedServices.length ? { includedServices } : {}),
   };

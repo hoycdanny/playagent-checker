@@ -768,7 +768,7 @@ function AppCard({ app, stats }: AppCardProps) {
             {t('apps.buildsCount').replace('{n}', String(buildCount))}
           </span>
         )}
-        {app.version && <span className="apps__flag apps__mono">{app.version}</span>}
+        {/* 版號不在這裡顯示:清單上沒有人靠版號找應用,要看版本去工作區的「版本」分頁。 */}
       </div>
 
       {/* 近 30 天指標 + 花費走勢(走勢只回答漲跌,精確數字看左邊的金額) */}

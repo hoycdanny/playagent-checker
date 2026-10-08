@@ -206,6 +206,8 @@ export interface ApiDeps {
   listCloudDevices?: () => Promise<CloudDevice[]>;
   /** 列出執行基礎設施現況(容器 / EC2 主機 / GameLift Streams)。選填;未注入時 GET /devices/infra 回空資料。 */
   listRuntimeInfra?: () => Promise<RuntimeInfra>;
+  /** 用 LLM 判讀測試項目表的結構(欄位對應);未注入時 POST /cases/parse-sheet 回 501。 */
+  parseSheet?: (grid: string[][]) => Promise<unknown>;
   /** 取 AWS 真實成本(Cost Explorer)。選填;未注入或失敗時費用頁只顯示估算成本。 */
   getRealCost?: (opts: { start?: string; end?: string }) => Promise<RealCost>;
   /** 列出 Device Farm remote access session 的實際計量分鐘(費用頁依任務歸屬)。選填。 */
@@ -783,6 +785,22 @@ export async function handleRequest(
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const record = await createCase(s3, deps.bucket, tenant.tenantId, input, tenant.email ?? undefined);
         return json(201, record);
+      }
+
+      case 'POST /cases/parse-sheet': {
+        // 讀懂格式不固定的測試項目表:只判結構(表頭列 / 資料起始列 / 欄位對應),
+        // 不讓模型重寫內容 —— 展開與逐格修正都在前端做。
+        if (!deps.parseSheet) return json(501, { error: '未啟用表格判讀' });
+        const b = (req.body ?? {}) as { grid?: unknown };
+        const grid = Array.isArray(b.grid)
+          ? b.grid.map((r) => (Array.isArray(r) ? r.map((c) => (c === null || c === undefined ? '' : String(c))) : []))
+          : null;
+        if (!grid || grid.length === 0) return json(400, { error: 'grid 為必填(二維字串陣列)' });
+        try {
+          return json(200, await deps.parseSheet(grid));
+        } catch (err) {
+          return json(502, { error: err instanceof Error ? err.message : String(err) });
+        }
       }
 
       case 'POST /cases/draft': {
