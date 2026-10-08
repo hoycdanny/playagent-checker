@@ -94,6 +94,10 @@ const updater = new UpdaterStack(app, `${stackPrefix}-Updater`, {
   // 必須與 agent/sagemaker/cloudBuildRunner.mjs、cloudBuildWebRunner.mjs 的 PROJECT 常數一致。
   imageBuildProjects: ['playagent-runner-build', 'playagent-web-runner-build'],
   imageBuildRoleName: 'PlayAgentCodeBuildUitarsRole',
+  frontendConfigStacks: {
+    foundation: `${stackPrefix}-Foundation`,
+    controlPlane: `${stackPrefix}-ControlPlane`,
+  },
 });
 
 // 統一標記,便於成本歸屬與治理(CDK 最佳實踐)。
