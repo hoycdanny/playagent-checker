@@ -91,7 +91,8 @@ const updater = new UpdaterStack(app, `${stackPrefix}-Updater`, {
   ],
   githubSecretName: GITHUB_SECRET_NAME,
   stateParamName: DEPLOYED_VERSION_PARAM,
-  imageBuildProjects: ['playagent-exploration-runner-build', 'playagent-web-runner-build'],
+  // 必須與 agent/sagemaker/cloudBuildRunner.mjs、cloudBuildWebRunner.mjs 的 PROJECT 常數一致。
+  imageBuildProjects: ['playagent-runner-build', 'playagent-web-runner-build'],
   imageBuildRoleName: 'PlayAgentCodeBuildUitarsRole',
 });
 
