@@ -452,9 +452,10 @@ export default function TaskDetailPage() {
         </section>
 
         {/* 右:日誌檢視(裝置系統 Log / 音效播放狀態 / 三個 AI Agent,由新到舊) */}
+        {/* 裝置 log:Device Farm 真機與 Android 容器(Redroid)的 runner 都會上傳 devlogs/logcat。 */}
         {jobId && (
           <section className="detail__col detail__col--devlogs">
-            <DeviceLogsPanel jobId={jobId} isLive={isLive} device={backend === 'devicefarm'} {...(appId ? { appId } : {})} seats={meta?.seats ?? []} />
+            <DeviceLogsPanel jobId={jobId} isLive={isLive} device={backend === 'devicefarm' || backend === 'emulator'} {...(appId ? { appId } : {})} seats={meta?.seats ?? []} />
           </section>
         )}
       </div>
