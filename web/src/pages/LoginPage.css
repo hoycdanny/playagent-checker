@@ -5,15 +5,221 @@
   background: var(--bg);
 }
 
-/* 左側介紹面板:品牌漸層背景 */
+/* 左側介紹面板:品牌漸層背景 + 淡淡的格線,內容超過一屏時自己捲動 */
 .login__intro {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: var(--space-6);
   padding: var(--space-8);
   color: #ffffff;
-  background: linear-gradient(150deg, var(--brand) 0%, #2a2f6b 100%);
+  background:
+    radial-gradient(circle at 85% 10%, rgba(255, 255, 255, 0.14), transparent 40%),
+    radial-gradient(circle at 10% 90%, rgba(124, 140, 255, 0.35), transparent 45%),
+    linear-gradient(150deg, var(--brand) 0%, #2a2f6b 100%);
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+.login__intro::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.6), transparent 85%);
+}
+
+.login__intro-inner {
+  position: relative;
+  /* 用 margin:auto 置中(不用 align-items:center),內容比視窗高時頂端才不會被裁掉、能正常捲動 */
+  margin: auto;
+  width: 100%;
+  max-width: 620px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5, 20px);
+}
+
+.login__eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.login__section-title {
+  margin: 0 0 var(--space-2);
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+/* AI 迴圈:四個步驟一列,窄時自動換行 */
+.login__loop {
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+/* 四步固定一列等寬;寬度不夠時改 2×2,不會出現 3+1 的不整齊換行 */
+.login__loop-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.login__loop-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.login__loop-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.16);
+  flex: none;
+}
+
+.login__loop-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.login__loop-text strong {
+  font-size: 13px;
+}
+
+.login__loop-text span {
+  font-size: 11.5px;
+  opacity: 0.75;
+}
+
+/* 箭頭放在步驟右上角、指向下一步 */
+.login__loop-arrow {
+  position: absolute;
+  top: 8px;
+  right: -4px;
+  opacity: 0.55;
+}
+
+.login__loop-note {
+  margin: var(--space-3) 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  opacity: 0.8;
+}
+
+/* 功能卡片:兩欄 */
+.login__cards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.login__feature-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: var(--space-3);
+  row-gap: 2px;
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.login__feature-icon {
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.login__feature-title {
+  font-size: 14px;
+}
+
+.login__feature-desc {
+  font-size: 12.5px;
+  line-height: 1.5;
+  opacity: 0.8;
+}
+
+/* 執行環境 chips */
+.login__chips {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.login__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.login__foot {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* 中等寬度:卡片改單欄,避免文字擠在一起 */
+@media (max-width: 1100px) {
+  .login__cards {
+    grid-template-columns: 1fr;
+  }
+  .login__loop-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* 2×2 時第二步的箭頭會指向牆外,藏起來 */
+  .login__loop-step:nth-child(2) .login__loop-arrow {
+    display: none;
+  }
+}
+
+/* 1024 這類寬度:卡片說明收成一行字的高度,左欄不至於太長 */
+@media (max-width: 1100px) and (min-width: 801px) {
+  .login__intro {
+    padding: var(--space-6);
+  }
+  .login__feature-card {
+    padding: var(--space-2) var(--space-3);
+  }
 }
 
 .login__brand {
@@ -31,10 +237,10 @@
 
 .login__lead {
   margin: 0;
-  font-size: 18px;
-  line-height: 1.6;
-  max-width: 34ch;
-  opacity: 0.95;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.45;
+  max-width: 30ch;
 }
 
 .login__features {
