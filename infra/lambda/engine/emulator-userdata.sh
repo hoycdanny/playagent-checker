@@ -50,8 +50,23 @@ writestatus() { # $1=state $2=message $3=steps
     | aws s3 cp - "s3://$BUCKET/$PREFIX/status.json" --content-type application/json 2>/dev/null || true
 }
 trap 'writestatus error "userdata failed line $LINENO" 0; selfterm' ERR
-# TTL 保險回收(長時測試可跑很久;預設 12 小時,engine 依任務時長帶 ttlMinutes)。關機 = 終止實例。
-shutdown -h +"${TTL_MIN:-720}" &
+# TTL 保險回收(長時測試可跑很久;預設 12 小時,engine 依任務時長 + 15 分鐘帶 ttlMinutes)。關機 = 終止實例。
+# runner 會在 TTL 前 15 分鐘自己收尾寫報告(PA_DEADLINE_MS);這裡是最後防線:
+# 時間到還沒有終態就先寫 error + 上傳 log,再關機 —— 任務絕不會永遠卡在「執行中」。
+TTL_MIN=${TTL_MIN:-720}
+DEADLINE_MS=$(( ( $(date +%s) + (TTL_MIN > 30 ? TTL_MIN - 15 : TTL_MIN) * 60 ) * 1000 ))
+(
+  sleep $(( TTL_MIN * 60 ))
+  CUR=$(aws s3 cp "s3://$BUCKET/$PREFIX/status.json" - 2>/dev/null | jq -r '.state // empty' || true)
+  if [ "$CUR" = "running" ] || [ -z "$CUR" ]; then
+    printf '{"jobId":"%s","state":"error","message":"%s","steps":0,"updatedAt":"%s"}' \
+      "$JOB_ID" "已達主機保險回收時間(${TTL_MIN} 分鐘),runner 未能正常收尾;已完成的步驟仍保留在執行軌跡中。" "$(date -u +%FT%TZ)" \
+      | aws s3 cp - "s3://$BUCKET/$PREFIX/status.json" --content-type application/json 2>/dev/null || true
+  fi
+  aws s3 cp /var/log/runner.log "s3://$BUCKET/$PREFIX/runner.log" 2>/dev/null || true
+  aws s3 cp /var/log/emulator-bootstrap.log "s3://$BUCKET/$PREFIX/bootstrap.log" 2>/dev/null || true
+  shutdown -h now
+) &
 
 # 註:本主機專屬單一 job,直接用實例 profile 憑證存取 S3(該租戶前綴)與 Bedrock,
 # 不另扮租戶角色(主機生命週期即一個 job,實例 profile 權限已限本資料桶)。
@@ -188,6 +203,7 @@ PA_DRIVER=adb PA_ADB_SERIAL=127.0.0.1:5555 PA_PLATFORM=android \
 PA_JOB="$JOB_ID" PA_TENANT="$TENANT_ID" PA_APP="$APP_ID" PA_BUCKET="$BUCKET" PA_PREFIX="$PREFIX" \
 PA_DATA_REGION="$AWS_DEFAULT_REGION" PA_VLM="$VLM_MODEL" PA_AGENT_MODEL="$AGENT_MODEL" PA_SUBAGENT_MODEL="$SUBAGENT_MODEL" \
 PA_PKG="$PKG" PA_TASK="$TASK" PA_MAXSTEPS="$MAX_STEPS" PA_DEVICE_MODEL="Redroid $(uname -m)" \
+PA_DEADLINE_MS="$DEADLINE_MS" \
 node /opt/runner/explorationRunner.mjs > /var/log/runner.log 2>&1 || true
 aws s3 cp /var/log/runner.log "s3://$BUCKET/$PREFIX/runner.log" 2>/dev/null || true
 # runner 沒寫終態(例如啟動就崩潰)才補 error;已有終態不覆蓋。

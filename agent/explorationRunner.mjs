@@ -90,6 +90,10 @@ const CONSEC_FAIL_LIMIT = 3;
 // Device Farm 單次連線最長 150 分鐘(AWS 固定上限,不能調整;從建立連線開始算,含配置真機的時間)。
 // 預設第 140 分鐘開始收尾,留 10 分鐘上傳錄影、寫報告。長時模式則在這時換一條新連線接續。
 const WRAP_MIN = Math.max(10, Math.min(145, Number(process.env.PA_WRAP_MIN) || 140));
+// 主機最長執行時數的截止時間(epoch ms;Android 容器 / Windows 由主機啟動腳本帶入)。
+// 到了就收尾寫報告;主機的保險關機排在這之後,只是最後防線。未設 = 不限。
+const DEADLINE_MS = Number(process.env.PA_DEADLINE_MS) > 0 ? Number(process.env.PA_DEADLINE_MS) : NaN;
+const DEADLINE_LABEL = Number.isFinite(DEADLINE_MS) ? new Date(DEADLINE_MS).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
 // runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
 const RUNNER_VERSION = 'devicefarm-runner/2.4 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1)';
 // 效能取樣間隔(步)。adb shell 取樣與 VLM 並行、且 FPS/CPU/GPU 為區間累計,預設每 2 步一次;0 = 停用。
@@ -145,7 +149,10 @@ function bootPhase(phase, info = {}) {
   if (info.deviceModel) boot.deviceModel = info.deviceModel;
   if (info.sizeMB) boot.sizeMB = info.sizeMB;
 }
+// 最後一次回報的步數(SIGTERM 時寫終態用)。
+let lastStepCount = 0;
 async function writeStatus(state, message, steps) {
+  if (typeof steps === 'number' && steps > lastStepCount) lastStepCount = steps;
   await s3put(`${PREFIX}/status.json`,
     JSON.stringify({ jobId: JOB, state, message, steps: steps ?? 0, boot, updatedAt: new Date().toISOString() }),
     'application/json').catch(() => {});
@@ -820,6 +827,7 @@ async function main() {
   const obsGuard = createObsGuard();
   // 時間到:單段 → 最後一步收尾;長時 → 換新連線接續。
   let wrapUpAsked = false;
+  let wrapReason = ''; // 'devicefarm' | 'deadline'
 
   /**
    * 長時模式:收下這條連線的錄影 / log / 效能 → 關掉 → 用同一個 App 上傳(appArn)開新連線
@@ -937,8 +945,16 @@ async function main() {
         }
       } else {
         wrapUpAsked = true;
+        wrapReason = 'devicefarm';
         controlNote += `【系統|最後一步】已到 Device Farm 連線的時間上限(單次最長 150 分鐘),這是最後一張畫面,不會再執行動作。請在 thinking 寫出目前為止的進度與測試腳本要求的統計數字,並在 obs 回報畫面上的數值。`;
       }
+    }
+    // 主機最長時數(Android 容器 / Windows):到了就用這一步收尾並寫報告,
+    // 不要等主機的保險關機把 runner 直接殺掉(那樣報告與終態都不會寫,任務永遠卡在「執行中」)。
+    if (!wrapUpAsked && Number.isFinite(DEADLINE_MS) && Date.now() >= DEADLINE_MS) {
+      wrapUpAsked = true;
+      wrapReason = 'deadline';
+      controlNote += `【系統|最後一步】已到這次任務設定的最長執行時數,這是最後一張畫面,不會再執行動作。請在 thinking 寫出目前為止的進度與測試腳本要求的統計數字,並在 obs 回報畫面上的數值。`;
     }
 
     const t0 = Date.now();
@@ -1468,7 +1484,9 @@ async function main() {
     await writeStatus('running', `${segment > 1 ? `第 ${segment} 段 · ` : ''}第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
     if (wrapUpAsked) {
       finalState = 'fail';
-      finalMsg = `已達執行時間上限:Device Farm 單次連線最長 150 分鐘,已在第 ${WRAP_MIN} 分鐘提前收尾${segment > 1 ? `(共 ${segment} 段)` : ''},測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`;
+      finalMsg = wrapReason === 'deadline'
+        ? `已達這次任務設定的最長執行時數(${DEADLINE_LABEL}),已提前收尾並寫出報告,測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`
+        : `已達執行時間上限:Device Farm 單次連線最長 150 分鐘,已在第 ${WRAP_MIN} 分鐘提前收尾${segment > 1 ? `(共 ${segment} 段)` : ''},測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`;
       break;
     }
 
@@ -1754,7 +1772,21 @@ async function main() {
   if (ownsSession) await stopSelfOwnedSession();
 }
 
-main().catch(async (e) => {
+// 主機關機 / 被終止時會送 SIGTERM:至少把終態寫成 error,任務才不會永遠停在「執行中」。
+// 已經寫過終態(正常結束)時 writeStatus 只會再覆寫一次相同語意的 error,所以只在還沒結束時做。
+let finished = false;
+for (const sig of ['SIGTERM', 'SIGINT', 'SIGHUP']) {
+  process.on(sig, async () => {
+    if (!finished) {
+      finished = true;
+      await writeStatus('error', `執行主機被終止(${sig}),測試中斷;已完成的步驟與截圖仍保留在執行軌跡中。`, lastStepCount).catch(() => {});
+    }
+    process.exit(143);
+  });
+}
+
+main().then(() => { finished = true; }).catch(async (e) => {
+  finished = true;
   await writeStatus('error', String(e), 0);
   // 整場錄影盡力收下(session 還活著才拿得到;拿不到就算了)。
   if (activeRecorder) await activeRecorder.stop().catch(() => {});

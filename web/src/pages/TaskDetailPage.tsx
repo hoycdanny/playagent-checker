@@ -71,6 +71,19 @@ const PT = {
 } as const;
 const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
 
+/** 執行軌跡每一步的日期時間(使用者當地時區,依介面語言格式化),例如 2026/10/08 14:30:45。 */
+export function stepTime(iso: string, locale: string): string {
+  const d = new Date(iso);
+  try {
+    return new Intl.DateTimeFormat(locale, {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).format(d);
+  } catch {
+    return d.toISOString().replace('T', ' ').slice(0, 19);
+  }
+}
+
 /** 開機中的標題/說明依執行環境而定(不是每個任務都跑 Device Farm);未知後端用通用文案。 */
 const BOOT_SUFFIX: Record<string, 'Devicefarm' | 'Emulator' | 'Web' | 'Windows'> = {
   devicefarm: 'Devicefarm',
@@ -372,6 +385,11 @@ export default function TaskDetailPage() {
                     <div className="detail__step-text">
                       <div className="detail__step-head">
                         <span className="detail__step-idx">#{s.index}</span>
+                        {typeof s.at === 'string' && Number.isFinite(Date.parse(s.at)) && (
+                          <time className="detail__step-time" dateTime={s.at} title={new Date(s.at).toString()}>
+                            {stepTime(s.at, locale)}
+                          </time>
+                        )}
                         {screenText && <span className="detail__step-screen">{screenText}</span>}
                         {actionText && <span className="detail__step-action">{actionText}</span>}
                         {hasAudio && typeof s.at === 'string' && (() => {

@@ -920,6 +920,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 每一步的日期時間(當地時區) */
+.detail__step-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .detail__step-screen {
   font-size: 12px;
   font-weight: 600;

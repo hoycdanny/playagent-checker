@@ -108,7 +108,9 @@ export async function startWindowsRun(spec: WindowsRunSpec, dataRegion: string):
       ConnectionTimeoutSeconds: MAX_UNATTENDED_SECONDS,
       DisplayConfiguration: { Resolution: { Width: display.width, Height: display.height } },
       RoleArn: ROLE_ARN,
-      AdditionalEnvironmentVariables: buildEnv(spec, dataRegion),
+      // PA_DEADLINE_MS:runner 在 session 被 GameLift 終止前 5 分鐘自己收尾寫報告,
+      // 不然 session 到時被直接收掉,任務會停在「執行中」且沒有報告。
+      AdditionalEnvironmentVariables: { ...buildEnv(spec, dataRegion), PA_DEADLINE_MS: String(Date.now() + (seconds - 300) * 1000) },
     }),
   );
   if (!res.Arn) throw new Error('StartStreamSession 未回傳 session ARN');
