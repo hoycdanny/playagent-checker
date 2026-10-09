@@ -3,6 +3,7 @@ import { apiGet, apiPost, apiPut } from '../api/client.ts';
 import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import './ListPage.css';
+import { UitarsPanel } from '../components/system/UitarsPanel.tsx';
 import './SystemUpdatePage.css';
 
 /** 與後端 systemUpdate.ts 的回傳型別對齊。 */
@@ -188,6 +189,7 @@ export default function SystemUpdatePage() {
         </button>
       </header>
 
+      <h2 className="sysupd__section">{T.updateSection}</h2>
       <p className="sysupd__repo">{T.repo}: <code>{report?.repo ?? '-'}</code></p>
 
       {error && <p className="sysupd__error" role="alert">{error}</p>}
@@ -391,6 +393,9 @@ export default function SystemUpdatePage() {
           <p className="sysupd__muted">{T.tokenNote}</p>
         </details>
       )}
+
+      {/* UI-TARS 定位模型開關(SageMaker GPU,預設關閉) */}
+      <UitarsPanel />
     </section>
   );
 }
@@ -403,7 +408,8 @@ const pick = (t: L5, i: number) => t[i] ?? t[1];
 function text(locale: string) {
   const i = IDX[locale] ?? 1;
   const S = {
-    title: ['系統更新', 'System update', '系统更新', 'システム更新', '시스템 업데이트'] as L5,
+    title: ['系統管理', 'System admin', '系统管理', 'システム管理', '시스템 관리'] as L5,
+    updateSection: ['系統更新', 'System update', '系统更新', 'システム更新', '시스템 업데이트'] as L5,
     adminOnly: ['這頁只有管理員能看。', 'Admins only.', '这页只有管理员能看。', '管理者のみ利用できます。', '관리자만 사용할 수 있습니다.'] as L5,
     refresh: ['重新檢查', 'Check again', '重新检查', '再確認', '다시 확인'] as L5,
     repo: ['倉庫', 'Repository', '仓库', 'リポジトリ', '저장소'] as L5,
@@ -484,6 +490,7 @@ function text(locale: string) {
   };
   return {
     title: pick(S.title, i),
+    updateSection: pick(S.updateSection, i),
     adminOnly: pick(S.adminOnly, i),
     refresh: pick(S.refresh, i),
     repo: pick(S.repo, i),

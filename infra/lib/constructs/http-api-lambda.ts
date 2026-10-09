@@ -14,6 +14,21 @@ import { Construct } from 'constructs';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
+/** UI-TARS 開關所需的固定設定(SageMaker 資源名、映像、權重、執行角色)。 */
+export interface UitarsSwitchProps {
+  /** 固定 endpoint 名;引擎與 runner 也用同一個名字(cdk context uitarsEndpoint)。 */
+  endpointName: string;
+  instanceType: string;
+  /** vLLM BYOC 映像 URI。 */
+  image: string;
+  /** 模型權重 S3 字首(s3://bucket/prefix/)。 */
+  modelDataS3: string;
+  /** SageMaker 執行角色(拉映像 + 讀權重);API 需要 PassRole 給它。 */
+  executionRoleArn: string;
+  /** 套在 SageMaker 資源上的成本標籤。 */
+  tags: Record<string, string>;
+}
+
 export interface HttpApiLambdaProps {
   userPool: cognito.IUserPool;
   userPoolClient: cognito.IUserPoolClient;
@@ -41,6 +56,8 @@ export interface HttpApiLambdaProps {
     historyKey: string;
     repo: string;
   };
+  /** UI-TARS 開關(系統管理頁)。省略則 /system/uitars 回 501。 */
+  uitars?: UitarsSwitchProps;
 }
 
 /**
@@ -92,6 +109,17 @@ export class HttpApiLambda extends Construct {
           : {}),
         KB_VECTOR_BUCKET_PREFIX: props.kbVectorBucketPrefix,
         KB_EMBEDDING_MODEL_ID: props.kbEmbeddingModelId,
+        // UI-TARS 開關(admin 專用);未帶時 /system/uitars 回 501,UI-TARS 一律視為關閉。
+        ...(props.uitars
+          ? {
+            UITARS_ENDPOINT_NAME: props.uitars.endpointName,
+            UITARS_INSTANCE: props.uitars.instanceType,
+            UITARS_IMAGE: props.uitars.image,
+            UITARS_MODEL_S3: props.uitars.modelDataS3,
+            UITARS_ROLE_ARN: props.uitars.executionRoleArn,
+            UITARS_TAGS: JSON.stringify(props.uitars.tags),
+          }
+          : {}),
       },
       // 建 KB / ingestion 可能較久;放寬 timeout(建 KB 動作序含多次 API 呼叫)。
       bundling: {
@@ -113,6 +141,7 @@ export class HttpApiLambda extends Construct {
           '@aws-sdk/client-lambda', '@aws-sdk/client-ec2', '@aws-sdk/client-ecs',
           '@aws-sdk/client-ssm', '@aws-sdk/client-codebuild',
           '@aws-sdk/client-cloudwatch-logs', '@aws-sdk/s3-request-presigner',
+          '@aws-sdk/client-sagemaker',
         ],
       },
     });
@@ -324,6 +353,58 @@ export class HttpApiLambda extends Construct {
       );
       // 更新前警告「還有任務在跑」用的 ecs/ec2 唯讀權限已移到上面常駐授權
       // (裝置管理頁也要用),這裡不再重複。
+    }
+
+    // UI-TARS 開關:只能動「固定名稱」的那一組 SageMaker 資源(endpoint / config / model),
+    // 不能碰帳號裡其他 SageMaker 資源。開啟會產生 GPU 計費,真正的守門是後端 requireAdmin。
+    if (props.uitars) {
+      const ux = props.uitars;
+      const smArn = (kind: string, name: string) => `arn:aws:sagemaker:${props.region}:${acct}:${kind}/${name}`;
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['sagemaker:DescribeEndpoint', 'sagemaker:CreateEndpoint', 'sagemaker:DeleteEndpoint'],
+          resources: [smArn('endpoint', ux.endpointName)],
+        }),
+      );
+      // CreateEndpoint 會對 endpoint-config 做授權檢查,所以 config 也要允許 CreateEndpoint。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['sagemaker:DescribeEndpointConfig', 'sagemaker:CreateEndpointConfig', 'sagemaker:CreateEndpoint'],
+          resources: [smArn('endpoint-config', `${ux.endpointName}-config`)],
+        }),
+      );
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['sagemaker:DescribeModel', 'sagemaker:CreateModel'],
+          resources: [smArn('model', `${ux.endpointName}-model`)],
+        }),
+      );
+      // Create* 帶 Tags(成本分攤)需要 AddTags。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['sagemaker:AddTags'],
+          resources: [
+            smArn('endpoint', ux.endpointName),
+            smArn('endpoint-config', `${ux.endpointName}-config`),
+            smArn('model', `${ux.endpointName}-model`),
+          ],
+        }),
+      );
+      // CreateModel 要把執行角色交給 SageMaker;限定只能交給 SageMaker 服務。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['iam:PassRole'],
+          resources: [ux.executionRoleArn],
+          conditions: { StringEquals: { 'iam:PassedToService': 'sagemaker.amazonaws.com' } },
+        }),
+      );
+      // 開關紀錄寫在 _system/uitars.json(與更新歷史同前綴)。
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['s3:GetObject', 's3:PutObject'],
+          resources: [`${props.dataBucket.bucketArn}/_system/uitars.json`],
+        }),
+      );
     }
 
     // 費用分析頁取 AWS 真實成本:Cost Explorer 唯讀(CE 不支援資源級條件,故 *)。

@@ -4,7 +4,7 @@ import type * as cognito from 'aws-cdk-lib/aws-cognito';
 import type * as s3 from 'aws-cdk-lib/aws-s3';
 import type * as sqs from 'aws-cdk-lib/aws-sqs';
 import type * as iam from 'aws-cdk-lib/aws-iam';
-import { HttpApiLambda } from './constructs/http-api-lambda.js';
+import { HttpApiLambda, type UitarsSwitchProps } from './constructs/http-api-lambda.js';
 import { WsApi } from './constructs/ws-api.js';
 
 export interface ControlPlaneStackProps extends StackProps {
@@ -28,6 +28,8 @@ export interface ControlPlaneStackProps extends StackProps {
     historyKey: string;
     repo: string;
   };
+  /** UI-TARS 開關(系統管理頁);省略則 /system/uitars 回 501、UI-TARS 一律視為關閉。 */
+  uitars?: UitarsSwitchProps;
 }
 
 /**
@@ -53,6 +55,7 @@ export class ControlPlaneStack extends Stack {
       kbVectorBucketPrefix: props.kbVectorBucketPrefix,
       kbEmbeddingModelId: props.kbEmbeddingModelId,
       ...(props.updater ? { updater: props.updater } : {}),
+      ...(props.uitars ? { uitars: props.uitars } : {}),
     });
 
     // 即時串流(WebSocket + S3 事件推送)。

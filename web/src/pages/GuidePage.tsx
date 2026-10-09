@@ -20,6 +20,16 @@ interface CatalogModel {
 }
 const SEAT_LABEL: Record<string, string> = { agent: 'Agent', vlm: 'VLM', subagent: 'SubAgent' };
 
+/** 頁面框架文字 [繁中, English, 简中, 日本語, 한국어](內容本身在 guideContent)。 */
+const LOC_IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
+const UI = {
+  loadingDiagram: ['載入架構圖…', 'Loading diagram…', '加载架构图…', '構成図を読み込み中…', '구성도를 불러오는 중…'],
+  model: ['模型', 'Model', '模型', 'モデル', '모델'],
+  seats: ['可坐 Seat', 'Seats', '可用 Seat', '対応 Seat', '가능한 Seat'],
+  loadingModels: ['載入模型目錄…', 'Loading model catalog…', '加载模型目录…', 'モデル一覧を読み込み中…', '모델 목록을 불러오는 중…'],
+  cta: ['前往應用管理 →', 'Go to Apps →', '前往应用管理 →', 'アプリ管理へ →', '앱 관리로 이동 →'],
+} as const;
+
 /**
  * 使用說明頁,四大區塊:
  *  ① 系統用途(≤100 字)
@@ -30,6 +40,7 @@ const SEAT_LABEL: Record<string, string> = { agent: 'Agent', vlm: 'VLM', subagen
 export default function GuidePage() {
   const { locale } = useI18n();
   const g = guideContent(locale);
+  const ui = (k: keyof typeof UI) => UI[k][LOC_IDX[locale] ?? 1] ?? UI[k][1];
   // 完整可用模型清單:直接向後端 /models 取得(隨 Bedrock 目錄更新,不會過時)。
   const models = useQuery<ListResponse<CatalogModel>>('models-all', () =>
     apiGet<ListResponse<CatalogModel>>('/models'),
@@ -63,7 +74,7 @@ export default function GuidePage() {
         <Suspense
           fallback={
             <div className="guide__arch-loading">
-              {locale === 'en' ? 'Loading diagram…' : '載入架構圖…'}
+              {ui('loadingDiagram')}
             </div>
           }
         >
@@ -109,9 +120,9 @@ export default function GuidePage() {
             <table className="guide__table">
               <thead>
                 <tr>
-                  <th>{locale === 'en' ? 'Model' : '模型'}</th>
+                  <th>{ui('model')}</th>
                   <th>Model ID</th>
-                  <th>{locale === 'en' ? 'Seats' : '可坐 Seat'}</th>
+                  <th>{ui('seats')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -129,7 +140,7 @@ export default function GuidePage() {
           </div>
         ) : (
           <p className="guide__section-intro">
-            {locale === 'en' ? 'Loading model catalog…' : '載入模型目錄…'}
+            {ui('loadingModels')}
           </p>
         )}
         <p className="guide__footnote">{g.modelsFootnote}</p>
@@ -160,7 +171,7 @@ export default function GuidePage() {
 
       <div className="guide__cta">
         <Link to="/apps" className="guide__cta-btn">
-          {locale === 'en' ? 'Go to Apps →' : '前往應用管理 →'}
+          {ui('cta')}
         </Link>
       </div>
     </section>
