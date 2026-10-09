@@ -1,96 +1,175 @@
 # PlayAgent Checker
 
-**ゲーム / アプリ向けの AI 駆動自動 QA プラットフォーム。** テストしたいフローを普通の言葉で書けば、AI エージェントが画面を見て、タップやスワイプを代行し、成否を判定し、スクリーンショット・ステップ軌跡・ナビゲーションマップ付きの多言語レポートを生成します。
+**ゲームとアプリのための AI 駆動自動 QA。** テストフローを自然言語で記述すると、AI エージェントが画面を見ながらタップやスワイプを代行し、合否を判定して、スクリーンショット、ステップごとのトレース、ナビゲーションマップ付きの多言語レポートを作成します。
 
 > 言語:[English](README.md) · [繁體中文](README_ZH.md) · [简体中文](README_CN.md) · **日本語** · [한국어](README_KR.md)
 
 ---
 
-## 概要
+## できること
 
-PlayAgent Checker は **AWS(リージョン `us-east-2`)** 上で完結する、サーバーレスのコントロールプレーンとオンデマンド実行ランナーで構成されます。アプリをアップロード(または Web の URL を指定)すると、エージェントが自律的に探索し、再現可能でレビュー可能なテスト結果が得られます。
+PlayAgent Checker はすべて **AWS(リージョン `us-east-2`)** 上で動作します。サーバーレスのコントロールプレーンと、タスクごとに起動しタスク終了時に停止する実行ランナーで構成されます。アプリをアップロード(または Web URL を指定)すると、エージェントが自律的に探索し、再現性があり検証可能なテスト実行結果が得られます。
 
-- **実運用の 2 つの実行バックエンド(いずれもエンドツーエンド検証済み):** **Web**(Playwright ヘッドレス Chromium を ECS Fargate 上で実行)と **Device Farm**(AWS Device Farm の Android/iOS 実機を Appium で駆動)。
-- **エージェントループ:** スクリーンショット → VLM が測位 → Agent が決定 → 端末で実行 → 再びスクリーンショット、を目標達成または停止条件まで繰り返します。
-- **高精度な GUI グラウンディング(任意):** 座標担当の VLM シートは SageMaker 上の **UI-TARS-1.5-7B** を利用でき、絵の多いゲーム画面で格段に正確です。
-- **ナレッジベース、コストガードレール、5 言語 UI**(zh-Hant、en、zh-Hans、ja、ko)。
+- **エージェントループ:** スクリーンショット → VLM がターゲットを特定 → Agent が判断 → デバイスを操作 → 再度スクリーンショット。目標達成または停止条件の発動まで繰り返します。
+- **UI ツリーではなく画面を見る**ため、検査可能な要素がない Canvas 描画のゲーム(Cocos2d-x、Unity)でも動作します。
+- **ナレッジベース、コストガードレール、5 言語 UI**(zh-Hant、en、zh-Hans、ja、ko)、GitHub からのワンクリック自己更新を備えています。
 
-アーキテクチャ詳細:[docs/architecture.md](docs/architecture.md)。
+## ランタイム
 
-## 想定ユーザー
+| ランタイム | 実行基盤 | インストール後に利用可能 | 制限 |
+| --- | --- | --- | --- |
+| **Web ブラウザ** | ECS Fargate 上のヘッドレス Chromium(Playwright) | ✅ | — |
+| **Android 実機**(Device Farm) | AWS Device Farm + Appium、コントローラーは Fargate | ✅ | 1 セッション 150 分(AWS の制限)。「長時間」オプションは 140 分ごとに再接続し、ゲームは再起動されます |
+| **iOS 実機**(Device Farm) | AWS Device Farm + Appium | ✅ | インストール可能な `.ipa` が必要。1 セッション 150 分 |
+| **Android コンテナ**(Redroid) | タスクごとに Graviton EC2 を 1 台(`m7g.xlarge`)起動し Redroid を実行 | ✅ | エミュレーター検出のあるゲームは自ら終了します(実機を使用してください)。動画/音声チェック不可、ピンチ不可、1 回の実行は 1–72 時間 |
+| **Windows PC ゲーム** | Amazon GameLift Streams(NVIDIA GPU、`gen6n_medium_win2022`) | ⚙️ 初回のみセットアップが必要(下記「任意:Windows PC ゲーム(GameLift Streams)」を参照) | 1 回の実行 ≤ 60 分、総ピクセル数 ≤ 1920×1080 |
+| iOS シミュレーター / Linux | — | ❌ 未実装 | — |
 
-- **QA チーム**:壊れやすい UI スクリプトを書かず・保守せずにゲーム/アプリをテストしたい。
-- **多数のタイトルを出すスタジオ**(スロット、RPG、MMORPG、カジュアル…):ビルドごとに再現可能なスモーク/リグレッションが必要。
-- **誰でも**:フローを言葉で説明できるが、自動化フレームワークは学びたくない。
+どのゲームにどのランタイムを選ぶか:[docs/design/multi-platform-workers.md](docs/design/multi-platform-workers.md)。
 
-## 仕組み(エンドツーエンド)
+## デフォルトで利用できる機能
+
+以下のインストール手順を完了した時点で、有効なもの、無効なもの、追加手順が必要なものは次のとおりです。
+
+| 機能 | デフォルト | 備考 |
+| --- | --- | --- |
+| Web コンソール、ログイン(Cognito)、5 言語 | ✅ 有効 | セルフサインアップは無効です。ユーザーは管理者が作成します。 |
+| アプリ / テストケース / タスク / レポート / メモリマップ | ✅ 有効 | AI が自然言語からテストケースを下書きします(Claude Sonnet 4.5)。 |
+| ランタイム:Web、Device Farm Android/iOS、Android コンテナ | ✅ 有効 | 各実行は自身のリソースを起動し、終了時に停止します。 |
+| デフォルトモデル | ✅ 有効 | 判断は **Amazon Nova Lite**、画面解析は **Moonshot Kimi K3**、補助は **Amazon Nova Micro**。各シートはタスクごとに変更できます。 |
+| ナレッジベース(Markdown + PDF 検索) | ✅ 有効 | PDF 検索は Bedrock Knowledge Bases + S3 Vectors + Titan Embeddings V2 を使用します。 |
+| テスト認証情報(Secrets Manager) | ✅ 有効 | アプリごと。マスクされた値がモデルに渡ることはありません。 |
+| コストガードレール(予算 + フェイルクローズ価格) | ✅ 有効 | — |
+| コスト分析ページ — タスク見積もり | ✅ 有効 | タスクごとのトークン × 単価。 |
+| コスト分析ページ — 実際の AWS 請求 | ⚙️ アカウント設定が必要 | Cost Explorer を有効化し、タグをアクティブ化します(下記「コスト分析ページを有効にする」を参照)。 |
+| メンバー管理ページ(管理者) | ✅ 有効 | ユーザー追加、パスワードリセット、テナント移動、管理者権限付与。 |
+| システム管理ページ → **システム更新** | ⚙️ 任意 | Updater スタックをデプロイし、GitHub トークンを保存します(下記「任意:ワンクリックシステム更新」を参照)。 |
+| システム管理ページ → **UI-TARS** | ⛔ **無効** | GPU グラウンディングモデル。管理者がページ上でオン/オフし、オンの間のみ課金されます(下記「任意:UI-TARS グラウンディングモデル」を参照)。 |
+| Windows ランタイム | ⚙️ 任意 | Windows マシンから GameLift Streams を初回のみセットアップします。 |
+
+## アーキテクチャ
 
 ```
-① アプリ作成    APK/IPA/ZIP をアップロード、または Web URL を指定。ジャンルを設定。
-② テストケース  フローを普通の言葉で記述 → AI が実行可能な YAML を生成。
-③ (任意)ナレッジ  ジャンル/シナリオ知識を付与し、AI に領域を理解させる。
-④ タスク送信    実行環境(Web / Device Farm)+ 座標モデルを選び、クラウドに投入。
-⑤ AI が実行    スクリーンショット → VLM が座標測位 → Agent が決定 → 実行 → 繰り返し。
-⑥ レポート+記憶  多言語レポート(説明・スクショ・軌跡・コスト)+ 実行を跨いで蓄積するナビマップ。
+Browser ──► CloudFront + S3 (React console)
+   │
+   │  REST + WebSocket, Cognito JWT
+   ▼
+API Gateway ──► API Lambda ──────────► S3 data bucket (per-tenant prefixes, tenant-scoped IAM role)
+   │              │  POST /tasks          Secrets Manager (test credentials, GitHub token)
+   │              ▼                       Bedrock (case drafting, knowledge bases)
+   │            SQS dispatch queue
+   │              ▼
+   │            Dispatcher Lambda ──► Engine Lambda (orchestrator, returns immediately)
+   │                                     │
+   │          ┌──────────────────────────┼───────────────────────────┬──────────────────────────┐
+   │          ▼                          ▼                           ▼                          ▼
+   │   Fargate: Web runner     Fargate: Device Farm runner   EC2 (Graviton): Redroid   GameLift Streams: Windows
+   │   (Playwright Chromium)   → AWS Device Farm (us-west-2)  Android container         (GPU, optional)
+   │          └──────────── each runner: screenshot → Bedrock models → act → write progress to S3 ──┘
+   │                                                  │ (optional) SageMaker UI-TARS endpoint
+   ▼
+WebSocket push (live progress) ◄──────────────────────┘
+
+System admin: API ──► CodeBuild "self-update" (cdk deploy from GitHub) · SageMaker (UI-TARS on/off)
 ```
 
-AI は**壊れやすい要素セレクタに依存しません** —— 人間のテスターのように「実際の画面を見る」ため、検査可能な UI ツリーを持たないキャンバス系ゲーム(Cocos2d-x、Unity)でも動作します。
+CDK スタック(すべて `us-east-2`):
 
-## 機能一覧(各ページの役割)
-
-| ページ | 役割 |
+| スタック | 内容 |
 | --- | --- |
-| **ガイド** | 組み込みのウォークスルー(ログイン後の最初のページ)。5 言語対応。 |
-| **アプリ** | ゲーム/アプリごとのワークスペース。名前 + プラットフォーム + ジャンルを設定。ネイティブは成果物、Web は URL。ケース・タスク・レポート・記憶を集約。 |
-| **テストケース** | ケース = AI が実行する 1 つのフロー。普通の言葉で下書き(AI → YAML)、または YAML を手書き。シークレットは `${ENV}` プレースホルダ、リテラルパスワードは拒否。 |
-| **タスク** | ケースを実行。**実行環境**(Web ブラウザ or Device Farm 実機)、**座標モデル**(既定 UI-TARS)、複数の**ナレッジベース**を選択。ライブ監視・キャンセル可。 |
-| **レポート** | 読み取り専用の結果:AI の説明、ステップ軌跡、ゲーム画面、ナビグラフ、予算 vs 実費・トークン使用量。 |
-| **メモリマップ** | 全実行を跨いで蓄積するアプリ全体像:訪れた画面がノード、遷移がエッジ —— 後続テストが速く到達。 |
-| **ナレッジ** | ユーザー間で共有する再利用可能なナレッジベース。2 種(ジャンル / シナリオ)、各々 **Markdown**(全文注入)と/または **PDF 検索**(アップロード文書のベクトル検索)。 |
-| **デバイス** | AWS Device Farm で現在利用可能な実機モデルを閲覧。クラウドランナーはタスクごとに自動作成・完了時回収、手動管理不要。 |
+| **Foundation** | S3 データバケット、Cognito ユーザープール、テナント IAM ロール、Bedrock KB サービスロール。 |
+| **ControlPlane** | HTTP API + JWT オーソライザー、API Lambda、WebSocket API。 |
+| **Scheduling** | SQS ディスパッチキュー + Dispatcher Lambda。 |
+| **Execution** | Engine Lambda、ECS クラスター + Fargate タスク定義、ECR リポジトリ、VPC(NAT ゲートウェイなし)、タスクごとの EC2 起動設定。 |
+| **Frontend** | CloudFront + S3 静的サイト。 |
+| **Updater**(任意) | 上記 5 つのスタックを GitHub のバージョンから再デプロイする CodeBuild プロジェクト。 |
+
+詳細:[docs/architecture.md](docs/architecture.md)。
+
+## コスト
+
+本プロジェクト自身のアカウント(`us-east-2`、2026 年 10 月)での実測値です。AWS の価格は変動するため、見積もりとして扱ってください。
+
+**何も実行していないとき(アイドル時):** 約 **US$2–5 / 月**。NAT ゲートウェイ、常時稼働サーバー、予約ストリーム容量はありません。残るのは次のとおりです。
+
+- S3 ストレージ(スクリーンショット、レポート、アップロードしたアプリ。UI-TARS の重みを配置した場合は約 31 GB が加わり、約 US$0.7/月)
+- ECR イメージ(ランナーイメージ。ビルドした場合は約 10 GB の UI-TARS サービングイメージも)
+- Secrets Manager(シークレット 1 つにつき月 US$0.40)、CloudWatch Logs、CloudFront
+- Lambda、API Gateway、SQS、Cognito はリクエスト課金で、利用が少なければごく僅かです
+
+**テスト実行ごと(実行中のみ):**
+
+| 項目 | 価格 | 例 |
+| --- | --- | --- |
+| AI モデル(Bedrock トークン) | トークン単位、送信時に固定。各レポートに表示 | デフォルトモデルでの 26 ステップ・10 スピンのスロットテストで、入力約 141k / 出力約 14k トークンを使用し、**US$0.80 未満** |
+| Device Farm 実機 | **デバイス 1 分あたり US$0.17** | 30 分 ≈ US$5.10 |
+| Android コンテナ(EC2 `m7g.xlarge`) | **US$0.1632 / 時間** + ディスク | 1 時間 ≈ US$0.17 |
+| Fargate ランナー(1 vCPU / 2 GB) | 約 US$0.05 / 時間 | Web 実行と Device Farm コントローラー |
+| Windows(GameLift Streams) | セッション実行中の秒単位課金 | [GameLift Streams の料金](https://aws.amazon.com/gamelift/streams/pricing/)を参照 |
+| 自己更新 | CodeBuild の分数 | 更新 1 回あたり約 5–15 分、数セント |
+| Cost Explorer クエリ(コスト分析ページ) | 1 クエリあたり約 US$0.01 | — |
+
+**唯一の大きな任意コスト:UI-TARS。** `ml.g6e.xlarge` GPU で、実測 **US$62.53 / 日(約 US$2.6 / 時間)**。タスクがなくてもオンの間はずっと課金されます。**デフォルトはオフ**です。必要な場合以外はオフのままにしてください。
+
+実際、当アカウントの支出の大半は Bedrock トークンと Device Farm の分数でした。どちらもテストしていないときは費用がかかりません。
+
+## 機能(各ページの役割)
+
+| ページ | 用途 |
+| --- | --- |
+| **ガイド** | アプリ内ウォークスルー(ログイン後のランディングページ)、5 言語対応。 |
+| **アプリ管理** | ゲーム/アプリごとに 1 つのワークスペース:名前、プラットフォーム、ジャンル、成果物(APK/IPA/XAPK/ZIP/EXE)または URL。中にテストケース、タスク、レポート、メモリマップ、テスト認証情報があります。 |
+| **テストケース**(アプリワークスペース内) | AI に実行させる 1 つのフロー。自然言語で下書き(AI → YAML)、YAML を手書き、またはスプレッドシートからインポートできます。パスワードの直接記述は拒否されます。テスト認証情報を使用してください。 |
+| **テストタスク**(アプリワークスペース内) | ケースを実行します。**ランタイム**、3 つの**モデル**、ステップ/予算の上限、**ナレッジベース**を選択します。ライブ画面、デバイスログ(実機と Android コンテナ)、エージェントの推論を確認でき、実行中に AI へ指示を出したり、いつでもキャンセルしたりできます。 |
+| **テストレポート** | AI による説明、ステップトレース、スクリーンショット、録画再生(実機)、ナビゲーショングラフ、支出とトークン。 |
+| **メモリマップ** | 全実行で訪れた画面がノード、遷移がエッジになります。以降の実行はより速くナビゲートできます。 |
+| **デバイス管理** | 現在利用可能な Device Farm の端末に加え、稼働中のコンテナ、EC2 ホスト、GameLift 容量。 |
+| **ナレッジ** | 共有ナレッジベース(ゲームジャンル / シナリオ):Markdown の全文注入と/または PDF 検索。 |
+| **コスト分析** | アプリ別・モデル別のタスク見積もりと、サービス / コンポーネント別の実際の AWS 請求(有効化後)。 |
+| **メンバー管理**(管理者) | ユーザー追加、パスワードリセット、無効化/有効化、テナント移動、管理者権限の付与・剥奪。 |
+| **システム管理**(管理者) | GitHub からの**システム更新**(バージョン比較、ワンクリック更新、進捗、履歴)と **UI-TARS** のオン/オフスイッチ。 |
 
 ## AI:3 つのモデル「シート」
 
-モデルはベンダーではなく**役割(シート)**で構成され、タスクごとに個別選択できます:
+モデルはベンダーではなく**役割(シート)**で整理されています。各シートはタスクごとに選択します。
 
-- **Agent(意思決定)** —— 頭脳。現在の画面と目標を見て次の操作を決定。
-- **VLM(座標)** —— 視覚。「タップ対象」を画面上の実ピクセルに変換。**既定は SageMaker 上の UI-TARS-1.5-7B**(GUI グラウンディング用にファインチューニング。ゲーム画面で汎用モデルより格段に正確、繁体字中国語で応答)。
-- **Subagent(補助)** —— 安価なモデルで軽量サブタスクを処理しコスト削減。
+- **Agent(判断)** — 画面と目標から次のアクションを決定します。デフォルトは **Amazon Nova Lite**。
+- **VLM(画面解析 / 座標)** — 「タップすべきもの」をピクセル座標に変換します。デフォルトは **Moonshot Kimi K3**。UI-TARS-1.5-7B は管理者がオンにしている間のみここに表示されます。
+- **Subagent(補助)** — アクションが成功したかの確認、数値の追跡、完了の検証を行います。デフォルトは **Amazon Nova Micro**。
 
-ナレッジ検索は **Amazon Titan Text Embeddings v2** と **Amazon Bedrock Knowledge Bases + S3 Vectors** を使用。SDK/エンドポイントは選ばず、modelId から自動導出されます。
+SDK やエンドポイントを選ぶ必要はありません。システムがモデル ID から導出します。
 
 ## コストガードレール
 
-各タスクには予算があります。実行前に各シートのモデルの**価格スナップショットを固定**(フェイルクローズ:価格不明なら実行拒否、不明コストで開始しない)。累積が予算に達すると停止し、レポートに実費とトークン使用量を表示します。
+各タスクにステップ上限と予算を設定できます。実行前に、エンジンが各シートのモデルの**価格スナップショットを固定**します(フェイルクローズ:価格が不明な場合は実行を拒否)。支出が予算に達すると実行は停止し、レポートに実際の支出とトークンが表示されます。
 
-## 用語
+## 用語集
 
-- **Seat(シート)** —— モデルの役割(Agent / VLM / SubAgent)。ベンダーではない。
-- **VLM** —— 視覚言語モデル。スクショを読み座標を測位。
-- **UI-TARS** —— GUI グラウンディング用にファインチューニングされた ByteDance の視覚モデル。vLLM で SageMaker にデプロイ。smart-resize 後の画像上で絶対ピクセルを返す。
-- **Agent ループ** —— スクショ → VLM 測位 → Agent 決定 → 実行 → 繰り返し。エンジンは常にクラウド(Lambda がオーケストレーション、ランナーは Fargate)。
-- **ナレッジベース** —— Markdown(全文注入)または PDF 検索(タスク目標でベクトル検索)。
-- **Locality** —— 被テスト端末の所在:`cloud`(クラウド提供)または `attached`(登録したローカル端末。クラウドの頭脳が遠隔駆動)。
-- **終了状態** —— タスクの終了状態:`pass` / `fail` / `error` / `cancelled` / `budget_exceeded` / `dead`。
-- **フェイルクローズ** —— 価格不明なら、不明コストで開始せず実行を拒否。
+- **シート(Seat)** — モデルの役割(Agent / VLM / Subagent)。ベンダーではありません。
+- **VLM** — Vision-Language Model。スクリーンショットを読み取り、座標を特定します。
+- **UI-TARS** — ByteDance の GUI グラウンディング向けにファインチューニングされた視覚モデル。vLLM により SageMaker 上で提供されます。任意で、デフォルトはオフです。
+- **Redroid** — ARM EC2 ホスト上のコンテナで動作する Android(「Android コンテナ」ランタイム)。
+- **Locality** — デバイスの所在:`cloud`(提供される)または `attached`(ローカルデバイス。操作は引き続きクラウドから)。
+- **終了状態(Terminal state)** — `pass` / `fail` / `error` / `cancelled` / `budget_exceeded` / `dead`。
+- **フェイルクローズ(Fail-closed)** — 不明な価格で支出するのではなく、実行を拒否すること。
 
 ---
 
 # 🚀 クリーンな AWS アカウントへのインストール(ステップバイステップ)
 
-本節は **AWS 未経験** を前提に、上から順に進めます。所要時間は約 **45〜60 分**、大半は AWS の完了待ちです。
+このセクションは **AWS の経験がないこと**を前提としています。上から順に進めてください。所要時間は合計約 **60–90 分**で、その大半は AWS の待ち時間です。
 
-> すべて **`us-east-2`(オハイオ)** にデプロイします。変更する意図が明確でない限り、どこでもこのリージョンを使ってください。
+> すべて **`us-east-2`(オハイオ)** にデプロイします。変更内容を理解していない限り、すべての箇所でこのリージョンを使用してください。
+>
+> コマンドは **bash**(macOS、Linux、Git Bash、WSL)向けに書かれています。Windows PowerShell では、`NAME=value command` の代わりに `$env:NAME="value"` で変数を設定してください。
 
-## ステップ 0 — ローカルにツールを入れる
-
-ローカルに 3 つ必要です。以下の確認コマンドを貼り付け、バージョンが表示されれば OK。
+## ステップ 0 — コンピューターにツールをインストールする
 
 | ツール | 用途 | インストール |
 | --- | --- | --- |
-| **Node.js 22+** | ビルド・デプロイスクリプトの実行 | https://nodejs.org("LTS" を選択) |
-| **AWS CLI v2** | AWS アカウントとの通信 | https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html |
-| **Git** | このコードの取得 | https://git-scm.com/downloads |
+| **Node.js 22+** | ビルドとデプロイのスクリプトを実行 | https://nodejs.org(「LTS」インストーラー) |
+| **AWS CLI v2** | AWS アカウントと通信 | https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html |
+| **Git** | このコードを取得 | https://git-scm.com/downloads |
 
 ```bash
 node --version    # v22.x 以上
@@ -98,299 +177,311 @@ aws --version     # aws-cli/2.x
 git --version
 ```
 
-Docker は **不要** です(大きなコンテナイメージはクラウドでビルド)。
+Docker は**不要**です。コンテナイメージはクラウド(AWS CodeBuild)でビルドされます。
 
-## ステップ 1 — コードを取得
+## ステップ 1 — コードを取得する
 
 ```bash
 git clone https://github.com/hoycdanny/playagent-checker.git
 cd playagent-checker
+npm install
 ```
 
-## ステップ 2 — AWS CLI をアカウントに接続
+## ステップ 2 — AWS CLI をアカウントに接続する
 
-アカウント所有者から **Access Key ID** と **Secret Access Key** を入手します(AWS Console → IAM → ユーザー → セキュリティ認証情報 → アクセスキーの作成)。
+アカウント所有者に **Access Key ID** と **Secret Access Key** を依頼してください(AWS コンソール → IAM → ユーザー → セキュリティ認証情報 → アクセスキーを作成)。その後:
 
 ```bash
 aws configure
 # AWS Access Key ID     : <貼り付け>
 # AWS Secret Access Key : <貼り付け>
 # Default region name   : us-east-2
-# Default output format  : json
+# Default output format : json
+
+aws sts get-caller-identity   # アカウント番号が表示されるはずです
 ```
 
-接続確認(アカウント番号が表示されます):
+> 認証情報には、Lambda、S3、Cognito、API Gateway、IAM、ECS、EC2、ECR、CodeBuild、SageMaker、Bedrock、CloudFront のリソースを作成できる権限が必要です。初回セットアップでは、管理者ユーザー(`AdministratorAccess`)が最も簡単です。
 
-```bash
-aws sts get-caller-identity
-```
+## ステップ 3 — AI モデルを有効にする(Amazon Bedrock)
 
-> この認証情報にはリソース作成権限が必要です(Lambda、S3、Cognito、API Gateway、IAM、ECS、SageMaker、Bedrock、CloudFront)。初回は管理者(AWS 管理ポリシー `AdministratorAccess`)が最も簡単です。後で絞れます。
+新しいアカウントでは Bedrock モデルが**無効**です。一度有効にしないと、すべての実行が失敗します。
 
-## ステップ 3 — AI モデルを有効化(Amazon Bedrock)
-
-新規アカウントでは AI モデルが既定で **無効** です。一度有効化しないと、テスト実行は毎回失敗します。
-
-1. AWS Console →「Bedrock」を検索 → 開く → 右上のリージョンが **US East (Ohio) us-east-2** であることを確認。
-2. 左メニュー → **Model access** → **Enable specific models / Manage model access**。
-3. 少なくとも以下を有効化して **Save**(通常は即時承認):
-   - **Anthropic – Claude Sonnet 4.5**(テストケース作成・強力なフォールバック VLM)
+1. AWS コンソール → **Bedrock** → リージョン(右上)で **US East (Ohio) us-east-2** を選択。
+2. 左メニュー → **Model access** → **Enable specific models**。
+3. 少なくとも以下を有効にします:
+   - **Amazon – Nova Lite**(デフォルトの判断モデル)
+   - **Amazon – Nova Micro**(デフォルトの補助モデル)
+   - **Moonshot AI – Kimi K3**(デフォルトの画面解析モデル)
+   - **Anthropic – Claude Sonnet 4.5**(テストケースの下書き、インポートしたスプレッドシートの読み取り)
    - **Amazon – Titan Text Embeddings V2**(ナレッジベース検索)
-   - **Amazon – Nova Micro**(補助サブタスク)
-   - 一覧にあれば **Qwen – Qwen3-VL** と **MiniMax**(既定の視覚/意思決定モデル)
-4. ステータスが **Access granted** になれば完了。後で追加可能。アプリは利用可能なモデルを一覧します。
+4. **Access granted** になるまで待ちます。評価目的であれば、リージョン内のすべてのモデルを有効にしても構いません。アプリは各シートで利用可能なモデルを一覧表示します。
 
-> ヒント:評価目的ならこのリージョンで「すべて有効化」でも構いません。
-
-## ステップ 4 — CDK を準備(アカウントごとに一度)
-
-インフラは **AWS CDK** で定義します。リージョンで一度だけ "bootstrap" が必要です。
+## ステップ 4 — CDK を準備する(アカウントごとに 1 回)
 
 ```bash
 cd infra
-npm install
-npx cdk bootstrap aws://アカウント番号/us-east-2
+npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
 ```
 
-「アカウント番号」はステップ 2 の数値(`aws sts get-caller-identity`)に置き換えます。CDK がコードをアップロードする小さなステージング用バケットを作成します。
+`ACCOUNT_ID` をステップ 2 で表示された番号に置き換えてください。
 
-## ステップ 5 — バックエンドをデプロイ
+## ステップ 5 — バックエンドをデプロイする
 
-`infra/` フォルダ内で:
+`infra/` から:
 
 ```bash
 AWS_REGION=us-east-2 npx cdk deploy \
-  PlayAgentDev-Foundation \
-  PlayAgentDev-ControlPlane \
-  PlayAgentDev-Scheduling \
-  PlayAgentDev-Execution \
+  PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
+  PlayAgentDev-Scheduling PlayAgentDev-Execution \
   --require-approval never
 ```
 
-> **任意 —— コスト配分タグ。** すべてのリソースに `project`、`stage`、`component` が自動付与されます。デプロイ時に `-c` で独自のタグ(コストセンターへのチャージバックなど)を渡せます。これらは実行時に起動する EC2/Fargate を含む全リソースに伝播し、有効化後は「コスト分析」ページで使われます(下記「コスト分析ページを有効化する」参照)。
->
-> ```bash
-> AWS_REGION=us-east-2 npx cdk deploy \
->   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
->   PlayAgentDev-Scheduling PlayAgentDev-Execution \
->   --require-approval never \
->   -c costCenter=QA-1234 -c owner=alice -c team=game-qa
-> ```
->
-> 使用可能なキー:`costCenter`、`owner`、`team`、`env`、`costAllocation`。タグを一貫させるため、各スタックのデプロイ時に同じ `-c` フラグを付けてください。
+> **任意のコスト配分タグ。** すべてのリソースに `project`、`stage`、`component` のタグが付きます。`-c` で独自のタグを追加できます(実行時に起動される EC2/Fargate にも引き継がれます):
+> `-c costCenter=QA-1234 -c owner=alice -c team=game-qa`(キー:`costCenter`、`owner`、`team`、`env`、`costAllocation`)。すべてのデプロイで同じフラグを使用してください。
 
-約 10〜15 分。完了後、以下を実行すると必要な 4 つの値が表示されます(命名は自動処理):
+約 10–15 分かかります。その後、次のステップで必要な値を表示します:
 
 ```bash
-aws cloudformation describe-stacks --region us-east-2 \
-  --stack-name PlayAgentDev-Foundation \
-  --query "Stacks[0].Outputs[?contains(OutputKey,'UserPool')].[OutputKey,OutputValue]" --output table
-aws cloudformation describe-stacks --region us-east-2 \
-  --stack-name PlayAgentDev-ControlPlane \
+aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Foundation \
+  --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
+aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-ControlPlane \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'||OutputKey=='WsUrl'].[OutputKey,OutputValue]" --output table
 ```
 
-探すのは次の 4 つです:
+以下を控えておいてください:
 
-- **User Pool ID** — 名前に `UserPoolId` を含む出力;例 `us-east-2_XXXXXXXXX`
-- **User Pool Client ID** — 名前に `UserPoolClientId` を含む出力;長い英数字
+- **データバケット** — 出力名に `DataBucket`(Ref)を含み、`playagentdev-foundation-databucket…` のような値
+- **User Pool ID** — `UserPoolId` を含み、`us-east-2_XXXXXXXXX` のような値
+- **User Pool Client ID** — `UserPoolClientId` を含む
 - **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
 - **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
 
-## ステップ 6 — UI-TARS 座標モデルをデプロイ(必須)
+## ステップ 6 — ランナーイメージをビルドする(必須)
 
-PlayAgent は正確な画面座標のために SageMaker 上の **UI-TARS-1.5-7B** を使います。これは既定であり、良い結果に必須です(汎用モデルはゲーム画面でタップ位置を数百ピクセル外します)。ビルドはすべてクラウドで行われ、ローカルのディスク/帯域を**消費しません**。
+Web と Device Farm のランナーは、自分の ECR にあるコンテナイメージから実行されます。イメージは CodeBuild でクラウド上でビルドされるため、大きなファイルがコンピューターにダウンロードされることはありません。
 
 ```bash
 cd ../agent/sagemaker && npm install
-# 1) クラウドビルド:モデルのダウンロード、サービスイメージのビルド、あなたのアカウントへ push(AWS CodeBuild)。
-#    約 20〜40 分。AWS 内で実行され、ローカルには何もダウンロードされません。
-AWS_REGION=us-east-2 node cloudBuild.mjs
-# 2) エンドポイント作成(重みとイメージは準備済み)。InService になると ENDPOINT_NAME を表示します。
-PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
+export PA_SM_BUCKET=PASTE_DataBucket     # ステップ 5 の値 — スクリプトはビルドソースをここにアップロードします
+export AWS_REGION=us-east-2
+
+# a) 共有 CodeBuild ロールを作成し、UI-TARS の重みとサービングイメージを配置します
+#    (後で UI-TARS をオンにする場合のみ必要)。約 20–40 分、AWS 上で実行されます。
+#    GPU は起動しません。ストレージ費用は約 US$2/月です。
+node cloudBuild.mjs
+
+# b) 2 つのランナーイメージをビルドしてプッシュします(それぞれ数分)。
+node cloudBuildRunner.mjs
+node cloudBuildWebRunner.mjs
 ```
 
-最後に表示される `ENDPOINT_NAME=ui-tars-...` を控えます。次に engine へ接続し、execution スタックだけ再デプロイします:
+> スクリプトに組み込まれたバケット名は元の開発者のアカウントのものなので、必ず `PA_SM_BUCKET` を**自分の**データバケットに設定してください。
+
+## ステップ 7 — Web コンソールをビルドする
 
 ```bash
-cd ../../infra
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
-  --require-approval never --exclusively -c uitarsEndpoint=貼り付け_ENDPOINT_NAME
-```
-
-> **💲 重要なコスト注意:** UI-TARS は GPU インスタンス(`ml.g6e.xlarge`、約 US$1.86/時)で動作し、**起動中は継続課金**されます。その日のテストが終わったら停止してください:
-> ```bash
-> node agent/sagemaker/teardownUitars.mjs 貼り付け_ENDPOINT_NAME
-> ```
-> モデルとイメージは保存されるため、再開は数分です(上記ステップ 2 を skip フラグ付きで再実行し、execution スタックを再デプロイ)。
-
-## ステップ 7 — その値で Web コンソールをビルド
-
-Web アプリはビルド時にこの 4 つの値を埋め込みます。`web/.env.production` を作成します(リポジトリ直下から):
-
-```bash
-cd ../web
-npm install
+cd ../../web
 cat > .env.production <<'EOF'
 VITE_COGNITO_REGION=us-east-2
-VITE_COGNITO_USER_POOL_ID=貼り付け_UserPoolId
-VITE_COGNITO_CLIENT_ID=貼り付け_UserPoolClientId
-VITE_API_URL=貼り付け_ApiUrl
-VITE_WS_URL=貼り付け_WsUrl
+VITE_COGNITO_USER_POOL_ID=PASTE_UserPoolId
+VITE_COGNITO_CLIENT_ID=PASTE_UserPoolClientId
+VITE_API_URL=PASTE_ApiUrl
+VITE_WS_URL=PASTE_WsUrl
 EOF
-```
-
-各 `貼り付け_...` をステップ 5 の対応する Output に置き換え、ビルド:
-
-```bash
 npm run build
 ```
 
-## ステップ 8 — Web コンソールをデプロイ
+ビルド前に、各 `PASTE_...` をステップ 5 の値に置き換えてください。
+
+## ステップ 8 — Web コンソールをデプロイする
 
 ```bash
 cd ../infra
 AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
-```
-
-アプリの URL(`https://xxxx.cloudfront.net`)を表示して開くと、ログインページが表示されます:
-
-```bash
-aws cloudformation describe-stacks --region us-east-2 \
-  --stack-name PlayAgentDev-Frontend \
+aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Frontend \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## ステップ 9 — 最初の(管理者)ログインを作成
+表示された `https://xxxx.cloudfront.net` のアドレスを開くと、ログインページが表示されます。
 
-サインアップは意図的に無効です。ユーザーはご自身で作成します。メールとパスワード(8 文字以上、大小英字と数字を含む)を決めます。`tenantId` は顧客ごとのデータを分離します — 会社名など短い文字列で構いません。最初のユーザーを**管理者**にすると、以降はアプリ内の「メンバー管理」ページで他のユーザーを管理できます。
+## ステップ 9 — 最初の(管理者)ログインを作成する
 
-いずれか一つを選びます:
+セルフサインアップは意図的に無効にしています。メールアドレスとパスワード(8 文字以上、大文字 + 小文字 + 数字)を決めてください。`tenant` は顧客ごとのデータを分離します。会社名など短いものを使用してください。
 
-**方法 A — ワンコマンドスクリプト(推奨)。** ユーザー作成・恒久パスワード設定を行い、`--admin` で `admins` グループにも追加します。User Pool は自動解決されます。
+**オプション A — スクリプト(推奨):**
 
 ```bash
-cd agent/sagemaker && npm install
+cd ../agent/sagemaker
 AWS_REGION=us-east-2 node createUser.mjs \
   --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
 ```
 
-**方法 B — デプロイ時に管理者を作成。** Foundation スタック(または任意のデプロイ)で `-c` を渡すと、CDK が作成し `admins` グループに追加します:
-
-```bash
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
-  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
-```
-
-管理者が一人いれば、他のユーザーはアプリの「メンバー管理」ページで作成できます(ステップ 10 参照)— コマンド不要です。管理者以外にはそのページは表示されません。
+**オプション B — デプロイ時:** Foundation のデプロイに `-c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme` を追加します。
 
 <details>
-<summary>方法 C — 生の AWS CLI(スクリプト不使用)</summary>
+<summary>オプション C — AWS CLI を直接使用</summary>
 
 ```bash
-POOL_ID=貼り付け_UserPoolId    # ステップ 5 より
+POOL_ID=PASTE_UserPoolId
 aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com --password 'ChangeMe123!' --permanent
-# 管理者にする(「メンバー管理」ページを使うため)
 aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com --group-name admins
 ```
 </details>
 
-## ステップ 10 — ログイン
+以降のユーザーは**メンバー管理**ページから作成します。
 
-ステップ 8 の CloudFront URL を開き、ステップ 9 のメール/パスワードでログイン。**最初に表示されるのは「ガイド」ページ** — 全機能を言語別に案内する組み込みウォークスルーです。そこから:
+## ステップ 10 — ログインして最初のテストを実行する
 
-1. **アプリ** — アプリを作成。ネイティブは APK/IPA/ZIP をアップロード、Web は URL のみ。
-2. **テストケース** — フローを普通の言葉で記述、AI が実行可能なケースに変換。
-3. **タスク** — アプリ + ケース + 実行環境(**Web** または **Device Farm**)を選んで送信。座標モデルは**ステップ 6** で導入した **UI-TARS 1.5 7B** が既定です。ライブ監視可。
-4. **レポート** — AI の説明、スクリーンショット、ステップ軌跡、コストを確認。
-5. **メンバー管理**(管理者のみ)— ナビ最後の項目。ユーザー追加(メール + テナント + 初期パスワード)、アカウントの無効化/有効化、必要なら管理者権限付与。最初の管理者ができれば以降コマンド不要。
+CloudFront の URL を開いてログインすると、**ガイド**が表示されます。その後:
 
-> **「メンバー管理」が見えない場合:** ナビは管理者にのみ表示され、ログイン token のグループ情報は「サインインした時点」の状態のみを反映します。アカウントを管理者にした(ステップ 9)後は、**一度ログアウトして再ログイン**すると新しい token に `admins` グループが含まれます。
+1. **アプリ管理** → アプリを作成します(APK/IPA/XAPK をアップロード、または Web の場合は URL を入力)。
+2. アプリワークスペース内 → **テストケース** → フローを記述すると、AI がケースに変換します。
+3. **テストタスク** → ケースとランタイム(**Web**、**Android/iOS 実機**、または **Android コンテナ**)を選択 → 送信します。モデルのデフォルトは Nova Lite / Kimi K3 / Nova Micro です。
+4. ライブで確認し、その後**レポート**を読みます。
 
-✅ **これで動作する環境が完成です。**
+> **メンバー管理 / システム管理の項目が表示されない場合** これらは管理者にのみ表示され、ログイントークンはサインイン時にのみグループの変更を反映します。管理者に設定された後は、一度ログアウトして再ログインしてください。
 
-UI-TARS グラウンディングの仕組みは [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md) を参照。
-
-## コスト分析ページを有効化する
-
-**コスト分析**ページ(「ナレッジ管理」の隣)は 2 つの数値を並べて表示します:
-
-- **AWS 実コスト** —— **AWS Cost Explorer** からリアルタイム取得:実際の請求を、サービス別・`component` タグ別・月別に分解。すべて(SageMaker GPU、Fargate、EC2、CloudFront など)を含みます。
-- **タスク推定コスト** —— タスクの token × 単価の推定を合計し、アプリ別・モデル別に集計。インフラを含まないため実請求より低く、基準が異なるので直接引き算しないでください。
-
-推定側はすぐ使えます。実コスト側は **1 回だけのアカウント設定**が必要です(Cost Explorer はアカウントレベルで、CDK では有効化できません):
-
-1. **Cost Explorer を有効化。** AWS コンソールで **Billing and Cost Management → Cost Explorer** を開き有効化します。初回有効化後、約 **24 時間**でデータが出始めます。
-2. **コスト配分タグを有効化。** **Billing and Cost Management → Cost allocation tags → User-defined cost allocation tags** で `project`、`stage`、`component`(およびデプロイ時に渡した `costCenter` / `owner` / `team` など)を選び **Activate** します。
-3. **翌日に確認。** タグは有効化**後**に発生したコストにのみ適用されます —— 過去分は遡及されず、それまで `component` 別集計はすべて「未タグ」になります。翌日また見てください。
-
-補足:
-
-- Cost Explorer API は `us-east-1` のみ提供。デプロイ先リージョンに関わらず、アプリは同リージョンに固定して問い合わせます。
-- クエリごとに AWS が約 **US$0.01** を課金し、データは通常約 24 時間遅延します(リアルタイムではありません)。
-- コスト配分タグを有効化できるのはアカウント所有者 / 請求権限を持つ IAM ユーザーのみです。
-
-## Device Farm(実機)について
-
-Web バックエンドは追加設定なしで動作します。実機テストは **AWS Device Farm** を使用し、プロジェクトは **us-west-2** に置かれ、ランナーが自動作成します。デプロイ用の認証情報には Device Farm 権限が含まれるため、手動設定は不要です — タスク送信時に「Device Farm」を選ぶだけです。
+✅ **これで動作する環境が整いました。** 以下はすべて任意です。
 
 ---
 
-## コスト・クリーンアップ・トラブルシューティング
+## 任意:ワンクリックシステム更新
 
-**おおよその運用コスト(評価):** サーバーレスのコントロールプレーンは低使用時に月数ドル。テスト実行はトークン課金(1 回あたり数セント〜数ドル、レポートに表示)。最大のコストは **UI-TARS GPU エンドポイント**(`ml.g6e.xlarge`、約 US$1.86/時)—— 稼働中は継続課金されるため、**テストしないときは停止**してください(`node agent/sagemaker/teardownUitars.mjs <エンドポイント名>`)。再開は数分です。
+管理者が**システム管理 → システム更新**から、プラットフォーム全体を GitHub のバージョンに更新できるようにします(まずテストを実行し、その後 CodeBuild で `cdk deploy` を実行)。
 
-**すべて削除**(スタックを削除。データバケットと Cognito ユーザープールは設計上保持され、データを失いません — 完全に消すには Console から手動削除):
+1. Updater スタックを一度だけデプロイします(このスタック自体は更新されません):
+   ```bash
+   cd infra
+   AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
+   ```
+   フォークを使用する場合は、このデプロイとすべてのデプロイに `-c githubRepo=owner/name` を追加してください。
+2. このリポジトリ用に、**Contents: Read-only** と **Metadata: Read-only** を持つ GitHub の **fine-grained** トークンを作成します。
+3. **システム管理**を開き、トークンを貼り付けて保存します。トークンは Secrets Manager(`playagent/github`)に保存され、二度と表示されません。
+
+更新ボタンは IAM とリソースを高い権限で再デプロイするため、管理者にのみ表示され、すべての実行が記録されます。設計メモ:[docs/design/self-update.md](docs/design/self-update.md)。
+
+## 任意:UI-TARS グラウンディングモデル
+
+UI-TARS-1.5-7B は、小さなボタンに対してより高精度になり得る GUI グラウンディングモデルです。GPU が**オンの間は約 US$62.5 / 日**かかるため、**デフォルトはオフ**です。現在は Device Farm 実機ランタイムのみが使用し、他のランタイムは Bedrock の視覚モデルにフォールバックします。
+
+スイッチが機能するには、アカウントに以下が必要です:
+
+1. **ステップ 6a**(`cloudBuild.mjs`)で配置した重みとサービングイメージ。
+2. **`ArtSmokerSageMakerRole`** という名前の SageMaker 実行ロール(スタックがデフォルトで想定する名前。SageMaker がイメージを取得し重みを読み取れるようにします):
+   ```bash
+   ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+   BUCKET=PASTE_DataBucket
+   aws iam create-role --role-name ArtSmokerSageMakerRole --assume-role-policy-document \
+     '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"sagemaker.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+   aws iam put-role-policy --role-name ArtSmokerSageMakerRole --policy-name uitars --policy-document "{
+     \"Version\":\"2012-10-17\",\"Statement\":[
+     {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
+     {\"Effect\":\"Allow\",\"Action\":[\"ecr:BatchGetImage\",\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchCheckLayerAvailability\"],
+      \"Resource\":\"arn:aws:ecr:us-east-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
+     {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::${BUCKET}\"},
+     {\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::${BUCKET}/sagemaker-models/ui-tars/*\"},
+     {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\",\"cloudwatch:PutMetricData\"],\"Resource\":\"*\"}]}"
+   ```
+   別のロールを使用する場合は、ControlPlane を `-c uitarsRoleArn=arn:aws:iam::…:role/…` 付きでデプロイしてください。
+
+その後、**システム管理 → UI-TARS → オンにする**を使用します。**オン**になるまで約 8–15 分かかり、起動中からすでに課金されます。その後、UI-TARS がタスクの VLM メニューに表示されます。使い終わったら同じページで**オフ**にしてください。GPU エンドポイントは削除されますがモデル設定は保持されるため、再度オンにする際にセットアップは不要です。オフの間はモデルメニューに UI-TARS が表示されず、UI-TARS を指定したタスクは拒否されます。
+
+詳細:[docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
+
+## 任意:Windows PC ゲーム(GameLift Streams)
+
+**Windows マシンから**一度だけ実行してください(GPU ホスト用の Windows ツールをパッケージ化します):
+
+```powershell
+cd worker\windows-host\gamelift
+npm install
+$env:AWS_REGION="us-east-2"; node setup.mjs --capacity 2
+```
+
+GameLift Streams アプリケーションと、**常時稼働容量なし**(テストを実行していない間は課金なし)・最大 2 同時実行のストリームグループを作成します。その後、タスク送信時に **Windows** ランタイムが表示されます。初回の起動には 10–15 分かかり、各実行は 60 分が上限です。Windows ホストのスクリプトを変更した後は `setup.mjs` を再実行してください。自己更新はこれをカバーしません。
+
+## コスト分析ページを有効にする
+
+**コスト分析**ページには、実際の AWS 請求(Cost Explorer から取得)とタスク見積もり(トークン × 単価)が並べて表示されます。見積もりはすぐに利用できます。実際の請求を表示するには、アカウントごとに一度:
+
+1. **Billing and Cost Management → Cost Explorer** → 有効化します。データは約 24 時間後に表示されます。
+2. **Billing and Cost Management → Cost allocation tags** → `project`、`stage`、`component`(およびカスタムタグ)をアクティブ化します。
+3. 1 日待ちます。タグはアクティブ化以降のコストにのみ適用され、それ以前のコストに遡って適用されることはありません。
+
+Cost Explorer は `us-east-1` にのみ存在し(アプリはそこでクエリします)、1 クエリあたり約 US$0.01 かかり、約 24 時間の遅延があります。タグのアクティブ化には請求情報へのアクセス権が必要です。
+
+注:Bedrock トークンと Device Farm の分数にはリソースタグが付かないため、`component` 別の実際の請求ビューでは個別に表示されます。Device Farm の分数は、セッション名によって各実行とも照合されます。
+
+## Device Farm(実機)に関する注意
+
+追加のセットアップは不要です。Device Farm は **us-west-2** にあり、ランナーがプロジェクトを自動作成します。実機ランタイムを選択すると、現在利用可能な端末(機種、OS、解像度、メモリ、CPU)がドロップダウンに一覧表示されます。「自動」は最初に利用可能な端末を選択します。画面がハードリミットを超えて変化しない場合(インストールの停止、アプリのフリーズ、reCAPTCHA の壁)、ループで課金し続けるのではなく、実行は `error` として終了します。
+
+## テスト認証情報(登録/ログインフロー)
+
+アカウントとパスワードは、アプリごとに**アプリ → テスト認証情報**で管理します。1 フィールドにつき 1 行のキー–値です(例:`帳號`、`密碼`、`伺服器名稱`)。各行は**マスク**(デフォルト。AI には `${key}` のみが見え、ランナーが入力時に値を埋め込みます)または**表示**(AI がリストから選択する必要がある、機密でない値向け)のいずれかです。ケースは認証情報を参照せず、通常どおり記述してください。
+
+値は **AWS Secrets Manager**(`playagent/tenant/<tenant>/app/<appId>/credentials`)にのみ保存されます。マスクされた値は UI に表示されず、API から返されず、モデルに送信されず、S3、タスク定義、レポート、トレースにも書き込まれません。詳細:[docs/design/test-credentials.md](docs/design/test-credentials.md)。
+
+---
+
+## クリーンアップとトラブルシューティング
+
+**まず最大のコストを止めます:** システム管理ページで UI-TARS を**オフ**にし、長時間の Android コンテナや Device Farm の実行が残っていないことを確認してください(デバイス管理ページ)。
+
+**すべてを削除する**(データバケットと Cognito ユーザープールは設計上保持されます。本当に削除したい場合は手動で削除してください):
 
 ```bash
 cd infra
 AWS_REGION=us-east-2 npx cdk destroy --all
-# UI-TARS を有効化した場合は先にエンドポイントを削除:
-node ../agent/sagemaker/teardownUitars.mjs <エンドポイント名>
 ```
 
-**よくある問題**
+他にも次のものが残ります:ランナーの ECR リポジトリ `playagent-exploration-runner` / `playagent-web-runner`(CDK がデフォルトで保持)、ECR リポジトリ `playagent-vllm-byoc`、CodeBuild プロジェクト `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`、ロール `PlayAgentCodeBuildUitarsRole`、SageMaker のモデル/設定 `ui-tars-playagent-*`、および(セットアップした場合)GameLift Streams アプリケーションとストリームグループ。
 
 | 症状 | 対処 |
 | --- | --- |
-| デプロイ失敗:*"not bootstrapped"* | ステップ 4(`cdk bootstrap`)を `us-east-2` で実行。 |
-| 実行時にモデル関連 / Bedrock *AccessDenied* エラー | モデルアクセスを有効化(ステップ 3)、**us-east-2** で。 |
-| ログインページは出るがサインインできない | `web/.env.production` の値が誤り、または編集後に再ビルド+再デプロイしていない(ステップ 6–7)。 |
-| サインアップできない | 仕様です — ユーザーは CLI で作成(ステップ 8)。 |
-| リージョン違い / リソースが見えない | すべて **us-east-2**。Console 右上のリージョン選択を確認。 |
+| デプロイが失敗する:*"not bootstrapped"* | `us-east-2` でステップ 4 を実行してください。 |
+| 実行が *AccessDenied* / モデル利用不可でエラーになる | **us-east-2** でモデルアクセスを有効にしてください(ステップ 3)。 |
+| Web / Device Farm の実行が起動しない(イメージが見つからない) | ランナーイメージをビルドしてください(ステップ 6)。 |
+| ログインページは表示されるがサインインに失敗する、またはページが空白 | `web/.env.production` の値が誤っているか、編集後に Web を再ビルド + 再デプロイしていません(ステップ 7–8)。 |
+| Android コンテナでゲームがすぐに自ら終了する | エミュレーター検出があります。Android 実機を使用してください。 |
+| UI-TARS が**失敗**と表示される | オフにし(課金停止)、カード上の理由を確認し、ステップ 6a と SageMaker ロールを確認してから、再度オンにしてください。 |
+| システム更新でトークンの権限不足と表示される | トークンにはこのリポジトリに対する **Contents: Read-only** が必要です。 |
+| サインアップできない | 仕様です。ユーザーは管理者が作成します(ステップ 9 / メンバー管理ページ)。 |
 
 ---
 
 ## リポジトリ構成
 
 ```
-agent/            実行ランナー(Fargate コンテナ内で動作)
-  explorationRunner.mjs    Device Farm 実機ランナー(Appium ループ)
-  webExplorationRunner.mjs Web ランナー(Playwright headless Chromium)
-  imageTools.mjs           VLM 用の smart-resize と着地点アノテーション
-  uitarsClient.mjs         UI-TARS(SageMaker)測位クライアント
-  apkMerge.mjs             Device Farm 用の XAPK / split-APK マージ
-  sagemaker/               UI-TARS デプロイ:vLLM BYOC コンテナ + CodeBuild スクリプト
-infra/            AWS CDK アプリ(foundation、control-plane、scheduling、execution、frontend)
-web/              React + Vite Web コンソール(5 言語 i18n、自作 SVG)
-docs/             アーキテクチャ、設計メモ、リサーチ
+agent/            Execution runners
+  explorationRunner.mjs    Device Farm / Android container / Windows runner (one loop, different drivers)
+  webExplorationRunner.mjs Web runner (Playwright headless Chromium)
+  uitarsClient.mjs         UI-TARS (SageMaker) grounding client
+  sagemaker/               Cloud build scripts (runner images, UI-TARS), createUser.mjs
+infra/            AWS CDK app (Foundation, ControlPlane, Scheduling, Execution, Frontend, Updater)
+web/              React + Vite web console (5-locale i18n)
+worker/           Platform workers, incl. windows-host/gamelift (Windows GameLift Streams setup)
+docs/             Architecture, design notes, research
 ```
 
 ## 開発者向け
 
 ```bash
-cd infra && npm test     # CDK・ユニットテスト
-cd web   && npm run ci    # check:i18n + 型チェック + テスト + build
+npm run test:web       # Web のユニットテスト
+npm run test:worker    # Worker のユニットテスト
+cd infra && npm test   # CDK + Lambda のユニットテスト
+npm run build:web      # i18n チェック + 型チェック + ビルド
 ```
 
-[CONTRIBUTING.md](CONTRIBUTING.md) と [docs/architecture.md](docs/architecture.md) を参照。
+[CONTRIBUTING.md](CONTRIBUTING.md) と [docs/architecture.md](docs/architecture.md) を参照してください。
 
 ## ライセンス
 
-リポジトリ設定を参照。現状のまま社内評価用に提供されます。
+リポジトリの設定を参照してください。社内評価用に現状のまま提供されます。

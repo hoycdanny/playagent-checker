@@ -1,396 +1,487 @@
 # PlayAgent Checker
 
-**AI 驅動的遊戲 / App 自動化測試平台。** 你用白話描述要測的流程,AI 代理就會自己看畫面、幫你點擊滑動、判斷成敗,並產出含截圖、逐步軌跡與導覽地圖的多語報告。
+**以 AI 驅動的遊戲與 App 自動化 QA。** 用自然語言描述測試流程,AI 代理會看著畫面、替你點擊與滑動、判斷通過或失敗,並產出含截圖、逐步軌跡與導覽地圖的多語系報告。
 
 > 語言:[English](README.md) · **繁體中文** · [简体中文](README_CN.md) · [日本語](README_JP.md) · [한국어](README_KR.md)
 
 ---
 
-## 這是什麼
+## 功能概覽
 
-PlayAgent Checker 完全跑在 **AWS(區域 `us-east-2`)**:一套 serverless 控制面加上隨需執行的 runner。你上傳 App(或指定網址),代理自主探索,你就得到可重複、可審閱的測試結果。
+PlayAgent Checker 完全執行於 **AWS(區域 `us-east-2`)**:由無伺服器控制平面,加上每個任務啟動、任務結束即關閉的執行端(runner)組成。上傳 App(或指定網頁 URL)後,代理會自行探索,你就能得到可重複、可審閱的測試執行結果。
 
-- **兩個真實執行後端,皆已端到端驗證:** **Web**(Playwright headless Chromium,跑在 ECS Fargate)與 **Device Farm**(AWS Device Farm 的 Android/iOS 真機,以 Appium 驅動)。
-- **代理迴圈:** 截圖 → VLM 判座標 → Agent 決策 → 在裝置上執行 → 再截圖,直到達成目標或觸發停止條件。
-- **精準 GUI 定位(可選):** 判座標的 VLM 座位可改用 SageMaker 上的 **UI-TARS-1.5-7B**,在繁複遊戲美術上座標準得多。
-- **知識庫、成本護欄,以及 5 語系介面**(zh-Hant、en、zh-Hans、ja、ko)。
+- **代理迴圈:** 截圖 → VLM 定位目標 → Agent 決策 → 在裝置上操作 → 再次截圖,直到達成目標或觸發停止條件。
+- **看的是畫面,不是 UI 樹**,因此能用於以 canvas 繪製、沒有可檢視元素的遊戲(Cocos2d-x、Unity)。
+- **知識庫、費用護欄、5 種語言介面**(zh-Hant、en、zh-Hans、ja、ko),以及從 GitHub 一鍵自我更新。
 
-架構細節:[docs/architecture.md](docs/architecture.md)。
+## 執行環境
 
-## 適合誰用
+| 執行環境 | 執行方式 | 安裝後可用 | 限制 |
+| --- | --- | --- | --- |
+| **網頁瀏覽器** | 在 ECS Fargate 上執行無頭 Chromium(Playwright) | ✅ | — |
+| **Android 實機**(Device Farm) | AWS Device Farm + Appium,控制端在 Fargate | ✅ | 每個工作階段 150 分鐘(AWS 限制);「長時間」選項每 140 分鐘重新連線,遊戲會重新啟動 |
+| **iOS 實機**(Device Farm) | AWS Device Farm + Appium | ✅ | 需要可安裝的 `.ipa`;每個工作階段 150 分鐘 |
+| **Android 容器**(Redroid) | 每個任務一台執行 Redroid 的 Graviton EC2(`m7g.xlarge`) | ✅ | 有防模擬器檢查的遊戲會自行關閉(請改用實機);不支援影音檢查;不支援雙指縮放;每次執行 1–72 小時 |
+| **Windows PC 遊戲** | Amazon GameLift Streams(NVIDIA GPU,`gen6n_medium_win2022`) | ⚙️ 需一次性設定(見[選用:Windows](#選用windows-pc-遊戲gamelift-streams)) | 每次執行 ≤ 60 分鐘;總像素 ≤ 1920×1080 |
+| iOS 模擬器 / Linux | — | ❌ 尚未實作 | — |
 
-- **QA 團隊**:不想寫、也不想維護脆弱 UI 腳本,卻要測遊戲/App。
-- **多產品的遊戲公司**(拉霸、RPG、MMORPG、休閒…):每次改版都要跨 build 做可重複的冒煙/回歸測試。
-- **任何人**:能用文字描述流程,但不想學自動化框架。
+各類遊戲該選哪個環境:[docs/design/multi-platform-workers.md](docs/design/multi-platform-workers.md)。
 
-## 運作原理(端到端)
+## 預設提供的功能
+
+依照下方步驟安裝後,哪些功能已開啟、哪些關閉、哪些需要多一個步驟,如下表。
+
+| 功能 | 預設 | 說明 |
+| --- | --- | --- |
+| 網頁主控台、登入(Cognito)、5 種語言 | ✅ 開啟 | 已停用自助註冊,由管理員建立使用者。 |
+| 應用 / 測試案例 / 任務 / 報告 / 記憶地圖 | ✅ 開啟 | AI 依自然語言草擬測試案例(Claude Sonnet 4.5)。 |
+| 執行環境:Web、Device Farm Android/iOS、Android 容器 | ✅ 開啟 | 每次執行自行啟動所需資源,結束時關閉。 |
+| 預設模型 | ✅ 開啟 | 決策 **Amazon Nova Lite**、畫面分析 **Moonshot Kimi K3**、輔助 **Amazon Nova Micro**。每個席位都可依任務更換。 |
+| 知識庫(Markdown + PDF 檢索) | ✅ 開啟 | PDF 檢索使用 Bedrock Knowledge Bases + S3 Vectors + Titan Embeddings V2。 |
+| 測試憑證(Secrets Manager) | ✅ 開啟 | 依應用分別設定;遮罩值絕不會傳給模型。 |
+| 費用護欄(預算 + 價格未知即拒絕執行) | ✅ 開啟 | — |
+| 費用分析頁面:任務估算 | ✅ 開啟 | 每個任務的 Token × 單價。 |
+| 費用分析頁面:實際 AWS 帳單 | ⚙️ 需設定帳號 | 啟用 Cost Explorer 並啟用標籤([見下方](#啟用費用分析頁面))。 |
+| 成員管理頁面(管理員) | ✅ 開啟 | 新增使用者、重設密碼、移動租戶、授予管理員權限。 |
+| 系統管理頁面 → **系統更新** | ⚙️ 選用 | 部署 Updater 堆疊並儲存 GitHub token([見下方](#選用一鍵系統更新))。 |
+| 系統管理頁面 → **UI-TARS** | ⛔ **關閉** | GPU 定位模型。管理員可在頁面上開啟或關閉,只在開啟期間計費([見下方](#選用ui-tars-定位模型))。 |
+| Windows 執行環境 | ⚙️ 選用 | 需從 Windows 電腦進行一次性 GameLift Streams 設定。 |
+
+## 架構
 
 ```
-① 建立應用    上傳 APK/IPA/ZIP,或指定網址。標上遊戲類型。
-② 撰寫案例    用白話描述流程 → AI 產出可執行 YAML。
-③ (可選)知識庫  掛遊戲類型或情境知識,讓 AI 懂這個領域。
-④ 提交任務    選執行環境(Web / Device Farm)+ 定位模型,排入雲端佇列。
-⑤ AI 執行    截圖 → VLM 判座標 → Agent 決策 → 執行操作 → 循環。
-⑥ 報告 + 記憶  多語報告(敘述、截圖、逐步軌跡、成本)+ 跨次累積的導覽地圖。
+Browser ──► CloudFront + S3 (React console)
+   │
+   │  REST + WebSocket, Cognito JWT
+   ▼
+API Gateway ──► API Lambda ──────────► S3 data bucket (per-tenant prefixes, tenant-scoped IAM role)
+   │              │  POST /tasks          Secrets Manager (test credentials, GitHub token)
+   │              ▼                       Bedrock (case drafting, knowledge bases)
+   │            SQS dispatch queue
+   │              ▼
+   │            Dispatcher Lambda ──► Engine Lambda (orchestrator, returns immediately)
+   │                                     │
+   │          ┌──────────────────────────┼───────────────────────────┬──────────────────────────┐
+   │          ▼                          ▼                           ▼                          ▼
+   │   Fargate: Web runner     Fargate: Device Farm runner   EC2 (Graviton): Redroid   GameLift Streams: Windows
+   │   (Playwright Chromium)   → AWS Device Farm (us-west-2)  Android container         (GPU, optional)
+   │          └──────────── each runner: screenshot → Bedrock models → act → write progress to S3 ──┘
+   │                                                  │ (optional) SageMaker UI-TARS endpoint
+   ▼
+WebSocket push (live progress) ◄──────────────────────┘
+
+System admin: API ──► CodeBuild "self-update" (cdk deploy from GitHub) · SageMaker (UI-TARS on/off)
 ```
 
-AI **不依賴脆弱的元件選擇器** —— 它像真人測試員一樣「看實際畫面」,所以連沒有可檢視 UI 樹的畫布型遊戲(Cocos2d-x、Unity)也能測。
+CDK 堆疊(全部位於 `us-east-2`):
 
-## 功能總覽(每個頁面在做什麼)
+| 堆疊 | 內容 |
+| --- | --- |
+| **Foundation** | S3 資料儲存貯體、Cognito 使用者集區、租戶 IAM 角色、Bedrock KB 服務角色。 |
+| **ControlPlane** | HTTP API + JWT 授權器、API Lambda、WebSocket API。 |
+| **Scheduling** | SQS 派送佇列 + Dispatcher Lambda。 |
+| **Execution** | Engine Lambda、ECS 叢集 + Fargate 任務定義、ECR 儲存庫、VPC(無 NAT 閘道)、每個任務的 EC2 啟動設定。 |
+| **Frontend** | CloudFront + S3 靜態網站。 |
+| **Updater**(選用) | 從 GitHub 版本重新部署上述五個堆疊的 CodeBuild 專案。 |
+
+詳細說明:[docs/architecture.md](docs/architecture.md)。
+
+## 費用
+
+以本專案自己的帳號實測(`us-east-2`,2026 年 10 月)。AWS 價格會變動,以下數字僅供估算。
+
+**沒有任何執行時(閒置):** 約 **每月 US$2–5**。沒有 NAT 閘道、沒有常駐伺服器,也沒有預留串流容量。剩下的費用來自:
+
+- S3 儲存(截圖、報告、上傳的 App;若有預先放置 UI-TARS 權重,約再加 31 GB,每月約 US$0.7)
+- ECR 映像(runner 映像,若有建置則加上約 10 GB 的 UI-TARS 服務映像)
+- Secrets Manager(每個 secret 每月 US$0.40)、CloudWatch Logs、CloudFront
+- Lambda、API Gateway、SQS、Cognito 依請求計費,低用量時只有幾分錢
+
+**每次測試執行(僅在執行期間):**
+
+| 項目 | 價格 | 範例 |
+| --- | --- | --- |
+| AI 模型(Bedrock token) | 依 token 計費,送出時鎖定價格;每份報告都會顯示 | 以預設模型執行 26 步、轉 10 次的老虎機測試,約用 141k 輸入 / 14k 輸出 token,**低於 US$0.80** |
+| Device Farm 實機 | **每裝置分鐘 US$0.17** | 30 分鐘 ≈ US$5.10 |
+| Android 容器(EC2 `m7g.xlarge`) | **每小時 US$0.1632** + 磁碟 | 1 小時 ≈ US$0.17 |
+| Fargate runner(1 vCPU / 2 GB) | 每小時約 US$0.05 | Web 執行與 Device Farm 控制端 |
+| Windows(GameLift Streams) | 工作階段執行期間依秒計費 | 見 [GameLift Streams 定價](https://aws.amazon.com/gamelift/streams/pricing/) |
+| 自我更新 | CodeBuild 分鐘數 | 每次更新約 5–15 分鐘,幾美分 |
+| Cost Explorer 查詢(費用分析頁面) | 每次查詢約 US$0.01 | — |
+
+**唯一一項金額較大的選用費用:UI-TARS。** 使用 `ml.g6e.xlarge` GPU,實測 **每天 US$62.53(每小時約 US$2.6)**,只要開著就整段時間計費,即使沒有任務也一樣。它**預設關閉**,除非需要,請保持關閉。
+
+實際上,我們帳號的支出大多是 Bedrock token 與 Device Farm 分鐘數。不測試時,這兩項都不會產生費用。
+
+## 功能(各頁面用途)
 
 | 頁面 | 用途 |
 | --- | --- |
-| **使用說明** | 內建的操作導覽(登入後的首頁),5 種語言。 |
-| **應用管理** | 每款遊戲/App 一個工作區。填名稱 + 平台 + 類型;原生上傳產物,Web 只需網址。集中管理該 App 的案例、任務、報告、記憶。 |
-| **測試案例** | 一個案例 = 一段要 AI 執行的流程。用白話草擬(AI → YAML)或手寫 YAML。密鑰用 `${ENV}` 佔位,明文密碼會被擋。 |
-| **測試任務** | 把案例送去執行。選**執行環境**(Web 瀏覽器或 Device Farm 真機)、**定位模型**(預設 UI-TARS)、並複選**知識庫**。可即時監看、隨時取消。 |
-| **測試報告** | 唯讀結果:AI 敘述、逐步軌跡、遊戲截圖、導覽關係圖,以及預算 vs 實際花費與 token 用量。 |
-| **記憶地圖** | 跨多次測試累積的 App 全景:走過的畫面成為節點、操作轉移成為連線 —— 後續測試更快定位。 |
-| **知識管理** | 跨使用者共用的知識庫。兩種(遊戲類型 / 情境),各可放 **Markdown**(整份注入)與/或 **PDF 檢索**(對上傳文件做向量搜尋)。 |
-| **裝置管理** | 瀏覽 AWS Device Farm 目前可用的真實機型。雲端 runner 依任務自動建立、結束即回收,無需手動管理。 |
+| **指南**(Guide) | App 內的操作導覽(登入後的首頁),提供 5 種語言。 |
+| **應用管理**(Apps) | 每個遊戲/App 一個工作區:名稱、平台、類型、安裝檔(APK/IPA/XAPK/ZIP/EXE)或 URL。內含測試案例、任務、報告、記憶地圖、測試憑證。 |
+| **測試案例**(Test cases,在應用工作區內) | 給 AI 的一條流程。可用自然語言草擬(AI → YAML)、手寫 YAML,或從試算表匯入。明文密碼會被拒絕,請改用測試憑證。 |
+| **測試任務**(Test tasks,在應用工作區內) | 執行案例。選擇**執行環境**、三個**模型**、步數/預算上限與**知識庫**。可即時觀看畫面、裝置日誌(實機與 Android 容器)及代理的推理過程;執行中可對 AI 下指示;隨時可取消。 |
+| **測試報告**(Test reports) | AI 敘述、步驟軌跡、截圖、錄影回放(實機)、導覽圖、花費與 token。 |
+| **記憶地圖**(Memory map) | 所有執行中造訪過的畫面成為節點,畫面轉換成為邊;之後的執行能更快導覽。 |
+| **裝置管理**(Devices) | 目前可用的 Device Farm 手機,以及正在執行的容器、EC2 主機與 GameLift 容量。 |
+| **知識庫**(Knowledge) | 共用知識庫(遊戲類型/情境):Markdown 全文注入和/或 PDF 檢索。 |
+| **費用分析**(Cost Analysis) | 依應用與模型的任務估算,以及依服務/元件的實際 AWS 帳單(啟用後)。 |
+| **成員管理**(Members,管理員) | 新增使用者、重設密碼、停用/啟用、移動租戶、授予或移除管理員權限。 |
+| **系統管理**(System admin,管理員) | 從 GitHub 進行**系統更新**(版本比對、一鍵更新、進度、歷史紀錄),以及 **UI-TARS 定位模型**的開關。 |
 
-## AI:三個模型「座位」
+## AI:三個模型「席位」
 
-模型依**職責(座位)**分工,而非綁定供應商。每個座位可各自獨立選模型:
+模型依**角色(席位)**區分,而不是依供應商。每個席位都可依任務選擇:
 
-- **Agent(決策)** —— 主腦;看當前畫面與目標,決定下一步做什麼。
-- **VLM(判座標)** —— 視覺;把「要點的東西」轉成畫面上的實際像素。**預設用 SageMaker 上的 UI-TARS-1.5-7B**(專為 GUI grounding 微調,在遊戲美術上比通用模型準得多,且回覆繁體中文)。
-- **Subagent(輔助)** —— 用較便宜的模型處理輕量子任務,省成本。
+- **Agent(決策)**:依畫面與目標決定下一步動作。預設 **Amazon Nova Lite**。
+- **VLM(畫面分析/座標)**:把「要點的東西」轉成像素座標。預設 **Moonshot Kimi K3**。只有在管理員開啟 UI-TARS-1.5-7B 期間,它才會出現在這裡。
+- **Subagent(輔助)**:檢查動作是否生效、追蹤數值、確認是否完成。預設 **Amazon Nova Micro**。
 
-知識庫檢索另用 **Amazon Titan Text Embeddings v2** 搭配 **Amazon Bedrock Knowledge Bases + S3 Vectors**。你不需選 SDK/端點 —— 系統依 modelId 自動推導。
+你不需要選擇 SDK 或端點,系統會依模型 id 自動判斷。
 
-## 成本護欄
+## 費用護欄
 
-每個任務都有預算上限。執行前先為各座位模型**鎖定單價快照**(Fail Closed:查不到價就拒絕執行,絕不以未知成本起跑)。累計花費達上限即停,報告顯示實際花費與 token 用量。
+每個任務都可設定步數上限與預算。執行前,引擎會為每個席位的模型**鎖定價格快照**(fail-closed:價格未知就拒絕執行)。花費達到預算即停止執行,報告會顯示實際花費與 token。
 
-## 名詞說明
+## 名詞解釋
 
-- **Seat(座位)** —— 模型的職責(Agent / VLM / SubAgent),非供應商。
-- **VLM** —— 視覺語言模型;讀截圖並定位座標。
-- **UI-TARS** —— ByteDance 專為 GUI grounding 微調的視覺模型,以 vLLM 部署在 SageMaker;在 smart-resize 後的圖上回報絕對像素座標。
-- **Agent 執行迴圈** —— 截圖 → VLM 判座標 → Agent 決策 → 執行 → 再截圖。引擎恆在雲端(Lambda 編排,執行容器在 Fargate)。
-- **知識庫** —— Markdown(整份注入)或 PDF 檢索(依任務目標做向量搜尋)。
-- **Locality(運行地)** —— 被測裝置在哪:`cloud`(雲端供給)或 `attached`(你註冊的本地裝置,仍由雲端大腦遠端驅動)。
-- **終局狀態** —— 任務結束狀態:`pass` / `fail` / `error` / `cancelled` / `budget_exceeded` / `dead`。
-- **Fail-closed** —— 查不到單價時,寧可不跑也不以未知成本起跑。
+- **席位(Seat)**:模型的角色(Agent / VLM / Subagent),不是供應商。
+- **VLM**:Vision-Language Model,讀取截圖並定位座標。
+- **UI-TARS**:ByteDance 針對 GUI 定位微調的視覺模型,透過 vLLM 在 SageMaker 上提供服務。選用,預設關閉。
+- **Redroid**:在 ARM EC2 主機的容器中執行的 Android(即「Android 容器」執行環境)。
+- **Locality**:裝置所在位置:`cloud`(雲端提供)或 `attached`(你的本機裝置,仍由雲端操控)。
+- **終止狀態(Terminal state)**:`pass` / `fail` / `error` / `cancelled` / `budget_exceeded` / `dead`。
+- **Fail-closed**:寧可拒絕執行,也不在價格未知的情況下花錢。
 
 ---
 
-# 🚀 在乾淨的 AWS 帳號上安裝(逐步)
+# 🚀 在全新 AWS 帳號上安裝(逐步說明)
 
-本節假設你**完全沒有 AWS 經驗**,請由上而下照做。總時間約 **45–60 分鐘**,大部分是等 AWS 跑完。
+本節假設你**沒有任何 AWS 經驗**。請從上到下依序操作。總時間約 **60–90 分鐘**,大部分是在等 AWS。
 
-> 全部部署在 **`us-east-2`(俄亥俄)**。除非你清楚自己在改什麼,否則各處都用這個區域。
+> 所有資源都部署到 **`us-east-2`(俄亥俄)**。除非你清楚自己在改什麼,否則所有地方都使用這個區域。
+>
+> 指令以 **bash** 撰寫(macOS、Linux、Git Bash、WSL)。在 Windows PowerShell 上,請用 `$env:NAME="value"` 設定變數,而不是 `NAME=value command`。
 
-## 步驟 0 — 在你的電腦安裝工具
-
-需要在本機裝三樣東西。把下面的檢查指令貼上,有印出版本就代表 OK。
+## 步驟 0:在電腦上安裝工具
 
 | 工具 | 用途 | 安裝 |
 | --- | --- | --- |
-| **Node.js 22+** | 執行建置與部署腳本 | https://nodejs.org(下載 "LTS" 安裝檔) |
+| **Node.js 22+** | 執行建置與部署腳本 | https://nodejs.org(「LTS」安裝程式) |
 | **AWS CLI v2** | 與你的 AWS 帳號溝通 | https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html |
-| **Git** | 取得此程式碼 | https://git-scm.com/downloads |
+| **Git** | 取得本程式碼 | https://git-scm.com/downloads |
 
 ```bash
-node --version    # 應印出 v22.x 或更高
-aws --version     # 應印出 aws-cli/2.x
+node --version    # v22.x 或更新版本
+aws --version     # aws-cli/2.x
 git --version
 ```
 
-**不需要** Docker —— 大型容器映像都在雲端 build。
+你**不需要** Docker;容器映像會在雲端建置(AWS CodeBuild)。
 
-## 步驟 1 — 取得程式碼
+## 步驟 1:取得程式碼
 
 ```bash
 git clone https://github.com/hoycdanny/playagent-checker.git
 cd playagent-checker
+npm install
 ```
 
-## 步驟 2 — 把 AWS CLI 接上帳號
+## 步驟 2:將 AWS CLI 連線到帳號
 
-向帳號擁有者索取 **Access Key ID** 與 **Secret Access Key**(AWS Console → IAM → 使用者 → 安全憑證 → 建立存取金鑰),然後:
+向帳號擁有者索取 **Access Key ID** 與 **Secret Access Key**(AWS Console → IAM → Users → Security credentials → Create access key)。接著:
 
 ```bash
 aws configure
 # AWS Access Key ID     : <貼上>
 # AWS Secret Access Key : <貼上>
 # Default region name   : us-east-2
-# Default output format  : json
+# Default output format : json
+
+aws sts get-caller-identity   # 應該會印出你的帳號號碼
 ```
 
-驗證是否連上 —— 這會印出帳號號碼:
+> 這組憑證必須能建立 Lambda、S3、Cognito、API Gateway、IAM、ECS、EC2、ECR、CodeBuild、SageMaker、Bedrock 與 CloudFront 資源。首次設定時,使用管理員使用者(`AdministratorAccess`)最簡單。
 
-```bash
-aws sts get-caller-identity
-```
+## 步驟 3:開啟 AI 模型(Amazon Bedrock)
 
-> 這組憑證需要有建立資源的權限(Lambda、S3、Cognito、API Gateway、IAM、ECS、SageMaker、Bedrock、CloudFront)。第一次設定時,用管理者帳號(AWS 受管政策 `AdministratorAccess`)最省事,之後再收緊。
+新帳號的 Bedrock 模型預設為**關閉**。請先啟用一次,否則每次執行都會失敗。
 
-## 步驟 3 — 開啟 AI 模型(Amazon Bedrock)
+1. AWS Console → **Bedrock** → 右上角區域選 **US East (Ohio) us-east-2**。
+2. 左側選單 → **Model access** → **Enable specific models**。
+3. 至少啟用:
+   - **Amazon – Nova Lite**(預設決策模型)
+   - **Amazon – Nova Micro**(預設輔助模型)
+   - **Moonshot AI – Kimi K3**(預設畫面分析模型)
+   - **Anthropic – Claude Sonnet 4.5**(草擬測試案例、讀取匯入的試算表)
+   - **Amazon – Titan Text Embeddings V2**(知識庫搜尋)
+4. 等待出現 **Access granted**。評估階段可以直接啟用該區域所有模型;App 會在每個席位列出所有可用的模型。
 
-全新帳號的 AI 模型預設是**關閉**的。你必須先開通一次,否則每次測試都會失敗。
-
-1. 開啟 AWS Console → 搜尋 **Bedrock** → 進入 → 確認右上角區域是 **US East (Ohio) us-east-2**。
-2. 左側選單 → **Model access(模型存取)** → **Enable specific models / Manage model access**。
-3. 至少開通以下這些,然後 **Save**(通常即時核准):
-   - **Anthropic – Claude Sonnet 4.5**(草擬測試案例、強力備援 VLM)
-   - **Amazon – Titan Text Embeddings V2**(知識庫檢索)
-   - **Amazon – Nova Micro**(輔助子任務)
-   - 若清單有 **Qwen – Qwen3-VL** 與 **MiniMax**,一併開通(預設視覺/決策模型)
-4. 狀態顯示 **Access granted** 就完成。之後可再開更多;App 會列出目前可用的模型。
-
-> 小訣竅:評估階段直接在此區域「全部開通」也可以,省得猜。
-
-## 步驟 4 — 準備 CDK(每帳號一次)
-
-基礎架構用 **AWS CDK** 定義,需在該區域做一次性的 "bootstrap"。
+## 步驟 4:準備 CDK(每個帳號一次)
 
 ```bash
 cd infra
-npm install
-npx cdk bootstrap aws://帳號號碼/us-east-2
+npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
 ```
 
-把「帳號號碼」換成步驟 2 印出的數字(`aws sts get-caller-identity`)。這會建立一個 CDK 用來上傳程式的小型暫存桶。
+將 `ACCOUNT_ID` 替換為步驟 2 取得的號碼。
 
-## 步驟 5 — 部署後端
+## 步驟 5:部署後端
 
-在 `infra/` 資料夾內:
+在 `infra/` 中執行:
 
 ```bash
 AWS_REGION=us-east-2 npx cdk deploy \
-  PlayAgentDev-Foundation \
-  PlayAgentDev-ControlPlane \
-  PlayAgentDev-Scheduling \
-  PlayAgentDev-Execution \
+  PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
+  PlayAgentDev-Scheduling PlayAgentDev-Execution \
   --require-approval never
 ```
 
-> **選用 —— 成本分攤標籤。** 每個資源都會自動貼上 `project`、`stage`、`component`。你可以在部署時用 `-c` 帶入自己的標籤(例如歸帳到某成本中心),這些標籤會套到所有資源(含執行期動態起的 EC2/Fargate),並在啟用後供「費用分析」頁使用(見下方「啟用費用分析頁」)。
->
-> ```bash
-> AWS_REGION=us-east-2 npx cdk deploy \
->   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
->   PlayAgentDev-Scheduling PlayAgentDev-Execution \
->   --require-approval never \
->   -c costCenter=QA-1234 -c owner=alice -c team=game-qa
-> ```
->
-> 可用的鍵:`costCenter`、`owner`、`team`、`env`、`costAllocation`。每次部署各 stack 都帶相同的 `-c` 旗標,標籤才會一致。
+> **選用的成本分配標籤。** 每個資源都會加上 `project`、`stage`、`component` 標籤。可用 `-c` 加上自訂標籤(也會套用到執行時啟動的 EC2/Fargate):
+> `-c costCenter=QA-1234 -c owner=alice -c team=game-qa`(鍵:`costCenter`、`owner`、`team`、`env`、`costAllocation`)。每次部署都請使用相同的參數。
 
-約 10–15 分鐘。完成後,執行下面這一段就會印出你需要的四個值(會自動處理命名):
+約需 10–15 分鐘。接著印出後續步驟需要的值:
 
 ```bash
-aws cloudformation describe-stacks --region us-east-2 \
-  --stack-name PlayAgentDev-Foundation \
-  --query "Stacks[0].Outputs[?contains(OutputKey,'UserPool')].[OutputKey,OutputValue]" --output table
-aws cloudformation describe-stacks --region us-east-2 \
-  --stack-name PlayAgentDev-ControlPlane \
+aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Foundation \
+  --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
+aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-ControlPlane \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'||OutputKey=='WsUrl'].[OutputKey,OutputValue]" --output table
 ```
 
-你要找的是這四個值:
+記下:
 
-- **User Pool ID** — 名稱含 `UserPoolId` 的那個;形如 `us-east-2_XXXXXXXXX`
-- **User Pool Client ID** — 名稱含 `UserPoolClientId` 的那個;一長串英數
-- **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
-- **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
+- **Data bucket**:輸出名稱包含 `DataBucket`(Ref),形如 `playagentdev-foundation-databucket…`
+- **User Pool ID**:包含 `UserPoolId`,形如 `us-east-2_XXXXXXXXX`
+- **User Pool Client ID**:包含 `UserPoolClientId`
+- **ApiUrl**:`https://xxxx.execute-api.us-east-2.amazonaws.com`
+- **WsUrl**:`wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
 
-## 步驟 6 — 部署 UI-TARS 定位模型(必備)
+## 步驟 6:建置 runner 映像(必要)
 
-PlayAgent 用 SageMaker 上的 **UI-TARS-1.5-7B** 做精準的畫面座標定位 —— 它是預設、也是好結果的必要條件(通用模型在遊戲美術上點擊常偏差數百像素)。全程在雲端 build,**不佔**你電腦的磁碟或頻寬。
+Web 與 Device Farm runner 從你 ECR 中的容器映像執行。映像透過 CodeBuild 在雲端建置,不會有大型檔案下載到你的電腦。
 
 ```bash
 cd ../agent/sagemaker && npm install
-# 1) 雲端 build:下載模型、build 服務映像、推到你的帳號(走 AWS CodeBuild)。
-#    約 20–40 分,在 AWS 內跑,不會下載到你電腦。
-AWS_REGION=us-east-2 node cloudBuild.mjs
-# 2) 建立 endpoint(權重與映像已就緒)。InService 後會印出 ENDPOINT_NAME。
-PA_SKIP_DOWNLOAD=1 PA_SKIP_UPLOAD=1 PA_SKIP_BUILD=1 AWS_REGION=us-east-2 node deployUitars.mjs
+export PA_SM_BUCKET=PASTE_DataBucket     # 來自步驟 5,腳本會把建置原始碼上傳到這裡
+export AWS_REGION=us-east-2
+
+# a) 建立共用的 CodeBuild 角色,並預先放置 UI-TARS 權重與服務映像
+#    (只有之後要開啟 UI-TARS 才需要)。約 20–40 分鐘,在 AWS 上執行。
+#    不會啟動 GPU;儲存費用約每月 US$2。
+node cloudBuild.mjs
+
+# b) 建置並推送兩個 runner 映像(各需幾分鐘)。
+node cloudBuildRunner.mjs
+node cloudBuildWebRunner.mjs
 ```
 
-記下它最後印出的 `ENDPOINT_NAME=ui-tars-...`。接著把它接進 engine,只重新部署 execution stack:
+> 腳本內建的儲存貯體名稱屬於原開發者的帳號,因此請務必將 `PA_SM_BUCKET` 設為**你自己的**資料儲存貯體。
+
+## 步驟 7:建置網頁主控台
 
 ```bash
-cd ../../infra
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Execution \
-  --require-approval never --exclusively -c uitarsEndpoint=貼上_ENDPOINT_NAME
-```
-
-> **💲 重要成本提醒:** UI-TARS 跑在 GPU 機器(`ml.g6e.xlarge`,約 US$1.86/小時),**開著就持續計費**。當天測試結束後請關掉:
-> ```bash
-> node agent/sagemaker/teardownUitars.mjs 貼上_ENDPOINT_NAME
-> ```
-> 模型與映像會保留,之後要再用只需幾分鐘(重跑上面第 2 步的 skip 旗標,再重新部署 execution stack)。
-
-## 步驟 7 — 用這些值建置網頁主控台
-
-網頁 App 需要在建置時把這四個值烤進去。建立檔案 `web/.env.production`(從 repo 根目錄):
-
-```bash
-cd ../web
-npm install
+cd ../../web
 cat > .env.production <<'EOF'
 VITE_COGNITO_REGION=us-east-2
-VITE_COGNITO_USER_POOL_ID=貼上_UserPoolId
-VITE_COGNITO_CLIENT_ID=貼上_UserPoolClientId
-VITE_API_URL=貼上_ApiUrl
-VITE_WS_URL=貼上_WsUrl
+VITE_COGNITO_USER_POOL_ID=PASTE_UserPoolId
+VITE_COGNITO_CLIENT_ID=PASTE_UserPoolClientId
+VITE_API_URL=PASTE_ApiUrl
+VITE_WS_URL=PASTE_WsUrl
 EOF
-```
-
-編輯這個檔,把每個 `貼上_...` 換成步驟 5 對應的 Output。然後建置:
-
-```bash
 npm run build
 ```
 
-## 步驟 8 — 部署網頁主控台
+建置前,請將每個 `PASTE_...` 替換為步驟 5 取得的值。
+
+## 步驟 8:部署網頁主控台
 
 ```bash
 cd ../infra
 AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
-```
-
-印出你的 App 網址(一個 `https://xxxx.cloudfront.net`)並開啟它,應該會看到登入頁:
-
-```bash
-aws cloudformation describe-stacks --region us-east-2 \
-  --stack-name PlayAgentDev-Frontend \
+aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Frontend \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
-## 步驟 9 — 建立你的第一個(管理員)帳號
+開啟印出的 `https://xxxx.cloudfront.net` 網址,應該會看到登入頁面。
 
-系統刻意關閉自助註冊,所以使用者由你自己建立。挑一個 email 與密碼(至少 8 字,含大小寫與數字)。`tenantId` 用來隔離各客戶的資料 —— 填任意短字串即可,例如公司名。把第一個使用者設為**管理員**,之後就能在 App 內的「成員管理」頁管理其他人。
+## 步驟 9:建立第一個(管理員)登入帳號
 
-擇一即可:
+自助註冊是刻意停用的。請選一個 email 與密碼(至少 8 個字元,包含大寫、小寫與數字)。`tenant` 用來隔離每個客戶的資料;請用簡短的名稱,例如公司名稱。
 
-**方案 A — 一鍵腳本(推薦)。** 建帳號、設永久密碼,加 `--admin` 則同時加入 `admins` 群組。會自動解析 User Pool。
+**選項 A:腳本(建議):**
 
 ```bash
-cd agent/sagemaker && npm install
+cd ../agent/sagemaker
 AWS_REGION=us-east-2 node createUser.mjs \
   --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
 ```
 
-**方案 B — 部署時建立管理員。** 部署 Foundation stack(或任何部署)時用 `-c` 帶入,CDK 會自動建立並加入 `admins` 群組:
-
-```bash
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Foundation --require-approval never \
-  -c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme
-```
-
-有了一個管理員之後,其他人直接在 App 的「成員管理」頁建立即可(見步驟 10)—— 不必再用指令。非管理員看不到該頁。
+**選項 B:部署時建立:** 在部署 Foundation 時加上 `-c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme`。
 
 <details>
-<summary>方案 C — 純 AWS CLI(不用腳本)</summary>
+<summary>選項 C:直接使用 AWS CLI</summary>
 
 ```bash
-POOL_ID=貼上_UserPoolId    # 來自步驟 5
+POOL_ID=PASTE_UserPoolId
 aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com \
   --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
   --message-action SUPPRESS
 aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com --password 'ChangeMe123!' --permanent
-# 設為管理員(才能用「成員管理」頁)
 aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
   --username you@example.com --group-name admins
 ```
 </details>
 
-## 步驟 10 — 登入
+之後,其他人都從**成員管理**頁面建立。
 
-開啟步驟 8 的 CloudFront 網址,用步驟 9 的 email/密碼登入。**你登入後看到的第一頁就是「使用說明」** —— 內建的完整功能導覽,依你的語言呈現。從那裡:
+## 步驟 10:登入並執行第一個測試
 
-1. **應用管理** — 建立 App;原生上傳 APK/IPA/ZIP,Web 只需網址。
-2. **測試案例** — 用白話描述流程,AI 轉成可執行案例。
-3. **測試任務** — 選 App + 案例 + 執行環境(**Web** 或 **Device Farm**)後提交;定位模型預設就是**步驟 6** 裝好的 **UI-TARS 1.5 7B**。可即時監看。
-4. **測試報告** — 看 AI 敘述、截圖、逐步軌跡與成本。
-5. **成員管理**(僅管理員)— 導覽列最後一項。新增使用者(email + 租戶 + 初始密碼)、停用/啟用帳號、可選擇授予管理員。有了第一個管理員之後就不必再用指令。
+開啟 CloudFront 網址並登入,會進入**指南**頁面。接著:
 
-> **若沒看到「成員管理」:** 導覽列只對管理員顯示,而登入 token 的群組資訊只反映「你登入當下」的狀態。把某帳號設為管理員(步驟 9)後,請**登出再重新登入**,新 token 才會帶 `admins` 群組。
+1. **應用管理** → 建立應用(上傳 APK/IPA/XAPK,或在 Web 填入 URL)。
+2. 在應用工作區 → **測試案例** → 描述一條流程,AI 會將它轉成案例。
+3. **測試任務** → 選擇案例與執行環境(**Web**、**Android/iOS 實機**或 **Android 容器**)→ 送出。模型預設為 Nova Lite / Kimi K3 / Nova Micro。
+4. 即時觀看執行過程,然後閱讀**報告**。
 
-✅ **你的環境已經可以用了。**
+> **看不到成員管理 / 系統管理項目?** 這些只對管理員顯示,而登入 token 只在登入時才會取得群組變更。被設為管理員後,請登出再重新登入。
 
-UI-TARS 定位的原理說明見 [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
-
-## 啟用費用分析頁
-
-**費用分析**頁(在「知識管理」旁)並排顯示兩種數字:
-
-- **AWS 真實成本** —— 即時取自 **AWS Cost Explorer**:你的實際帳單,依服務、依 `component` 標籤、依月份分解。涵蓋全部(SageMaker GPU、Fargate、EC2、CloudFront 等)。
-- **任務估算成本** —— 由任務的 token × 單價估算加總,依應用與模型分組。不含基礎設施,所以會低於真實帳單;兩者口徑不同,不應直接相減。
-
-估算那側立即可用。真實那側需要**一次性的帳號設定**(Cost Explorer 屬帳號層級,CDK 無法代為啟用):
-
-1. **啟用 Cost Explorer。** 在 AWS 主控台進入 **Billing and Cost Management → Cost Explorer** 啟用它。首次啟用後約 **24 小時**開始有資料。
-2. **啟用成本分攤標籤。** 在 **Billing and Cost Management → Cost allocation tags → User-defined cost allocation tags**,勾選 `project`、`stage`、`component`(以及你部署時帶入的 `costCenter` / `owner` / `team` 等),按 **Activate**。
-3. **隔天再看。** 標籤僅對啟用**之後**產生的成本生效 —— 過去成本不回溯,在此之前依 `component` 分組會全部落在「未標記」。隔天再回來看。
-
-備註:
-
-- Cost Explorer API 僅在 `us-east-1`;無論你部署在哪一區,程式都已固定查該區。
-- 每次查詢由 AWS 收取約 **US$0.01**,且資料通常延遲約 24 小時(非即時)。
-- 只有帳號擁有者 / 具帳務權限的 IAM 使用者能啟用成本分攤標籤。
-
-## Device Farm(真實手機)說明
-
-Web 後端不需額外設定即可用。真機測試使用 **AWS Device Farm**,其專案位於 **us-west-2**,由 runner 自動建立。部署憑證已含 Device Farm 權限,無需手動設定 —— 提交任務時選「Device Farm」即可。
+✅ **你現在擁有一個可運作的環境。** 以下內容皆為選用。
 
 ---
 
-## 成本、清除與疑難排解
+## 選用:一鍵系統更新
 
-**大略運行成本(評估用):** serverless 控制面在低用量下每月數美元;每次測試依 token 計費(每次幾美分到一兩美元,報告都會顯示)。最大的成本是 **UI-TARS GPU endpoint**(`ml.g6e.xlarge`,約 US$1.86/小時)—— 開著就持續計費,所以**不測試時請關掉**(`node agent/sagemaker/teardownUitars.mjs <endpoint 名>`),要用時幾分鐘就能重建。
+讓管理員從**系統管理 → 系統更新**將整個平台更新到某個 GitHub 版本(先執行測試,再於 CodeBuild 中執行 `cdk deploy`)。
 
-**整個拆除**(刪除 stacks;資料桶與 Cognito 使用者池依設計會保留,以免誤刪資料 —— 若真要刪,到 Console 手動刪除):
+1. 部署一次 Updater 堆疊(它永遠不會自我更新):
+   ```bash
+   cd infra
+   AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
+   ```
+   使用 fork?請在這次及之後每次部署都加上 `-c githubRepo=owner/name`。
+2. 為此儲存庫建立 GitHub **fine-grained** token,權限設為 **Contents: Read-only** 與 **Metadata: Read-only**。
+3. 開啟**系統管理**,貼上 token 並儲存。它會存放在 Secrets Manager(`playagent/github`),之後不會再顯示。
+
+更新按鈕會以高權限重新部署 IAM 與資源,因此只有管理員看得到,每次執行也都會被記錄。設計說明:[docs/design/self-update.md](docs/design/self-update.md)。
+
+## 選用:UI-TARS 定位模型
+
+UI-TARS-1.5-7B 是 GUI 定位模型,對小按鈕的定位可能更精準。它**預設關閉**,因為其 GPU **開啟期間每天約 US$62.5**。目前只有 Device Farm 實機執行環境會使用它;其他執行環境會改用 Bedrock 視覺模型。
+
+開關能運作之前,帳號需要:
+
+1. 來自**步驟 6a**(`cloudBuild.mjs`)預先放置的權重與服務映像。
+2. 名為 **`ArtSmokerSageMakerRole`** 的 SageMaker 執行角色(堆疊預設期望的名稱;讓 SageMaker 能拉取映像並讀取權重):
+   ```bash
+   ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+   BUCKET=PASTE_DataBucket
+   aws iam create-role --role-name ArtSmokerSageMakerRole --assume-role-policy-document \
+     '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"sagemaker.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
+   aws iam put-role-policy --role-name ArtSmokerSageMakerRole --policy-name uitars --policy-document "{
+     \"Version\":\"2012-10-17\",\"Statement\":[
+     {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
+     {\"Effect\":\"Allow\",\"Action\":[\"ecr:BatchGetImage\",\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchCheckLayerAvailability\"],
+      \"Resource\":\"arn:aws:ecr:us-east-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
+     {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::${BUCKET}\"},
+     {\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::${BUCKET}/sagemaker-models/ui-tars/*\"},
+     {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\",\"cloudwatch:PutMetricData\"],\"Resource\":\"*\"}]}"
+   ```
+   若要使用其他角色,部署 ControlPlane 時加上 `-c uitarsRoleArn=arn:aws:iam::…:role/…`。
+
+接著使用**系統管理 → UI-TARS 定位模型 → 開啟**。約需 8–15 分鐘才會變成**開啟**;啟動期間就已開始計費。之後 UI-TARS 會出現在任務的 VLM 選單中。用完後請在同一頁面將它**關閉**;這會刪除 GPU 端點但保留模型設定,因此再次開啟時不需要重新設定。關閉期間,模型選單會隱藏 UI-TARS,要求使用它的任務也會被拒絕。
+
+更多資訊:[docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
+
+## 選用:Windows PC 遊戲(GameLift Streams)
+
+請**在 Windows 電腦上**執行一次(它會為 GPU 主機打包 Windows 工具):
+
+```powershell
+cd worker\windows-host\gamelift
+npm install
+$env:AWS_REGION="us-east-2"; node setup.mjs --capacity 2
+```
+
+它會建立 GameLift Streams 應用程式與串流群組,**沒有常駐容量**(沒有測試執行時不會計費),最多可同時執行 2 個。之後送出任務時就會出現 **Windows** 執行環境。首次啟動需 10–15 分鐘;每次執行上限為 60 分鐘。修改 Windows 主機腳本後請重新執行 `setup.mjs`;自我更新不涵蓋這部分。
+
+## 啟用費用分析頁面
+
+**費用分析**頁面會把實際 AWS 帳單(來自 Cost Explorer)與任務估算(token × 單價)並列顯示。估算功能立即可用。若要看實際帳單,每個帳號需設定一次:
+
+1. **Billing and Cost Management → Cost Explorer** → 啟用。資料約 24 小時後出現。
+2. **Billing and Cost Management → Cost allocation tags** → 啟用 `project`、`stage`、`component`(以及任何自訂標籤)。
+3. 等待一天。標籤只會套用到啟用後的費用,先前的費用不會回溯補上。
+
+Cost Explorer 只在 `us-east-1` 提供(App 會在該區域查詢),每次查詢約 US$0.01,資料延遲約 24 小時。啟用標籤需要帳單存取權限。
+
+注意:Bedrock token 與 Device Farm 分鐘數不帶資源標籤,因此在依 `component` 檢視實際帳單時,它們會分開顯示。Device Farm 分鐘數也會依工作階段名稱對應到每次執行。
+
+## Device Farm(實體手機)說明
+
+不需要額外設定。Device Farm 位於 **us-west-2**;runner 會自動建立專案。選擇實機執行環境時,下拉選單會列出目前可用的手機(型號、OS、解析度、記憶體、CPU);「自動」會選第一台可用的手機。若畫面停止變化超過硬性上限(安裝卡住、App 凍結、reCAPTCHA 擋住),該次執行會以 `error` 結束,而不會在迴圈中持續計費。
+
+## 測試憑證(註冊/登入流程)
+
+在**應用 → 測試憑證**中依應用保存帳號與密碼,每個欄位一列 key–value(例如 `帳號`、`密碼`、`伺服器名稱`)。每一列可設為**遮罩**(預設;AI 只會看到 `${key}`,由 runner 在輸入時填入實際值)或**可見**(用於 AI 必須從清單中選取的非敏感值)。撰寫案例時照常寫即可,不需要引用憑證。
+
+這些值只存放在 **AWS Secrets Manager**(`playagent/tenant/<tenant>/app/<appId>/credentials`)。遮罩值絕不會顯示在 UI、由 API 回傳、傳送給模型,也不會寫入 S3、任務定義、報告或軌跡。詳細說明:[docs/design/test-credentials.md](docs/design/test-credentials.md)。
+
+---
+
+## 清理與疑難排解
+
+**先停止最大筆的費用:** 在系統管理頁面將 UI-TARS **關閉**,並確認沒有仍在進行的長時間 Android 容器或 Device Farm 執行(裝置管理頁面)。
+
+**移除所有資源**(資料儲存貯體與 Cognito 使用者集區依設計會保留;若真的要刪除,請手動刪除):
 
 ```bash
 cd infra
 AWS_REGION=us-east-2 npx cdk destroy --all
-# 若你啟用了 UI-TARS,先刪它的 endpoint:
-node ../agent/sagemaker/teardownUitars.mjs <endpoint 名>
 ```
 
-**常見問題**
+同樣會留下的還有:runner 的 ECR 儲存庫 `playagent-exploration-runner` / `playagent-web-runner`(CDK 預設保留)、ECR 儲存庫 `playagent-vllm-byoc`、CodeBuild 專案 `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`、角色 `PlayAgentCodeBuildUitarsRole`、SageMaker 模型/設定 `ui-tars-playagent-*`,以及(若有設定)GameLift Streams 應用程式與串流群組。
 
 | 症狀 | 解法 |
 | --- | --- |
-| 部署失敗:*"not bootstrapped"* | 執行步驟 4(`cdk bootstrap`)且區域為 `us-east-2`。 |
-| 測試報錯提到某模型 / Bedrock *AccessDenied* | 開通模型存取(步驟 3),在 **us-east-2**。 |
-| 登入頁出得來但登不進去 | `web/.env.production` 值填錯,或改完沒有重新 build + 重新部署前端(步驟 6–7)。 |
-| 無法註冊 | 這是刻意設計 —— 用指令建立使用者(步驟 8)。 |
-| 區域錯 / 看不到資源 | 全部在 **us-east-2**;檢查 Console 右上角的區域選擇器。 |
+| 部署失敗:*"not bootstrapped"* | 對 `us-east-2` 執行步驟 4。 |
+| 執行出現 *AccessDenied* / 模型不可用 | 在 **us-east-2** 啟用模型存取(步驟 3)。 |
+| Web / Device Farm 執行無法啟動(找不到映像) | 建置 runner 映像(步驟 6)。 |
+| 登入頁面有載入但無法登入,或頁面空白 | `web/.env.production` 中的值錯誤,或修改後沒有重新建置並重新部署網頁(步驟 7–8)。 |
+| 遊戲在 Android 容器上一開就自行關閉 | 該遊戲有防模擬器檢查,請改用 Android 實機。 |
+| UI-TARS 顯示 **Failed** | 先關閉(停止計費),查看卡片上的原因,確認步驟 6a 與 SageMaker 角色,再重新開啟。 |
+| 系統更新提示 token 權限不足 | token 需要此儲存庫的 **Contents: Read-only** 權限。 |
+| 無法註冊 | 這是刻意設計;由管理員建立使用者(步驟 9 / 成員管理頁面)。 |
 
 ---
 
-## 目錄結構
+## 儲存庫結構
 
 ```
-agent/            執行 runner(跑在 Fargate 容器內)
-  explorationRunner.mjs    Device Farm 真機 runner(Appium 迴圈)
-  webExplorationRunner.mjs Web runner(Playwright headless Chromium)
-  imageTools.mjs           給 VLM 用的 smart-resize 與落點標記
-  uitarsClient.mjs         UI-TARS(SageMaker)定位客戶端
-  apkMerge.mjs             Device Farm 用的 XAPK / split-APK 合併
-  sagemaker/               UI-TARS 部署:vLLM BYOC 容器 + CodeBuild 腳本
-infra/            AWS CDK 應用(foundation、control-plane、scheduling、execution、frontend)
-web/              React + Vite 網頁主控台(5 語系 i18n、自繪 SVG)
-docs/             架構、設計筆記、研究
+agent/            Execution runners
+  explorationRunner.mjs    Device Farm / Android container / Windows runner (one loop, different drivers)
+  webExplorationRunner.mjs Web runner (Playwright headless Chromium)
+  uitarsClient.mjs         UI-TARS (SageMaker) grounding client
+  sagemaker/               Cloud build scripts (runner images, UI-TARS), createUser.mjs
+infra/            AWS CDK app (Foundation, ControlPlane, Scheduling, Execution, Frontend, Updater)
+web/              React + Vite web console (5-locale i18n)
+worker/           Platform workers, incl. windows-host/gamelift (Windows GameLift Streams setup)
+docs/             Architecture, design notes, research
 ```
 
-## 給開發者
+## 開發者資訊
 
 ```bash
-cd infra && npm test     # CDK 與單元測試
-cd web   && npm run ci    # check:i18n + 型別檢查 + 測試 + build
+npm run test:web       # 網頁單元測試
+npm run test:worker    # worker 單元測試
+cd infra && npm test   # CDK + Lambda 單元測試
+npm run build:web      # i18n 檢查 + 型別檢查 + 建置
 ```
 
-見 [CONTRIBUTING.md](CONTRIBUTING.md) 與 [docs/architecture.md](docs/architecture.md)。
+請參閱 [CONTRIBUTING.md](CONTRIBUTING.md) 與 [docs/architecture.md](docs/architecture.md)。
 
 ## 授權
 
-見 repo 設定。按現況提供,供內部評估使用。
+請見儲存庫設定。依現狀提供,僅供內部評估使用。
