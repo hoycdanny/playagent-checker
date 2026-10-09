@@ -91,14 +91,15 @@ const NODES: ArchNode[] = [
   { id: 'vlm', layer: 'ai', kind: 'ai', title: 'VLM', sub: L('Bedrock / UI-TARS · 判座標', 'Bedrock / UI-TARS · locate'), status: 'ok', col: 0, row: 8 },
   { id: 'agent', layer: 'ai', kind: 'ai', title: 'Agent', sub: L('Bedrock · 主決策', 'Bedrock · decide'), status: 'ok', col: 1, row: 8 },
   { id: 'sub', layer: 'ai', kind: 'ai', title: 'SubAgent', sub: L('Bedrock · 子任務', 'Bedrock · subtask'), status: 'ok', col: 2, row: 8 },
-  { id: 'uitars', layer: 'ai', kind: 'ai', title: 'UI-TARS', sub: L('SageMaker · GUI grounding', 'SageMaker · GUI grounding'), status: 'ok', col: 0, row: 9 },
+  { id: 'uitars', layer: 'ai', kind: 'ai', title: 'UI-TARS', sub: L('SageMaker · 選用,預設關閉', 'SageMaker · optional, off by default'), status: 'ok', col: 0, row: 9 },
   { id: 'kb', layer: 'ai', kind: 'ai', title: 'Knowledge Base', sub: L('Bedrock KB · Titan+S3 Vectors', 'Bedrock KB · Titan+S3 Vectors'), status: 'ok', col: 2, row: 9 },
   { id: 'data', layer: 'data', kind: 'data', title: 'S3', sub: L('Amazon S3 · 截圖·軌跡·報告', 'Amazon S3 · shots·trace·report'), col: 1, row: 10 },
 
   // 裝置後端(右欄 col 5-7):Web(Playwright)與 Device Farm 實機皆走 ECS Fargate,已端到端驗證。
   { id: 'df', layer: 'device', kind: 'device', title: 'Device Farm', sub: L('Fargate+Appium · 實機', 'Fargate+Appium · real device'), status: 'ok', col: 5, row: 8 },
   { id: 'web', layer: 'device', kind: 'device', title: 'Web', sub: L('Fargate · Playwright Chromium', 'Fargate · Playwright Chromium'), status: 'ok', col: 6, row: 8 },
-  { id: 'win', layer: 'device', kind: 'device', title: 'Windows EC2', sub: L('Amazon EC2 · Appium', 'Amazon EC2 · Appium'), status: 'todo', col: 5, row: 9 },
+  { id: 'redroid', layer: 'device', kind: 'device', title: 'Android Redroid', sub: L('EC2 Graviton · 容器', 'EC2 Graviton · container'), status: 'ok', col: 7, row: 8 },
+  { id: 'win', layer: 'device', kind: 'device', title: 'Windows', sub: L('GameLift Streams · GPU(選用)', 'GameLift Streams · GPU (optional)'), status: 'ok', col: 5, row: 9 },
   { id: 'att', layer: 'device', kind: 'device', title: 'Attached', sub: L('本地裝置 + 輕量代理', 'local device + agent'), status: 'todo', col: 6, row: 9 },
 
   // 支援:放在裝置下方,留一整排空 row(row10)當走線通道,支援層在 row11(與裝置層不重疊)。
