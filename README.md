@@ -49,28 +49,59 @@ After following the install below, this is what is on, what is off, and what nee
 
 ## Architecture
 
-```
-Browser ──► CloudFront + S3 (React console)
-   │
-   │  REST + WebSocket, Cognito JWT
-   ▼
-API Gateway ──► API Lambda ──────────► S3 data bucket (per-tenant prefixes, tenant-scoped IAM role)
-   │              │  POST /tasks          Secrets Manager (test credentials, GitHub token)
-   │              ▼                       Bedrock (case drafting, knowledge bases)
-   │            SQS dispatch queue
-   │              ▼
-   │            Dispatcher Lambda ──► Engine Lambda (orchestrator, returns immediately)
-   │                                     │
-   │          ┌──────────────────────────┼───────────────────────────┬──────────────────────────┐
-   │          ▼                          ▼                           ▼                          ▼
-   │   Fargate: Web runner     Fargate: Device Farm runner   EC2 (Graviton): Redroid   GameLift Streams: Windows
-   │   (Playwright Chromium)   → AWS Device Farm (us-west-2)  Android container         (GPU, optional)
-   │          └──────────── each runner: screenshot → Bedrock models → act → write progress to S3 ──┘
-   │                                                  │ (optional) SageMaker UI-TARS endpoint
-   ▼
-WebSocket push (live progress) ◄──────────────────────┘
+```mermaid
+flowchart TB
+  user["Users / browser"]
+  cf["CloudFront + S3<br/>Web console (React)"]
+  cognito["Amazon Cognito"]
 
-System admin: API ──► CodeBuild "self-update" (cdk deploy from GitHub) · SageMaker (UI-TARS on/off)
+  subgraph cp["Control plane"]
+    apigw["API Gateway<br/>HTTP + WebSocket"]
+    api["API Lambda"]
+    sqs["SQS dispatch queue"]
+    disp["Dispatcher Lambda"]
+    engine["Engine Lambda<br/>(orchestrator)"]
+  end
+
+  subgraph data["Data & AI"]
+    s3[("S3 data bucket<br/>(per-tenant prefixes)")]
+    sm["Secrets Manager<br/>(test credentials, GitHub token)"]
+    bedrock["Amazon Bedrock<br/>(models, knowledge bases)"]
+  end
+
+  subgraph rt["Runtimes (start per task, stop when done)"]
+    web["Fargate: Web runner<br/>(Playwright Chromium)"]
+    df["Fargate: Device Farm runner"]
+    dfx["AWS Device Farm<br/>real phones (us-west-2)"]
+    redroid["EC2 Graviton: Android container<br/>(Redroid)"]
+    win["GameLift Streams: Windows<br/>(GPU, optional)"]
+  end
+
+  subgraph adm["System admin (admins only)"]
+    update["CodeBuild self-update<br/>(cdk deploy from GitHub)"]
+    uitars["SageMaker UI-TARS<br/>(optional, off by default)"]
+  end
+
+  user --> cf
+  user -- "REST + WebSocket<br/>(Cognito JWT)" --> apigw
+  cognito -. JWT .- apigw
+  apigw --> api
+  api -- "POST /tasks" --> sqs --> disp --> engine
+  api --> s3
+  api --> sm
+  api --> bedrock
+  engine -- "start runner" --> web
+  engine --> df
+  engine --> redroid
+  engine --> win
+  df --> dfx
+  web & df & redroid & win -- "screenshot → model → act" --> bedrock
+  web & df & redroid & win -- "progress, screenshots, reports" --> s3
+  df -. "grounding (if on)" .-> uitars
+  apigw -. "live progress" .-> user
+  api -- "turn on / off" --> uitars
+  api --> update
+  update -- "redeploy stacks" --> cp
 ```
 
 CDK stacks (all in `us-east-2`):

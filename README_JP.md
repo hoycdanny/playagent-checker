@@ -49,28 +49,59 @@ PlayAgent Checker はすべて **AWS(リージョン `us-east-2`)** 上で動作
 
 ## アーキテクチャ
 
-```
-Browser ──► CloudFront + S3 (React console)
-   │
-   │  REST + WebSocket, Cognito JWT
-   ▼
-API Gateway ──► API Lambda ──────────► S3 data bucket (per-tenant prefixes, tenant-scoped IAM role)
-   │              │  POST /tasks          Secrets Manager (test credentials, GitHub token)
-   │              ▼                       Bedrock (case drafting, knowledge bases)
-   │            SQS dispatch queue
-   │              ▼
-   │            Dispatcher Lambda ──► Engine Lambda (orchestrator, returns immediately)
-   │                                     │
-   │          ┌──────────────────────────┼───────────────────────────┬──────────────────────────┐
-   │          ▼                          ▼                           ▼                          ▼
-   │   Fargate: Web runner     Fargate: Device Farm runner   EC2 (Graviton): Redroid   GameLift Streams: Windows
-   │   (Playwright Chromium)   → AWS Device Farm (us-west-2)  Android container         (GPU, optional)
-   │          └──────────── each runner: screenshot → Bedrock models → act → write progress to S3 ──┘
-   │                                                  │ (optional) SageMaker UI-TARS endpoint
-   ▼
-WebSocket push (live progress) ◄──────────────────────┘
+```mermaid
+flowchart TB
+  user["ユーザー / ブラウザー"]
+  cf["CloudFront + S3<br/>Web コンソール(React)"]
+  cognito["Amazon Cognito"]
 
-System admin: API ──► CodeBuild "self-update" (cdk deploy from GitHub) · SageMaker (UI-TARS on/off)
+  subgraph cp["コントロールプレーン"]
+    apigw["API Gateway<br/>HTTP + WebSocket"]
+    api["API Lambda"]
+    sqs["SQS ディスパッチキュー"]
+    disp["Dispatcher Lambda"]
+    engine["Engine Lambda<br/>(オーケストレーター)"]
+  end
+
+  subgraph data["データと AI"]
+    s3[("S3 データバケット<br/>(テナント別プレフィックス)")]
+    sm["Secrets Manager<br/>(テスト用認証情報、GitHub token)"]
+    bedrock["Amazon Bedrock<br/>(モデル、ナレッジベース)"]
+  end
+
+  subgraph rt["実行環境(タスクごとに起動し、終了時に停止)"]
+    web["Fargate:Web runner<br/>(Playwright Chromium)"]
+    df["Fargate:Device Farm runner"]
+    dfx["AWS Device Farm<br/>実機(us-west-2)"]
+    redroid["EC2 Graviton:Android コンテナ<br/>(Redroid)"]
+    win["GameLift Streams:Windows<br/>(GPU、オプション)"]
+  end
+
+  subgraph adm["システム管理(管理者のみ)"]
+    update["CodeBuild 自己更新<br/>(GitHub から cdk deploy)"]
+    uitars["SageMaker UI-TARS<br/>(オプション、デフォルトはオフ)"]
+  end
+
+  user --> cf
+  user -- "REST + WebSocket<br/>(Cognito JWT)" --> apigw
+  cognito -. JWT .- apigw
+  apigw --> api
+  api -- "POST /tasks" --> sqs --> disp --> engine
+  api --> s3
+  api --> sm
+  api --> bedrock
+  engine -- "runner を起動" --> web
+  engine --> df
+  engine --> redroid
+  engine --> win
+  df --> dfx
+  web & df & redroid & win -- "スクリーンショット → モデル → 操作" --> bedrock
+  web & df & redroid & win -- "進捗、スクリーンショット、レポート" --> s3
+  df -. "座標特定(オン時)" .-> uitars
+  apigw -. "リアルタイム進捗" .-> user
+  api -- "オン / オフ" --> uitars
+  api --> update
+  update -- "stack を再デプロイ" --> cp
 ```
 
 CDK スタック(すべて `us-east-2`):
