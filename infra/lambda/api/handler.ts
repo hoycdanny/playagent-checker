@@ -29,6 +29,7 @@ import { getRealCost, jobIdFromSessionName, makeCostExplorerClient, type DeviceS
 import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
 import { makeSecretWriter } from './secretValueStore.js';
 import { makeSystemUpdatePorts, systemUpdateConfigFromEnv } from './systemUpdatePorts.js';
+import { makeUitarsPorts, uitarsConfigFromEnv } from './uitarsSwitch.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-east-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
@@ -64,6 +65,11 @@ const systemUpdate = updateCfg
     ports: makeSystemUpdatePorts(updateCfg, secretWriter, sharedS3),
     repo: process.env.GITHUB_REPO ?? '',
   }
+  : undefined;
+// UI-TARS 開關(admin 專用):CDK 注入 endpoint 名/映像/權重/角色才啟用。
+const uitarsCfg = uitarsConfigFromEnv(process.env, REGION, BUCKET);
+const uitars = uitarsCfg
+  ? { ports: makeUitarsPorts(uitarsCfg, sharedS3), endpointName: uitarsCfg.endpointName, instanceType: uitarsCfg.instanceType }
   : undefined;
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
@@ -320,6 +326,7 @@ const deps: ApiDeps = {
   },
   ...(userAdmin ? { userAdmin } : {}),
   ...(systemUpdate ? { systemUpdate } : {}),
+  ...(uitars ? { uitars } : {}),
   secretWriter,
 };
 
