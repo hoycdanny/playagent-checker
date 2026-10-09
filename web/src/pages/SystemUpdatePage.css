@@ -1,4 +1,51 @@
-/* 系統更新頁(admin):版本比對、一鍵更新、進度與歷史。 */
+/* 系統管理頁(admin):系統更新(版本比對、一鍵更新、進度與歷史)+ UI-TARS 開關。 */
+
+/* 頁內分區標題(系統更新 / UI-TARS) */
+.sysupd__section {
+  margin: 20px 0 10px;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.sysupd__section:first-of-type {
+  margin-top: 4px;
+}
+
+/* UI-TARS 狀態膠囊 */
+.sysupd__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  color: var(--text-muted, #6b7280);
+}
+
+.sysupd__state[data-state='on'] {
+  border-color: var(--success, #15803d);
+  color: var(--success, #15803d);
+}
+
+.sysupd__state[data-state='starting'],
+.sysupd__state[data-state='stopping'] {
+  border-color: var(--warning, #d97706);
+  color: var(--warning, #b45309);
+}
+
+.sysupd__state[data-state='failed'] {
+  border-color: var(--danger, #b91c1c);
+  color: var(--danger, #b91c1c);
+}
+
+.sysupd__switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
 .sysupd__repo {
   margin: 0 0 12px;

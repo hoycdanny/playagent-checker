@@ -94,6 +94,13 @@ import {
   type SystemUpdatePorts,
 } from './systemUpdate.js';
 import {
+  getUitarsStatus,
+  setUitars,
+  uitarsAvailable,
+  UitarsSwitchError,
+  type UitarsPorts,
+} from './uitarsSwitch.js';
+import {
   listAppCredentials,
   putAppCredential,
   deleteAppCredential,
@@ -218,6 +225,11 @@ export interface ApiDeps {
   secretWriter?: SecretWriter;
   /** 系統更新(admin 專用)。選填;未注入時 /system/* 回 501。 */
   systemUpdate?: { ports: SystemUpdatePorts; repo: string };
+  /**
+   * UI-TARS 開關(admin 專用,系統管理頁)。選填;未注入時 /system/uitars 回 501,
+   * 且 UI-TARS 一律視為關閉(模型清單不列、提交被拒)。
+   */
+  uitars?: { ports: UitarsPorts; endpointName: string; instanceType: string };
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示 + 提交任務時挑機)。 */
@@ -358,6 +370,27 @@ export async function handleRequest(
         if (!looksLikeToken(token)) throw new BadRequestError('token 格式不正確(至少 20 個字元,只含英數與 - _)');
         await deps.systemUpdate.ports.writeToken(token);
         return json(200, { tokenConfigured: true });
+      }
+
+      // UI-TARS 開關:開啟會建 SageMaker GPU endpoint(按小時計費),所以只有 admin 能動。
+      case 'GET /system/uitars': {
+        requireAdmin(req.claims);
+        if (!deps.uitars) return json(501, { error: 'UI-TARS 開關未設定' });
+        return json(200, await getUitarsStatus(deps.uitars.ports, deps.uitars));
+      }
+
+      case 'PUT /system/uitars': {
+        requireAdmin(req.claims);
+        if (!deps.uitars) return json(501, { error: 'UI-TARS 開關未設定' });
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        if (typeof body.enabled !== 'boolean') throw new BadRequestError('enabled 必須是 true 或 false');
+        try {
+          const status = await setUitars(deps.uitars.ports, deps.uitars, body.enabled, tenant.email ?? tenant.tenantId);
+          return json(200, status);
+        } catch (err) {
+          if (err instanceof UitarsSwitchError) return json(409, { error: err.message });
+          throw err;
+        }
       }
 
       case 'GET /users': {
@@ -510,7 +543,11 @@ export async function handleRequest(
         // 模型目錄(Req 8):可依 seat 過濾。不需租戶 S3。
         // 附上每模型的當前有效單價(input/output 每百萬 token),供前端下拉呈現費用。
         const seat = req.query?.['seat'] as Seat | undefined;
-        const base = seat ? modelsForSeat(seat) : CATALOG;
+        const all = seat ? modelsForSeat(seat) : CATALOG;
+        // UI-TARS 只有在系統管理頁開啟(endpoint InService)時才列出;關閉時選了也不能用。
+        const hasUitars = all.some((m) => m.modelId === 'uitars');
+        const uitarsOn = hasUitars && deps.uitars ? await uitarsAvailable(deps.uitars.ports) : false;
+        const base = uitarsOn ? all : all.filter((m) => m.modelId !== 'uitars');
         const items = base.map((m) => {
           try {
             const p = resolvePrice(m.modelId);
@@ -1856,6 +1893,10 @@ async function handleSubmitTask(
     if (!isPriceable(modelId)) {
       return json(400, { error: `${label} 模型查無單價(Fail Closed): ${modelId}` });
     }
+  }
+  // UI-TARS 關閉時拒絕(否則 runner 會打一個不存在的 endpoint,每一步都只能等待)。
+  if (input.vlmModel === 'uitars' && !(deps.uitars && (await uitarsAvailable(deps.uitars.ports)))) {
+    return json(400, { error: 'UI-TARS 目前是關閉的(管理員可在「系統管理」開啟),請改選其他 VLM 模型' });
   }
 
   // 快照被測 App 的產物版本(供趨勢/flaky 判斷「有無被測變更」,Req 12.2)。

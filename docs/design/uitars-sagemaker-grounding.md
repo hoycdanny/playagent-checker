@@ -39,6 +39,17 @@ The exploration-runner image is likewise built in the cloud (`cloudBuildRunner.m
 - The runner routes coordinate calls to `uitarsClient.mjs` (InvokeEndpoint) instead of Bedrock.
 - The exploration task role is granted `sagemaker:InvokeEndpoint` on `ui-tars-*`.
 
+## On/off switch (System admin page)
+
+UI-TARS is **off by default**. Admins turn it on or off on the 系統管理 (System admin) page; there is no stored flag — the state is whatever the SageMaker endpoint actually is.
+
+- Fixed names: endpoint `ui-tars-playagent` (cdk context `uitarsEndpoint`), with `ui-tars-playagent-model` and `ui-tars-playagent-config`. The engine always passes this name to runners, so toggling needs no redeploy.
+- On = create model/config if missing (free) → `CreateEndpoint` (~8–15 min cold start). Off = `DeleteEndpoint` only; model and config are kept for the next start.
+- API: `GET /system/uitars`, `PUT /system/uitars {enabled}` (admin only, `infra/lambda/api/uitarsSwitch.ts`). Last action is recorded in `_system/uitars.json`.
+- While off (or still starting), `GET /models` hides `uitars` and task submission with `vlmModel: 'uitars'` is rejected with 400.
+- Known gap: a task that was submitted while on and runs after it is turned off gets an endpoint that no longer exists; the runner then only waits on each step (it does not fall back to Bedrock).
+- The API role can only touch those three fixed-name resources and may pass `ArtSmokerSageMakerRole` only to `sagemaker.amazonaws.com`.
+
 ## Cost
 
-`ml.g6e.xlarge` bills continuously (~US$1.86/hr) while the endpoint is up. Weights and image stay staged in S3/ECR, so re-creating the endpoint later is fast (skip download/upload/build). Tear down when idle with `teardownUitars.mjs`.
+`ml.g6e.xlarge` bills continuously while the endpoint is up, whether or not tasks use it. The AWS bill for 2026-10-01..07 showed **US$62.53/day** (~US$2.6/hr) for an idle endpoint. Weights and image stay staged in S3/ECR, so turning it back on only re-creates the endpoint. `teardownUitars.mjs` still works for endpoints created by `deployUitars.mjs`.

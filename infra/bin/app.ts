@@ -22,6 +22,9 @@ const UPDATE_PROJECT_NAME = `${stackPrefix}-self-update`;
 const UPDATE_LOG_GROUP = `/playagent/${stackPrefix}/update`;
 const GITHUB_SECRET_NAME = 'playagent/github';
 const DEPLOYED_VERSION_PARAM = `/playagent/${stackPrefix}/deployed-version`;
+// UI-TARS 固定 endpoint 名:系統管理頁的開關、引擎(傳給 runner)都用這個名字,開關不需重新部署。
+// 與 Execution stack 讀的 cdk context `uitarsEndpoint` 是同一個值。
+const UITARS_ENDPOINT_NAME = (app.node.tryGetContext('uitarsEndpoint') as string | undefined) ?? 'ui-tars-playagent';
 const GITHUB_REPO = (app.node.tryGetContext('githubRepo') as string | undefined) ?? 'hoycdanny/playagent-checker';
 
 // 有狀態基礎(Cognito / 資料桶 / 租戶角色)。
@@ -59,6 +62,17 @@ const controlPlane = new ControlPlaneStack(app, `${stackPrefix}-ControlPlane`, {
   kbServiceRoleArn: foundation.kbFoundation.serviceRole.roleArn,
   kbVectorBucketPrefix: KB_VECTOR_BUCKET_PREFIX,
   kbEmbeddingModelId: KB_EMBEDDING_MODEL_ID,
+  // UI-TARS 開關(系統管理頁,預設關閉):API 依固定名稱建/刪 SageMaker endpoint。
+  uitars: {
+    endpointName: UITARS_ENDPOINT_NAME,
+    instanceType: (app.node.tryGetContext('uitarsInstance') as string | undefined) ?? 'ml.g6e.xlarge',
+    image: `${env.account}.dkr.ecr.${env.region}.amazonaws.com/playagent-vllm-byoc:latest`,
+    modelDataS3: `s3://${foundation.dataBucket.bucketName}/sagemaker-models/ui-tars/`,
+    executionRoleArn:
+      (app.node.tryGetContext('uitarsRoleArn') as string | undefined)
+      ?? `arn:aws:iam::${env.account}:role/ArtSmokerSageMakerRole`,
+    tags: { project: 'playagent-checker', stage: cfg.stage, component: 'uitars', ...cfg.costTags },
+  },
   // 一鍵更新:API 負責驗證與觸發,實際部署在 Updater stack。
   updater: {
     projectName: UPDATE_PROJECT_NAME,
