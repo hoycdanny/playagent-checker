@@ -64,6 +64,27 @@ export function resolveStatus(current: TaskState | null, next: TaskState): TaskS
   return next;
 }
 
+/**
+ * 執行中但這麼久沒有任何回報 → 視為失聯(dead)。
+ * runner 每一步都會更新 status.json,開機各階段也會;正常情況下不會超過幾分鐘沒有更新。
+ * 這是最後防線:主機被直接終止、runner 來不及寫終態時,任務不會永遠顯示「執行中」。
+ */
+export const STALE_AFTER_MS = 45 * 60_000;
+export const STALE_MESSAGE = '超過 45 分鐘沒有任何回報,執行主機可能已被終止(例如到達最長執行時數);已完成的步驟與截圖仍保留在執行軌跡中。';
+
+/** 讀取時套用:running 且 updatedAt 太舊 → dead。其餘原樣回傳。純函式。 */
+export function effectiveState<T extends { state?: string; updatedAt?: string; message?: string }>(
+  status: T | null | undefined,
+  now: number = Date.now(),
+): { state: string; message?: string; stale: boolean } {
+  const state = status?.state ?? 'queued';
+  const t = status?.updatedAt ? Date.parse(status.updatedAt) : NaN;
+  if (state === 'running' && Number.isFinite(t) && now - t > STALE_AFTER_MS) {
+    return { state: 'dead', message: STALE_MESSAGE, stale: true };
+  }
+  return { state, ...(status?.message ? { message: status.message } : {}), stale: false };
+}
+
 export function statusKey(tenantId: string, jobId: string): string {
   return `${tenantPrefix(tenantId)}jobs/${jobId}/status.json`;
 }

@@ -6,7 +6,7 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
-import type { TaskState } from './status.js';
+import { effectiveState, type TaskState } from './status.js';
 import { computeSpend, PricingError } from './pricing.js';
 
 export const BACKENDS = ['web', 'emulator', 'windows', 'devicefarm', 'attached'] as const;
@@ -499,6 +499,8 @@ export async function listJobs(
           if (!(err instanceof PricingError)) throw err;
         }
       }
+      // 執行中但很久沒回報 → 失聯(dead);見 status.ts effectiveState。
+      const eff = effectiveState(status);
       // 步數:終局優先取 report.stepCount(最終記錄),否則取 status.steps(執行中即時計數)。
       const stepCount =
         typeof report?.stepCount === 'number'
@@ -513,7 +515,7 @@ export async function listJobs(
         category: job.category,
         appId: job.appId,
         caseId: job.caseId,
-        state: status?.state ?? 'queued',
+        state: eff.state as TaskState | 'queued',
         createdAt: job.createdAt,
         ...(status?.updatedAt ? { updatedAt: status.updatedAt } : {}),
         ...(vlmModel ? { vlmModel } : {}),
@@ -521,7 +523,7 @@ export async function listJobs(
         ...(billableSpendUsd !== undefined ? { billableSpendUsd } : {}),
         ...(spendEstimated ? { spendEstimated: true } : {}),
         ...(stepCount !== undefined ? { stepCount } : {}),
-        ...((report?.message ?? status?.message) ? { message: String(report?.message ?? status?.message).slice(0, 300) } : {}),
+        ...((report?.message ?? eff.message) ? { message: String(report?.message ?? eff.message).slice(0, 300) } : {}),
         ...((report?.task ?? job.caseTask) ? { task: String(report?.task ?? job.caseTask).slice(0, 200) } : {}),
         ...((report?.deviceModel ?? job.deviceModel) ? { deviceModel: report?.deviceModel ?? job.deviceModel } : {}),
         ...((report?.generatedAt ?? status?.updatedAt) ? { finishedAt: report?.generatedAt ?? status?.updatedAt } : {}),
@@ -858,10 +860,11 @@ export async function readJobDetail(
     readSteps(s3, bucket, tenantId, jobId),
     buildTaskMeta(s3, bucket, tenantId, jobId, job),
   ]);
+  const eff = effectiveState(status);
   return {
     job,
-    state: status?.state ?? 'queued',
-    ...(status?.message ? { message: status.message } : {}),
+    state: eff.state,
+    ...(eff.message ? { message: eff.message } : {}),
     ...(status?.boot && typeof status.boot === 'object' ? { boot: status.boot } : {}),
     ...(status?.updatedAt ? { updatedAt: status.updatedAt } : {}),
     steps,
