@@ -1,0 +1,2 @@
+# Shell scripts run on Linux hosts (EC2 userdata, CodeBuild); CRLF breaks them.
+*.sh text eol=lf
