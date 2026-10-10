@@ -305,6 +305,8 @@ export function compactStructure(input) {
     }
     edge.hitCount += e.hitCount ?? 1;
     edge.missCount += e.missCount ?? 0;
+    // 人工標註(只出現在套過 edits 的讀取結果;runner 寫回的 structure.json 不含)。
+    if (e.manual) edge.manual = true;
   }
   return out;
 }
@@ -327,16 +329,18 @@ export function summarizeForAgent(struct, maxChars = 1800) {
       return alts.length ? `${p.name}(又稱 ${alts.join('、')})` : p.name;
     })
     .join('、'));
+  // 人工標註的路徑(測試人員在記憶關係圖親手畫的)一律視為可靠並排最前面。
   const edges = s.edges
-    .filter((e) => e.hitCount > e.missCount && !s.pages[e.fromPageId]?.transient)
-    .sort((a, b) => b.hitCount - a.hitCount);
+    .filter((e) => (e.manual || e.hitCount > e.missCount) && (e.manual || !s.pages[e.fromPageId]?.transient))
+    .sort((a, b) => (b.manual ? 1 : 0) - (a.manual ? 1 : 0) || b.hitCount - a.hitCount);
   if (edges.length) {
-    lines.push('已驗證的操作路徑(成功次數/失敗次數):');
+    lines.push('已驗證的操作路徑(成功次數/失敗次數;標「人工標註」= 測試人員親自確認的正確路徑,優先參考):');
     for (const e of edges.slice(0, 40)) {
-      lines.push(`- 「${nameOf(e.fromPageId)}」 --${e.trigger.kind === 'auto' ? '自動轉場' : e.trigger.label}--> 「${nameOf(e.toPageId)}」(${e.hitCount}/${e.missCount})`);
+      const how = e.trigger.kind === 'auto' ? '自動轉場' : e.trigger.label;
+      lines.push(`- 「${nameOf(e.fromPageId)}」 --${how}--> 「${nameOf(e.toPageId)}」${e.manual ? '(人工標註)' : `(${e.hitCount}/${e.missCount})`}`);
     }
   }
-  const unreliable = s.edges.filter((e) => e.missCount >= e.hitCount && e.missCount > 0).slice(0, 10);
+  const unreliable = s.edges.filter((e) => !e.manual && e.missCount >= e.hitCount && e.missCount > 0).slice(0, 10);
   if (unreliable.length) {
     lines.push('常失敗的操作(避免重複嘗試):');
     for (const e of unreliable) lines.push(`- 在「${nameOf(e.fromPageId)}」${e.trigger.label}(成功 ${e.hitCount} / 失敗 ${e.missCount})`);

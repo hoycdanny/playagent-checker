@@ -216,7 +216,7 @@ async function main() {
   const messages = [];
   const steps = [];
   // 載入時先收斂舊格式的雜亂資料,之後以新規則增量更新(見 memoryGraph.mjs);套用使用者刪除的畫面/路徑。
-  const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false });
+  const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
   const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let prevScreen = '';

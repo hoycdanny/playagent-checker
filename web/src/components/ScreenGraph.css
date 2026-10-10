@@ -136,3 +136,72 @@
 .sg-legend { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px; color: var(--text-tertiary); }
 .sg-legend__line { display: inline-block; width: 18px; height: 3px; border-radius: 2px; margin-left: 8px; }
 .sg-legend__line--dash { background: repeating-linear-gradient(90deg, #8a919e 0 5px, transparent 5px 9px); }
+
+/* ── 可編輯關係圖 ── */
+.sg-edit-hint { margin: 0 0 var(--space-2); font-size: 12px; color: var(--text-tertiary); }
+.sg-error { margin: 0 0 var(--space-2); font-size: 13px; color: var(--danger, #f85149); }
+.sg-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.sg-btn:disabled { opacity: 0.5; cursor: default; }
+.sg-btn--primary { background: #ff2d95; border-color: #ff2d95; color: #fff; }
+.sg-busy { font-size: 12px; color: var(--text-tertiary); }
+.sg-canvas { position: relative; }
+.sg-canvas--busy .react-flow__pane { cursor: progress; }
+.sg-canvas .react-flow__node.selected .sg-node { outline: 2px solid #3fb6ff; outline-offset: 2px; }
+.sg-canvas .react-flow__edge.selected .react-flow__edge-path { stroke-width: 4 !important; filter: drop-shadow(0 0 3px #3fb6ff); }
+.sg-canvas .react-flow__handle { width: 10px; height: 10px; background: #3fb6ff; border: 2px solid var(--surface); }
+.sg-node--drop { outline: 3px dashed #3fb6ff; outline-offset: 3px; }
+.sg-node__droplabel {
+  position: absolute;
+  inset: auto 4px 4px 4px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: #3fb6ff;
+  color: #04121c;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* 新增路徑對話框 */
+.sg-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #000 45%, transparent);
+}
+.sg-dialog {
+  width: min(380px, 92%);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.sg-dialog h3 { margin: 0; font-size: 15px; }
+.sg-dialog__route { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.sg-dialog__field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+.sg-dialog__field select,
+.sg-dialog__field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.sg-dialog__hint { margin: 0; font-size: 12px; color: var(--text-tertiary); }
+.sg-dialog__actions { display: flex; justify-content: flex-end; gap: var(--space-2); }

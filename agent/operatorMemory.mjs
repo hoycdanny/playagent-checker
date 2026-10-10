@@ -11,14 +11,75 @@ export function edgeKey(e) {
   return `${e.fromPageId}>${e.toPageId}>${e.trigger?.kind ?? ''}>${String(e.trigger?.target ?? '').trim()}`;
 }
 
+const MAX_MERGED_HASHES = 6;
+
+/** 解析合併鏈(a→b、b→c ⇒ a→c;防循環)。 */
+function mergeTarget(merges, id) {
+  let cur = id;
+  for (let i = 0; i < 50 && merges[cur] && merges[cur] !== id; i++) cur = merges[cur];
+  return cur;
+}
+
+/** 合併畫面:來源頁的訪問次數/別名/pHash/控件併入目標頁,邊重導並去重(次數相加)、去自環。 */
+function applyMerges(struct, merges) {
+  if (!merges || typeof merges !== 'object' || !struct.pages) return;
+  const remap = new Map();
+  for (const from of Object.keys(merges)) {
+    const into = mergeTarget(merges, from);
+    if (into === from || !struct.pages[from] || !struct.pages[into]) continue;
+    remap.set(from, into);
+  }
+  if (!remap.size) return;
+  for (const [from, into] of remap) {
+    const s = struct.pages[from];
+    const t = struct.pages[into];
+    t.visitCount = (t.visitCount ?? 0) + (s.visitCount ?? 0);
+    t.hitCount = (t.hitCount ?? 0) + (s.hitCount ?? 0);
+    const aliases = { ...(t.aliases ?? {}) };
+    const srcAliases = s.aliases && Object.keys(s.aliases).length ? s.aliases : { [s.name]: s.visitCount ?? 1 };
+    for (const [n, c] of Object.entries(srcAliases)) if (n) aliases[n] = (aliases[n] ?? 0) + (Number(c) || 1);
+    t.aliases = aliases;
+    const hashes = [...(t.pHashes ?? (t.pHash ? [t.pHash] : []))];
+    for (const h of [s.pHash, ...(s.pHashes ?? [])]) if (h && !hashes.includes(h)) hashes.push(h);
+    t.pHashes = hashes.slice(0, MAX_MERGED_HASHES);
+    if (!t.pHash && t.pHashes[0]) t.pHash = t.pHashes[0];
+    t.knownControlLabels = [...new Set([...(t.knownControlLabels ?? []), ...(s.knownControlLabels ?? [])])].slice(-30);
+    if (s.firstSeenAt && (!t.firstSeenAt || s.firstSeenAt < t.firstSeenAt)) t.firstSeenAt = s.firstSeenAt;
+    if (s.lastSeenAt && (!t.lastSeenAt || s.lastSeenAt > t.lastSeenAt)) t.lastSeenAt = s.lastSeenAt;
+    delete struct.pages[from];
+  }
+  if (struct.rootPageId && remap.has(struct.rootPageId)) struct.rootPageId = remap.get(struct.rootPageId);
+  const byKey = new Map();
+  const out = [];
+  for (const e of struct.edges ?? []) {
+    const from = remap.get(e.fromPageId) ?? e.fromPageId;
+    const to = remap.get(e.toPageId) ?? e.toPageId;
+    if (from === to) continue;
+    const ne = { ...e, fromPageId: from, toPageId: to };
+    const key = edgeKey(ne);
+    const prev = byKey.get(key);
+    if (prev) {
+      prev.hitCount = (prev.hitCount ?? 0) + (ne.hitCount ?? 0);
+      prev.missCount = (prev.missCount ?? 0) + (ne.missCount ?? 0);
+      continue;
+    }
+    byKey.set(key, ne);
+    out.push(ne);
+  }
+  struct.edges = out;
+}
+
 /**
- * 把記憶地圖手動編修套到 structure(就地修改並回傳):刪畫面(連帶其路徑)、刪路徑、改名。
+ * 把記憶地圖手動編修套到 structure(就地修改並回傳):合併畫面 → 刪畫面(連帶其路徑)、刪路徑 →
+ * 手動路徑(addedEdges,標 manual)→ 改名。runner 傳 { addedEdges: false },人工路徑只留在 edits.json。
  * 改名只套在讀取端(API 顯示/摘要);runner 載入時傳 { renames: false } 只套刪除,
  * 避免把自訂名寫回 structure.json(之後取消改名才不會殘留)。
  */
 export function applyEdits(struct, edits, opts = {}) {
   const withRenames = opts.renames !== false;
+  const withAdded = opts.addedEdges !== false;
   if (!struct || !edits) return struct;
+  applyMerges(struct, edits.merges);
   const delPages = new Set(edits.deletedPages ?? []);
   const delEdges = new Set(edits.deletedEdges ?? []);
   for (const id of delPages) delete struct.pages?.[id];
@@ -26,6 +87,27 @@ export function applyEdits(struct, edits, opts = {}) {
     struct.rootPageId = Object.values(struct.pages ?? {}).find((p) => !p.transient)?.id ?? null;
   }
   struct.edges = (struct.edges ?? []).filter((e) => !delPages.has(e.fromPageId) && !delPages.has(e.toPageId) && !delEdges.has(edgeKey(e)));
+  if (withAdded) {
+    // 手動路徑:已存在同一條(AI 走過)就標 manual;否則新增一條 0/0 的人工路徑。
+    // manual 旗標只存在讀取結果,compactStructure 重建邊時不保留 → edits.json 才是唯一來源。
+    for (const a of edits.addedEdges ?? []) {
+      if (!a || !struct.pages?.[a.fromPageId] || !struct.pages?.[a.toPageId] || a.fromPageId === a.toPageId) continue;
+      const key = edgeKey(a);
+      if (delEdges.has(key)) continue;
+      const hit = struct.edges.find((e) => edgeKey(e) === key);
+      if (hit) { hit.manual = true; continue; }
+      const kind = a.trigger?.kind ?? 'auto';
+      const target = String(a.trigger?.target ?? '').trim();
+      struct.edges.push({
+        fromPageId: a.fromPageId,
+        toPageId: a.toPageId,
+        trigger: { kind, label: a.trigger?.label ?? (kind === 'auto' ? 'auto' : target ? `${kind} ${target}` : kind), ...(target ? { target } : {}) },
+        hitCount: 0,
+        missCount: 0,
+        manual: true,
+      });
+    }
+  }
   if (withRenames) {
     for (const [id, name] of Object.entries(edits.renames ?? {})) {
       const p = struct.pages?.[id];

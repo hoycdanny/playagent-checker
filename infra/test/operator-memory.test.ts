@@ -34,6 +34,7 @@ import {
   sameScreen,
   screenHintsFor,
 } from '../../agent/operatorMemory.mjs';
+import { summarizeForAgent } from '../../agent/memoryGraph.mjs';
 const runnerMod = { createOperatorChannel, loadAppMemory };
 
 /** 最小 S3 假物件:Put(If-Match / If-None-Match + ETag)、Get、List。 */
@@ -146,6 +147,51 @@ describe('memory map edits (edits.json)', () => {
     e = await readEdits(s3, 'b', 't1', 'app1');
     expect(e).toMatchObject({ renames: {}, deletedPages: [], deletedEdges: [] });
   });
+
+  test('parseEditOp: graph ops (move / addEdge / mergePage)', () => {
+    const P2 = 'page_0123abce';
+    expect(parseEditOp({ op: 'move', pageId: PAGE, x: 12.4, y: -3 })).toEqual({ op: 'move', pageId: PAGE, x: 12, y: -3 });
+    expect(() => parseEditOp({ op: 'move', pageId: PAGE, x: 'a', y: 1 })).toThrow(HintValidationError);
+    expect(parseEditOp({ op: 'moveMany', positions: { [PAGE]: { x: 1, y: 2 }, bad: { x: 1, y: 1 } } }))
+      .toEqual({ op: 'moveMany', positions: { [PAGE]: { x: 1, y: 2 } } });
+    expect(parseEditOp({ op: 'addEdge', fromPageId: PAGE, toPageId: P2, kind: 'tap', target: ' 開始  遊戲 ' })).toEqual({
+      op: 'addEdge',
+      edge: { fromPageId: PAGE, toPageId: P2, trigger: { kind: 'tap', label: 'tap 開始 遊戲', target: '開始 遊戲' } },
+    });
+    expect(parseEditOp({ op: 'addEdge', fromPageId: PAGE, toPageId: P2, kind: 'auto', target: 'x' })).toEqual({
+      op: 'addEdge',
+      edge: { fromPageId: PAGE, toPageId: P2, trigger: { kind: 'auto', label: 'auto' } },
+    });
+    expect(() => parseEditOp({ op: 'addEdge', fromPageId: PAGE, toPageId: PAGE, kind: 'tap' })).toThrow(HintValidationError);
+    expect(() => parseEditOp({ op: 'addEdge', fromPageId: PAGE, toPageId: P2, kind: 'jump' })).toThrow(HintValidationError);
+    expect(() => parseEditOp({ op: 'mergePage', pageId: PAGE, intoPageId: PAGE })).toThrow(HintValidationError);
+  });
+
+  test('apply graph ops: positions, addEdge ↔ deleteEdge, merge chain', async () => {
+    const { s3 } = fakeS3();
+    const A = 'page_aaaaaaaa', B = 'page_bbbbbbbb', C = 'page_cccccccc';
+    const run = (body: Record<string, unknown>) => applyEdit(s3, 'b', 't1', 'app1', parseEditOp(body));
+    await run({ op: 'move', pageId: A, x: 10, y: 20 });
+    await run({ op: 'moveMany', positions: { [B]: { x: 1, y: 2 } } });
+    await run({ op: 'deleteEdge', edgeKey: `${A}>${B}>tap>PLAY` });
+    let e = await run({ op: 'addEdge', fromPageId: A, toPageId: B, kind: 'tap', target: 'PLAY' });
+    expect(e.deletedEdges).toEqual([]); // 手動補回 = 取消刪除
+    expect(e.addedEdges).toHaveLength(1);
+    e = await run({ op: 'addEdge', fromPageId: A, toPageId: B, kind: 'tap', target: 'PLAY' });
+    expect(e.addedEdges).toHaveLength(1); // 不重複
+    e = await run({ op: 'deleteEdge', edgeKey: `${A}>${B}>tap>PLAY`, manualOnly: true });
+    expect(e.addedEdges).toEqual([]);
+    expect(e.deletedEdges).toEqual([]);
+    await run({ op: 'addEdge', fromPageId: A, toPageId: C, kind: 'tap', target: 'GO' });
+    await run({ op: 'mergePage', pageId: C, intoPageId: B });
+    e = await run({ op: 'mergePage', pageId: B, intoPageId: A });
+    expect(e.merges).toEqual({ [C]: A, [B]: A });
+    expect(e.addedEdges).toEqual([]); // A→C 併成 A→A 自環 → 丟掉
+    expect(e.positions).toEqual({ [A]: { x: 10, y: 20 } });
+    await expect(run({ op: 'mergePage', pageId: A, intoPageId: C })).rejects.toThrow(HintValidationError);
+    e = await run({ op: 'resetLayout' });
+    expect(e.positions).toEqual({});
+  });
 });
 
 describe('operator commands', () => {
@@ -256,6 +302,57 @@ describe('operatorMemory pure helpers', () => {
     expect(r.pages['p2']!.name).toBe('老虎機');
     expect(r.edges.map((e) => e.toPageId)).toEqual(['p2', 'p1']);
     expect(applyEdits(null, edits)).toBeNull();
+  });
+
+  test('applyEdits: merges combine pages and edges; addedEdges flagged manual', () => {
+    const s0 = {
+      rootPageId: 'p3',
+      pages: {
+        p1: { id: 'p1', name: '大廳', visitCount: 5, aliases: { 大廳: 5 }, pHashes: ['aa'], knownControlLabels: ['PLAY'] },
+        p2: { id: 'p2', name: '老虎機', visitCount: 3, aliases: { 老虎機: 3 }, pHashes: ['bb'], knownControlLabels: ['SPIN'] },
+        p3: { id: 'p3', name: '主頁', visitCount: 2, aliases: { 主頁: 2 }, pHashes: ['cc'], knownControlLabels: ['PLAY', 'SHOP'] },
+      } as Record<string, Record<string, unknown>>,
+      edges: [
+        { fromPageId: 'p1', toPageId: 'p2', trigger: { kind: 'tap', target: 'PLAY' }, hitCount: 2, missCount: 0 },
+        { fromPageId: 'p3', toPageId: 'p2', trigger: { kind: 'tap', target: 'PLAY' }, hitCount: 1, missCount: 1 },
+        { fromPageId: 'p3', toPageId: 'p1', trigger: { kind: 'auto' }, hitCount: 1, missCount: 0 },
+      ] as Array<Record<string, unknown> & { fromPageId: string; toPageId: string; trigger: { kind: string; target?: string } }>,
+    };
+    const s = applyEdits(structuredClone(s0), {
+      merges: { p3: 'p1' },
+      addedEdges: [
+        { fromPageId: 'p2', toPageId: 'p1', trigger: { kind: 'back', label: 'back' } },
+        { fromPageId: 'p1', toPageId: 'p2', trigger: { kind: 'tap', target: 'PLAY', label: 'tap PLAY' } },
+        { fromPageId: 'p9', toPageId: 'p1', trigger: { kind: 'tap', label: 'tap' } }, // 不存在的畫面略過
+      ],
+    });
+    expect(Object.keys(s.pages)).toEqual(['p1', 'p2']);
+    expect(s.rootPageId).toBe('p1');
+    expect(s.pages['p1']).toMatchObject({ visitCount: 7, aliases: { 大廳: 5, 主頁: 2 }, pHashes: ['aa', 'cc'], knownControlLabels: ['PLAY', 'SHOP'] });
+    expect(s.edges).toEqual([
+      { fromPageId: 'p1', toPageId: 'p2', trigger: { kind: 'tap', target: 'PLAY' }, hitCount: 3, missCount: 1, manual: true },
+      { fromPageId: 'p2', toPageId: 'p1', trigger: { kind: 'back', label: 'back' }, hitCount: 0, missCount: 0, manual: true },
+    ]);
+    // runner 模式:不加人工路徑
+    const r = applyEdits(structuredClone(s0), { addedEdges: [{ fromPageId: 'p2', toPageId: 'p1', trigger: { kind: 'back' } }] }, { addedEdges: false });
+    expect(r.edges.some((e) => (e as { manual?: boolean }).manual)).toBe(false);
+  });
+
+  test('summarizeForAgent lists manual edges first (even 0 hits)', () => {
+    const struct = {
+      appName: 'a',
+      rootPageId: 'p1',
+      pages: {
+        p1: { id: 'p1', name: '大廳', visitCount: 5, aliases: { 大廳: 5 }, pHash: '', knownControlLabels: [] },
+        p2: { id: 'p2', name: '選關', visitCount: 3, aliases: { 選關: 3 }, pHash: 'ffffffffffffffff', knownControlLabels: [] },
+      },
+      edges: [{ fromPageId: 'p1', toPageId: 'p2', trigger: { kind: 'tap', target: '冒險' }, hitCount: 0, missCount: 2 }],
+    };
+    expect(summarizeForAgent(struct)).not.toContain('人工標註)');
+    const s = applyEdits(structuredClone(struct), { addedEdges: [{ fromPageId: 'p1', toPageId: 'p2', trigger: { kind: 'tap', target: '冒險' } }] });
+    const text = summarizeForAgent(s);
+    expect(text).toContain('「大廳」 --tap 冒險--> 「選關」(人工標註)');
+    expect(text).not.toContain('常失敗的操作');
   });
 
   test('sameScreen is lenient on punctuation/whitespace', () => {

@@ -48,8 +48,23 @@ export interface MemoryEdits {
   deletedPages: string[];
   /** edgeKey(from>to>kind>target)。 */
   deletedEdges: string[];
+  /** 記憶關係圖上手動拖曳的節點位置(只給前端排版用)。 */
+  positions?: Record<string, { x: number; y: number }>;
+  /** 手動新增的路徑(人工標註 = 對 AI 視為可靠)。 */
+  addedEdges?: ManualEdge[];
+  /** 合併畫面:被併入的 pageId → 目標 pageId。 */
+  merges?: Record<string, string>;
   updatedAt?: string;
 }
+
+export const EDGE_KINDS = ['tap', 'swipe', 'back', 'auto'] as const;
+export type EdgeKind = (typeof EDGE_KINDS)[number];
+export interface ManualEdge {
+  fromPageId: string;
+  toPageId: string;
+  trigger: { kind: EdgeKind; label: string; target?: string };
+}
+export const MAX_ADDED_EDGES = 300;
 
 export const MAX_HINTS = 200;
 export const MAX_HINT_LEN = 500;
@@ -213,8 +228,24 @@ export type EditOp =
   | { op: 'clearRename'; pageId: string }
   | { op: 'deletePage'; pageId: string }
   | { op: 'restorePage'; pageId: string }
-  | { op: 'deleteEdge'; edgeKey: string }
-  | { op: 'restoreEdge'; edgeKey: string };
+  | { op: 'deleteEdge'; edgeKey: string; manualOnly?: boolean }
+  | { op: 'restoreEdge'; edgeKey: string }
+  | { op: 'move'; pageId: string; x: number; y: number }
+  | { op: 'moveMany'; positions: Record<string, { x: number; y: number }> }
+  | { op: 'resetLayout' }
+  | { op: 'addEdge'; edge: ManualEdge }
+  | { op: 'mergePage'; pageId: string; intoPageId: string };
+
+function cleanCoord(v: unknown): number | undefined {
+  const n = typeof v === 'number' ? v : Number.NaN;
+  return Number.isFinite(n) && Math.abs(n) <= 1e6 ? Math.round(n) : undefined;
+}
+
+/** 手動路徑的 label(與 memoryGraph 的格式一致:auto 或「動作 目標」)。 */
+function edgeLabel(kind: EdgeKind, target?: string): string {
+  if (kind === 'auto') return 'auto';
+  return target ? `${kind} ${target}` : kind;
+}
 
 export function parseEditOp(body: unknown): EditOp {
   const b = (body ?? {}) as Record<string, unknown>;
@@ -233,9 +264,53 @@ export function parseEditOp(body: unknown): EditOp {
       if (!pageId) throw new HintValidationError(`${op} 需要 pageId`);
       return { op, pageId };
     case 'deleteEdge':
+      if (!edgeKey) throw new HintValidationError(`${op} 需要 edgeKey`);
+      return { op, edgeKey, ...(b['manualOnly'] === true ? { manualOnly: true } : {}) };
     case 'restoreEdge':
       if (!edgeKey) throw new HintValidationError(`${op} 需要 edgeKey`);
       return { op, edgeKey };
+    case 'move': {
+      const x = cleanCoord(b['x']);
+      const y = cleanCoord(b['y']);
+      if (!pageId || x === undefined || y === undefined) throw new HintValidationError('move 需要 pageId、x、y');
+      return { op, pageId, x, y };
+    }
+    case 'moveMany': {
+      const src = b['positions'];
+      if (!src || typeof src !== 'object') throw new HintValidationError('moveMany 需要 positions');
+      const positions: Record<string, { x: number; y: number }> = {};
+      for (const [id, v] of Object.entries(src as Record<string, unknown>).slice(0, 500)) {
+        const p = (v ?? {}) as Record<string, unknown>;
+        const x = cleanCoord(p['x']);
+        const y = cleanCoord(p['y']);
+        if (cleanPage(id) && x !== undefined && y !== undefined) positions[id] = { x, y };
+      }
+      return { op, positions };
+    }
+    case 'resetLayout':
+      return { op };
+    case 'addEdge': {
+      const from = cleanPage(b['fromPageId']);
+      const to = cleanPage(b['toPageId']);
+      const kind = b['kind'];
+      if (!from || !to) throw new HintValidationError('addEdge 需要 fromPageId 與 toPageId');
+      if (from === to) throw new HintValidationError('起點與終點不可相同');
+      if (typeof kind !== 'string' || !(EDGE_KINDS as readonly string[]).includes(kind)) {
+        throw new HintValidationError(`kind 只能是 ${EDGE_KINDS.join(' / ')}`);
+      }
+      const k = kind as EdgeKind;
+      const target = k === 'auto' ? '' : (typeof b['target'] === 'string' ? b['target'].trim().replace(/\s+/g, ' ').slice(0, 40) : '');
+      return {
+        op,
+        edge: { fromPageId: from, toPageId: to, trigger: { kind: k, label: edgeLabel(k, target), ...(target ? { target } : {}) } },
+      };
+    }
+    case 'mergePage': {
+      const into = cleanPage(b['intoPageId']);
+      if (!pageId || !into) throw new HintValidationError('mergePage 需要 pageId 與 intoPageId');
+      if (pageId === into) throw new HintValidationError('不可合併到自己');
+      return { op, pageId, intoPageId: into };
+    }
     default:
       throw new HintValidationError('op 不支援');
   }
@@ -243,17 +318,70 @@ export function parseEditOp(body: unknown): EditOp {
 
 export async function applyEdit(s3: S3Client, bucket: string, tenantId: string, app: string, e: EditOp): Promise<MemoryEdits> {
   return mutate(s3, bucket, `${prefix(tenantId, app)}/edits.json`, emptyEdits, (raw) => {
-    const doc: MemoryEdits = { ...emptyEdits(), ...raw, renames: { ...(raw.renames ?? {}) } };
+    const doc: MemoryEdits = {
+      ...emptyEdits(),
+      ...raw,
+      renames: { ...(raw.renames ?? {}) },
+      positions: { ...(raw.positions ?? {}) },
+      addedEdges: [...(raw.addedEdges ?? [])],
+      merges: { ...(raw.merges ?? {}) },
+    };
+    const positions = doc.positions!;
+    const merges = doc.merges!;
+    let added = doc.addedEdges!;
     const del = new Set(doc.deletedPages);
     const delE = new Set(doc.deletedEdges);
     switch (e.op) {
       case 'rename': doc.renames[e.pageId] = e.name; break;
       case 'clearRename': delete doc.renames[e.pageId]; break;
-      case 'deletePage': del.add(e.pageId); break;
+      case 'deletePage':
+        del.add(e.pageId);
+        delete positions[e.pageId];
+        added = added.filter((x) => x.fromPageId !== e.pageId && x.toPageId !== e.pageId);
+        break;
       case 'restorePage': del.delete(e.pageId); break;
-      case 'deleteEdge': delE.add(e.edgeKey); break;
+      case 'deleteEdge':
+        added = added.filter((x) => edgeKey(x) !== e.edgeKey);
+        // 純手動路徑(AI 從沒走過)直接移除即可,不必進「已刪除」清單。
+        if (!e.manualOnly) delE.add(e.edgeKey);
+        break;
       case 'restoreEdge': delE.delete(e.edgeKey); break;
+      case 'move': positions[e.pageId] = { x: e.x, y: e.y }; break;
+      case 'moveMany': Object.assign(positions, e.positions); break;
+      case 'resetLayout': doc.positions = {}; break;
+      case 'addEdge': {
+        const key = edgeKey(e.edge);
+        delE.delete(key);
+        if (!added.some((x) => edgeKey(x) === key)) {
+          if (added.length >= MAX_ADDED_EDGES) throw new HintValidationError(`手動路徑最多 ${MAX_ADDED_EDGES} 條`);
+          added = [...added, e.edge];
+        }
+        break;
+      }
+      case 'mergePage': {
+        // 目標若早已被併到別處,沿著鏈找到最終目標(防循環)。
+        let into = e.intoPageId;
+        for (let i = 0; i < 50 && merges[into]; i++) into = merges[into]!;
+        if (into === e.pageId) throw new HintValidationError('不可合併到自己');
+        merges[e.pageId] = into;
+        // 先前併入 pageId 的也一併改指向新目標(保持單層對應)。
+        for (const [k, v] of Object.entries(merges)) if (v === e.pageId) merges[k] = into;
+        delete positions[e.pageId];
+        delete doc.renames[e.pageId];
+        const remap = (id: string) => (id === e.pageId ? into : id);
+        const seen = new Set<string>();
+        added = added
+          .map((x) => ({ ...x, fromPageId: remap(x.fromPageId), toPageId: remap(x.toPageId) }))
+          .filter((x) => {
+            const k = edgeKey(x);
+            if (x.fromPageId === x.toPageId || seen.has(k)) return false;
+            seen.add(k);
+            return true;
+          });
+        break;
+      }
     }
+    doc.addedEdges = added;
     doc.deletedPages = [...del].slice(-500);
     doc.deletedEdges = [...delE].slice(-1000);
     doc.updatedAt = new Date().toISOString();
