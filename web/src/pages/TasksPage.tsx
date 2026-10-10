@@ -365,26 +365,37 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         next.delete(jobId);
         return next;
       });
-      await refetch();
-    } catch {
-      /* 忽略 */
+    } catch (err) {
+      // 刪除失敗要讓使用者知道(之前靜默忽略 → 任務看似刪了,重新整理又出現)。
+      window.alert(`${t('tasks.deleteFailed')}${err instanceof Error ? `\n${err.message}` : ''}`);
+    } finally {
+      await refetch().catch(() => {});
     }
   }
 
-  // 批次刪除:對勾選的任務逐一呼叫單筆刪除 API(後端無批次端點,前端並行呼叫)。
+  // 批次刪除:後端無批次端點,逐筆呼叫單筆刪除 API。限制同時 3 筆:長測試一筆就有數千個檔案,
+  // 全部並行會讓 S3 節流、Lambda 逾時,造成部分任務沒刪乾淨。失敗的保留勾選並提示。
   async function onBatchDelete() {
     if (selectedIds.size === 0) return;
     if (!window.confirm(t('tasks.batchDeleteConfirm').replace('{n}', String(selectedIds.size)))) return;
     setBatchDeleting(true);
+    const queue = [...selectedIds];
+    const failed: string[] = [];
     try {
-      await Promise.all(
-        [...selectedIds].map((jobId) =>
-          apiDelete(`/tasks/${encodeURIComponent(jobId)}`).catch(() => {}),
-        ),
-      );
-      setSelectedIds(new Set());
-      await refetch();
+      const worker = async () => {
+        for (let jobId = queue.shift(); jobId; jobId = queue.shift()) {
+          try {
+            await apiDelete(`/tasks/${encodeURIComponent(jobId)}`);
+          } catch {
+            failed.push(jobId);
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      setSelectedIds(new Set(failed));
+      if (failed.length) window.alert(t('tasks.batchDeleteFailed').replace('{n}', String(failed.length)));
     } finally {
+      await refetch().catch(() => {});
       setBatchDeleting(false);
     }
   }

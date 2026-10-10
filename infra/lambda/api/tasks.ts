@@ -915,6 +915,10 @@ export async function deleteJob(
   jobId: string,
 ): Promise<void> {
   const prefix = `${jobsPrefix(tenantId)}${jobId}/`;
+  // 1) 先刪「索引檔」:列表靠 job.json 判斷任務存在,先刪掉它,任務立刻從所有清單消失,
+  //    即使後面大量檔案(長測試可達數千個截圖/log)刪到一半被中斷,也不會「刪了還在」。
+  await deleteKeysStrict(s3, bucket, ['job.json', 'status.json', 'report.json'].map((f) => `${prefix}${f}`));
+  // 2) 再刪其餘全部。
   let continuationToken: string | undefined;
   do {
     const list = await s3.send(
@@ -924,21 +928,38 @@ export async function deleteJob(
         ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
       }),
     );
-    const objects = (list.Contents ?? [])
+    const keys = (list.Contents ?? [])
       .map((o) => o.Key)
-      .filter((k): k is string => typeof k === 'string')
-      .map((Key) => ({ Key }));
-    if (objects.length > 0) {
-      // 分批(每批最多 1000)刪除。
-      for (let i = 0; i < objects.length; i += 1000) {
-        await s3.send(
-          new DeleteObjectsCommand({
-            Bucket: bucket,
-            Delete: { Objects: objects.slice(i, i + 1000) },
-          }),
-        );
-      }
-    }
+      .filter((k): k is string => typeof k === 'string');
+    await deleteKeysStrict(s3, bucket, keys);
     continuationToken = list.IsTruncated ? list.NextContinuationToken : undefined;
   } while (continuationToken);
+}
+
+/**
+ * 批次刪除並確認每個 key 都刪掉了。DeleteObjects 即使部分失敗(例如同時大量刪除時 S3 回 SlowDown)
+ * 也回 HTTP 200,失敗的 key 只列在 Errors 裡 —— 舊版忽略它,導致任務檔案隨機殘留、任務「刪了還在」。
+ * 這裡對失敗的 key 退避重試,仍失敗就丟錯(前端才知道沒刪乾淨)。
+ */
+async function deleteKeysStrict(s3: S3Client, bucket: string, keys: string[], attempts = 6): Promise<void> {
+  for (let i = 0; i < keys.length; i += 1000) {
+    let pending = keys.slice(i, i + 1000);
+    for (let attempt = 0; pending.length > 0; attempt++) {
+      if (attempt >= attempts) {
+        throw new Error(`刪除任務檔案失敗(${pending.length} 個檔案,例:${pending[0]}),請稍後再試`);
+      }
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 200 * 2 ** attempt));
+      try {
+        const res = await s3.send(
+          new DeleteObjectsCommand({ Bucket: bucket, Delete: { Objects: pending.map((Key) => ({ Key })), Quiet: true } }),
+        );
+        const failed = new Set((res.Errors ?? []).map((e) => e.Key).filter((k): k is string => typeof k === 'string'));
+        pending = pending.filter((k) => failed.has(k));
+      } catch (err) {
+        // 整批被節流(503 SlowDown)→ 重試;其他錯誤直接丟出。
+        const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+        if (!(e?.name === 'SlowDown' || e?.$metadata?.httpStatusCode === 503)) throw err;
+      }
+    }
+  }
 }
