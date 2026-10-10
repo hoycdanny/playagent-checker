@@ -22,12 +22,16 @@ import '@xyflow/react/dist/style.css';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import { reportLang, type RLang } from './report/reportText.ts';
 import { deleteEdgeOp, mt } from './memory/MemoryEditor.tsx';
+import { RoutesPanel, addBranch, addStep, rt, type MemoryRoute, type RoutePick } from './memory/RoutesPanel.tsx';
 import './ScreenGraph.css';
 
 const ACCENT = '#ff2d95';
 const WARN = '#d29922';
 const AUTO = '#8a919e';
 const MANUAL = '#3fb6ff';
+const ROUTE = '#a371f7';
+const BRANCH = '#f0883e';
+const NO_ROUTES: MemoryRoute[] = [];
 const NODE_W = 160;
 const THUMB_H = 110;
 const NODE_H = THUMB_H + 60;
@@ -72,6 +76,19 @@ interface ScreenNodeData extends Record<string, unknown> {
   rootLabel: string;
   dropTarget?: boolean;
   dropLabel?: string;
+  /** 顯示中的路線經過這個畫面的步驟編號(支線畫面為「支」)。 */
+  routeBadges?: string[];
+  picking?: boolean;
+}
+
+/** 節點上的路線步驟徽章。 */
+function RouteBadges({ list }: { list?: string[] | undefined }) {
+  if (!list?.length) return null;
+  return (
+    <span className="sg-route-badges" aria-hidden="true">
+      {list.slice(0, 4).map((b, i) => <span key={i} className={`sg-route-badge${/^\d+$/.test(b) ? '' : ' sg-route-badge--branch'}`}>{b}</span>)}
+    </span>
+  );
 }
 interface FlowEdgeData extends Record<string, unknown> {
   list: MemEdge[];
@@ -80,10 +97,11 @@ interface FlowEdgeData extends Record<string, unknown> {
 /** 節點:截圖縮圖 + 熱度 + 名稱 + 別名數 + 到訪次數;載入/過場節點縮成小膠囊。 */
 function ScreenFlowNode({ data }: NodeProps) {
   const d = data as ScreenNodeData;
-  const drop = d.dropTarget ? ' sg-node--drop' : '';
+  const drop = (d.dropTarget ? ' sg-node--drop' : '') + (d.picking ? ' sg-node--picking' : '') + (d.routeBadges?.length ? ' sg-node--onroute' : '');
   if (d.transient) {
     return (
       <div className={`sg-node sg-node--transient${drop}`} title={d.aliases.join('、')}>
+        <RouteBadges list={d.routeBadges} />
         <Handle type="target" position={Position.Left} />
         <span>{d.name}</span>
         <small>{d.visitCount}</small>
@@ -101,6 +119,7 @@ function ScreenFlowNode({ data }: NodeProps) {
       <div className="sg-node__thumb">
         {d.screenshotUrl ? <img src={d.screenshotUrl} alt={d.name} loading="lazy" draggable={false} /> : <div className="sg-node__noimg" />}
         {d.isRoot && <span className="sg-node__root">{d.rootLabel}</span>}
+        <RouteBadges list={d.routeBadges} />
         {d.dropTarget && <span className="sg-node__droplabel">{d.dropLabel}</span>}
       </div>
       <div className="sg-node__name">{d.name}</div>
@@ -208,6 +227,60 @@ function layout(
   return { nodes, edges };
 }
 
+/** 把顯示中的路線疊到圖上:節點加步驟編號、步驟之間畫紫色編號線、支線畫橘色岔路。 */
+function overlayRoute(
+  base: { nodes: Node[]; edges: Edge[] },
+  route: MemoryRoute | null,
+  picking: boolean,
+  branchLabel: string,
+): { nodes: Node[]; edges: Edge[] } {
+  if (!route && !picking) return base;
+  const ids = new Set(base.nodes.map((n) => n.id));
+  const badges = new Map<string, string[]>();
+  const push = (id: string, b: string) => badges.set(id, [...(badges.get(id) ?? []), b]);
+  const extra: Edge[] = [];
+  const mk = (id: string, source: string, target: string, label: string, color: string, dashed: boolean): Edge => ({
+    id, source, target, label,
+    selectable: false, deletable: false, focusable: false, animated: true, zIndex: 1000,
+    markerEnd: { type: MarkerType.ArrowClosed, color },
+    style: { stroke: color, strokeWidth: 3, ...(dashed ? { strokeDasharray: '6 4' } : {}) },
+    labelStyle: { fill: color, fontSize: 12, fontWeight: 700 },
+    labelBgStyle: { fill: 'var(--surface)' },
+  });
+  if (route) {
+    route.steps.forEach((s, i) => {
+      push(s.pageId, String(i + 1));
+      const next = route.steps[i + 1];
+      if (next && next.pageId !== s.pageId && ids.has(s.pageId) && ids.has(next.pageId)) {
+        extra.push(mk(`route:${s.id}`, s.pageId, next.pageId, `${i + 1} → ${i + 2}`, ROUTE, false));
+      }
+    });
+    const no = new Map(route.steps.map((s, i) => [s.id, i + 1]));
+    for (const b of route.branches) {
+      const from = route.steps.find((s) => s.id === b.fromStepId);
+      const back = route.steps.find((s) => s.id === b.returnStepId) ?? from;
+      if (!from || !back) continue;
+      push(b.pageId, branchLabel);
+      if (ids.has(from.pageId) && ids.has(b.pageId) && from.pageId !== b.pageId) {
+        extra.push(mk(`branch:${b.id}:in`, from.pageId, b.pageId, `${branchLabel} @${no.get(from.id)}`, BRANCH, true));
+      }
+      if (ids.has(back.pageId) && ids.has(b.pageId) && back.pageId !== b.pageId) {
+        extra.push(mk(`branch:${b.id}:out`, b.pageId, back.pageId, `↩ ${no.get(back.id)}`, BRANCH, true));
+      }
+    }
+  }
+  return {
+    nodes: base.nodes.map((n) => {
+      const list = badges.get(n.id);
+      if (!list && !picking) return n;
+      return { ...n, data: { ...n.data, ...(list ? { routeBadges: list } : {}), picking } };
+    }),
+    // 路線線條疊在最上層;原本的路徑淡化,路線一眼看得出來。
+    // 原本的標籤會和路線標籤疊在一起,顯示路線時先隱藏。
+    edges: [...base.edges.map((e) => (route ? { ...e, label: undefined, style: { ...e.style, opacity: 0.3 } } : e)), ...extra],
+  };
+}
+
 export interface ScreenGraphProps {
   pages: MemPage[];
   edges: MemEdge[];
@@ -218,6 +291,8 @@ export interface ScreenGraphProps {
   onEdit?: (op: GraphEditOp) => Promise<void>;
   /** 點畫面 → 開編修抽屜。 */
   onOpenPage?: (pageId: string) => void;
+  /** 已存的操作路線(edits.json routes)。 */
+  routes?: MemoryRoute[];
 }
 
 export function ScreenGraph(props: ScreenGraphProps) {
@@ -231,7 +306,7 @@ export function ScreenGraph(props: ScreenGraphProps) {
 
 const NO_POSITIONS: Positions = {};
 
-function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSITIONS, onEdit, onOpenPage }: ScreenGraphProps) {
+function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSITIONS, onEdit, onOpenPage, routes = NO_ROUTES }: ScreenGraphProps) {
   const { t, locale } = useI18n();
   const lang: RLang = reportLang(locale);
   const editable = Boolean(onEdit);
@@ -270,11 +345,22 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
     auto: t('memory.graphAuto'),
     manual: mt('manualEdge', lang),
   };
-  const base = useMemo(
+  const laid = useMemo(
     () => layout(visiblePages, visibleEdges, rootPageId, labels, positions),
     // labels 由 t / lang 衍生,語系切換時 t 會變
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [visiblePages, visibleEdges, rootPageId, t, positions],
+  );
+
+  // ── 操作路線:編輯中的草稿 / 在圖上顯示的路線 ──
+  const [draft, setDraft] = useState<MemoryRoute | null>(null);
+  const [pick, setPick] = useState<RoutePick | null>(null);
+  const [shownId, setShownId] = useState<string | null>(null);
+  const shownRoute = draft ?? routes.find((r) => r.id === shownId) ?? null;
+  const picking = Boolean(draft && pick);
+  const base = useMemo(
+    () => overlayRoute(laid, shownRoute, picking, lang === 'zh' ? '支' : 'B'),
+    [laid, shownRoute, picking, lang],
   );
 
   // 受控狀態(拖曳、選取);資料重新載入時同步,保留選取。
@@ -288,18 +374,44 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
     setFlowEdges(base.edges);
   }, [base, setNodes, setFlowEdges]);
 
-  const run = useCallback(async (ops: GraphEditOp[]) => {
-    if (!onEdit || ops.length === 0) return;
+  const run = useCallback(async (ops: GraphEditOp[]): Promise<boolean> => {
+    if (!onEdit || ops.length === 0) return false;
     setBusy(true);
     setError('');
     try {
       for (const op of ops) await onEdit(op);
+      return true;
     } catch (err) {
       setError(`${mt('failed', lang)}${err instanceof Error ? err.message : String(err)}`);
+      return false;
     } finally {
       setBusy(false);
     }
   }, [onEdit, lang]);
+
+  // 路線編輯中點畫面 = 加一步 / 加支線;否則開編修抽屜。
+  const onNodeClick = useCallback((pageId: string) => {
+    if (draft && pick) {
+      if (pick.kind === 'branch') {
+        setDraft(addBranch(draft, pick.fromStepId, pageId));
+        setPick({ kind: 'step' });
+      } else {
+        setDraft(addStep(draft, pageId));
+      }
+      return;
+    }
+    onOpenPage?.(pageId);
+  }, [draft, pick, onOpenPage]);
+  const closeDraft = useCallback(() => { setDraft(null); setPick(null); }, []);
+  const saveRoute = useCallback(async (r: MemoryRoute) => {
+    if (await run([{ op: 'saveRoute', route: r }])) { setShownId(r.id); closeDraft(); }
+  }, [run, closeDraft]);
+  const deleteRoute = useCallback(async (r: MemoryRoute) => {
+    if (await run([{ op: 'deleteRoute', routeId: r.id }]) && shownId === r.id) setShownId(null);
+  }, [run, shownId]);
+  const toggleRoute = useCallback(async (r: MemoryRoute) => {
+    await run([{ op: 'saveRoute', route: { ...r, enabled: !r.enabled } }]);
+  }, [run]);
 
   // ── 拖曳:存位置 / 放到另一個畫面上 = 合併 ──
   const dragStart = useRef<Map<string, { x: number; y: number }>>(new Map());
@@ -406,9 +518,28 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
           <span className="sg-legend__line sg-legend__line--dash" /> {t('memory.graphAuto')}
           <span className="sg-legend__line" style={{ background: WARN }} /> {t('memory.graphLegendUnreliable')}
           {editable && <><span className="sg-legend__line" style={{ background: MANUAL }} /> {mt('manualEdge', lang)}</>}
+          {shownRoute && <><span className="sg-legend__line" style={{ background: ROUTE }} /> {rt('title', lang)}<span className="sg-legend__line sg-legend__line--branch" /> {rt('addBranch', lang).replace('+ ', '')}</>}
         </span>
       </div>
-      {editable && <p className="sg-edit-hint">{mt('graphEditHint', lang)}</p>}
+      {editable && (
+        <RoutesPanel
+          lang={lang}
+          routes={routes}
+          draft={draft}
+          pick={pick}
+          shownId={shownId}
+          busy={busy}
+          pageName={(id) => pages.find((p) => p.id === id)?.name ?? ''}
+          onDraft={setDraft}
+          onPick={setPick}
+          onShow={setShownId}
+          onSave={saveRoute}
+          onCancel={closeDraft}
+          onDelete={deleteRoute}
+          onToggle={toggleRoute}
+        />
+      )}
+      {editable && !draft && <p className="sg-edit-hint">{mt('graphEditHint', lang)}</p>}
       {error && <p className="sg-error" role="alert">{error}</p>}
       <div className={`sg-canvas${busy ? ' sg-canvas--busy' : ''}`}>
         <ReactFlow
@@ -420,7 +551,7 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
           onNodeDragStart={onNodeDragStart}
           onNodeDrag={onNodeDrag}
           onNodeDragStop={(e, n, ns) => void onNodeDragStop(e, n, ns)}
-          onNodeClick={(_, n) => onOpenPage?.(n.id)}
+          onNodeClick={(_, n) => onNodeClick(n.id)}
           onConnect={onConnect}
           onBeforeDelete={onBeforeDelete}
           nodesConnectable={editable}

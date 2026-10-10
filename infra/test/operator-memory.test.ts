@@ -8,6 +8,7 @@ import {
 import {
   addHint,
   applyEdit,
+  parseRoute,
   deleteHint,
   HintNotFoundError,
   HintValidationError,
@@ -31,6 +32,8 @@ import {
   hintsPromptSection,
   loadAppMemory,
   operatorTurnNote,
+  routesPromptSection,
+  routeTurnNote,
   sameScreen,
   screenHintsFor,
 } from '../../agent/operatorMemory.mjs';
@@ -192,6 +195,34 @@ describe('memory map edits (edits.json)', () => {
     e = await run({ op: 'resetLayout' });
     expect(e.positions).toEqual({});
   });
+
+  test('routes: validate, save (upsert), merge remaps pages, delete', async () => {
+    const { s3 } = fakeS3();
+    const A = 'page_aaaaaaaa', B = 'page_bbbbbbbb', C = 'page_cccccccc';
+    const route = {
+      id: 'route-abc123', name: ' 主線 ', enabled: true,
+      steps: [{ id: 's-0001', pageId: A, action: ' 點  遊戲 ' }, { id: 's-0002', pageId: C, action: '通關' }],
+      branches: [{ id: 'b-0001', fromStepId: 's-0002', pageId: B, action: '關彈窗' }],
+    };
+    const parsed = parseRoute(route);
+    expect(parsed.name).toBe('主線');
+    expect(parsed.steps[0]!.action).toBe('點 遊戲');
+    expect(parsed.branches[0]!.returnStepId).toBe('s-0002'); // 預設回到同一步
+    expect(() => parseRoute({ ...route, steps: [] })).toThrow(HintValidationError);
+    expect(() => parseRoute({ ...route, id: 'x' })).toThrow(HintValidationError);
+    expect(() => parseRoute({ ...route, steps: [route.steps[0], { ...route.steps[1], id: 's-0001' }] })).toThrow(HintValidationError);
+    expect(() => parseRoute({ ...route, branches: [{ ...route.branches[0], fromStepId: 's-9999' }] })).toThrow(HintValidationError);
+
+    const run = (body: Record<string, unknown>) => applyEdit(s3, 'b', 't1', 'app1', parseEditOp(body));
+    let e = await run({ op: 'saveRoute', route });
+    expect(e.routes).toHaveLength(1);
+    e = await run({ op: 'saveRoute', route: { ...route, name: '主線 v2' } });
+    expect(e.routes!.map((r) => r.name)).toEqual(['主線 v2']);
+    e = await run({ op: 'mergePage', pageId: C, intoPageId: B });
+    expect(e.routes![0]!.steps[1]!.pageId).toBe(B);
+    e = await run({ op: 'deleteRoute', routeId: 'route-abc123' });
+    expect(e.routes).toEqual([]);
+  });
 });
 
 describe('operator commands', () => {
@@ -336,6 +367,35 @@ describe('operatorMemory pure helpers', () => {
     // runner 模式:不加人工路徑
     const r = applyEdits(structuredClone(s0), { addedEdges: [{ fromPageId: 'p2', toPageId: 'p1', trigger: { kind: 'back' } }] }, { addedEdges: false });
     expect(r.edges.some((e) => (e as { manual?: boolean }).manual)).toBe(false);
+  });
+
+  test('routesPromptSection / routeTurnNote: ordered steps + popup branch', () => {
+    const routes = [
+      {
+        id: 'route-abcdef', name: '主線', enabled: true,
+        steps: [
+          { id: 's-0001', pageId: 'p1', action: '點選 xx 遊戲' },
+          { id: 's-0002', pageId: 'p2', action: '開始除草殺敵直到通關' },
+          { id: 's-0003', pageId: 'p3', action: '點下一關' },
+        ],
+        branches: [{ id: 'b-0001', fromStepId: 's-0002', pageId: 'p9', action: '關閉活動彈窗', returnStepId: 's-0002' }],
+      },
+      { id: 'route-off000', name: '停用', enabled: false, steps: [{ id: 's-0009', pageId: 'p1', action: 'x' }], branches: [] },
+    ];
+    const names: Record<string, string> = { p1: '大廳', p2: '第一關', p3: '結算', p9: '活動彈窗' };
+    const nm = (id: string) => names[id] ?? '';
+    const sys = routesPromptSection(routes, nm);
+    expect(sys).toContain('路線「主線」');
+    expect(sys).toContain('1. 在「大廳」:點選 xx 遊戲');
+    expect(sys).toContain('支線(第 2 步時若出現「活動彈窗」):關閉活動彈窗 → 回到第 2 步');
+    expect(sys).not.toContain('停用');
+    expect(routesPromptSection([], nm)).toBe('');
+
+    expect(routeTurnNote(routes, 'p2', nm)).toContain('第 2/3 步:開始除草殺敵直到通關;完成後前往第 3 步「結算」(點下一關)');
+    expect(routeTurnNote(routes, 'p3', nm)).toContain('這是路線最後一步');
+    expect(routeTurnNote(routes, 'p9', nm)).toContain('關閉活動彈窗,然後回到第 2 步「第一關」繼續');
+    expect(routeTurnNote(routes, 'p7', nm)).toBe('');
+    expect(routeTurnNote(routes, null, nm)).toBe('');
   });
 
   test('summarizeForAgent lists manual edges first (even 0 hits)', () => {

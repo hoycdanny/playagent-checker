@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import type { GraphEditOp, Positions } from '../ScreenGraph.tsx';
+import type { MemoryRoute } from './RoutesPanel.tsx';
 import { useNavigate } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
@@ -55,6 +56,7 @@ export interface MemOverview {
     positions?: Positions;
     addedEdges?: MemEdge[];
     merges?: Record<string, string>;
+    routes?: MemoryRoute[];
   };
   deleted?: DeletedInfo;
 }
@@ -312,6 +314,7 @@ export default function MemoryPanel({
                   rootPageId={overview?.structure.rootPageId ?? null}
                   {...(overview?.edits?.positions ? { positions: overview.edits.positions } : {})}
                   {...(appId ? { onEdit: onGraphEdit, onOpenPage: setOpenPageId } : {})}
+                  {...(overview?.edits?.routes ? { routes: overview.edits.routes } : {})}
                 />
               </Suspense>
             </>

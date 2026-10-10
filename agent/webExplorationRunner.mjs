@@ -20,7 +20,7 @@
  */
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -217,7 +217,9 @@ async function main() {
   const steps = [];
   // 載入時先收斂舊格式的雜亂資料,之後以新規則增量更新(見 memoryGraph.mjs);套用使用者刪除的畫面/路徑。
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
-  const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
+  // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
+  const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
+  const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let prevScreen = '';
   let pendingCmds = []; // 尚未得到有效回應的測試人員指令
@@ -283,7 +285,7 @@ async function main() {
       ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
       : '';
     const turnText = (i === 0 ? `第一張畫面(網址 ${client.currentUrl()})。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint
-      + memoryNote + operatorTurnNote(newCmds, operator.active);
+      + memoryNote + routeTurnNote(appMemory.edits?.routes, prevPageId, routePageName) + operatorTurnNote(newCmds, operator.active);
     messages.push(makeUserTurn([ds.b64], turnText, visionFmt));
 
     const tVlm = Date.now();

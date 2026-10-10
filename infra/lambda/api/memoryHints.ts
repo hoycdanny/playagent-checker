@@ -54,8 +54,31 @@ export interface MemoryEdits {
   addedEdges?: ManualEdge[];
   /** 合併畫面:被併入的 pageId → 目標 pageId。 */
   merges?: Record<string, string>;
+  /** 使用者在關係圖上畫的順序路線(整個應用共用,每次測試注入 AI)。 */
+  routes?: MemoryRoute[];
   updatedAt?: string;
 }
+
+/** 路線的一步:到某個畫面、在那裡做什麼。 */
+export interface RouteStep { id: string; pageId: string; action: string }
+/**
+ * 支線:做到 fromStepId 那一步時若出現 pageId 畫面(例如當天限定活動彈窗),
+ * 先做 action,再回到 returnStepId 那一步繼續。
+ */
+export interface RouteBranch { id: string; fromStepId: string; pageId: string; action: string; returnStepId: string }
+export interface MemoryRoute {
+  id: string;
+  name: string;
+  enabled: boolean;
+  steps: RouteStep[];
+  branches: RouteBranch[];
+  updatedAt?: string;
+}
+export const MAX_ROUTES = 20;
+export const MAX_ROUTE_STEPS = 40;
+export const MAX_ROUTE_BRANCHES = 40;
+const ROUTE_ID_RE = /^route-[a-z0-9]{6,24}$/;
+const STEP_ID_RE = /^[sb]-[a-z0-9]{4,24}$/;
 
 export const EDGE_KINDS = ['tap', 'swipe', 'back', 'auto'] as const;
 export type EdgeKind = (typeof EDGE_KINDS)[number];
@@ -234,7 +257,49 @@ export type EditOp =
   | { op: 'moveMany'; positions: Record<string, { x: number; y: number }> }
   | { op: 'resetLayout' }
   | { op: 'addEdge'; edge: ManualEdge }
-  | { op: 'mergePage'; pageId: string; intoPageId: string };
+  | { op: 'mergePage'; pageId: string; intoPageId: string }
+  | { op: 'saveRoute'; route: MemoryRoute }
+  | { op: 'deleteRoute'; routeId: string };
+
+function cleanAction(v: unknown): string {
+  return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+}
+
+/** 驗證整條路線(前端每次整條送上來)。 */
+export function parseRoute(v: unknown): MemoryRoute {
+  const r = (v ?? {}) as Record<string, unknown>;
+  const id = typeof r['id'] === 'string' && ROUTE_ID_RE.test(r['id']) ? r['id'] : undefined;
+  if (!id) throw new HintValidationError('route.id 格式不正確');
+  const name = typeof r['name'] === 'string' ? r['name'].replace(/\s+/g, ' ').trim().slice(0, 40) : '';
+  if (!name) throw new HintValidationError('路線名稱必填');
+  const rawSteps = Array.isArray(r['steps']) ? r['steps'] : [];
+  if (rawSteps.length === 0) throw new HintValidationError('路線至少要有一步');
+  if (rawSteps.length > MAX_ROUTE_STEPS) throw new HintValidationError(`每條路線最多 ${MAX_ROUTE_STEPS} 步`);
+  const ids = new Set<string>();
+  const uniqueId = (x: unknown, what: string): string => {
+    if (typeof x !== 'string' || !STEP_ID_RE.test(x) || ids.has(x)) throw new HintValidationError(`${what} id 格式不正確或重複`);
+    ids.add(x);
+    return x;
+  };
+  const steps: RouteStep[] = rawSteps.map((s) => {
+    const o = (s ?? {}) as Record<string, unknown>;
+    const pageId = cleanPage(o['pageId']);
+    if (!pageId) throw new HintValidationError('路線步驟需要 pageId');
+    return { id: uniqueId(o['id'], '步驟'), pageId, action: cleanAction(o['action']) };
+  });
+  const stepIds = new Set(steps.map((s) => s.id));
+  const rawBranches = Array.isArray(r['branches']) ? r['branches'] : [];
+  if (rawBranches.length > MAX_ROUTE_BRANCHES) throw new HintValidationError(`每條路線最多 ${MAX_ROUTE_BRANCHES} 條支線`);
+  const branches: RouteBranch[] = rawBranches.map((b) => {
+    const o = (b ?? {}) as Record<string, unknown>;
+    const pageId = cleanPage(o['pageId']);
+    const fromStepId = typeof o['fromStepId'] === 'string' && stepIds.has(o['fromStepId']) ? o['fromStepId'] : undefined;
+    const returnStepId = typeof o['returnStepId'] === 'string' && stepIds.has(o['returnStepId']) ? o['returnStepId'] : fromStepId;
+    if (!pageId || !fromStepId || !returnStepId) throw new HintValidationError('支線需要畫面與所屬步驟');
+    return { id: uniqueId(o['id'], '支線'), fromStepId, pageId, action: cleanAction(o['action']), returnStepId };
+  });
+  return { id, name, enabled: r['enabled'] !== false, steps, branches };
+}
 
 function cleanCoord(v: unknown): number | undefined {
   const n = typeof v === 'number' ? v : Number.NaN;
@@ -311,6 +376,13 @@ export function parseEditOp(body: unknown): EditOp {
       if (pageId === into) throw new HintValidationError('不可合併到自己');
       return { op, pageId, intoPageId: into };
     }
+    case 'saveRoute':
+      return { op, route: parseRoute(b['route']) };
+    case 'deleteRoute': {
+      const routeId = typeof b['routeId'] === 'string' && ROUTE_ID_RE.test(b['routeId']) ? b['routeId'] : undefined;
+      if (!routeId) throw new HintValidationError('deleteRoute 需要 routeId');
+      return { op, routeId };
+    }
     default:
       throw new HintValidationError('op 不支援');
   }
@@ -325,6 +397,7 @@ export async function applyEdit(s3: S3Client, bucket: string, tenantId: string, 
       positions: { ...(raw.positions ?? {}) },
       addedEdges: [...(raw.addedEdges ?? [])],
       merges: { ...(raw.merges ?? {}) },
+      routes: [...(raw.routes ?? [])],
     };
     const positions = doc.positions!;
     const merges = doc.merges!;
@@ -369,6 +442,12 @@ export async function applyEdit(s3: S3Client, bucket: string, tenantId: string, 
         delete positions[e.pageId];
         delete doc.renames[e.pageId];
         const remap = (id: string) => (id === e.pageId ? into : id);
+        // 路線經過被合併的畫面 → 改指向合併後的畫面。
+        doc.routes = (doc.routes ?? []).map((r) => ({
+          ...r,
+          steps: r.steps.map((s) => ({ ...s, pageId: remap(s.pageId) })),
+          branches: r.branches.map((x) => ({ ...x, pageId: remap(x.pageId) })),
+        }));
         const seen = new Set<string>();
         added = added
           .map((x) => ({ ...x, fromPageId: remap(x.fromPageId), toPageId: remap(x.toPageId) }))
@@ -380,6 +459,21 @@ export async function applyEdit(s3: S3Client, bucket: string, tenantId: string, 
           });
         break;
       }
+      case 'saveRoute': {
+        const routes = doc.routes ?? [];
+        const next = { ...e.route, updatedAt: new Date().toISOString() };
+        const i = routes.findIndex((r) => r.id === next.id);
+        if (i >= 0) routes[i] = next;
+        else {
+          if (routes.length >= MAX_ROUTES) throw new HintValidationError(`每個應用最多 ${MAX_ROUTES} 條路線`);
+          routes.push(next);
+        }
+        doc.routes = routes;
+        break;
+      }
+      case 'deleteRoute':
+        doc.routes = (doc.routes ?? []).filter((r) => r.id !== e.routeId);
+        break;
     }
     doc.addedEdges = added;
     doc.deletedPages = [...del].slice(-500);
