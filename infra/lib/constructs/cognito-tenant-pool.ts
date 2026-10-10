@@ -68,7 +68,9 @@ export class CognitoTenantPool extends Construct {
       generateSecret: false, // 公開客戶端,無 secret
       accessTokenValidity: Duration.hours(1),
       idTokenValidity: Duration.hours(1),
-      refreshTokenValidity: Duration.days(30),
+      // 登入維持 48 小時:id/access token 1 小時到期由前端用 refresh token 自動換新,
+      // refresh token 48 小時後失效 → 必須重新登入(伺服器端上限,前端另有同樣的計時)。
+      refreshTokenValidity: Duration.hours(48),
       preventUserExistenceErrors: true,
     });
 

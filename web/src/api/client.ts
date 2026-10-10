@@ -1,5 +1,5 @@
 import { getConfig } from '../config.ts';
-import { loadTokens } from '../auth/tokenStore.ts';
+import { loadTokens, type AuthTokens } from '../auth/tokenStore.ts';
 
 export class ApiError extends Error {
   constructor(
@@ -16,6 +16,21 @@ export class ApiError extends Error {
  * 由 AuthProvider 於掛載時註冊,保持 client 不直接依賴 auth 模組(維持分層)。
  */
 let onUnauthorized: (() => void) | null = null;
+
+/**
+ * 取得「可用的」token(快到期時先換新)。由 AuthProvider 註冊;未註冊時直接讀儲存的 token。
+ * 讓所有 API 呼叫在 id token 1 小時到期前自動換新,使用者可以維持登入到 48 小時上限。
+ */
+let tokenProvider: (() => Promise<AuthTokens | null>) | null = null;
+export function setTokenProvider(fn: (() => Promise<AuthTokens | null>) | null): void {
+  tokenProvider = fn;
+}
+async function currentTokens(): Promise<AuthTokens | null> {
+  if (tokenProvider) {
+    try { return await tokenProvider(); } catch { return loadTokens(); }
+  }
+  return loadTokens();
+}
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
@@ -43,7 +58,7 @@ async function handleErrorResponse(res: Response): Promise<never> {
 export async function apiGet<T>(path: string): Promise<T> {
   const { apiUrl } = getConfig();
   if (!apiUrl) throw new ApiError(0, 'API 未配置');
-  const tokens = loadTokens();
+  const tokens = await currentTokens();
   const res = await fetch(`${apiUrl}${path}`, {
     headers: tokens ? { authorization: `Bearer ${tokens.idToken}` } : {},
   });
@@ -77,7 +92,7 @@ export interface ListResponse<T = { key: string }> {
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const { apiUrl } = getConfig();
   if (!apiUrl) throw new ApiError(0, 'API 未配置');
-  const tokens = loadTokens();
+  const tokens = await currentTokens();
   const res = await fetch(`${apiUrl}${path}`, {
     method: 'POST',
     headers: {
@@ -107,7 +122,7 @@ async function apiSend<T>(
 ): Promise<T> {
   const { apiUrl } = getConfig();
   if (!apiUrl) throw new ApiError(0, 'API 未配置');
-  const tokens = loadTokens();
+  const tokens = await currentTokens();
   const res = await fetch(`${apiUrl}${path}`, {
     method,
     headers: {

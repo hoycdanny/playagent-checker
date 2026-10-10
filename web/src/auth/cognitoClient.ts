@@ -29,6 +29,34 @@ export async function login(
     accessToken: r.AccessToken,
     refreshToken: r.RefreshToken ?? '',
     expiresAt: Date.now() + (r.ExpiresIn ?? 3600) * 1000,
+    signedInAt: Date.now(),
+  };
+}
+
+/**
+ * 用 refresh token 換新的 id/access token(REFRESH_TOKEN_AUTH)。Cognito 不會回新的 refresh token,沿用舊的;
+ * signedInAt 也沿用,48 小時上限從第一次登入起算。refresh token 過期或被撤銷會丟錯。
+ */
+export async function refresh(
+  client: CognitoIdentityProviderClient,
+  clientId: string,
+  current: AuthTokens,
+): Promise<AuthTokens> {
+  const res = await client.send(
+    new InitiateAuthCommand({
+      AuthFlow: 'REFRESH_TOKEN_AUTH',
+      ClientId: clientId,
+      AuthParameters: { REFRESH_TOKEN: current.refreshToken },
+    }),
+  );
+  const r = res.AuthenticationResult;
+  if (!r?.IdToken || !r.AccessToken) throw new Error('Cognito 換新 token 失敗');
+  return {
+    idToken: r.IdToken,
+    accessToken: r.AccessToken,
+    refreshToken: r.RefreshToken ?? current.refreshToken,
+    expiresAt: Date.now() + (r.ExpiresIn ?? 3600) * 1000,
+    signedInAt: current.signedInAt ?? Date.now(),
   };
 }
 
