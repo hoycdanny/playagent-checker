@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiGet, apiPut, apiDelete, ApiError, type ListResponse } from '../api/client.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
@@ -6,7 +6,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import MemoryPanel from '../components/memory/MemoryPanel.tsx';
 import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
-import SecretRefsPanel from '../components/secrets/SecretRefsPanel.tsx';
+import { CredentialsPanel } from '../components/credentials/CredentialsPanel.tsx';
 // 案例/任務/報告分頁直接用獨立頁面的元件(傳 appId 進入嵌入模式),
 // 這樣工作區與主頁面的排版是「同一份」,不會各自長歪。
 import CasesPage from './CasesPage.tsx';
@@ -114,44 +114,6 @@ export default function AppWorkspacePage() {
   const [kbSaving, setKbSaving] = useState(false);
   const [kbSaved, setKbSaved] = useState(false);
 
-  // App 測試憑證(存 Secrets Manager;前端只拿得到 {key, visible},拿不到值)。
-  const [credItems, setCredItems] = useState<{ key: string; visible: boolean }[]>([]);
-  const [credKey, setCredKey] = useState('');
-  const [credValue, setCredValue] = useState('');
-  const [credVisible, setCredVisible] = useState(false);
-  const [credBusy, setCredBusy] = useState(false);
-  const [credError, setCredError] = useState<string | null>(null);
-
-  function loadCredentials() {
-    apiGet<{ items: { key: string; visible: boolean }[] }>(`/apps/${encodeURIComponent(appId)}/credentials`)
-      .then((r) => setCredItems(r.items ?? []))
-      .catch(() => setCredItems([]));
-  }
-  async function onSaveCredential(e: FormEvent) {
-    e.preventDefault();
-    setCredError(null);
-    setCredBusy(true);
-    try {
-      await apiPut(`/apps/${encodeURIComponent(appId)}/credentials`, {
-        key: credKey.trim(),
-        value: credValue,
-        visible: credVisible,
-      });
-      setCredKey('');
-      setCredValue('');
-      setCredVisible(false);
-      loadCredentials();
-    } catch (err) {
-      setCredError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCredBusy(false);
-    }
-  }
-  async function onDeleteCredential(key: string) {
-    await apiDelete(`/apps/${encodeURIComponent(appId)}/credentials?key=${encodeURIComponent(key)}`);
-    loadCredentials();
-  }
-
   function loadApp() {
     apiGet<AppRecord>(`/apps/${encodeURIComponent(appId)}`)
       .then((a) => {
@@ -176,7 +138,6 @@ export default function AppWorkspacePage() {
     loadApp();
     loadCases();
     loadTasks();
-    loadCredentials();
     apiGet<{ stats: { pages: number; edges: number } }>(
       `/memory?app=${encodeURIComponent(appId)}`,
     )
@@ -463,78 +424,7 @@ export default function AppWorkspacePage() {
       )}
 
       {/* 測試憑證(本 App;key-value 存 Secrets Manager,值不回顯) */}
-      {tab === 'credentials' && (
-        <div className="ws__panel">
-          <p className="ws__muted">{t('workspace.credDesc')}</p>
-          <form className="ws__form" onSubmit={onSaveCredential}>
-            <label className="ws__field">
-              <span className="ws__label">{t('workspace.credKey')}</span>
-              <span className="ws__muted">{t('workspace.credKeyHint')}</span>
-              <input
-                required
-                value={credKey}
-                placeholder="帳號"
-                onChange={(e) => setCredKey(e.target.value)}
-              />
-            </label>
-            <label className="ws__field">
-              <span className="ws__label">{t('workspace.credValue')}</span>
-              <input
-                required
-                type="password"
-                autoComplete="new-password"
-                value={credValue}
-                onChange={(e) => setCredValue(e.target.value)}
-              />
-            </label>
-            <label className="ws__check">
-              <input
-                type="checkbox"
-                checked={credVisible}
-                onChange={(e) => setCredVisible(e.target.checked)}
-              />
-              <span>{t('workspace.credVisibleLabel')}</span>
-            </label>
-            <span className="ws__muted">{t('workspace.credVisibleHint')}</span>
-            <button type="submit" className="ws__primary" disabled={credBusy}>
-              {credBusy ? t('workspace.credSaving') : t('workspace.credSave')}
-            </button>
-          </form>
-          <p className="ws__muted">{t('workspace.credSecurityNote')}</p>
-          {credError && <p className="listpage__error" role="alert">{credError}</p>}
-          {credItems.length === 0 ? (
-            <div className="listpage__empty"><p>{t('workspace.credEmpty')}</p></div>
-          ) : (
-            <ul className="listpage__list">
-              {credItems.map((it) => (
-                <li key={it.key} className="ws__cred-item">
-                  <code className="ws__cred-key">{it.key}</code>
-                  {it.visible ? (
-                    <span className="ws__cred-badge ws__cred-badge--visible">
-                      {t('workspace.credVisibleTag')}
-                    </span>
-                  ) : (
-                    <span className="ws__cred-masked">••••••</span>
-                  )}
-                  <button
-                    type="button"
-                    className="ws__remove"
-                    onClick={() => void onDeleteCredential(it.key)}
-                  >
-                    {t('workspace.credRemove')}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {/* 機密引用:整個租戶共用(${鍵名} / secretRef:全名),原本在裝置管理頁。
-              放在這裡是因為設定帳密的時機就是在顧某個應用,但範圍不是單一應用 —— 下面講清楚。 */}
-          <h2 className="ws__subtitle">{t('devices.secretsSection')}</h2>
-          <p className="ws__muted">{t('workspace.secretsShared')}</p>
-          <SecretRefsPanel />
-        </div>
-      )}
+      {tab === 'credentials' && <CredentialsPanel appId={appId} />}
     </section>
   );
 }
