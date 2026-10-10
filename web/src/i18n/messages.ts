@@ -423,6 +423,8 @@ export type MessageKey =
   | 'tasks.batchDelete'
   | 'tasks.batchDeleting'
   | 'tasks.batchDeleteConfirm'
+  | 'tasks.deleteFailed'
+  | 'tasks.batchDeleteFailed'
   | 'tasks.roleAgent'
   | 'tasks.roleAgentHint'
   | 'tasks.roleVlm'
@@ -1086,6 +1088,8 @@ const zhHant: Catalog = {
   'tasks.batchDelete': '刪除選取 ({n})',
   'tasks.batchDeleting': '刪除中…',
   'tasks.batchDeleteConfirm': '確定要刪除選取的 {n} 筆任務嗎?會連同報告一起刪除,不可復原。',
+  'tasks.deleteFailed': '刪除失敗,任務可能沒有刪乾淨,請再試一次。',
+  'tasks.batchDeleteFailed': '有 {n} 筆任務刪除失敗(已保留勾選),請再按一次刪除。',
   'tasks.roleAgent': '控制遊戲',
   'tasks.roleAgentHint': 'Agent 模型:負責決策與操作遊戲',
   'tasks.roleVlm': '分析畫面',
@@ -1748,6 +1752,8 @@ const en: Catalog = {
   'tasks.batchDelete': 'Delete selected ({n})',
   'tasks.batchDeleting': 'Deleting…',
   'tasks.batchDeleteConfirm': 'Delete the {n} selected tasks? Their reports are deleted too. This cannot be undone.',
+  'tasks.deleteFailed': 'Delete failed. The task may not be fully removed; please try again.',
+  'tasks.batchDeleteFailed': '{n} task(s) could not be deleted (still selected). Please press delete again.',
   'tasks.roleAgent': 'Game control',
   'tasks.roleAgentHint': 'Agent model: decides and drives the game',
   'tasks.roleVlm': 'Screen analysis',
@@ -2415,6 +2421,8 @@ const zhHans: Catalog = {
   'tasks.batchDelete': '删除选取 ({n})',
   'tasks.batchDeleting': '删除中…',
   'tasks.batchDeleteConfirm': '确定要删除选取的 {n} 笔任务吗?会连同报告一起删除,不可恢复。',
+  'tasks.deleteFailed': '删除失败,任务可能没有删干净,请再试一次。',
+  'tasks.batchDeleteFailed': '有 {n} 笔任务删除失败(已保留勾选),请再按一次删除。',
   'tasks.roleAgent': '控制游戏',
   'tasks.roleAgentHint': 'Agent 模型:负责决策与操作游戏',
   'tasks.roleVlm': '分析画面',
@@ -3077,6 +3085,8 @@ const ja: Catalog = {
   'tasks.batchDelete': '選択を削除 ({n})',
   'tasks.batchDeleting': '削除中…',
   'tasks.batchDeleteConfirm': '選択した {n} 件のタスクを削除しますか?レポートも一緒に削除されます。元に戻せません。',
+  'tasks.deleteFailed': '削除に失敗しました。完全に削除されていない可能性があります。もう一度お試しください。',
+  'tasks.batchDeleteFailed': '{n} 件のタスクを削除できませんでした(選択したままです)。もう一度削除してください。',
   'tasks.roleAgent': 'ゲーム操作',
   'tasks.roleAgentHint': 'Agent モデル:判断とゲーム操作を担当',
   'tasks.roleVlm': '画面解析',
@@ -3740,6 +3750,8 @@ const ko: Catalog = {
   'tasks.batchDelete': '선택 삭제 ({n})',
   'tasks.batchDeleting': '삭제 중…',
   'tasks.batchDeleteConfirm': '선택한 {n}개 작업을 삭제하시겠습니까? 보고서도 함께 삭제되며 되돌릴 수 없습니다.',
+  'tasks.deleteFailed': '삭제에 실패했습니다. 완전히 삭제되지 않았을 수 있으니 다시 시도해 주세요.',
+  'tasks.batchDeleteFailed': '작업 {n}개를 삭제하지 못했습니다(선택 유지). 다시 삭제를 눌러 주세요.',
   'tasks.roleAgent': '게임 제어',
   'tasks.roleAgentHint': 'Agent 모델: 의사결정과 게임 조작 담당',
   'tasks.roleVlm': '화면 분석',

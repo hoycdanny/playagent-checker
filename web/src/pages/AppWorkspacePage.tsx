@@ -150,6 +150,12 @@ export default function AppWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId]);
 
+  // 回到總覽時重抓任務:在「測試任務 / 報告」分頁刪除或新增後,總覽的近期任務與統計才會同步。
+  useEffect(() => {
+    if (appId && tab === 'overview') loadTasks();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
   // 有進行中任務時輪詢。
   useEffect(() => {
     if (!tasks.some((x) => !TERMINAL.has(x.state))) return;

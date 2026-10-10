@@ -210,20 +210,34 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
         next.delete(jobId);
         return next;
       });
-    } catch {
-      /* 忽略 */
+    } catch (err) {
+      window.alert(`${t('tasks.deleteFailed')}${err instanceof Error ? `\n${err.message}` : ''}`);
     }
   }
 
+  // 同時最多 3 筆;只把「真的刪掉」的從畫面移除,失敗的保留勾選並提示(之前失敗也從畫面消失,重新整理又冒出來)。
   async function onBatchDelete() {
     if (selectedIds.size === 0) return;
     if (!window.confirm(t('report.batchDeleteConfirm').replace('{n}', String(selectedIds.size)))) return;
     setBatchDeleting(true);
+    const queue = [...selectedIds];
+    const done = new Set<string>();
+    const failed: string[] = [];
     try {
-      const ids = [...selectedIds];
-      await Promise.all(ids.map((jobId) => apiDelete(`/tasks/${encodeURIComponent(jobId)}`).catch(() => {})));
-      setItems((prev) => prev.filter((x) => !selectedIds.has(x.jobId)));
-      setSelectedIds(new Set());
+      const worker = async () => {
+        for (let jobId = queue.shift(); jobId; jobId = queue.shift()) {
+          try {
+            await apiDelete(`/tasks/${encodeURIComponent(jobId)}`);
+            done.add(jobId);
+          } catch {
+            failed.push(jobId);
+          }
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+      setItems((prev) => prev.filter((x) => !done.has(x.jobId)));
+      setSelectedIds(new Set(failed));
+      if (failed.length) window.alert(t('tasks.batchDeleteFailed').replace('{n}', String(failed.length)));
     } finally {
       setBatchDeleting(false);
     }
