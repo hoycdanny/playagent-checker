@@ -220,7 +220,9 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
     `把座標對到「手指指尖正下方那顆發光圖示的正中心」。若點了 Start 沒反應、畫面沒變,幾乎一定是被教學 gating——` +
     `立刻改點手指所指的發光圖示,完成引導後再回來點 Start。反覆點 Start/房子/✕ 卻沒反應是最常見的卡死原因,務必避免。` +
     `thinking 務必簡短(一句話,約 30~60 字即可,不要長篇分析),再給動作。只輸出 JSON:` +
-    `{"thinking":"...","action":"${actionEnum}","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>${gestureFields},"text":"...","screen":"畫面名稱"}。` +
+    `{"thinking":"...","action":"${actionEnum}","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>${gestureFields},"text":"...","screen":"畫面名稱","memo":"進度筆記"}。` +
+    `memo 是你自己的「進度筆記」:測試腳本要你記住、之後還會用到的數字與進度(例如初始值、每局投注、已完成次數、目前第幾段、各段起始值),` +
+    `每一步都覆寫成「最新的完整版」(200 字內)。你只看得到最近幾步,系統會把上一步的 memo 原樣交還給你——照它延續,不要重新開始、不要重記初始值;沒有需要記的就省略。` +
     `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;` +
     (controls
       ? (controls.joystick ? `move 需 dir 與可選 holdMs(按住毫秒,預設1500),x,y 省略時 runner 用本遊戲搖桿的預設位置,看得到搖桿圓圈時用 x,y 指定其中心更準;` : '')
@@ -767,6 +769,8 @@ async function main() {
   let prevOrient = null;
   // 上一步被「操作行為」攔下時的回饋(下一回合告訴 AI 改用允許的動作)。
   let controlNote = '';
+  // 視覺 Agent 的進度筆記(memo):每回合原樣交還,長流程(例如 500 局)才不會因為歷史被裁掉而重來。
+  let progressMemo = '';
   let perfPending = null; // 進行中的效能取樣(Promise)
 
   // 三個 Agent 協作:決策 Agent 定每步目標、輔助 Agent 核對效果/數值/完成(視覺 Agent 照目標操作)。
@@ -780,6 +784,7 @@ async function main() {
   console.log('Agent 協作', team ? `決策=${AGENT_MODEL || '停用'} 輔助=${SUBAGENT_MODEL || '停用'}` : '停用(只用視覺 Agent)');
   let teamPending = null; // 進行中的輔助 Agent 核對(在動作後等待畫面穩定時跑)
   let teamDoneRejects = 0;
+  let agentDoneOverrides = 0; // 決策 Agent 下 done、但視覺 Agent 判斷要繼續 → 被駁回的次數
   const stepPlans = new Map(); // 步驟 index → 決策 Agent 這一步的決定
   // 每一步:視覺 Agent 看圖並列出可操作元件 → 決策 Agent 選動作 → runner 執行 → 輔助 Agent 背景核對。
   if (team?.enabled.agent && !USE_UITARS) system += VISION_ELEMENTS_NOTE;
@@ -1052,7 +1057,8 @@ async function main() {
     const memoryNote = scoped.length
       ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
       : '';
-    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + controlNote
+    const memoNote = progressMemo ? `\n【你的進度筆記(上一步寫的,照它延續,不要重新開始)】${progressMemo}` : '';
+    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + memoNote + controlNote
       + memoryNote + operatorTurnNote(newCmds, operator.active);
     controlNote = '';
     messages.push(makeUserTurn([visionShot], turnText, visionFmt));
@@ -1285,7 +1291,8 @@ async function main() {
     // 「10 Spins Completed」被誤判豁免,拖到 VLM 連續解析失敗才中止,比正常死循環慢很多)。
     // 改成只看「畫面名」(模型對畫面的簡短分類標籤,比自由敘述穩定),且用更明確的複合詞,
     // 避免「spin」這種在成就/任務文案裡常見的單字誤觸。
-    const slotHint = /slot machine|slot game|轮盘|輪盤|spin\s*wheel|轉軸|转轴|老虎機|老虎机|jackpot|賭場|赌场|casino/i;
+    // 拉霸機的自動進行畫面(Free Spins / Bonus / 大獎動畫 / AutoSpin)也會長時間停在同一個畫面名,屬於正常玩法。
+    const slotHint = /slot machine|slot game|轮盘|輪盤|spin\s*wheel|轉軸|转轴|老虎機|老虎机|jackpot|賭場|赌场|casino|free\s*spins?|免費遊戲|免费游戏|免費旋轉|免费旋转|autospin|auto\s*spin|big\s*win|mega\s*win|super\s*win/i;
     const looksSlotSpin = (cmd.action === 'tap' || cmd.action === 'swipe') &&
       slotHint.test(String(cmd.screen || ''));
 
@@ -1408,7 +1415,10 @@ async function main() {
 
     const perf = perfPending ? await perfPending : null;
     perfPending = null;
+    // 進度筆記:有新的就更新(解析失敗的回應不覆蓋舊筆記)。
+    if (!cmd.parseFailed && typeof cmd.memo === 'string' && cmd.memo.trim()) progressMemo = cmd.memo.trim().slice(0, 400);
     const step = { index: i, action: cmd.action, screen: screenName, thinking: cmd.thinking,
+      ...(progressMemo ? { memo: progressMemo } : {}),
       // x/y 為「縮圖空間」座標(與標記圖一致);deviceXY 為實際送裝置的截圖像素座標,供除錯比對。
       ...(cmd.x != null ? { x: cmd.x, y: cmd.y, deviceX: toDeviceX(cmd.x), deviceY: toDeviceY(cmd.y) } : {}),
       // move 動作額外記 dir/holdMs(除錯用:之前排查 move 不生效時,step json 完全沒存方向與
@@ -1503,7 +1513,9 @@ async function main() {
     // 結果」畫面),這是正常重複玩法(連續多輪 SPIN 本就該停在同畫面名),不是卡死 —— 不該
     // 計入死循環次數,否則玩滿 8 輪 SPIN 就會被誤判成「App 死循環」提早中止整個任務。
     const screenLoopExempt = loopLoadingHint.test(screenNameLower) || slotHint.test(screenNameLower);
-    const countsForLoop = cmd.action !== 'wait' && !screenLoopExempt;
+    // done 不是對畫面的操作:被駁回的 done(例如 AutoSpin 中想提早結束)不能算「操作了沒反應」。
+    // 實測 job-mv1oqkmk:Free Spins 畫面 8 次被駁回的 done 被當成死循環 → 重啟遊戲 → 離開機台、累計局數全丟。
+    const countsForLoop = cmd.action !== 'wait' && cmd.action !== 'done' && !screenLoopExempt;
     const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
     if (countsForLoop) screenSeen.set(screenName, seen);
     // 2026-10-05(job-muv712gs-pvg7ow):NEWBIE MISSION 彈窗在動畫還沒播完時被點了寶箱,之後整個
@@ -1559,8 +1571,23 @@ async function main() {
       finalMsg = String(cmd.thinking || '模型呼叫失敗');
       break;
     }
+    // 【決策 Agent 不能單方面結束】done 由決策 Agent 給出、但看著畫面的視覺 Agent 判斷還要繼續
+    // (例如 AutoSpin 還在跑)→ 以視覺 Agent 為準,不結束。實測 job-mv1nkax6:500 局只跑了約 27 局,
+    // 決策 Agent 自認「腳本最後一步」就下 done,視覺 Agent 當時是 wait。
+    // 上限 60 次:避免視覺 Agent 一直誤判「還要繼續」時永遠結束不了(步數 / 預算 / 時數上限仍然有效)。
+    if (cmd.action === 'done' && cmd.decidedBy === 'agent' && cmd.visionSuggested && cmd.visionSuggested !== 'done' && agentDoneOverrides < 60) {
+      agentDoneOverrides++;
+      const back = cmd.visionSuggested;
+      cmd.action = back;
+      if (back === 'wait') { cmd.duration = 2; cmd.x = undefined; cmd.y = undefined; }
+      cmd.thinking = `[拒絕假完成] 決策 Agent 想結束,但看畫面的視覺 Agent 判斷還要繼續(${back}),第 ${agentDoneOverrides} 次以視覺為準。` + String(cmd.thinking || '');
+      cmd.override = 'reject_done';
+      step.action = cmd.action; step.override = 'reject_done'; step.thinking = cmd.thinking; delete step.expect;
+      controlNote = '【系統】你剛才想結束測試,但畫面顯示還在進行中。請依測試腳本的完成條件(例如次數、數值)確認真的達成後才 done。';
+    }
     if (cmd.action === 'done') {
-      const isSurvivorGoal = /survivor|倖存|割草|level|stage|wave|第.?五|第.?5|clear/i.test(String(TASK || ''));
+      // 只針對「要打到第 5 關」這類割草/存活目標;一般文字裡的 level(例如 LEVEL UP 彈窗)不算。
+      const isSurvivorGoal = /survivor|倖存|割草|第.?[五5].?[關关波]|(stage|wave|level)\s*5\b/i.test(String(TASK || ''));
       if (isSurvivorGoal && !seenLevel5 && prematureDoneCount < 8) {
         prematureDoneCount++;
         cmd.action = everInBattle && (!allowedActions || allowedActions.has('move')) ? 'move' : 'wait';
