@@ -148,6 +148,69 @@ export function hintsPromptSection(hints, pageName = (id) => id, maxChars = 3500
   return `\n\n${text}`;
 }
 
+// ───────────── 測試人員畫的順序路線(edits.routes,整個應用共用) ─────────────
+
+const activeRoutes = (routes) => (Array.isArray(routes) ? routes : [])
+  .filter((r) => r && r.enabled !== false && Array.isArray(r.steps) && r.steps.length);
+
+/**
+ * 路線 → system prompt 段落。pageName(id) 回空字串 = 畫面已不存在(被刪),該步/支線照樣列出但標示。
+ * 支線 = 某步可能出現的岔路(例如當天限定活動彈窗):先處理再回到指定步驟。
+ */
+export function routesPromptSection(routes, pageName = (id) => id, maxChars = 3000) {
+  const list = activeRoutes(routes);
+  if (!list.length) return '';
+  const nm = (id) => pageName(id) || '(畫面已刪除)';
+  const lines = [
+    '【測試人員畫的操作路線|高優先】以下是測試人員在記憶地圖上親手畫的正確流程(依序)。' +
+    '本次測試任務沒有指定別的流程時,就照路線從第 1 步依序走完;任務另有指定時以任務為準,路線當作「怎麼到達各畫面」的正確走法。' +
+    'thinking 開頭寫目前在哪條路線第幾步(例:「路線 主線 第 2 步」)。' +
+    '某一步沒成功(例如沒通關、畫面不對)時:先看是不是出現了下面列的支線畫面,是就照支線處理再回到指定步驟;' +
+    '都不是就重試這一步,真的無法前進再自行判斷並說明原因。',
+  ];
+  for (const r of list) {
+    const idx = new Map(r.steps.map((s, i) => [s.id, i + 1]));
+    lines.push(`路線「${r.name}」:`);
+    r.steps.forEach((s, i) => lines.push(`  ${i + 1}. 在「${nm(s.pageId)}」${s.action ? `:${s.action}` : ''}`));
+    for (const b of r.branches ?? []) {
+      const from = idx.get(b.fromStepId);
+      const back = idx.get(b.returnStepId) ?? from;
+      if (!from) continue;
+      lines.push(`  支線(第 ${from} 步時若出現「${nm(b.pageId)}」):${b.action || '處理掉這個畫面'} → 回到第 ${back} 步`);
+    }
+  }
+  let text = lines.join('\n');
+  if (text.length > maxChars) text = `${text.slice(0, maxChars)}\n…`;
+  return `\n\n${text}`;
+}
+
+/**
+ * 目前畫面(pageId)在路線上的位置 → 本回合提醒(第幾步、接下來做什麼;或是支線畫面要怎麼處理)。
+ * 同一畫面在路線出現多次(例如回大廳)時全部列出,由 AI 依進度判斷。
+ */
+export function routeTurnNote(routes, pageId, pageName = (id) => id) {
+  if (!pageId) return '';
+  const nm = (id) => pageName(id) || '(畫面已刪除)';
+  const out = [];
+  for (const r of activeRoutes(routes)) {
+    const idx = new Map(r.steps.map((s, i) => [s.id, i]));
+    r.steps.forEach((s, i) => {
+      if (s.pageId !== pageId) return;
+      const next = r.steps[i + 1];
+      out.push(`路線「${r.name}」第 ${i + 1}/${r.steps.length} 步${s.action ? `:${s.action}` : ''}` +
+        (next ? `;完成後前往第 ${i + 2} 步「${nm(next.pageId)}」${next.action ? `(${next.action})` : ''}` : ';這是路線最後一步'));
+    });
+    for (const b of r.branches ?? []) {
+      if (b.pageId !== pageId || !idx.has(b.fromStepId)) continue;
+      const back = idx.get(b.returnStepId) ?? idx.get(b.fromStepId);
+      out.push(`路線「${r.name}」支線:這是第 ${idx.get(b.fromStepId) + 1} 步可能出現的畫面,${b.action || '先處理掉它'},` +
+        `然後回到第 ${back + 1} 步「${nm(r.steps[back].pageId)}」繼續`);
+    }
+  }
+  if (!out.length) return '';
+  return `\n【路線提醒】目前畫面在測試人員畫的路線上:${out.slice(0, 4).join(';')}。`;
+}
+
 /** 目前畫面(上一步的畫面名/pageId)對應的記憶 → 本回合提醒(避免 AI 忘了 system 裡的長清單)。 */
 export function screenHintsFor(hints, { screen, pageId } = {}) {
   return (hints ?? [])

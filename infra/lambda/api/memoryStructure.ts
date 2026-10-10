@@ -109,6 +109,7 @@ export async function readMemoryOverview(
     positions: editsRaw?.positions ?? {},
     addedEdges: editsRaw?.addedEdges ?? [],
     merges: editsRaw?.merges ?? {},
+    routes: editsRaw?.routes ?? [],
   };
   // 讀取時以新規則收斂(合併 AI 不同命名的同一畫面、去自環/wait 邊、合併重複邊),
   // 舊資料也能直接顯示成乾淨的畫面流程圖;runner 下次執行會把收斂結果寫回。

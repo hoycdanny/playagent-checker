@@ -20,11 +20,21 @@ export interface EditsLike {
   positions?: Record<string, { x: number; y: number }>;
   addedEdges?: EdgeLike[];
   merges?: Record<string, string>;
+  routes?: RouteLike[];
 }
 export function edgeKey(e: EdgeLike): string;
 /** renames:false = 不套改名;addedEdges:false = 不加入手動路徑(runner 用,避免寫回 structure.json)。 */
 export function applyEdits<T>(struct: T, edits: EditsLike | null | undefined, opts?: { renames?: boolean; addedEdges?: boolean }): T;
 export function sameScreen(a: string | undefined, b: string | undefined): boolean;
+export interface RouteLike {
+  id: string;
+  name: string;
+  enabled?: boolean;
+  steps: Array<{ id: string; pageId: string; action?: string }>;
+  branches?: Array<{ id: string; fromStepId: string; pageId: string; action?: string; returnStepId?: string }>;
+}
+export function routesPromptSection(routes: RouteLike[] | undefined, pageName?: (id: string) => string, maxChars?: number): string;
+export function routeTurnNote(routes: RouteLike[] | undefined, pageId: string | null | undefined, pageName?: (id: string) => string): string;
 export function hintsPromptSection(hints: HintLike[], pageName?: (id: string) => string, maxChars?: number): string;
 export function screenHintsFor<T extends HintLike>(hints: T[], ctx?: { screen?: string; pageId?: string }): T[];
 export function operatorTurnNote(newCmds: Array<{ id: string; text: string }>, activeCmds: Array<{ id: string; text: string }>): string;

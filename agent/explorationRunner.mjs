@@ -28,7 +28,7 @@
  */
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
 import {
   DeviceFarmClient,
   StopRemoteAccessSessionCommand,
@@ -714,8 +714,10 @@ async function main() {
   // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新;
   // 使用者在記憶地圖刪掉的畫面/路徑先移除(只套刪除,改名留在讀取端)。
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
+  // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
+  const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
-    + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
+    + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
   console.log('ImageMagick 座標校正', MAGICK ? '啟用' : '不可用(裸座標)');
   console.log('定位模型', USE_UITARS ? `UI-TARS(SageMaker endpoint=${process.env.PA_UITARS_ENDPOINT})` : `Bedrock VLM(${VLM})`);
   const messages = [];
@@ -910,7 +912,7 @@ async function main() {
       if (dim && (dim.w !== w || dim.h !== h)) {
         w = dim.w; h = dim.h;
         system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
-          + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id)
+          + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
           + (team?.enabled.agent && !USE_UITARS ? VISION_ELEMENTS_NOTE : '');
       }
     } catch { /* 用原尺寸 */ }
@@ -1059,7 +1061,7 @@ async function main() {
       : '';
     const memoNote = progressMemo ? `\n【你的進度筆記(上一步寫的,照它延續,不要重新開始)】${progressMemo}` : '';
     const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + memoNote + controlNote
-      + memoryNote + operatorTurnNote(newCmds, operator.active);
+      + memoryNote + routeTurnNote(appMemory.edits?.routes, prevPageId, routePageName) + operatorTurnNote(newCmds, operator.active);
     controlNote = '';
     messages.push(makeUserTurn([visionShot], turnText, visionFmt));
     // UI-TARS(SageMaker):單幀 GUI grounding,座標直接落在 cw×ch smart-resize 幀;否則走 Bedrock 通用 VLM。
