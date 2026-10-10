@@ -17,9 +17,13 @@ export interface EditsLike {
   renames?: Record<string, string>;
   deletedPages?: string[];
   deletedEdges?: string[];
+  positions?: Record<string, { x: number; y: number }>;
+  addedEdges?: EdgeLike[];
+  merges?: Record<string, string>;
 }
 export function edgeKey(e: EdgeLike): string;
-export function applyEdits<T>(struct: T, edits: EditsLike | null | undefined, opts?: { renames?: boolean }): T;
+/** renames:false = 不套改名;addedEdges:false = 不加入手動路徑(runner 用,避免寫回 structure.json)。 */
+export function applyEdits<T>(struct: T, edits: EditsLike | null | undefined, opts?: { renames?: boolean; addedEdges?: boolean }): T;
 export function sameScreen(a: string | undefined, b: string | undefined): boolean;
 export function hintsPromptSection(hints: HintLike[], pageName?: (id: string) => string, maxChars?: number): string;
 export function screenHintsFor<T extends HintLike>(hints: T[], ctx?: { screen?: string; pageId?: string }): T[];

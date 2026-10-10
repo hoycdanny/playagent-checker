@@ -40,6 +40,14 @@ export interface EditEdge {
   trigger?: { kind?: string; label?: string; target?: string };
   hitCount: number;
   missCount: number;
+  /** 使用者在記憶關係圖手動標註的路徑。 */
+  manual?: boolean;
+}
+
+/** 刪除路徑的編修指令:純手動(AI 沒走過)的只移除標註,不進「已刪除」清單。 */
+export function deleteEdgeOp(e: EditEdge): { op: 'deleteEdge'; edgeKey: string; manualOnly?: boolean } {
+  const manualOnly = Boolean(e.manual) && e.hitCount === 0 && e.missCount === 0;
+  return { op: 'deleteEdge', edgeKey: edgeKey(e), ...(manualOnly ? { manualOnly: true } : {}) };
 }
 export interface DeletedInfo {
   pages: Array<{ id: string; name: string }>;
@@ -98,6 +106,27 @@ const T = {
   deletedPages: ['畫面', 'Screens'],
   deletedEdges: ['路徑', 'Paths'],
   restore: ['還原', 'Restore'],
+  // 關係圖編輯
+  manualEdge: ['✋ 人工', '✋ Manual'],
+  graphEditHint: [
+    '可直接在圖上編輯:拖曳畫面調整位置(自動儲存)· 點畫面開啟編修 · 從畫面右側圓點拉到另一個畫面新增路徑 · 選取畫面或路徑後按 Delete 刪除 · 把畫面拖到另一個畫面上可合併。',
+    'Edit right on the graph: drag screens to arrange them (auto-saved) · click a screen to edit it · drag from the right dot to another screen to add a path · select a screen or path and press Delete · drop a screen onto another to merge them.',
+  ],
+  relayout: ['重新排版', 'Auto layout'],
+  relayoutConfirm: ['清除手動排列的位置,改回自動排版?', 'Clear manual positions and go back to auto layout?'],
+  saving: ['儲存中…', 'Saving…'],
+  addEdgeTitle: ['新增路徑', 'Add path'],
+  addEdgeKind: ['怎麼過去', 'How'],
+  kindTap: ['點擊 (tap)', 'Tap'],
+  kindSwipe: ['滑動 (swipe)', 'Swipe'],
+  kindBack: ['返回 (back)', 'Back'],
+  kindAuto: ['自動轉場 (auto)', 'Automatic (auto)'],
+  addEdgeTarget: ['要點 / 操作的元件', 'Element to tap / use'],
+  addEdgeTargetPh: ['例:開始遊戲、右下角 SPIN', 'e.g. Start, SPIN at the bottom right'],
+  addEdgeHint: ['手動路徑會標成「人工」,AI 會把它當成可靠的正確走法優先參考。', 'Manual paths are marked “Manual”; the AI treats them as reliable routes and follows them first.'],
+  delSelConfirm: ['刪除選取的 {n} 個項目?畫面可在「已刪除」清單還原。', 'Delete {n} selected item(s)? Screens can be restored from the “Deleted” list.'],
+  mergeConfirm: ['把「{from}」合併到「{to}」?\n造訪次數、別名、截圖特徵與路徑都會併入「{to}」。這個動作無法復原。', 'Merge “{from}” into “{to}”?\nVisits, aliases, image fingerprints and paths move to “{to}”. This cannot be undone.'],
+  mergeDrop: ['放開即合併到這個畫面', 'Drop to merge into this screen'],
 } as const;
 export type MemTextKey = keyof typeof T;
 export const mt = (k: MemTextKey, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
@@ -338,13 +367,14 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
         <div className="memedit__edge-body">
           <span className="memedit__edge-to">{other}</span>
           {act && <span className="memedit__muted">{act}</span>}
+          {e.manual && <span className="memedit__chip memedit__chip--handedge">{mt('manualEdge', lang)}</span>}
           <span className="memedit__muted">{mt('hit', lang)} {e.hitCount} · {mt('miss', lang)} {e.missCount}</span>
         </div>
         <button
           type="button"
           className="memedit__link memedit__link--danger"
           disabled={busy}
-          onClick={() => { if (window.confirm(mt('delEdgeConfirm', lang))) void edit({ op: 'deleteEdge', edgeKey: k }); }}
+          onClick={() => { if (window.confirm(mt('delEdgeConfirm', lang))) void edit(deleteEdgeOp(e)); }}
         >
           {mt('delEdge', lang)}
         </button>

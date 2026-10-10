@@ -51,6 +51,8 @@ export interface MemEdge {
   trigger: { kind: string; label?: string; target?: string };
   hitCount: number;
   missCount: number;
+  /** 使用者在記憶關係圖手動標註的路徑(對 AI 視為可靠)。 */
+  manual?: boolean;
 }
 export interface MemStructure {
   schemaVersion: number;
@@ -100,7 +102,14 @@ export async function readMemoryOverview(
     readJson<MemStructure>(s3, bucket, `${prefix}/structure.json`),
     readJson<EditsLike>(s3, bucket, `${prefix}/edits.json`),
   ]);
-  const edits: EditsLike = { renames: editsRaw?.renames ?? {}, deletedPages: editsRaw?.deletedPages ?? [], deletedEdges: editsRaw?.deletedEdges ?? [] };
+  const edits: EditsLike = {
+    renames: editsRaw?.renames ?? {},
+    deletedPages: editsRaw?.deletedPages ?? [],
+    deletedEdges: editsRaw?.deletedEdges ?? [],
+    positions: editsRaw?.positions ?? {},
+    addedEdges: editsRaw?.addedEdges ?? [],
+    merges: editsRaw?.merges ?? {},
+  };
   // 讀取時以新規則收斂(合併 AI 不同命名的同一畫面、去自環/wait 邊、合併重複邊),
   // 舊資料也能直接顯示成乾淨的畫面流程圖;runner 下次執行會把收斂結果寫回。
   // 再套上使用者在記憶地圖的手動編修(改名/刪畫面/刪路徑)。

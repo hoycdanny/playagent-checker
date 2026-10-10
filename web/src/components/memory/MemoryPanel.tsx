@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import type { GraphEditOp, Positions } from '../ScreenGraph.tsx';
 import { useNavigate } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
@@ -36,6 +37,8 @@ export interface MemEdge {
   trigger?: { kind?: string; label?: string; target?: string };
   hitCount: number;
   missCount: number;
+  /** 使用者在關係圖手動標註的路徑。 */
+  manual?: boolean;
 }
 export interface MemOverview {
   structure: {
@@ -45,7 +48,14 @@ export interface MemOverview {
     lastUpdatedAt: string | null;
   };
   stats: { pages: number; edges: number; controls: number; totalRuns: number };
-  edits?: { renames?: Record<string, string>; deletedPages?: string[]; deletedEdges?: string[] };
+  edits?: {
+    renames?: Record<string, string>;
+    deletedPages?: string[];
+    deletedEdges?: string[];
+    positions?: Positions;
+    addedEdges?: MemEdge[];
+    merges?: Record<string, string>;
+  };
   deleted?: DeletedInfo;
 }
 
@@ -161,11 +171,17 @@ export default function MemoryPanel({
     }
   }
 
-  const pages = overview ? Object.values(overview.structure.pages) : [];
-  const pagesWithShots = pages
-    .map((p) => ({ ...p, screenshotUrl: shots[p.id] }))
-    .sort((a, b) => b.visitCount - a.visitCount);
-  const edges = overview?.structure.edges ?? [];
+  const pages = useMemo(() => (overview ? Object.values(overview.structure.pages) : []), [overview]);
+  // 穩定參考:關係圖以這些陣列重算排版,父層其他狀態變動時不該把拖曳中的圖重置。
+  const pagesWithShots = useMemo(
+    () => pages.map((p) => ({ ...p, screenshotUrl: shots[p.id] })).sort((a, b) => b.visitCount - a.visitCount),
+    [pages, shots],
+  );
+  const edges = useMemo(() => overview?.structure.edges ?? [], [overview]);
+  const onGraphEdit = useCallback(async (op: GraphEditOp) => {
+    await apiPost('/memory/edit', { app: appId, ...op });
+    loadOverview(true);
+  }, [appId, loadOverview]);
   const maxVisits = Math.max(1, ...pages.map((p) => p.visitCount));
   const stats = overview?.stats;
   const pageOptions = [...pages]
@@ -294,6 +310,8 @@ export default function MemoryPanel({
                   pages={pagesWithShots}
                   edges={edges}
                   rootPageId={overview?.structure.rootPageId ?? null}
+                  {...(overview?.edits?.positions ? { positions: overview.edits.positions } : {})}
+                  {...(appId ? { onEdit: onGraphEdit, onOpenPage: setOpenPageId } : {})}
                 />
               </Suspense>
             </>

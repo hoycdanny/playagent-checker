@@ -713,7 +713,7 @@ async function main() {
   const operator = createOperatorChannel({ s3, bucket: BUCKET, jobPrefix: PREFIX, cmds: S3CMDS });
   // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新;
   // 使用者在記憶地圖刪掉的畫面/路徑先移除(只套刪除,改名留在讀取端)。
-  const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false });
+  const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id);
   console.log('ImageMagick 座標校正', MAGICK ? '啟用' : '不可用(裸座標)');
