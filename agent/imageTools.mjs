@@ -55,6 +55,32 @@ export function liveJpeg(pngBuf, maxEdge = 720, quality = 60, timeoutMs = 4000) 
   });
 }
 
+/**
+ * 截圖 → size×size 灰階格子(Uint8Array,長度 size²),給 AutoSpin 看守模式比對畫面變化用。
+ * 非同步管線(不阻塞主迴圈),一張約數十毫秒;失敗 / 逾時回 null。
+ */
+export function grayGrid(srcB64, size = 48, timeoutMs = 4000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    let p;
+    try {
+      p = spawn(IM, ['-', '-resize', `${size}x${size}!`, '-colorspace', 'Gray', '-depth', '8', 'gray:-'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    } catch { finish(null); return; }
+    const chunks = [];
+    const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* ignore */ } finish(null); }, timeoutMs);
+    p.stdout.on('data', (c) => chunks.push(c));
+    p.on('error', () => { clearTimeout(timer); finish(null); });
+    p.on('close', (code) => {
+      clearTimeout(timer);
+      const out = Buffer.concat(chunks);
+      finish(code === 0 && out.length >= size * size ? new Uint8Array(out.subarray(0, size * size)) : null);
+    });
+    p.stdin.on('error', () => { /* EPIPE */ });
+    p.stdin.end(Buffer.from(srcB64, 'base64'));
+  });
+}
+
 /** 把 base64 PNG 落成暫存檔,回路徑。 */
 export function b64ToTmp(b64, tag) {
   const p = join(tmpdir(), `pa-${tag}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`);

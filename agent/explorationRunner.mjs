@@ -47,7 +47,8 @@ import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
 import { createAgentTeam, normalizeElements, screenFromSeen, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
-import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
+import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
+import { isAutoSpinWait, watchAutoSpin, watchNote } from './spinWatch.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
@@ -737,6 +738,8 @@ async function main() {
   let prevScreen = ''; // 上一步 AI 標的畫面名(記憶提醒 / 指令回執用)
   let pendingCmds = []; // 尚未得到有效回應的測試人員指令(解析失敗時延續到下一步)
   let consecFail = 0;
+  // AutoSpin 看守模式抓到的「事件當下那張」:下一步直接拿它給 AI(自動關閉的彈窗不會因重新截圖而錯過)。
+  let pendingShot = null;
   // 無上限時不會「達步數上限」;若真的迴圈自然結束(理論上只有有限步才會),訊息才用步數上限。
   let finalState = 'fail';
   let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
@@ -938,6 +941,7 @@ async function main() {
     lastPhash = null; stuckCount = 0; loadingStreak = 0; consecWaitCount = 0; lastMove = null;
     screenSeen.clear();
     obsGuard.reset();
+    pendingShot = null; // 換了連線,上一段看守留下的畫面已不是現況
     prevAction = 'launch';
     controlNote += `【系統】Device Farm 單次連線最長 150 分鐘,已換新連線(第 ${segment} 段)並重新安裝、啟動遊戲:帳號與遊戲狀態可能已重置(例如訪客帳號、餘額重新開始)。請從第一個畫面重新進入,接著完成測試腳本還沒做完的部分。`;
     bootPhase('run');
@@ -997,7 +1001,7 @@ async function main() {
     // 真機 log(logcat + 音效播放狀態)與 VLM 推理並行;動作送出前等它結束(Appium 指令不交錯)。
     if (devLogs && !devLogsPending) devLogsPending = devLogs.collect(i).catch(() => null);
     let shot;
-    try { shot = await client.takeScreenshot(); } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
+    try { shot = pendingShot ?? await client.takeScreenshot(); pendingShot = null; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
     // 即時推截圖到 S3(前端即時顯示)。
     await s3put(`${PREFIX}/screenshots/${i}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
 
@@ -1690,6 +1694,7 @@ async function main() {
       cmd.x = Math.round(cw * controls.joystick.x); cmd.y = Math.round(ch * controls.joystick.y);
     }
     const deviceCmd = { ...cmd };
+    let spinWatched = null; // 這一步有跑 AutoSpin 看守 → 結束後不再額外等 3 秒(看守本身就是等待)
     if (cmd.tx != null && Number.isFinite(cmd.tx)) deviceCmd.tx = toDeviceX(cmd.tx);
     if (cmd.ty != null && Number.isFinite(cmd.ty)) deviceCmd.ty = toDeviceY(cmd.ty);
     if (cmd.x != null && Number.isFinite(cmd.x)) deviceCmd.x = toDeviceX(cmd.x);
@@ -1707,6 +1712,37 @@ async function main() {
     } else
     try {
       if (devLogsPending) { await devLogsPending; devLogsPending = null; }
+      // 【AutoSpin 看守】拉霸 AutoSpin 進行中 AI 選擇等待:runner 每秒自己截圖做本機灰階比對,
+      // 有彈窗 / 畫面停住 / 到心跳上限才交回 AI,並把事件當下那張給下一步(不會漏掉自動關閉的獎勵彈窗)。
+      if (isAutoSpinWait(cmd) && MAGICK && !operatorDirected && process.env.PA_SPIN_WATCH !== '0') {
+        for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50); // 等飛行中的即時截圖結束
+        liveBusy = true; // 看守期間暫停 liveTick,即時畫面改由看守幀更新
+        let res;
+        try {
+          res = await watchAutoSpin({
+            grab: () => client.takeScreenshot(),
+            toGray: (b64) => grayGrid(b64),
+            seed: shot,
+            maxMs: Number(process.env.PA_SPIN_WATCH_MAX_MS) || 30_000,
+            onFrame: (b64) => {
+              if (liveVideo?.healthy() && Date.now() - liveLastShotAt < 5000) return;
+              liveLastShotAt = Date.now();
+              const png = Buffer.from(b64, 'base64');
+              (MAGICK ? liveJpeg(png) : Promise.resolve(null))
+                .then((jpg) => s3put(LIVE_KEY, jpg ?? png, jpg ? 'image/jpeg' : 'image/png'))
+                .catch(() => {});
+            },
+          });
+        } finally { liveBusy = false; }
+        spinWatched = res;
+        // 事件幀 / 心跳最後一張(≤1 秒前)直接給下一步;截圖失敗時那張可能過時,下一步重新截。
+        if (res.frame && res.reason !== 'error') pendingShot = res.frame;
+        controlNote += watchNote(res);
+        step.watch = { reason: res.reason, frames: res.frames, ms: res.ms, ...(res.detail && Object.keys(res.detail).length ? { detail: res.detail } : {}) };
+        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        console.log(`[spin-watch] 第 ${i} 步:${res.reason}(${res.frames} 張 / ${Math.round(res.ms / 1000)}s)${res.detail ? ' ' + JSON.stringify(res.detail) : ''}`);
+        if (res.reason === 'error') throw new Error(`AutoSpin 看守截圖失敗:${res.detail?.error ?? ''}`);
+      } else
       await client.act(deviceCmd);
       consecFail = 0;
       // 記下這次走位(方向 + 走位前的背景),下一步比對背景有沒有捲動。
@@ -1768,7 +1804,8 @@ async function main() {
       teamPending = (teamPending ?? Promise.resolve()).then(work, work);
     }
     // 戰鬥走位中不額外等待(站著不動就會被包圍);其餘維持 3 秒讓畫面穩定。
-    await sleep(lastBattleMove ? 300 : 3000);
+    // AutoSpin 看守剛結束:事件幀已備好,立刻交回 AI(再等 3 秒,自動關閉的彈窗就消失了)。
+    if (!spinWatched) await sleep(lastBattleMove ? 300 : 3000);
   }
 
   // 等最後一輪 Agent 協作寫完紀錄(最多 15 秒)。
