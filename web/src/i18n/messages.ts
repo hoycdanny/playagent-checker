@@ -404,6 +404,10 @@ export type MessageKey =
   | 'tasks.submit'
   | 'tasks.app'
   | 'tasks.case'
+  | 'tasks.caseVersion'
+  | 'tasks.caseVersionActive'
+  | 'tasks.caseVersionInUse'
+  | 'tasks.caseVersionLoading'
   | 'tasks.backend'
   | 'tasks.backendLocked'
   | 'tasks.submitBtn'
@@ -1076,6 +1080,10 @@ const zhHant: Catalog = {
   'tasks.submit': '提交任務',
   'tasks.app': '應用',
   'tasks.case': '測試案例',
+  'tasks.caseVersion': '案例版本',
+  'tasks.caseVersionActive': '使用中的版本',
+  'tasks.caseVersionInUse': '使用中',
+  'tasks.caseVersionLoading': '載入版本中…',
   'tasks.backend': '執行環境',
   'tasks.backendLocked': '依應用平台自動決定(Web 應用用瀏覽器,原生應用用真機)',
   'tasks.submitBtn': '提交',
@@ -1747,6 +1755,10 @@ const en: Catalog = {
   'tasks.submit': 'Submit task',
   'tasks.app': 'App',
   'tasks.case': 'Test case',
+  'tasks.caseVersion': 'Case version',
+  'tasks.caseVersionActive': 'Version in use',
+  'tasks.caseVersionInUse': 'in use',
+  'tasks.caseVersionLoading': 'Loading versions…',
   'tasks.backend': 'Runtime',
   'tasks.backendLocked': 'Set automatically by the app platform (web apps use the browser; native apps use a real device)',
   'tasks.submitBtn': 'Submit',
@@ -2423,6 +2435,10 @@ const zhHans: Catalog = {
   'tasks.submit': '提交任务',
   'tasks.app': '应用',
   'tasks.case': '测试用例',
+  'tasks.caseVersion': '用例版本',
+  'tasks.caseVersionActive': '使用中的版本',
+  'tasks.caseVersionInUse': '使用中',
+  'tasks.caseVersionLoading': '加载版本中…',
   'tasks.backend': '执行环境',
   'tasks.backendLocked': '按应用平台自动决定(Web 应用用浏览器,原生应用用真机)',
   'tasks.submitBtn': '提交',
@@ -3094,6 +3110,10 @@ const ja: Catalog = {
   'tasks.submit': 'タスクを送信',
   'tasks.app': 'アプリ',
   'tasks.case': 'テストケース',
+  'tasks.caseVersion': 'ケースのバージョン',
+  'tasks.caseVersionActive': '使用中のバージョン',
+  'tasks.caseVersionInUse': '使用中',
+  'tasks.caseVersionLoading': 'バージョンを読み込み中…',
   'tasks.backend': '実行環境',
   'tasks.backendLocked': 'アプリのプラットフォームで自動決定(Web アプリはブラウザ、ネイティブアプリは実機)',
   'tasks.submitBtn': '送信',
@@ -3766,6 +3786,10 @@ const ko: Catalog = {
   'tasks.submit': '작업 제출',
   'tasks.app': '앱',
   'tasks.case': '테스트 케이스',
+  'tasks.caseVersion': '케이스 버전',
+  'tasks.caseVersionActive': '사용 중인 버전',
+  'tasks.caseVersionInUse': '사용 중',
+  'tasks.caseVersionLoading': '버전 불러오는 중…',
   'tasks.backend': '실행 환경',
   'tasks.backendLocked': '앱 플랫폼에 따라 자동 결정(웹 앱은 브라우저, 네이티브 앱은 실기기)',
   'tasks.submitBtn': '제출',
