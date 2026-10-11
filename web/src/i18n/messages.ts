@@ -447,6 +447,8 @@ export type MessageKey =
   | 'backend.emulator'
   | 'backend.windows'
   | 'backend.devicefarm'
+  | 'backend.devicefarmLong'
+  | 'backend.devicefarmLongUnlimited'
   | 'backend.attached'
   | 'locality.cloud'
   | 'locality.attached'
@@ -1117,6 +1119,8 @@ const zhHant: Catalog = {
   'backend.emulator': 'Android 模擬器',
   'backend.windows': 'Windows',
   'backend.devicefarm': 'Device Farm 實機',
+  'backend.devicefarmLong': 'Device Farm 實機・長時(最多 {n} 段接續)',
+  'backend.devicefarmLongUnlimited': 'Device Farm 實機・長時(不限段數)',
   'backend.attached': '本地裝置',
   'locality.cloud': '雲端',
   'locality.attached': '本地',
@@ -1786,6 +1790,8 @@ const en: Catalog = {
   'backend.emulator': 'Android emulator',
   'backend.windows': 'Windows',
   'backend.devicefarm': 'Device Farm',
+  'backend.devicefarmLong': 'Device Farm, long run (up to {n} segments)',
+  'backend.devicefarmLongUnlimited': 'Device Farm, long run (unlimited segments)',
   'backend.attached': 'Local device',
   'locality.cloud': 'Cloud',
   'locality.attached': 'Local',
@@ -2460,6 +2466,8 @@ const zhHans: Catalog = {
   'backend.emulator': 'Android 模拟器',
   'backend.windows': 'Windows',
   'backend.devicefarm': 'Device Farm 真机',
+  'backend.devicefarmLong': 'Device Farm 真机・长时(最多 {n} 段接续)',
+  'backend.devicefarmLongUnlimited': 'Device Farm 真机・长时(不限段数)',
   'backend.attached': '本地设备',
   'locality.cloud': '云端',
   'locality.attached': '本地',
@@ -3129,6 +3137,8 @@ const ja: Catalog = {
   'backend.emulator': 'Android エミュレータ',
   'backend.windows': 'Windows',
   'backend.devicefarm': 'Device Farm 実機',
+  'backend.devicefarmLong': 'Device Farm 実機・長時間(最大 {n} セグメント)',
+  'backend.devicefarmLongUnlimited': 'Device Farm 実機・長時間(セグメント無制限)',
   'backend.attached': 'ローカルデバイス',
   'locality.cloud': 'クラウド',
   'locality.attached': 'ローカル',
@@ -3799,6 +3809,8 @@ const ko: Catalog = {
   'backend.emulator': 'Android 에뮬레이터',
   'backend.windows': 'Windows',
   'backend.devicefarm': 'Device Farm 실기기',
+  'backend.devicefarmLong': 'Device Farm 실기기・장시간(최대 {n}구간)',
+  'backend.devicefarmLongUnlimited': 'Device Farm 실기기・장시간(구간 무제한)',
   'backend.attached': '로컬 장치',
   'locality.cloud': '클라우드',
   'locality.attached': '로컬',
