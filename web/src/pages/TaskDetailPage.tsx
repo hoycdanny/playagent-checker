@@ -14,6 +14,7 @@ import type { PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
 import { RecordingPlayer, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
 import { DeviceLogsPanel } from '../components/tasks/DeviceLogsPanel.tsx';
+import { TaskAskPanel } from '../components/tasks/TaskAskPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
 import './ListPage.css';
@@ -473,6 +474,8 @@ export default function TaskDetailPage() {
               })}
             </ol>
           )}
+          {/* AI 問答:放在執行軌跡下方(同一欄,軌跡區縮小讓出空間,整頁維持一屏) */}
+          {jobId && <TaskAskPanel jobId={jobId} lang={lang} />}
         </section>
 
         {/* 右:日誌檢視(裝置系統 Log / 音效播放狀態 / 三個 AI Agent,由新到舊) */}

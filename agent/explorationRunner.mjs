@@ -670,7 +670,10 @@ async function main() {
       client,
       put: s3put,
       prefix: PREFIX,
-      maxSec: Number(process.env.PA_RECORD_MAX_SEC) || 9000,
+      // 每 20 分鐘切一段(約 400 MB):長時任務也不會產生數 GB 的單一檔案,回放與音量分析都快;
+      // 段與段之間由看門狗接續(會漏掉約 30 秒內的空檔)。PA_RECORD_MAX_SEC 可覆寫。
+      maxSec: Number(process.env.PA_RECORD_MAX_SEC) || 1200,
+      watchMs: 10_000, // 每 10 秒檢查一次,段落結束後盡快接下一段(空檔 ≤ 10 秒)
       presignPost: (key) => createPresignedPost(s3, {
         Bucket: BUCKET,
         Key: key,

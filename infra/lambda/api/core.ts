@@ -155,6 +155,7 @@ import { genreBuiltinKbId, explorationGoalForGenre, isBuiltinKbId } from './buil
 import { buildStructuredReport, type EngineJob, type EngineKb } from './report/engine.js';
 import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } from './kbRefs.js';
 import { defaultControlsForGenre, describeControlCatalog, parseCaseControls, reconcileControlsWithText } from './controlSchemes.js';
+import { AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
 import { describeProfile } from './report/profiles.js';
 import type { ReportInsights, StructuredReport } from './report/types.js';
 import {
@@ -230,6 +231,8 @@ export interface ApiDeps {
    * 且 UI-TARS 一律視為關閉(模型清單不列、提交被拒)。
    */
   uitars?: { ports: UitarsPorts; endpointName: string; instanceType: string };
+  /** 任務 AI 問答用的 Bedrock client(測試注入;未注入時 taskAsk 自建)。 */
+  askBedrock?: Pick<import('@aws-sdk/client-bedrock-runtime').BedrockRuntimeClient, 'send'>;
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示 + 提交任務時挑機)。 */
@@ -1421,6 +1424,28 @@ export async function handleRequest(
           return json(200, await withRecordingUrls(s3, deps.bucket, tenant.tenantId, jobId, levels));
         }
         // 動態路由:GET /tasks/{id}/device-logs?kind=logcat|audio&after=<檔名>(真機 log,任務詳情頁展開時讀)
+        // 動態路由:/tasks/{id}/ask —— 任務 AI 問答(依這次任務的步驟 / 裝置 log / 知識庫 / 報告回答)。
+        //   GET 讀對話、POST { question, lang } 發問、DELETE 清空對話。
+        const askMatch = /^\/tasks\/([^/]+)\/ask$/.exec(req.path);
+        if (askMatch && (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE')) {
+          const jobId = askMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          if (req.method === 'GET') return json(200, { items: await readAskHistory(s3, deps.bucket, tenant.tenantId, jobId) });
+          if (req.method === 'DELETE') {
+            await clearAskHistory(s3, deps.bucket, tenant.tenantId, jobId);
+            return json(200, { items: [] });
+          }
+          const body = (req.body ?? {}) as { question?: unknown; lang?: unknown };
+          const question = cleanQuestion(body.question);
+          try {
+            return json(200, await askTask(s3, deps.bucket, tenant.tenantId, jobId, question, body.lang === 'en' ? 'en' : 'zh', deps.askBedrock ? { bedrock: deps.askBedrock } : {}));
+          } catch (err) {
+            if (err instanceof AskValidationError) throw err;
+            console.warn('[ask] failed', err);
+            return json(502, { error: `AI 問答失敗:${err instanceof Error ? err.message : String(err)}` });
+          }
+        }
         const devLogMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/device-logs$/.exec(req.path);
         if (devLogMatch) {
           const jobId = devLogMatch[1]!;
@@ -1585,6 +1610,7 @@ export async function handleRequest(
     if (err instanceof BadRequestError) return json(400, { error: err.message });
     if (err instanceof SecretRefError) return json(400, { error: err.message });
     if (err instanceof DeviceError) return json(400, { error: err.message });
+    if (err instanceof AskValidationError) return json(err.message === '找不到任務' ? 404 : 400, { error: err.message });
     throw err;
   }
 }
