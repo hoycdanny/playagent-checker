@@ -1045,7 +1045,9 @@
   }
   .detail__col--live .detail__screen { flex: 0 0 auto; }
   .detail__col--live .detail__screen img { max-height: 70vh; }
-  .detail__col--trace .detail__steps { max-height: 70vh; flex: 0 0 auto; }
+  .detail__col--trace .detail__steps { max-height: 50vh; flex: 0 0 auto; }
+  .detail__col--trace .taskask { flex: 0 0 auto; }
+  .detail__col--trace .taskask__list { max-height: 50vh; }
   .dchips { margin-left: 0; }
 }
 
