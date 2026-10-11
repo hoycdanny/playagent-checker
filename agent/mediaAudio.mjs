@@ -54,7 +54,8 @@ export const recordingName = (idx) => `rec-${idx}.mp4`;
  * @param {{ mobile(name:string, args?:object):Promise<unknown> }} o.client
  * @param {(key:string, body:Buffer|string, type:string)=>Promise<unknown>} o.put 上傳到 S3
  * @param {(key:string)=>Promise<{url:string, fields:Record<string,string>}>} o.presignPost 預簽 POST(給 Appium 主機直傳)
- * @param {(key:string)=>Promise<Buffer>} o.download 從 S3 讀回(算音量)
+ * @param {(key:string)=>Promise<Buffer>} [o.download] 從 S3 讀回(算音量;整份進記憶體,只適合小檔/測試)
+ * @param {(key:string, file:string)=>Promise<number>} [o.downloadTo] 從 S3 串流存到本機檔,回傳位元組數(正式環境用)
  * @param {string} o.prefix 任務前綴(jobs/<id>)
  * @param {number} [o.maxSec] 單段最長秒數(超過自動結束,看門狗接著開下一段)
  * @param {number} [o.watchMs] 看門狗間隔
@@ -64,10 +65,17 @@ export const recordingName = (idx) => `rec-${idx}.mp4`;
  * @param {Array<object>} [o.initialChunks] 前面連線已收下的段(levels.json 保留)
  */
 export function createMediaRecorder({
-  client, put, presignPost, download, prefix, maxSec = 9000, watchMs = 30_000, log = () => {},
+  client, put, presignPost, download, downloadTo, prefix, maxSec = 9000, watchMs = 30_000, log = () => {},
   setIntervalFn = setInterval, clearIntervalFn = clearInterval, analyze = analyzeLevels,
   startIndex = 0, initialChunks = [],
 }) {
+  /** 把 S3 上的錄影存到本機檔案,回傳位元組數。優先用串流(downloadTo),沒有才退回整份讀進記憶體。 */
+  const downloadToFile = async (key, file) => {
+    if (downloadTo) return downloadTo(key, file);
+    const b = await download(key);
+    await writeFile(file, b);
+    return b.length;
+  };
   const doc = { schemaVersion: 2, dt: 0.1, chunks: [...initialChunks] }; // chunks: { name, t, dur, rms[] }
   let state = 'none';
   let idx = startIndex;
@@ -133,22 +141,27 @@ export function createMediaRecorder({
       if (!buf) return;
     }
     // 讀回算音量(波形 / 每步有無音效)。
+    // 2026-10-11(job-mv36ywqa):兩小時的錄影 2.48 GB,舊版整個讀進記憶體 → 2 GB 的容器被系統砍掉,
+    // 報告與最終狀態都沒寫出(任務停在「執行中」)。改成直接串流寫到暫存檔,記憶體用量與檔案大小無關。
     let rms = [];
+    let bytes = buf?.length ?? 0;
+    const tmp = join(tmpdir(), `pa-rec-${stopAt}.mp4`);
     try {
-      if (!buf) buf = await download(key);
-      const tmp = join(tmpdir(), `pa-rec-${stopAt}.mp4`);
-      await writeFile(tmp, buf);
+      if (buf) await writeFile(tmp, buf);
+      else bytes = await downloadToFile(key, tmp);
+      buf = null; // base64 取回的那份也不再留在記憶體
       rms = (await analyze(tmp, 300_000)) ?? [];
-      await unlink(tmp).catch(() => {});
     } catch (e) {
       log(`[record] 音量分析失敗(錄影仍保留):${String(e?.message || e).slice(0, 200)}`);
+    } finally {
+      await unlink(tmp).catch(() => {});
     }
     const dur = rms.length ? rms.length * doc.dt : Math.max(0, (stopAt - startedAt) / 1000);
     // 對時:正常停止 → 結束時間 = stop 呼叫當下,往回推長度;自己結束的段 → 用開始時間。
     const t = Math.round(autoEnded ? startedAt : stopAt - dur * 1000);
-    doc.chunks.push({ name, t, dur: Math.round(dur * 10) / 10, rms, bytes: buf?.length ?? 0 });
+    doc.chunks.push({ name, t, dur: Math.round(dur * 10) / 10, rms, bytes });
     await writeDoc();
-    log(`[record] ${name} 已上傳(${Math.round((buf?.length ?? 0) / 1024 / 1024)} MB,${Math.round(dur)} 秒)`);
+    log(`[record] ${name} 已上傳(${Math.round(bytes / 1024 / 1024)} MB,${Math.round(dur)} 秒)`);
   }
 
   /** 看門狗:錄影因長度上限自己結束 → 收下這段並開下一段。 */

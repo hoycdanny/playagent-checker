@@ -240,6 +240,20 @@ export function parseCaseControls(yaml: string): ControlId[] | undefined {
   return sanitizeControls(items);
 }
 
+/**
+ * 案例內文明確要求「長按」,但 `controls:` 沒勾長按 → 自動補上 hold。
+ * 2026-10-11:RTP 案例內文寫「長按 SPIN 約 1.5 秒(hold)」,但某次編修把 controls 改成只剩 [tap],
+ * runner 依規定拒絕 hold,AI 開不了 AutoSpin,三個任務都只能一局一局點、跑不完。
+ * 兩者矛盾時以內文為準(只補不減:不會因為內文沒提就拿掉使用者勾的方案)。回傳 added = 是否有補。
+ */
+const HOLD_TEXT_RE = /長按|长按|按住|holdMs|\bhold\b|long[\s-]?press/i;
+export function reconcileControlsWithText(yaml: string, ids: ControlId[]): { ids: ControlId[]; added: ControlId[] } {
+  const body = yaml.split(/\r?\n/).filter((l) => !/^controls:/.test(l) && !/^\s+-\s*[A-Za-z_]+\s*$/.test(l)).join('\n');
+  const added: ControlId[] = [];
+  if (ids.length > 0 && !ids.includes('hold') && HOLD_TEXT_RE.test(body)) added.push('hold');
+  return { ids: [...ids, ...added], added };
+}
+
 export interface ControlsProtocol {
   ids: ControlId[];
   source: 'case' | 'genre';

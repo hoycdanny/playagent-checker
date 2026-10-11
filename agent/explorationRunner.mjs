@@ -26,6 +26,8 @@
  * 架構:重活(讀數百 MB APK、上傳 Device Farm、等真機 session RUNNING)都在此 Fargate
  * 容器內做——engine Lambda 512MB/5 分無法承載。engine 只負責起這個 task。
  */
+import { createWriteStream } from 'node:fs';
+import { pipeline } from 'node:stream/promises';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
@@ -676,7 +678,12 @@ async function main() {
         Fields: { 'Content-Type': 'video/mp4' },
         Expires: 3600,
       }),
-      download: async (key) => Buffer.from(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))).Body.transformToByteArray()),
+      // 串流存檔(長時錄影可達數 GB,不能整份讀進 2 GB 的容器記憶體)。
+      downloadTo: async (key, file) => {
+        const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+        await pipeline(res.Body, createWriteStream(file));
+        return Number(res.ContentLength) || 0;
+      },
       log: (m) => console.log(m),
     });
   const recordingEnabled = PLATFORM === 'android' && process.env.PA_AUDIO !== '0';
@@ -1703,7 +1710,13 @@ async function main() {
       const moved = cmd.action === 'move' || (cmd.action === 'combo' && cmd.dir);
       const mdir = moved && !Number.isFinite(cmd.x2) ? normDir(cmd.dir ?? cmd.direction) : null;
       if (mdir && curScene) lastMove = { dir: mdir, scene: curScene };
-    } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
+    } catch (e) {
+      // 記下錯誤原因(之前完全吞掉,報告只剩「連續動作失敗」,看不出是連線斷了還是指令不被接受)。
+      const why = String(e?.message || e).replace(/\s+/g, ' ').slice(0, 300);
+      console.warn(`[act] 第 ${i} 步 ${cmd.action} 失敗(連續 ${consecFail + 1} 次):${why}`);
+      consecFail++;
+      if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = `連續動作失敗(${consecFail} 次):${why}`; break; }
+    }
     prevOrient = isLandscape;
     // 導覽圖用的「上一畫面/上一動作」:AI 沒給畫面名(pid=null,如解析失敗)時沿用上一個已知畫面,
     // 且該步若只是 wait 不覆蓋真正造成轉場的動作(如先 tap Slots → 解析失敗 wait → 機台選擇)。
