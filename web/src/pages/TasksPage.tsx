@@ -10,6 +10,7 @@ import { recommendedDefault, sortByRecommend, starLabel } from '../components/mo
 import RangeSlider from '../components/RangeSlider.tsx';
 import TasksTable from '../components/TasksTable.tsx';
 import DevicePicker from '../components/DevicePicker.tsx';
+import type { CaseVersionSummary } from '../components/cases/CaseVersions.tsx';
 import './ListPage.css';
 import './TasksPage.css';
 
@@ -111,6 +112,21 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   }, [showForm]);
   const [appId, setAppId] = useState(lockedApp ?? '');
   const [caseId, setCaseId] = useState('');
+  // 案例版本(空 = 使用中的版本)。caseVersions = null 表示載入中。
+  const [caseVersion, setCaseVersion] = useState('');
+  const [caseVersions, setCaseVersions] = useState<CaseVersionSummary[] | null>([]);
+  const [activeCaseVersion, setActiveCaseVersion] = useState<string | undefined>();
+  useEffect(() => {
+    setCaseVersion('');
+    setActiveCaseVersion(undefined);
+    if (!appId || !caseId) { setCaseVersions([]); return; }
+    let stale = false;
+    setCaseVersions(null);
+    apiGet<{ active?: string; items: CaseVersionSummary[] }>(`/cases/${encodeURIComponent(appId)}/${encodeURIComponent(caseId)}/versions`)
+      .then((r) => { if (!stale) { setCaseVersions(r.items ?? []); setActiveCaseVersion(r.active); } })
+      .catch(() => { if (!stale) setCaseVersions([]); });
+    return () => { stale = true; };
+  }, [appId, caseId]);
   // 要測哪一版(空 = 應用目前使用中的版本);只在嵌入模式且有多版本時出現。
   const [buildId, setBuildId] = useState('');
   const [backend, setBackend] = useState('web');
@@ -312,6 +328,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         backend,
         appId,
         caseId,
+        // 指定案例版本(空 = 使用中的版本)。
+        ...(caseVersion ? { caseVersion } : {}),
         // 多版本 App:指定要測的版本(空 = 使用中的版本)。
         ...(buildId ? { buildId } : {}),
         ...(VLM_BACKENDS.has(backend) && vlmModel ? { vlmModel } : {}),
@@ -482,6 +500,30 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
               ))}
             </select>
           </label>
+          {/* 案例版本:預設「使用中」的版本;可挑舊版本重跑(每個版本內容不可變)。 */}
+          {caseId && (
+            <label className="tasks__field">
+              <span className="tasks__label">{t('tasks.caseVersion')}</span>
+              <select
+                value={caseVersion}
+                onChange={(e) => setCaseVersion(e.target.value)}
+                disabled={caseVersions === null}
+              >
+                <option value="">
+                  {caseVersions === null
+                    ? t('tasks.caseVersionLoading')
+                    : `${t('tasks.caseVersionActive')}${activeCaseVersion ? ` · ${activeCaseVersion}` : ''}`}
+                </option>
+                {(caseVersions ?? []).map((v) => (
+                  <option key={v.version} value={v.version}>
+                    {v.version}
+                    {v.version === activeCaseVersion ? ` (${t('tasks.caseVersionInUse')})` : ''}
+                    {v.name ? ` · ${v.name}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           {/* 多版本 App:挑一版來測(預設使用中的版本)。版本管理在工作區的「版本」分頁。 */}
           {(lockedAppRecord?.builds?.length ?? 0) > 1 && (
             <label className="tasks__field">

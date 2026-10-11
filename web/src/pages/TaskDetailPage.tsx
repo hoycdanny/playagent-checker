@@ -200,7 +200,13 @@ export default function TaskDetailPage() {
       {/* 標題列(一行):返回 + 標題 + 狀態 + 步數 + 目前動作 + 任務資訊 + 報告 / 連線狀態 */}
       <header className="detail__head">
         <div className="detail__head-row">
-          <Link to="/tasks" className="detail__back detail__back--icon" aria-label={t('detail.back')} title={t('detail.back')}>
+          {/* 回到這個任務所屬應用的「測試任務」分頁(不知道應用時退回總任務清單)。 */}
+          <Link
+            to={appId ? `/apps/${encodeURIComponent(appId)}?tab=tasks` : '/tasks'}
+            className="detail__back detail__back--icon"
+            aria-label={t('detail.back')}
+            title={t('detail.back')}
+          >
             <span aria-hidden="true">←</span>
           </Link>
           <h1 className="detail__title">{t('detail.title')}</h1>
