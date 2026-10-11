@@ -1,5 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { S3Client } from '@aws-sdk/client-s3';
+import { existsSync } from 'node:fs';
+import { writeFile as writeFileP } from 'node:fs/promises';
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: async (_c: unknown, cmd: { input: { Key: string } }) => `https://signed/${cmd.input.Key}`,
@@ -98,7 +100,7 @@ describe('runner helpers', () => {
 
 describe('continuous recorder (one recording per run)', () => {
   type Call = { name: string; args?: Record<string, unknown> };
-  function setup(opts: { uploadFails?: boolean; autoEndOnce?: boolean; startIndex?: number; initialChunks?: unknown[] } = {}) {
+  function setup(opts: { uploadFails?: boolean; autoEndOnce?: boolean; startIndex?: number; initialChunks?: unknown[]; streamed?: string[]; analyzed?: boolean[] } = {}) {
     const calls: Call[] = [];
     const puts = new Map<string, unknown>();
     let running = false;
@@ -129,8 +131,10 @@ describe('continuous recorder (one recording per run)', () => {
       prefix: 'tenants/t1/jobs/job-1',
       put: async (k: string, body: unknown) => { puts.set(k, body); },
       presignPost: async (key: string) => ({ url: `https://s3.example/${key}`, fields: { key, policy: 'p' } }),
-      download: async () => Buffer.from('fake-mp4'),
-      analyze: async () => [-30, -20, -120, -10],
+      ...(opts.streamed
+        ? { downloadTo: async (_k: string, file: string) => { opts.streamed!.push(file); await writeFileP(file, 'fake-mp4'); return 3_000_000_000; } }
+        : { download: async () => Buffer.from('fake-mp4') }),
+      analyze: async (file: string) => { opts.analyzed?.push(existsSync(file)); return [-30, -20, -120, -10]; },
       setIntervalFn: (fn: () => void) => { tick = fn; return 1; },
       clearIntervalFn: () => {},
       ...(opts.startIndex !== undefined ? { startIndex: opts.startIndex, initialChunks: opts.initialChunks } : {}),
@@ -153,6 +157,18 @@ describe('continuous recorder (one recording per run)', () => {
     expect(doc.state).toBe('on');
     expect(doc.chunks).toHaveLength(1);
     expect(doc.chunks[0]).toMatchObject({ name: 'rec-0.mp4', dur: 0.4, rms: [-30, -20, -120, -10] });
+  });
+
+  test('long recordings are streamed to a temp file (never loaded into memory), then the file is removed', async () => {
+    const streamed: string[] = [];
+    const analyzed: boolean[] = [];
+    const { rec, puts } = setup({ streamed, analyzed });
+    await rec.start();
+    await rec.stop();
+    expect(streamed).toHaveLength(1);
+    expect(analyzed).toEqual([true]); // 分析時檔案在
+    expect(existsSync(streamed[0]!)).toBe(false); // 分析完刪掉
+    expect(levels(puts).chunks[0]).toMatchObject({ name: 'rec-0.mp4', bytes: 3_000_000_000 });
   });
 
   test('direct upload failure → falls back to base64 and uploads itself', async () => {
