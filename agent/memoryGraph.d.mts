@@ -34,6 +34,7 @@ export declare const GRAPH_SCHEMA_VERSION: number;
 export declare const TRANSIENT_NAME: string;
 export declare function hamming(a: string, b: string): number;
 export declare function canonicalName(name: string | undefined | null): string;
+export declare function isPlaceholderName(name: string | undefined | null): boolean;
 export declare function emptyStructure(appName?: string): GraphStructure;
 export declare function upsertPage(
   struct: GraphStructure,

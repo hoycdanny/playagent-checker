@@ -131,10 +131,23 @@ const DECIDE_SYSTEM = `你是遊戲自動化測試的「決策 Agent」。你看
 /** 視覺 Agent 要額外回報的欄位(附加在視覺 Agent 的系統提示後面)。 */
 export const VISION_ELEMENTS_NOTE = `
 
-【給決策 Agent 的畫面資訊|每步必填】除了你原本的欄位,同一個 JSON 另外加:
-"seen":"一句話描述畫面(畫面種類、有沒有彈窗/動畫、看得到的重要數字)";
+【給決策 Agent 的畫面資訊|每步必填】除了你原本的欄位(其中 "screen" 畫面名稱一樣每步必填,記憶地圖靠它記錄流程),同一個 JSON 另外加:
+"seen":"一句話描述畫面,開頭先寫畫面種類再接冒號(例:「大廳:中央有機台清單…」),再寫有沒有彈窗/動畫、看得到的重要數字";
 "elements":[{"id":1,"label":"元件上的文字或簡稱","x":<像素>,"y":<像素>,"kind":"button|close|tab|item|input|joystick|area"}]
 —— 列出畫面上所有可以操作的元件(最多 12 個,重要的先列;座標是元件正中心,規則同 x/y)。決策 Agent 會依這份清單決定操作哪一個;你原本的 action 是給它的建議。`;
+
+/**
+ * 視覺模型漏給 screen 時,從 seen 推出畫面名(取第一個冒號/逗號前的片段,如「登入畫面:中央有 PLAY…」→「登入畫面」)。
+ * 2026-10-10:Kimi K3 在團隊模式前 18 步都沒給 screen,runner 補成「畫面 N」佔位名,
+ * 記憶地圖丟掉佔位畫面 → 登入/大廳/選機台整段消失,圖從轉軸畫面開始。推不出來回空字串。
+ */
+export function screenFromSeen(seen) {
+  const s = String(seen ?? '').trim();
+  if (!s) return '';
+  const head = s.split(/[::,,。;;\n]/)[0].trim();
+  if (!head || head.length > 24) return '';
+  return head;
+}
 
 const ACTIONS_NEED_ELEMENT = new Set(['tap', 'hold', 'swipe']);
 const DIR_RE = /^(up|down|left|right|upleft|upright|downleft|downright)$/;

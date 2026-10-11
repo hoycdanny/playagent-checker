@@ -176,3 +176,17 @@ describe('spendBySeat', () => {
     expect(spendBySeat({}, () => undefined)).toBeUndefined();
   });
 });
+
+describe('screenFromSeen (fallback screen name when the VLM omits "screen")', () => {
+  test('takes the screen kind before the first separator', () => {
+    expect(at.screenFromSeen('登入畫面:中央大 PLAY 鈕,下方 Already have an account?')).toBe('登入畫面');
+    expect(at.screenFromSeen('機台選擇大廳,機台圖片尚未載入完')).toBe('機台選擇大廳');
+    expect(at.screenFromSeen('Lobby: slot list with banners')).toBe('Lobby');
+  });
+
+  test('gives up on empty or sentence-like text (runner keeps its placeholder)', () => {
+    expect(at.screenFromSeen('')).toBe('');
+    expect(at.screenFromSeen(undefined)).toBe('');
+    expect(at.screenFromSeen('畫面中央出現財神與拉霸機的過場動畫背後機台卡片正在載入中右側是沙漠')).toBe('');
+  });
+});

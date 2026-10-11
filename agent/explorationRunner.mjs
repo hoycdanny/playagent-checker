@@ -43,7 +43,7 @@ import { createLiveVideo, recordSize } from './liveVideo.mjs';
 import { createMediaRecorder } from './mediaAudio.mjs';
 import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
-import { createAgentTeam, normalizeElements, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
+import { createAgentTeam, normalizeElements, screenFromSeen, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64 } from './imageTools.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
@@ -1402,6 +1402,11 @@ async function main() {
       }
     }
 
+    // 視覺模型漏給 screen 時先從 seen 推畫面名;都沒有才用「畫面 N」佔位(記憶地圖不收佔位名)。
+    if (!cmd.screen && typeof cmd.seen === 'string') {
+      const guess = screenFromSeen(cmd.seen);
+      if (guess) cmd.screen = guess;
+    }
     const screenName = cmd.screen || `畫面 ${i}`;
 
     // 落點標記圖:tap/swipe 時在點擊座標畫紅十字+圓圈+座標,存 annotated/<i>.png(前端顯示 AI 點在哪)。
