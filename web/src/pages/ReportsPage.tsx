@@ -370,7 +370,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                   <th className="tasks__col-icon">{t('tasks.colState')}</th>
                   <th>{t('tasks.colCreated')}</th>
                   <th>{t('tasks.colApp')}</th>
-                  <th>{t('reports.col.case')}</th>
+                  <th className="tasks__col-case">{t('reports.col.case')}</th>
                   <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
                   <th className="tasks__col-steps">{t('reports.col.steps')}</th>
                   <th>{t('reports.col.duration')}</th>
@@ -414,8 +414,8 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                         </Link>
                       </td>
                       <td><AppBadge app={lookup(x.appId)} fallbackId={x.appId} /></td>
-                      <td className="rpts__case-cell" title={[x.caseName, x.message].filter(Boolean).join('\n')}>
-                        <span className="rpts__case-name">
+                      <td className="tasks__col-case" title={[x.caseName, x.message].filter(Boolean).join('\n')}>
+                        <span className="tasks__case-name">
                           {x.caseName ?? t(`reports.category.${x.category === 'exploration' ? 'exploration' : 'test'}` as MessageKey)}
                         </span>
                         {x.caseVersion && <CaseVersionBadge version={x.caseVersion} />}

@@ -377,6 +377,19 @@
 .tasks__batch-cancel:hover { background: var(--surface); }
 .tasks__batch-cancel:disabled { opacity: 0.6; cursor: default; }
 
+/* 測試案例欄:吃掉表格多出來的寬度(右側不再留白),名稱過長才省略 */
+.tasks__table th.tasks__col-case { width: 100%; }
+.tasks__table td.tasks__col-case { max-width: 0; min-width: 180px; }
+.tasks__table td:not(.tasks__col-case),
+.tasks__table th:not(.tasks__col-case) { white-space: nowrap; }
+.tasks__case-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
 /* 整列可點進任務詳情 */
 .tasks__row--link { cursor: pointer; }
 .tasks__row--link:hover td { background: color-mix(in srgb, var(--brand, #ff2d95) 6%, transparent); }
