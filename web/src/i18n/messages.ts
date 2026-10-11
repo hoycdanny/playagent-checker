@@ -150,6 +150,7 @@ export type MessageKey =
   | 'reports.col.duration'
   | 'reports.col.cost'
   | 'reports.col.device'
+  | 'reports.col.case'
   | 'reports.col.models'
   | 'reports.col.created'
   | 'reports.noMatch'
@@ -819,6 +820,7 @@ const zhHant: Catalog = {
   'reports.col.duration': "耗時",
   'reports.col.cost': "花費",
   'reports.col.device': "裝置",
+  'reports.col.case': "測試案例",
   'reports.col.models': "模型",
   'reports.col.created': "建立時間",
   'reports.noMatch': "沒有符合篩選條件的報告。",
@@ -1487,6 +1489,7 @@ const en: Catalog = {
   'reports.col.duration': "Duration",
   'reports.col.cost': "Cost",
   'reports.col.device': "Device",
+  'reports.col.case': "Test case",
   'reports.col.models': "Models",
   'reports.col.created': "Created",
   'reports.noMatch': "No reports match the filters.",
@@ -2160,6 +2163,7 @@ const zhHans: Catalog = {
   'reports.col.duration': "耗时",
   'reports.col.cost': "花费",
   'reports.col.device': "设备",
+  'reports.col.case': "测试用例",
   'reports.col.models': "模型",
   'reports.col.created': "创建时间",
   'reports.noMatch': "没有符合筛选条件的报告。",
@@ -2828,6 +2832,7 @@ const ja: Catalog = {
   'reports.col.duration': "所要時間",
   'reports.col.cost': "コスト",
   'reports.col.device': "デバイス",
+  'reports.col.case': "テストケース",
   'reports.col.models': "モデル",
   'reports.col.created': "作成日時",
   'reports.noMatch': "条件に一致するレポートはありません。",
@@ -3497,6 +3502,7 @@ const ko: Catalog = {
   'reports.col.duration': "소요 시간",
   'reports.col.cost': "비용",
   'reports.col.device': "장치",
+  'reports.col.case': "테스트 케이스",
   'reports.col.models': "모델",
   'reports.col.created': "생성 시간",
   'reports.noMatch': "조건에 맞는 리포트가 없습니다.",

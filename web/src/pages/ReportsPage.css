@@ -212,3 +212,17 @@
 /* 案例版本(執行時快照) */
 .rpts__version { display: inline-flex; align-items: center; gap: var(--space-2); font-size: 12px; color: var(--text-tertiary); min-width: 0; }
 .rpts__version-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+
+/* 表格排版(與測試任務相同):案例欄 = 名稱 + 版本號,過長省略 */
+.rpts__table { margin-top: var(--space-2); }
+.rpts__table td.rpts__case-cell { max-width: 220px; }
+.rpts__table .rpts__case-cell .rpts__case-name {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.rpts__table td.rpts__nowrap,
+.rpts__table td.tasks__created { white-space: nowrap; }
