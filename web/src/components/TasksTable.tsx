@@ -4,6 +4,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import AppBadge, { type AppRef } from './AppRef.tsx';
 import TaskIcon from './TaskIcon.tsx';
 import { modelLabel } from './modelProvider.ts';
+import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
 export interface TaskRow {
@@ -18,6 +19,9 @@ export interface TaskRow {
   billableSpendUsd?: number;
   spendEstimated?: boolean;
   stepCount?: number;
+  /** 執行時的案例名稱 / 版本快照(舊任務可能沒有)。 */
+  caseName?: string;
+  caseVersion?: string;
 }
 
 /** 終局狀態(不再變動):決定顯示「取消」或「刪除」。 */
@@ -106,6 +110,7 @@ export default function TasksTable({
           <th className="tasks__col-icon">{t('tasks.colState')}</th>
           <th>{t('tasks.colCreated')}</th>
           <th>{t('tasks.colApp')}</th>
+          <th className="tasks__col-case">{t('reports.col.case')}</th>
           <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
           <th className="tasks__col-icon">{t('tasks.colLocality')}</th>
           <th className="tasks__col-steps">{t('tasks.colSteps')}</th>
@@ -157,6 +162,16 @@ export default function TasksTable({
               </td>
               <td>
                 <AppBadge app={appById(x.appId)} fallbackId={x.appId} />
+              </td>
+              <td className="tasks__col-case" title={x.caseName}>
+                {x.caseName ? (
+                  <>
+                    <span className="tasks__case-name">{x.caseName}</span>
+                    {x.caseVersion && <CaseVersionBadge version={x.caseVersion} />}
+                  </>
+                ) : (
+                  <span className="tasks__muted-cell">—</span>
+                )}
               </td>
               <td className="tasks__col-icon">
                 <TaskIcon kind="backend" value={x.backend} label={backendLabel} />
