@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { apiGet, apiDelete, type ListResponse } from '../api/client.ts';
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
@@ -83,6 +83,7 @@ function relativeTime(iso: string, locale: string): string {
  */
 export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {}) {
   const { t, locale } = useI18n();
+  const navigate = useNavigate();
   const embedded = Boolean(lockedApp);
   const [items, setItems] = useState<ReportItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -199,21 +200,6 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, apps]);
   const backendOptions = useMemo(() => [...new Set(items.map((x) => x.backend))], [items]);
-
-  async function onDelete(jobId: string) {
-    if (!window.confirm(t('report.deleteConfirm'))) return;
-    try {
-      await apiDelete(`/tasks/${encodeURIComponent(jobId)}`);
-      setItems((prev) => prev.filter((x) => x.jobId !== jobId));
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(jobId);
-        return next;
-      });
-    } catch (err) {
-      window.alert(`${t('tasks.deleteFailed')}${err instanceof Error ? `\n${err.message}` : ''}`);
-    }
-  }
 
   // 同時最多 3 筆;只把「真的刪掉」的從畫面移除,失敗的保留勾選並提示(之前失敗也從畫面消失,重新整理又冒出來)。
   async function onBatchDelete() {
@@ -352,17 +338,8 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
             </div>
           </div>
 
-          {/* 結果列 + 批次操作 */}
+          {/* 結果列 + 批次操作(全選在表頭勾選框) */}
           <div className="rpts__bar">
-            <label className="rpts__selectall">
-              <input
-                type="checkbox"
-                aria-label={t('tasks.selectAll')}
-                checked={visible.length > 0 && visible.every((x) => selectedIds.has(x.jobId))}
-                onChange={(e) => visible.forEach((x) => toggle(x.jobId, e.target.checked))}
-              />
-              <span>{t('tasks.selectAll')}</span>
-            </label>
             <span className="rpts__count">
               {t('reports.resultCount').replace('{n}', String(filtered.length)).replace('{total}', String(items.length))}
             </span>
@@ -378,85 +355,92 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
               <p>{t('reports.noMatch')}</p>
             </div>
           ) : (
-            <ul className="rpts__list">
-              {visible.map((x) => {
-                const dur = durationOf(x);
-                const agent = x.seatModels?.agent;
-                const vlm = x.seatModels?.vlm ?? x.vlmModel;
-                return (
-                  <li key={x.jobId} className={`rpts__row rpts__row--${x.state} ${selectedIds.has(x.jobId) ? 'is-selected' : ''}`}>
+            /* 與「測試任務」同一套表格排版:勾選欄 + 圖示欄,點整列進報告,刪除走上方「刪除選取」。 */
+            <table className="tasks__table rpts__table">
+              <thead>
+                <tr>
+                  <th className="tasks__col-check">
                     <input
                       type="checkbox"
-                      className="rpts__check"
-                      aria-label={t('tasks.selectRow')}
-                      checked={selectedIds.has(x.jobId)}
-                      onChange={(e) => toggle(x.jobId, e.target.checked)}
+                      aria-label={t('tasks.selectAll')}
+                      checked={visible.length > 0 && visible.every((x) => selectedIds.has(x.jobId))}
+                      onChange={(e) => visible.forEach((x) => toggle(x.jobId, e.target.checked))}
                     />
-                    <span className={`rpts__state rpts__state--${x.state}`}>
-                      <span className="rpts__dot" aria-hidden="true" />
-                      {t(`state.${x.state}` as MessageKey)}
-                    </span>
-
-                    <Link to={`/reports/${x.jobId}`} className="rpts__main">
-                      <span className="rpts__title">
-                        <AppBadge app={lookup(x.appId)} fallbackId={x.appId} />
-                        <span className="rpts__tag">{t(`reports.category.${x.category === 'exploration' ? 'exploration' : 'test'}` as MessageKey)}</span>
-                        <span className="rpts__backend">
-                          <TaskIcon kind="backend" value={x.backend} label={t(`backend.${x.backend}` as MessageKey)} />
+                  </th>
+                  <th className="tasks__col-icon">{t('tasks.colState')}</th>
+                  <th>{t('tasks.colCreated')}</th>
+                  <th>{t('tasks.colApp')}</th>
+                  <th>{t('reports.col.case')}</th>
+                  <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
+                  <th className="tasks__col-steps">{t('reports.col.steps')}</th>
+                  <th>{t('reports.col.duration')}</th>
+                  <th>{t('reports.col.cost')}</th>
+                  <th>{t('reports.col.device')}</th>
+                  <th title={t('tasks.roleAgentHint')}>{t('tasks.roleAgent')}</th>
+                  <th title={t('tasks.roleVlmHint')}>{t('tasks.roleVlm')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((x) => {
+                  const agent = x.seatModels?.agent;
+                  const vlm = x.seatModels?.vlm ?? x.vlmModel;
+                  const selected = selectedIds.has(x.jobId);
+                  const model = (id: string | undefined) =>
+                    id ? <span className="tasks__model" title={id}>{modelLabel(id)}</span> : <span className="tasks__muted-cell">—</span>;
+                  return (
+                    <tr
+                      key={x.jobId}
+                      className={`tasks__row--link${selected ? ' tasks__row--selected' : ''}`}
+                      onClick={(e) => {
+                        if ((e.target as HTMLElement).closest('input, a, button, label, .tasks__col-check')) return;
+                        if (window.getSelection()?.toString()) return;
+                        navigate(`/reports/${x.jobId}`);
+                      }}
+                    >
+                      <td className="tasks__col-check">
+                        <input
+                          type="checkbox"
+                          aria-label={t('tasks.selectRow')}
+                          checked={selected}
+                          onChange={(e) => toggle(x.jobId, e.target.checked)}
+                        />
+                      </td>
+                      <td className="tasks__col-icon">
+                        <TaskIcon kind="state" value={x.state} label={t(`state.${x.state}` as MessageKey)} />
+                      </td>
+                      <td className="tasks__created" title={relativeTime(x.createdAt, locale)}>
+                        <Link to={`/reports/${x.jobId}`} className="tasks__row-link" aria-label={`${t('report.open')} ${formatDateTime(x.createdAt)}`}>
+                          <time dateTime={x.createdAt}>{formatDateTime(x.createdAt)}</time>
+                        </Link>
+                      </td>
+                      <td><AppBadge app={lookup(x.appId)} fallbackId={x.appId} /></td>
+                      <td className="rpts__case-cell" title={[x.caseName, x.message].filter(Boolean).join('\n')}>
+                        <span className="rpts__case-name">
+                          {x.caseName ?? t(`reports.category.${x.category === 'exploration' ? 'exploration' : 'test'}` as MessageKey)}
                         </span>
-                      </span>
-                      {x.task && <span className="rpts__task">{x.task}</span>}
-                      {x.message && <span className="rpts__message">{x.message}</span>}
-                    </Link>
-                    {x.caseVersion && (
-                      <span className="rpts__version">
-                        {x.caseName ? <span className="rpts__version-name">{x.caseName}</span> : null}
-                        <CaseVersionBadge version={x.caseVersion} />
-                      </span>
-                    )}
-
-                    <dl className="rpts__meta">
-                      <div><dt>{t('reports.col.steps')}</dt><dd>{x.stepCount ?? '—'}</dd></div>
-                      <div><dt>{t('reports.col.duration')}</dt><dd>{formatDuration(dur)}</dd></div>
-                      <div>
-                        <dt>{t('reports.col.cost')}</dt>
-                        <dd>
-                          {typeof x.billableSpendUsd === 'number' ? `$${x.billableSpendUsd.toFixed(2)}` : '—'}
-                          {x.spendEstimated && <small> {t('reports.estimated')}</small>}
-                        </dd>
-                      </div>
-                      <div className="rpts__meta-wide"><dt>{t('reports.col.device')}</dt><dd title={x.deviceModel}>{x.deviceModel ?? '—'}</dd></div>
-                      <div className="rpts__meta-wide">
-                        <dt>{t('reports.col.models')}</dt>
-                        <dd title={[agent, vlm].filter(Boolean).join(' / ')}>
-                          {[agent && modelLabel(agent), vlm && modelLabel(vlm)].filter(Boolean).join(' · ') || '—'}
-                        </dd>
-                      </div>
-                    </dl>
-
-                    <div className="rpts__time">
-                      <time dateTime={x.createdAt}>{formatDateTime(x.createdAt)}</time>
-                      <small>{relativeTime(x.createdAt, locale)}</small>
-                    </div>
-
-                    <div className="rpts__actions">
-                      <Link to={`/reports/${x.jobId}`} className="rpts__open">{t('report.open')}</Link>
-                      <button
-                        type="button"
-                        className="tasks__icon-btn tasks__icon-btn--danger"
-                        onClick={() => void onDelete(x.jobId)}
-                        title={t('report.delete')}
-                        aria-label={t('report.delete')}
-                      >
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M10 11v6M14 11v6" />
-                        </svg>
-                      </button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+                        {x.caseVersion && <CaseVersionBadge version={x.caseVersion} />}
+                      </td>
+                      <td className="tasks__col-icon">
+                        <TaskIcon kind="backend" value={x.backend} label={t(`backend.${x.backend}` as MessageKey)} />
+                      </td>
+                      <td className="tasks__col-steps">{x.stepCount ?? <span className="tasks__muted-cell">—</span>}</td>
+                      <td className="rpts__nowrap">{formatDuration(durationOf(x))}</td>
+                      <td className="tasks__cost">
+                        {typeof x.billableSpendUsd === 'number' ? (
+                          <>
+                            ${x.billableSpendUsd.toFixed(2)}
+                            {x.spendEstimated && <span className="tasks__cost-est"> {t('reports.estimated')}</span>}
+                          </>
+                        ) : <span className="tasks__muted-cell">—</span>}
+                      </td>
+                      <td className="tasks__text-cell" title={x.deviceModel}>{x.deviceModel ?? <span className="tasks__muted-cell">—</span>}</td>
+                      <td className="tasks__text-cell">{model(agent)}</td>
+                      <td className="tasks__text-cell">{model(vlm)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
 
           {hasMore && (
