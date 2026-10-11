@@ -346,40 +346,40 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
     }
   }
 
-  async function onCancel(jobId: string) {
-    if (!window.confirm(t('tasks.cancelConfirm'))) return;
-    try {
-      await apiPost(`/tasks/${jobId}/cancel`, {});
-      await refetch();
-    } catch {
-      /* 忽略 */
-    }
-  }
+  // 勾選的任務依狀態分成「可刪除(已結束)」與「可取消(執行中/排隊)」—— 表格不再有每列的操作鈕。
+  const stateById = new Map(tasks.map((x) => [x.jobId, x.state]));
+  const selectedDone = [...selectedIds].filter((id) => TERMINAL.has(stateById.get(id) ?? ''));
+  const selectedActive = [...selectedIds].filter((id) => stateById.has(id) && !TERMINAL.has(stateById.get(id)!));
+  const [batchCancelling, setBatchCancelling] = useState(false);
 
-  async function onDelete(jobId: string) {
-    if (!window.confirm(t('tasks.deleteConfirm'))) return;
+  async function onBatchCancel() {
+    if (selectedActive.length === 0) return;
+    if (!window.confirm(t('tasks.batchCancelConfirm').replace('{n}', String(selectedActive.length)))) return;
+    setBatchCancelling(true);
+    const failed: string[] = [];
     try {
-      await apiDelete(`/tasks/${encodeURIComponent(jobId)}`);
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(jobId);
-        return next;
-      });
-    } catch (err) {
-      // 刪除失敗要讓使用者知道(之前靜默忽略 → 任務看似刪了,重新整理又出現)。
-      window.alert(`${t('tasks.deleteFailed')}${err instanceof Error ? `\n${err.message}` : ''}`);
+      for (const jobId of selectedActive) {
+        try {
+          await apiPost(`/tasks/${encodeURIComponent(jobId)}/cancel`, {});
+        } catch {
+          failed.push(jobId);
+        }
+      }
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !selectedActive.includes(id) || failed.includes(id))));
+      if (failed.length) window.alert(t('tasks.batchCancelFailed').replace('{n}', String(failed.length)));
     } finally {
       await refetch().catch(() => {});
+      setBatchCancelling(false);
     }
   }
 
-  // 批次刪除:後端無批次端點,逐筆呼叫單筆刪除 API。限制同時 3 筆:長測試一筆就有數千個檔案,
+  // 批次刪除(只刪已結束的):後端無批次端點,逐筆呼叫單筆刪除 API。限制同時 3 筆:長測試一筆就有數千個檔案,
   // 全部並行會讓 S3 節流、Lambda 逾時,造成部分任務沒刪乾淨。失敗的保留勾選並提示。
   async function onBatchDelete() {
-    if (selectedIds.size === 0) return;
-    if (!window.confirm(t('tasks.batchDeleteConfirm').replace('{n}', String(selectedIds.size)))) return;
+    if (selectedDone.length === 0) return;
+    if (!window.confirm(t('tasks.batchDeleteConfirm').replace('{n}', String(selectedDone.length)))) return;
     setBatchDeleting(true);
-    const queue = [...selectedIds];
+    const queue = [...selectedDone];
     const failed: string[] = [];
     try {
       const worker = async () => {
@@ -392,7 +392,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         }
       };
       await Promise.all([worker(), worker(), worker()]);
-      setSelectedIds(new Set(failed));
+      // 刪掉的移出勾選;失敗的與未處理的執行中任務保留。
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !selectedDone.includes(id) || failed.includes(id))));
       if (failed.length) window.alert(t('tasks.batchDeleteFailed').replace('{n}', String(failed.length)));
     } finally {
       await refetch().catch(() => {});
@@ -839,7 +840,19 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
             {t('tasks.filterClear')}
           </button>
         )}
-        {selectedIds.size > 0 && (
+        {selectedActive.length > 0 && (
+          <button
+            type="button"
+            className="tasks__batch-cancel"
+            onClick={onBatchCancel}
+            disabled={batchCancelling}
+          >
+            {batchCancelling
+              ? t('tasks.batchCancelling')
+              : t('tasks.batchCancel').replace('{n}', String(selectedActive.length))}
+          </button>
+        )}
+        {selectedDone.length > 0 && (
           <button
             type="button"
             className="tasks__batch-delete"
@@ -848,7 +861,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
           >
             {batchDeleting
               ? t('tasks.batchDeleting')
-              : t('tasks.batchDelete').replace('{n}', String(selectedIds.size))}
+              : t('tasks.batchDelete').replace('{n}', String(selectedDone.length))}
           </button>
         )}
       </div>
@@ -866,8 +879,6 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         <TasksTable
           tasks={visible}
           appById={(id) => appById.get(id)}
-          onCancel={onCancel}
-          onDelete={onDelete}
           showCheckbox
           selectedIds={selectedIds}
           onToggleRow={(jobId, checked) =>

@@ -363,6 +363,26 @@
   cursor: default;
 }
 
+/* 取消勾選中的執行中任務(與刪除並列) */
+.tasks__batch-cancel {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tasks__filter .tasks__batch-cancel { align-self: flex-end; flex: 0 0 auto; }
+.tasks__batch-cancel:hover { background: var(--surface); }
+.tasks__batch-cancel:disabled { opacity: 0.6; cursor: default; }
+
+/* 整列可點進任務詳情 */
+.tasks__row--link { cursor: pointer; }
+.tasks__row--link:hover td { background: color-mix(in srgb, var(--brand, #ff2d95) 6%, transparent); }
+.tasks__row-link { color: inherit; text-decoration: none; }
+.tasks__row-link:focus-visible { outline: 2px solid var(--brand, #ff2d95); outline-offset: 2px; border-radius: 2px; }
+
 /* 操作欄:單一 icon 按鈕(取消/刪除),hover 由 title 顯示動作 */
 .tasks__icon-btn {
   display: inline-flex;

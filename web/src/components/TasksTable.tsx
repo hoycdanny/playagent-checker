@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import AppBadge, { type AppRef } from './AppRef.tsx';
@@ -54,11 +54,7 @@ export interface TasksTableProps {
   tasks: TaskRow[];
   /** appId → AppRef 對照(供 AppBadge 顯示名稱/圖示)。 */
   appById: (appId: string) => AppRef | undefined;
-  /** 取消執行中任務。 */
-  onCancel: (jobId: string) => void;
-  /** 刪除終局任務。 */
-  onDelete: (jobId: string) => void;
-  /** 是否顯示勾選欄(TasksPage=true 批次刪除用;工作區=false)。 */
+  /** 是否顯示勾選欄(勾選後由呼叫端上方的按鈕批次刪除 / 取消)。點整列 = 進任務詳情。 */
   showCheckbox?: boolean;
   /** 已勾選集合(showCheckbox 時必要)。 */
   selectedIds?: Set<string>;
@@ -75,14 +71,13 @@ export interface TasksTableProps {
 export default function TasksTable({
   tasks,
   appById,
-  onCancel,
-  onDelete,
   showCheckbox = false,
   selectedIds,
   onToggleRow,
   onToggleAll,
 }: TasksTableProps) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   const sel = selectedIds ?? new Set<string>();
 
   const renderModel = (modelId: string | undefined) =>
@@ -118,7 +113,6 @@ export default function TasksTable({
           <th title={t('tasks.roleAgentHint')}>{t('tasks.roleAgent')}</th>
           <th title={t('tasks.roleVlmHint')}>{t('tasks.roleVlm')}</th>
           <th title={t('tasks.roleSubagentHint')}>{t('tasks.roleSubagent')}</th>
-          <th>{t('tasks.colActions')}</th>
         </tr>
       </thead>
       <tbody>
@@ -126,7 +120,16 @@ export default function TasksTable({
           const backendLabel = t(`backend.${x.backend}` as MessageKey);
           const localityLabel = t(`locality.${x.locality}` as MessageKey);
           return (
-            <tr key={x.jobId} className={sel.has(x.jobId) ? 'tasks__row--selected' : ''}>
+            <tr
+              key={x.jobId}
+              className={`tasks__row--link${sel.has(x.jobId) ? ' tasks__row--selected' : ''}`}
+              onClick={(e) => {
+                // 點勾選框 / 連結時不跳頁;選取文字時也不跳頁。
+                if ((e.target as HTMLElement).closest('input, a, button, label, .tasks__col-check')) return;
+                if (window.getSelection()?.toString()) return;
+                navigate(`/tasks/${x.jobId}`);
+              }}
+            >
               {showCheckbox && (
                 <td className="tasks__col-check">
                   <input
@@ -146,7 +149,12 @@ export default function TasksTable({
                   />
                 </span>
               </td>
-              <td className="tasks__created">{formatCreated(x.createdAt)}</td>
+              <td className="tasks__created">
+                {/* 鍵盤 / 螢幕閱讀器的入口(滑鼠點整列即可) */}
+                <Link to={`/tasks/${x.jobId}`} className="tasks__row-link" aria-label={`${t('tasks.view')} ${formatCreated(x.createdAt)}`}>
+                  {formatCreated(x.createdAt)}
+                </Link>
+              </td>
               <td>
                 <AppBadge app={appById(x.appId)} fallbackId={x.appId} />
               </td>
@@ -184,48 +192,6 @@ export default function TasksTable({
               <td className="tasks__text-cell">{renderModel(x.seatModels?.agent ?? x.vlmModel)}</td>
               <td className="tasks__text-cell">{renderModel(x.seatModels?.vlm ?? x.vlmModel)}</td>
               <td className="tasks__text-cell">{renderModel(x.seatModels?.subagent)}</td>
-              <td className="tasks__col-icon">
-                <div className="tasks__actions">
-                  {/* 檢視:進任務詳情(進詳情的唯一入口)。 */}
-                  <Link
-                    to={`/tasks/${x.jobId}`}
-                    className="tasks__icon-btn"
-                    title={t('tasks.view')}
-                    aria-label={t('tasks.view')}
-                  >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-                      <circle cx="12" cy="12" r="3" />
-                    </svg>
-                  </Link>
-                  {!TERMINAL_STATES.has(x.state) ? (
-                    <button
-                      type="button"
-                      className="tasks__icon-btn"
-                      onClick={() => onCancel(x.jobId)}
-                      title={t('tasks.cancel')}
-                      aria-label={t('tasks.cancel')}
-                    >
-                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                        <circle cx="12" cy="12" r="9" />
-                        <path d="M9 9l6 6M15 9l-6 6" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="tasks__icon-btn tasks__icon-btn--danger"
-                      onClick={() => onDelete(x.jobId)}
-                      title={t('tasks.delete')}
-                      aria-label={t('tasks.delete')}
-                    >
-                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M10 11v6M14 11v6" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-              </td>
             </tr>
           );
         })}
