@@ -327,3 +327,18 @@
 }
 .routes__branch-btn--active { background: #f0883e; color: #fff; }
 .routes__pick { margin: var(--space-2) 0 0; color: #a371f7; font-weight: 600; }
+
+/* 載入/過場畫面:一般大小的獨立節點(有截圖),虛線框 + 右下「載入」標籤 */
+.sg-node--loading { border-style: dashed; border-color: var(--text-tertiary); }
+.sg-node--loading .sg-node__thumb img { opacity: 0.85; }
+.sg-node__loading {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #000 65%, transparent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+}

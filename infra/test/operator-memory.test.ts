@@ -37,7 +37,7 @@ import {
   sameScreen,
   screenHintsFor,
 } from '../../agent/operatorMemory.mjs';
-import { summarizeForAgent } from '../../agent/memoryGraph.mjs';
+import { compactStructure, emptyStructure, recordTransition, summarizeForAgent, upsertPage } from '../../agent/memoryGraph.mjs';
 const runnerMod = { createOperatorChannel, loadAppMemory };
 
 /** 最小 S3 假物件:Put(If-Match / If-None-Match + ETag)、Get、List。 */
@@ -470,5 +470,41 @@ describe('operatorMemory pure helpers', () => {
     expect(sec.indexOf('STEP BY STEP')).toBeLessThan(sec.indexOf('FREE SPINS'));
     expect(sec).toContain('只照最新那條');
     expect(screenHintsFor(hints, { screen: '選擇畫面' }).map((h) => h.id)).toEqual(['h2', 'h1']);
+  });
+});
+
+describe('memoryGraph: loading screens are separate nodes', () => {
+  // 1024-bit pHash(256 hex);兩張圖差很多 = 每個字元都不同。
+  const hashA = 'a'.repeat(256);
+  const hashB = '5'.repeat(256);
+  const hashA2 = `${'a'.repeat(250)}${'b'.repeat(6)}`; // 與 A 幾乎相同(載入進度條在動)
+
+  test('different loading screens stay apart; same one (visually) merges; names keep what is loading', () => {
+    const s = emptyStructure('app');
+    const lobby = upsertPage(s, { name: '大廳', pHash: '0'.repeat(256) }).pageId!;
+    const ad = upsertPage(s, { name: 'Ocean King 2 廣告載入', pHash: hashA }).pageId!;
+    const ad2 = upsertPage(s, { name: '載入中', pHash: hashA2 }).pageId!; // 泛稱,但畫面相同 → 同一個
+    const mission = upsertPage(s, { name: "載入中(Newbie's Mission) LOADING 100% (3/3)", pHash: hashB }).pageId!;
+    const generic = upsertPage(s, { name: '載入中', pHash: 'f'.repeat(256) }).pageId!; // 泛稱 + 畫面不同 → 不合併
+    expect(ad2).toBe(ad);
+    expect(new Set([ad, mission, generic]).size).toBe(3);
+    expect(s.pages[ad]!).toMatchObject({ transient: true, name: 'Ocean King 2 廣告載入' });
+    expect(s.pages[mission]!.name).toBe("載入中(Newbie's Mission)");
+    expect(s.rootPageId).toBe(lobby);
+
+    // 收斂(讀取時套用)不會再把它們併回一個「載入中」。
+    recordTransition(s, lobby, ad, { action: 'tap', target: 'Ocean King 2' });
+    recordTransition(s, ad, lobby, { action: 'wait' });
+    const c = compactStructure(s);
+    expect(Object.values(c.pages).filter((p) => p.transient)).toHaveLength(3);
+    expect(c.edges).toHaveLength(2);
+  });
+
+  test('a loading screen never merges with a normal screen that looks the same', () => {
+    const s = emptyStructure('app');
+    const a = upsertPage(s, { name: '大廳', pHash: hashA }).pageId;
+    const b = upsertPage(s, { name: '大廳載入中', pHash: hashA }).pageId;
+    expect(a).not.toBe(b);
+    expect(s.pages[b!]!.transient).toBe(true);
   });
 });

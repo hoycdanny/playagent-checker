@@ -108,6 +108,7 @@ const T = {
   restore: ['還原', 'Restore'],
   // 關係圖編輯
   manualEdge: ['✋ 人工', '✋ Manual'],
+  loadingTag: ['載入', 'Loading'],
   graphEditHint: [
     '可直接在圖上編輯:拖曳畫面調整位置(自動儲存)· 點畫面開啟編修 · 從畫面右側圓點拉到另一個畫面新增路徑 · 選取畫面或路徑後按 Delete 刪除 · 把畫面拖到另一個畫面上可合併。',
     'Edit right on the graph: drag screens to arrange them (auto-saved) · click a screen to edit it · drag from the right dot to another screen to add a path · select a screen or path and press Delete · drop a screen onto another to merge them.',
