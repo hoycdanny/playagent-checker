@@ -95,8 +95,25 @@ interface KnowledgeBaseSummary {
  * 鎖定單一應用 —— 省掉頁標題、應用下拉與應用篩選,並多一個「測試版本」下拉
  * (多版本 App 可以挑舊版重跑)。其餘排版與這頁完全一致。
  */
+/** 提交表單的區塊標題等文字。[繁中, English, 简中, 日本語, 한국어] */
+const FORM_TEXT = {
+  secWhat: ['測試什麼', 'What to test', '测试什么', '何をテストするか', '무엇을 테스트할지'],
+  secWhere: ['在哪裡跑', 'Where to run', '在哪里跑', 'どこで実行するか', '어디서 실행할지'],
+  secModels: ['AI 模型', 'AI models', 'AI 模型', 'AI モデル', 'AI 모델'],
+  secLimits: ['進階:執行上限', 'Advanced: limits', '进阶:执行上限', '詳細:実行上限', '고급: 실행 한도'],
+  noLimit: ['不限步數、不限預算', 'No step or budget limit', '不限步数、不限预算', 'ステップ・予算とも無制限', '스텝·예산 무제한'],
+  kbChosen: ['已選 {n} 個', '{n} selected', '已选 {n} 个', '{n} 件選択中', '{n}개 선택됨'],
+  kbNone: ['尚未選擇知識庫', 'No knowledge base selected', '尚未选择知识库', 'ナレッジベース未選択', '선택된 지식 베이스 없음'],
+  kbRemove: ['點一下移除', 'Click to remove', '点一下移除', 'クリックで外す', '클릭하여 제거'],
+  kbSearch: ['搜尋知識庫…(點一下加入)', 'Search knowledge bases… (click to add)', '搜索知识库…(点一下加入)', 'ナレッジベースを検索…(クリックで追加)', '지식 베이스 검색…(클릭하여 추가)'],
+  kbMore: ['顯示其他 {n} 個', 'Show {n} more', '显示其他 {n} 个', 'ほか {n} 件を表示', '{n}개 더 보기'],
+  kbLess: ['收合', 'Show less', '收起', '閉じる', '접기'],
+} as const;
+const FORM_LOC: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
+
 export default function TasksPage({ appId: lockedApp }: { appId?: string } = {}) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const ft = (k: keyof typeof FORM_TEXT): string => FORM_TEXT[k][FORM_LOC[locale] ?? 1] ?? FORM_TEXT[k][1];
   const embedded = Boolean(lockedApp);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -112,6 +129,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   }, [showForm]);
   const [appId, setAppId] = useState(lockedApp ?? '');
   const [caseId, setCaseId] = useState('');
+  // 知識庫挑選:搜尋字 + 是否展開全部(預設只列前 12 個可加入的)。
+  const [kbQuery, setKbQuery] = useState('');
+  const [kbShowAll, setKbShowAll] = useState(false);
   // 案例版本(空 = 使用中的版本)。caseVersions = null 表示載入中。
   const [caseVersion, setCaseVersion] = useState('');
   const [caseVersions, setCaseVersions] = useState<CaseVersionSummary[] | null>([]);
@@ -457,142 +477,175 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
       </header>
 
       {showForm && (
-        <form ref={formRef} className="tasks__form" onSubmit={onSubmit}>
-          {/* 嵌入工作區時應用已鎖定,不顯示這個下拉 */}
-          {!embedded && (
-          <label className="tasks__field">
-            <span className="tasks__label">{t('tasks.app')}</span>
-            <select
-              value={appId}
-              onChange={(e) => {
-                const nextAppId = e.target.value;
-                setAppId(nextAppId);
-                setCaseId('');
-                // 預選該 App 的預設知識庫(可再增減)。
-                const app = apps.find((a) => a.id === nextAppId);
-                setSelectedKbIds(app?.defaultKnowledgeBaseIds ?? []);
-                // 執行後端由 App 平台決定(web→web 瀏覽器;原生→Device Farm 真機),不讓使用者亂選。
-                if (app) {
-                  const r = defaultRuntime(app.platform);
-                  setRuntimeId(r.id);
-                  setBackend(r.backend);
-                  setMaxSegments('1');
-                }
-              }}
-            >
-              <option value="">—</option>
-              {apps.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          )}
-          <label className="tasks__field">
-            <span className="tasks__label">{t('tasks.case')}</span>
-            <select value={caseId} onChange={(e) => setCaseId(e.target.value)}>
-              <option value="">—</option>
-              {casesForApp.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {/* 案例版本:預設「使用中」的版本;可挑舊版本重跑(每個版本內容不可變)。 */}
-          {caseId && (
-            <label className="tasks__field">
-              <span className="tasks__label">{t('tasks.caseVersion')}</span>
-              <select
-                value={caseVersion}
-                onChange={(e) => setCaseVersion(e.target.value)}
-                disabled={caseVersions === null}
-              >
-                <option value="">
-                  {caseVersions === null
-                    ? t('tasks.caseVersionLoading')
-                    : `${t('tasks.caseVersionActive')}${activeCaseVersion ? ` · ${activeCaseVersion}` : ''}`}
-                </option>
-                {(caseVersions ?? []).map((v) => (
-                  <option key={v.version} value={v.version}>
-                    {v.version}
-                    {v.version === activeCaseVersion ? ` (${t('tasks.caseVersionInUse')})` : ''}
-                    {v.name ? ` · ${v.name}` : ''}
+        <form ref={formRef} className="tasks__form tform" onSubmit={onSubmit}>
+          {/* ① 測試什麼 */}
+          <fieldset className="tform__sec">
+            <legend className="tform__legend"><span className="tform__num">1</span>{ft('secWhat')}</legend>
+            <div className="tform__grid tform__grid--3">
+              {/* 嵌入工作區時應用已鎖定,不顯示這個下拉 */}
+              {!embedded && (
+                <label className="tasks__field">
+                  <span className="tasks__label">{t('tasks.app')}</span>
+                  <select
+                    value={appId}
+                    onChange={(e) => {
+                      const nextAppId = e.target.value;
+                      setAppId(nextAppId);
+                      setCaseId('');
+                      // 預選該 App 的預設知識庫(可再增減)。
+                      const app = apps.find((a) => a.id === nextAppId);
+                      setSelectedKbIds(app?.defaultKnowledgeBaseIds ?? []);
+                      // 執行後端由 App 平台決定(web→web 瀏覽器;原生→Device Farm 真機)。
+                      if (app) {
+                        const r = defaultRuntime(app.platform);
+                        setRuntimeId(r.id);
+                        setBackend(r.backend);
+                        setMaxSegments('1');
+                      }
+                    }}
+                  >
+                    <option value="">—</option>
+                    {apps.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="tasks__field tform__wide">
+                <span className="tasks__label">{t('tasks.case')}</span>
+                <select value={caseId} onChange={(e) => setCaseId(e.target.value)}>
+                  <option value="">—</option>
+                  {casesForApp.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {/* 案例版本:預設「使用中」的版本;可挑舊版本重跑(每個版本內容不可變)。 */}
+              <label className="tasks__field">
+                <span className="tasks__label">{t('tasks.caseVersion')}</span>
+                <select
+                  value={caseVersion}
+                  onChange={(e) => setCaseVersion(e.target.value)}
+                  disabled={!caseId || caseVersions === null}
+                >
+                  <option value="">
+                    {!caseId
+                      ? '—'
+                      : caseVersions === null
+                        ? t('tasks.caseVersionLoading')
+                        : `${t('tasks.caseVersionActive')}${activeCaseVersion ? ` · ${activeCaseVersion}` : ''}`}
                   </option>
-                ))}
-              </select>
-            </label>
-          )}
-          {/* 多版本 App:挑一版來測(預設使用中的版本)。版本管理在工作區的「版本」分頁。 */}
-          {(lockedAppRecord?.builds?.length ?? 0) > 1 && (
-            <label className="tasks__field">
-              <span className="tasks__label">{t('workspace.buildPick')}</span>
-              <span className="tasks__field-hint">{t('workspace.buildPickHint')}</span>
-              <select value={buildId} onChange={(e) => setBuildId(e.target.value)}>
-                <option value="">{t('workspace.buildUseActive')}</option>
-                {(lockedAppRecord?.builds ?? []).map((b) => (
-                  <option key={b.artifactId} value={b.artifactId}>
-                    {b.label}
-                    {b.artifactId === lockedAppRecord?.artifactId
-                      ? ` (${t('workspace.buildActive')})`
-                      : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="tasks__field">
-            <span className="tasks__label">{t('tasks.backend')}</span>
-            {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
-            <RuntimeSelect
-              platform={apps.find((a) => a.id === appId)?.platform}
-              value={runtimeId}
-              onChange={(r) => {
-                  setRuntimeId(r.id);
-                  setBackend(r.backend);
-                  setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
-                }}
-              hintClass="tasks__field-hint"
-            />
-          </label>
-          {backend === 'devicefarm' && (
-            <div className="tasks__field">
-              <span className="tasks__label">{t('tasks.device')}</span>
-              <span className="tasks__field-hint">{t('tasks.deviceHint')}</span>
-              {(() => {
-                const d = cloudDevices.find((x) => x.arn === deviceArn);
-                const specs = d
-                  ? [
-                      `Android ${d.os}`,
-                      d.arch,
-                      d.resolution,
-                      typeof d.memoryBytes === 'number'
-                        ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
-                        : undefined,
-                      d.cpu,
-                    ].filter(Boolean)
-                  : [];
-                return (
-                  <div className="tasks__device-pick">
-                    <span className="tasks__device-current">
-                      {d ? d.name : t('tasks.deviceAuto')}
-                      {specs.length > 0 && (
-                        <span className="tasks__device-specs">{specs.join(' · ')}</span>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      className="tasks__device-btn"
-                      onClick={() => setDevicePickerOpen(true)}
-                    >
-                      {t('tasks.deviceChange')}
-                    </button>
-                  </div>
-                );
-              })()}
+                  {(caseVersions ?? []).map((v) => (
+                    <option key={v.version} value={v.version}>
+                      {v.version}
+                      {v.version === activeCaseVersion ? ` (${t('tasks.caseVersionInUse')})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {/* 多版本 App:挑一版來測(預設使用中的版本)。版本管理在工作區的「版本」分頁。 */}
+              {(lockedAppRecord?.builds?.length ?? 0) > 1 && (
+                <label className="tasks__field">
+                  <span className="tasks__label">{t('workspace.buildPick')}</span>
+                  <select value={buildId} onChange={(e) => setBuildId(e.target.value)}>
+                    <option value="">{t('workspace.buildUseActive')}</option>
+                    {(lockedAppRecord?.builds ?? []).map((b) => (
+                      <option key={b.artifactId} value={b.artifactId}>
+                        {b.label}
+                        {b.artifactId === lockedAppRecord?.artifactId
+                          ? ` (${t('workspace.buildActive')})`
+                          : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="tasks__field-hint">{t('workspace.buildPickHint')}</span>
+                </label>
+              )}
             </div>
-          )}
+          </fieldset>
+
+          {/* ② 在哪裡跑 */}
+          <fieldset className="tform__sec">
+            <legend className="tform__legend"><span className="tform__num">2</span>{ft('secWhere')}</legend>
+            <div className="tform__grid tform__grid--3">
+              <label className="tasks__field tform__runtime">
+                <span className="tasks__label">{t('tasks.backend')}</span>
+                {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
+                <RuntimeSelect
+                  platform={apps.find((a) => a.id === appId)?.platform}
+                  value={runtimeId}
+                  onChange={(r) => {
+                    setRuntimeId(r.id);
+                    setBackend(r.backend);
+                    setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
+                  }}
+                  hintClass="tasks__field-hint"
+                />
+              </label>
+              {backend === 'devicefarm' && (
+                <div className="tasks__field">
+                  <span className="tasks__label">{t('tasks.device')}</span>
+                  {(() => {
+                    const d = cloudDevices.find((x) => x.arn === deviceArn);
+                    const specs = d
+                      ? [
+                          `Android ${d.os}`,
+                          d.arch,
+                          d.resolution,
+                          typeof d.memoryBytes === 'number'
+                            ? `${Math.round(d.memoryBytes / 1024 / 1024 / 1024)} GB`
+                            : undefined,
+                        ].filter(Boolean)
+                      : [];
+                    return (
+                      <div className="tasks__device-pick">
+                        <span className="tasks__device-current">
+                          {d ? d.name : t('tasks.deviceAuto')}
+                          {specs.length > 0 && (
+                            <span className="tasks__device-specs">{specs.join(' · ')}</span>
+                          )}
+                        </span>
+                        <button
+                          type="button"
+                          className="tasks__device-btn"
+                          onClick={() => setDevicePickerOpen(true)}
+                        >
+                          {t('tasks.deviceChange')}
+                        </button>
+                      </div>
+                    );
+                  })()}
+                  <span className="tasks__field-hint">{t('tasks.deviceHint')}</span>
+                </div>
+              )}
+              {(backend === 'emulator' || backend === 'windows') && (
+                <label className="tasks__field">
+                  <HoursSelect backend={backend} value={maxHours} onChange={setMaxHours} labelClass="tasks__label" hintClass="tasks__field-hint" />
+                </label>
+              )}
+              {backend === 'windows' && (
+                <div className="tasks__field">
+                  <DisplaySelect value={display} onChange={setDisplay} labelClass="tasks__label" hintClass="tasks__field-hint" />
+                </div>
+              )}
+              {runtimeById(runtimeId)?.long && (
+                <label className="tasks__field">
+                  <span className="tasks__label">{t('tasks.runDuration')}</span>
+                  <select value={maxSegments} onChange={(e) => setMaxSegments(e.target.value)}>
+                    <option value="2">{t('tasks.runLong2')}</option>
+                    <option value="4">{t('tasks.runLong4')}</option>
+                    <option value="0">{t('tasks.runLongUnlimited')}</option>
+                  </select>
+                  <span className="tasks__field-hint">{t('tasks.runDurationHint')}</span>
+                  {maxSegments !== '1' && <span className="tasks__field-hint" role="note">{t('tasks.runLongNote')}</span>}
+                </label>
+              )}
+            </div>
+          </fieldset>
           {devicePickerOpen && (
             <DevicePicker
               devices={cloudDevices}
@@ -604,131 +657,154 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
               onClose={() => setDevicePickerOpen(false)}
             />
           )}
+
+          {/* ③ AI 模型(每個角色一張卡) */}
           {(VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend)) && (
-            <>
-              <p className="tasks__models-intro">
+            <fieldset className="tform__sec">
+              <legend className="tform__legend"><span className="tform__num">3</span>{ft('secModels')}</legend>
+              <p className="tform__intro">
                 {t(AGENT_SUBAGENT_BACKENDS.has(backend) ? 'tasks.modelsIntro' : 'tasks.modelsIntroWeb')}
               </p>
-              {AGENT_SUBAGENT_BACKENDS.has(backend) && (
-                <label className="tasks__field">
-                  <span className="tasks__label">{t('tasks.modelAgent')}</span>
-                  <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
-                  <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
-                    {agentModels.map((m) => (
-                      <option key={m.modelId} value={m.modelId}>
-                        {starLabel('agent', m.modelId, modelOptionLabel(m))}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {VLM_BACKENDS.has(backend) && (
-                <label className="tasks__field">
-                  <span className="tasks__label">{t('tasks.modelVlm')}</span>
-                  <span className="tasks__field-hint">
-                    {backend === 'web' ? t('tasks.roleVlmWebHint') : t('detail.roleVlmHint')}
-                  </span>
-                  <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
-                    {vlmModels.map((m) => (
-                      <option key={m.modelId} value={m.modelId}>
-                        {starLabel('vlm', m.modelId, modelOptionLabel(m))}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {AGENT_SUBAGENT_BACKENDS.has(backend) && (
-                <label className="tasks__field">
-                  <span className="tasks__label">{t('tasks.modelSubagent')}</span>
-                  <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
-                  <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
-                    {subagentModels.map((m) => (
-                      <option key={m.modelId} value={m.modelId}>
-                        {starLabel('subagent', m.modelId, modelOptionLabel(m))}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              )}
-            </>
-          )}
-          {(backend === 'emulator' || backend === 'windows') && (
-            <label className="tasks__field">
-              <HoursSelect backend={backend} value={maxHours} onChange={setMaxHours} labelClass="tasks__label" hintClass="tasks__field-hint" />
-            </label>
-          )}
-          {backend === 'windows' && (
-            <div className="tasks__field">
-              <DisplaySelect value={display} onChange={setDisplay} labelClass="tasks__label" hintClass="tasks__field-hint" />
-            </div>
-          )}
-          {runtimeById(runtimeId)?.long && (
-            <label className="tasks__field">
-              <span className="tasks__label">{t('tasks.runDuration')}</span>
-              <span className="tasks__field-hint">{t('tasks.runDurationHint')}</span>
-              <select value={maxSegments} onChange={(e) => setMaxSegments(e.target.value)}>
-                <option value="2">{t('tasks.runLong2')}</option>
-                <option value="4">{t('tasks.runLong4')}</option>
-                <option value="0">{t('tasks.runLongUnlimited')}</option>
-              </select>
-              {maxSegments !== '1' && <span className="tasks__field-hint" role="note">{t('tasks.runLongNote')}</span>}
-            </label>
-          )}
-          <label className="tasks__field">
-            <span className="tasks__label">{t('tasks.maxSteps')}</span>
-            <span className="tasks__field-hint">{t('tasks.maxStepsHint')}</span>
-            <input
-              type="number"
-              min="0"
-              inputMode="numeric"
-              placeholder={t('tasks.unlimited')}
-              value={maxSteps}
-              onChange={(e) => setMaxSteps(e.target.value)}
-            />
-          </label>
-          <label className="tasks__field">
-            <span className="tasks__label">{t('tasks.budgetUsd')}</span>
-            <span className="tasks__field-hint">{t('tasks.budgetUsdHint')}</span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              placeholder={t('tasks.unlimited')}
-              value={budgetUsd}
-              onChange={(e) => setBudgetUsd(e.target.value)}
-            />
-          </label>
-          {kbs.length > 0 && (
-            <div className="tasks__field tasks__kb-field">
-              <span className="tasks__label">{t('tasks.knowledgeBases')}</span>
-              <div className="tasks__kb-list">
-                {kbs.filter((kb) => !kb.archived || selectedKbIds.includes(kb.id)).map((kb) => (
-                  <label key={kb.id} className="tasks__kb-option">
-                    <input
-                      type="checkbox"
-                      checked={selectedKbIds.includes(kb.id)}
-                      onChange={(e) => {
-                        setSelectedKbIds((prev) =>
-                          e.target.checked
-                            ? [...prev, kb.id]
-                            : prev.filter((id) => id !== kb.id),
-                        );
-                      }}
-                    />
-                    <span>{kb.name}</span>
+              <div className="tform__seats">
+                {AGENT_SUBAGENT_BACKENDS.has(backend) && (
+                  <label className="tasks__field tform__seat">
+                    <span className="tform__seat-head"><span className="tform__seat-icon" aria-hidden="true">🎮</span>{t('tasks.modelAgent')}</span>
+                    <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
+                    <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
+                      {agentModels.map((m) => (
+                        <option key={m.modelId} value={m.modelId}>
+                          {starLabel('agent', m.modelId, modelOptionLabel(m))}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                ))}
+                )}
+                {VLM_BACKENDS.has(backend) && (
+                  <label className="tasks__field tform__seat">
+                    <span className="tform__seat-head"><span className="tform__seat-icon" aria-hidden="true">👁</span>{t('tasks.modelVlm')}</span>
+                    <span className="tasks__field-hint">
+                      {backend === 'web' ? t('tasks.roleVlmWebHint') : t('detail.roleVlmHint')}
+                    </span>
+                    <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
+                      {vlmModels.map((m) => (
+                        <option key={m.modelId} value={m.modelId}>
+                          {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+                {AGENT_SUBAGENT_BACKENDS.has(backend) && (
+                  <label className="tasks__field tform__seat">
+                    <span className="tform__seat-head"><span className="tform__seat-icon" aria-hidden="true">🧩</span>{t('tasks.modelSubagent')}</span>
+                    <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
+                    <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
+                      {subagentModels.map((m) => (
+                        <option key={m.modelId} value={m.modelId}>
+                          {starLabel('subagent', m.modelId, modelOptionLabel(m))}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
-              <span className="tasks__kb-hint">{t('tasks.knowledgeBasesHint')}</span>
-            </div>
+            </fieldset>
           )}
+
+          {/* ④ 知識庫:已選的放最上面(可移除),其餘用搜尋 + 點選加入 */}
+          {kbs.length > 0 && (() => {
+            const pool = kbs.filter((kb) => !kb.archived || selectedKbIds.includes(kb.id));
+            const chosen = pool.filter((kb) => selectedKbIds.includes(kb.id));
+            const query = kbQuery.trim().toLowerCase();
+            const rest = pool.filter((kb) => !selectedKbIds.includes(kb.id) && (!query || kb.name.toLowerCase().includes(query)));
+            const toggle = (id: string, on: boolean) =>
+              setSelectedKbIds((prev) => (on ? [...prev, id] : prev.filter((x) => x !== id)));
+            return (
+              <fieldset className="tform__sec">
+                <legend className="tform__legend">
+                  <span className="tform__num">{VLM_BACKENDS.has(backend) || AGENT_SUBAGENT_BACKENDS.has(backend) ? 4 : 3}</span>
+                  {t('tasks.knowledgeBases')}
+                  <span className="tform__count">{ft('kbChosen').replace('{n}', String(chosen.length))}</span>
+                </legend>
+                <p className="tform__intro">{t('tasks.knowledgeBasesHint')}</p>
+                <div className="tform__chips" aria-label={t('tasks.knowledgeBases')}>
+                  {chosen.length === 0 && <span className="tasks__field-hint">{ft('kbNone')}</span>}
+                  {chosen.map((kb) => (
+                    <button key={kb.id} type="button" className="tform__chip is-on" aria-pressed="true" title={ft('kbRemove')} onClick={() => toggle(kb.id, false)}>
+                      <span>{kb.name}</span><span aria-hidden="true">✕</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="tform__kb-add">
+                  <input
+                    type="search"
+                    className="tform__kb-search"
+                    value={kbQuery}
+                    placeholder={ft('kbSearch')}
+                    aria-label={ft('kbSearch')}
+                    onChange={(e) => setKbQuery(e.target.value)}
+                  />
+                  <div className="tform__chips tform__chips--pool">
+                    {(kbShowAll || query ? rest : rest.slice(0, 12)).map((kb) => (
+                      <button key={kb.id} type="button" className="tform__chip" aria-pressed="false" onClick={() => toggle(kb.id, true)}>
+                        <span aria-hidden="true">＋</span><span>{kb.name}</span>
+                      </button>
+                    ))}
+                    {!query && rest.length > 12 && (
+                      <button type="button" className="tform__more" onClick={() => setKbShowAll((v) => !v)}>
+                        {kbShowAll ? ft('kbLess') : ft('kbMore').replace('{n}', String(rest.length - 12))}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </fieldset>
+            );
+          })()}
+
+          {/* ⑤ 進階:上限(預設不限,收合) */}
+          <details className="tform__sec tform__adv">
+            <summary className="tform__legend">
+              <span className="tform__num">⚙</span>{ft('secLimits')}
+              <span className="tform__count">
+                {(Number(maxSteps) > 0 ? `${t('tasks.maxSteps')} ${maxSteps}` : '') +
+                  (Number(budgetUsd) > 0 ? `${Number(maxSteps) > 0 ? ' · ' : ''}US$${budgetUsd}` : '') || ft('noLimit')}
+              </span>
+            </summary>
+            <div className="tform__grid">
+              <label className="tasks__field">
+                <span className="tasks__label">{t('tasks.maxSteps')}</span>
+                <input
+                  type="number"
+                  min="0"
+                  inputMode="numeric"
+                  placeholder={t('tasks.unlimited')}
+                  value={maxSteps}
+                  onChange={(e) => setMaxSteps(e.target.value)}
+                />
+                <span className="tasks__field-hint">{t('tasks.maxStepsHint')}</span>
+              </label>
+              <label className="tasks__field">
+                <span className="tasks__label">{t('tasks.budgetUsd')}</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  placeholder={t('tasks.unlimited')}
+                  value={budgetUsd}
+                  onChange={(e) => setBudgetUsd(e.target.value)}
+                />
+                <span className="tasks__field-hint">{t('tasks.budgetUsdHint')}</span>
+              </label>
+            </div>
+          </details>
+
           {error && (
             <p className="tasks__error" role="alert">
               {error}
             </p>
           )}
-          <div className="tasks__actions">
+          <div className="tasks__actions tform__actions">
             <button
               type="button"
               className="tasks__cancel-btn"
@@ -736,7 +812,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
             >
               {t('tasks.cancel')}
             </button>
-            <button type="submit" className="tasks__go" disabled={submitting || (backend === 'windows' && displayError(display, 'en') !== null)}>
+            <button type="submit" className="tasks__go" disabled={submitting || !caseId || (backend === 'windows' && displayError(display, 'en') !== null)}>
               {submitting ? t('tasks.submitting') : t('tasks.submitBtn')}
             </button>
           </div>
