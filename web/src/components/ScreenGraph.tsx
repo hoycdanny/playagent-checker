@@ -35,8 +35,6 @@ const NO_ROUTES: MemoryRoute[] = [];
 const NODE_W = 160;
 const THUMB_H = 110;
 const NODE_H = THUMB_H + 60;
-const TRANSIENT_W = 120;
-const TRANSIENT_H = 44;
 
 interface MemPage {
   id: string;
@@ -71,6 +69,7 @@ interface ScreenNodeData extends Record<string, unknown> {
   module?: string;
   isRoot: boolean;
   transient: boolean;
+  loadingLabel: string;
   visitsLabel: string;
   aliasesLabel: string;
   rootLabel: string;
@@ -98,27 +97,19 @@ interface FlowEdgeData extends Record<string, unknown> {
 function ScreenFlowNode({ data }: NodeProps) {
   const d = data as ScreenNodeData;
   const drop = (d.dropTarget ? ' sg-node--drop' : '') + (d.picking ? ' sg-node--picking' : '') + (d.routeBadges?.length ? ' sg-node--onroute' : '');
-  if (d.transient) {
-    return (
-      <div className={`sg-node sg-node--transient${drop}`} title={d.aliases.join('、')}>
-        <RouteBadges list={d.routeBadges} />
-        <Handle type="target" position={Position.Left} />
-        <span>{d.name}</span>
-        <small>{d.visitCount}</small>
-        <Handle type="source" position={Position.Right} />
-      </div>
-    );
-  }
+  // 載入/過場畫面也是獨立節點(各自載入不同東西),一樣顯示截圖,只用虛線框 + 「載入」標籤區分。
+  const transientCls = d.transient ? ' sg-node--loading' : '';
   const title = [d.name, ...(d.aliases.length ? [`${d.aliasesLabel}: ${d.aliases.join('、')}`] : []), d.module ? `module: ${d.module}` : '']
     .filter(Boolean)
     .join('\n');
   return (
-    <div className={`sg-node ${d.isRoot ? 'sg-node--root' : ''}${drop}`} title={title}>
+    <div className={`sg-node ${d.isRoot ? 'sg-node--root' : ''}${transientCls}${drop}`} title={title}>
       <Handle type="target" position={Position.Left} />
       <div className="sg-node__heat" style={{ width: `${Math.max(8, d.heat * 100)}%` }} />
       <div className="sg-node__thumb">
         {d.screenshotUrl ? <img src={d.screenshotUrl} alt={d.name} loading="lazy" draggable={false} /> : <div className="sg-node__noimg" />}
         {d.isRoot && <span className="sg-node__root">{d.rootLabel}</span>}
+        {d.transient && <span className="sg-node__loading">{d.loadingLabel}</span>}
         <RouteBadges list={d.routeBadges} />
         {d.dropTarget && <span className="sg-node__droplabel">{d.dropLabel}</span>}
       </div>
@@ -135,7 +126,7 @@ function ScreenFlowNode({ data }: NodeProps) {
 
 const nodeTypes = { screen: ScreenFlowNode };
 
-interface LayoutLabels { visits: string; aliases: string; root: string; auto: string; manual: string }
+interface LayoutLabels { visits: string; aliases: string; root: string; auto: string; manual: string; loading: string }
 
 /**
  * dagre 分層佈局(LR);有手動位置的節點用手動位置。
@@ -154,7 +145,7 @@ function layout(
 
   const ids = new Set(pages.map((p) => p.id));
   const maxVisits = Math.max(1, ...pages.map((p) => p.visitCount));
-  for (const p of pages) g.setNode(p.id, p.transient ? { width: TRANSIENT_W, height: TRANSIENT_H } : { width: NODE_W, height: NODE_H });
+  for (const p of pages) g.setNode(p.id, { width: NODE_W, height: NODE_H });
 
   // 合併同方向平行邊。
   const grouped = new Map<string, MemEdge[]>();
@@ -172,8 +163,8 @@ function layout(
 
   const nodes: Node[] = pages.map((p) => {
     const pos = g.node(p.id);
-    const w = p.transient ? TRANSIENT_W : NODE_W;
-    const h = p.transient ? TRANSIENT_H : NODE_H;
+    const w = NODE_W;
+    const h = NODE_H;
     const aliases = Object.keys(p.aliases ?? {}).filter((n) => n !== p.name);
     const saved = positions[p.id];
     return {
@@ -189,6 +180,7 @@ function layout(
         module: p.module,
         isRoot: p.id === rootId,
         transient: Boolean(p.transient),
+        loadingLabel: labels.loading,
         visitsLabel: labels.visits,
         aliasesLabel: labels.aliases,
         rootLabel: labels.root,
@@ -344,6 +336,7 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
     root: t('memory.graphRoot'),
     auto: t('memory.graphAuto'),
     manual: mt('manualEdge', lang),
+    loading: mt('loadingTag', lang),
   };
   const laid = useMemo(
     () => layout(visiblePages, visibleEdges, rootPageId, labels, positions),

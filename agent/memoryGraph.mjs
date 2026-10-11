@@ -29,7 +29,33 @@ const MAX_HASH_SAMPLES = 6;
 const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch']);
 
 const TRANSIENT_RE = /loading|載入|载入|請稍候|请稍候|連線中|连接中|connecting|進場|进场|過場|过场|splash|logo|品牌動畫|品牌动画|config\s*ready|installing|安裝中|安装中/i;
+/** 沒有描述是哪一種載入時的預設名稱。 */
 export const TRANSIENT_NAME = '載入中';
+/** 只有「載入中」這類泛稱、沒說是載入什麼的名稱(這種只能靠畫面長相分辨)。 */
+const GENERIC_TRANSIENT_RE = /^(載入中?|载入中?|讀取中|读取中|loading|請稍候|请稍候|連線中|连接中|connecting|過場|过场|進場|进场|splash|logo|載入畫面|载入画面|loading screen)$/i;
+
+/**
+ * 載入/過場類畫面(Logo、廣告載入、機台載入…)。2026-10-11 起「每一種載入畫面各自一個節點」:
+ * 以前全部併成單一「載入中」,但不同載入畫面載的是不同東西(遊戲啟動、機台、活動廣告),
+ * 併在一起後流程看不出是從哪裡載入到哪裡。現在仍標 transient(可隱藏、不給 AI 當目標),但身分各自獨立。
+ */
+export function isTransientName(name) {
+  return TRANSIENT_RE.test(String(name ?? ''));
+}
+function isGenericTransient(canon) {
+  return !canon || GENERIC_TRANSIENT_RE.test(canon.replace(/\s+/g, ' ').trim());
+}
+/** 載入畫面的顯示名:保留「載入什麼」的描述,只去掉進度數字(「LOADING 100%」「(3/3)」)。 */
+function transientDisplayName(name) {
+  const s = String(name ?? '')
+    .replace(/\s*[\d.]+\s*%/g, '')
+    .replace(/\s*[((]?\s*\d+\s*\/\s*\d+\s*[))]?/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // 「載入中(Newbie's Mission) LOADING」:描述之後多餘的進度字樣去掉(只剩泛稱時保留)。
+  const tail = s.replace(/\s*(loading|now loading|載入中|读取中|讀取中)\s*[.…]*$/i, '').trim();
+  return (tail && tail !== s && !isGenericTransient(tail.toLowerCase()) ? tail : s) || TRANSIENT_NAME;
+}
 
 /** 1024-bit hex pHash 的漢明距離;無法比較回 Infinity。 */
 export function hamming(a, b) {
@@ -56,7 +82,7 @@ export function isPlaceholderName(name) {
 export function displayName(name) {
   let s = String(name ?? '').trim();
   if (!s) return '';
-  if (TRANSIENT_RE.test(s)) return TRANSIENT_NAME;
+  if (TRANSIENT_RE.test(s)) return transientDisplayName(s);
   const orig = s;
   for (let i = 0; i < 3; i++) {
     const before = s;
@@ -72,7 +98,7 @@ export function displayName(name) {
 /** 比對用的正規化名稱(displayName + 小寫 + 去空白)。 */
 export function canonicalName(name) {
   const d = displayName(name);
-  if (d === TRANSIENT_NAME) return TRANSIENT_NAME;
+  if (isTransientName(d)) return d.replace(/\s+/g, ' ').trim().toLowerCase();
   // 比對時再去掉「畫面/頁面/screen」等泛稱尾綴(顯示名保留,讀起來較自然)。
   const stripped = d.replace(/\s*(畫面|画面|頁面|页面|介面|界面|視窗|视窗|screen|page|view)\s*$/i, '').trim() || d;
   return stripped.replace(/\s+/g, ' ').trim().toLowerCase();
@@ -122,26 +148,36 @@ function bumpAlias(page, rawName) {
   refreshName(page);
 }
 
-/** 顯示名 = 最常用命名去掉狀態描述/序號後的形式(transient 固定「載入中」)。 */
+/** 顯示名 = 最常用命名去掉狀態描述/序號後的形式;載入畫面優先用「有說載入什麼」的命名。 */
 function refreshName(page) {
-  if (page.transient) { page.name = TRANSIENT_NAME; return; }
-  const top = Object.entries(page.aliases ?? {}).sort((a, b) => b[1] - a[1])[0];
+  const ranked = Object.entries(page.aliases ?? {}).sort((a, b) => b[1] - a[1]);
+  if (page.transient) {
+    const specific = ranked.find(([n]) => !isGenericTransient(canonicalName(n)));
+    page.name = transientDisplayName((specific ?? ranked[0])?.[0] ?? TRANSIENT_NAME);
+    return;
+  }
+  const top = ranked[0];
   if (top) page.name = displayName(top[0]) || top[0];
 }
 
 /** 找最佳匹配頁;回 page id 或 null。 */
-function findMatch(struct, { canon, pHash, module }) {
+function findMatch(struct, { canon, pHash, module, transient = false }) {
   let best = null;
   let bestScore = Infinity;
   for (const p of Object.values(struct.pages)) {
     const pc = p.canonical ?? canonicalName(p.name);
     const sameModule = !module || !p.module || p.module === module;
-    if (canon === TRANSIENT_NAME || pc === TRANSIENT_NAME) {
-      // 載入/過場:同模組(或未知模組)的載入畫面一律併成一個節點。
-      if (canon === pc && sameModule) return p.id;
+    const dist = pHash ? Math.min(Infinity, ...pageHashes(p).map((h) => hamming(pHash, h))) : Infinity;
+    if (transient || p.transient) {
+      // 載入畫面只跟載入畫面比:長得幾乎一樣 = 同一個;或描述了「載入什麼」且描述相同。
+      // 只寫「載入中」的泛稱不靠名字合併(否則不同的載入畫面又全疊在一起)。
+      if (!(transient && p.transient)) continue;
+      let score = Infinity;
+      if (dist <= STRONG_MATCH) score = dist;
+      else if (canon === pc && !isGenericTransient(canon) && sameModule) score = STRONG_MATCH + 1;
+      if (score < bestScore) { bestScore = score; best = p.id; }
       continue;
     }
-    const dist = pHash ? Math.min(Infinity, ...pageHashes(p).map((h) => hamming(pHash, h))) : Infinity;
     let score = Infinity;
     // 視覺幾乎相同:還需名稱相容,或兩邊都有標模組且相同(避免把「純色背景上的不同彈窗」硬併)。
     const bothSameModule = Boolean(module && p.module && module === p.module);
@@ -163,8 +199,8 @@ export function upsertPage(struct, frame) {
   if (isPlaceholderName(frame.name)) return { pageId: null, isNew: false };
   const now = frame.at ?? new Date().toISOString();
   const canon = canonicalName(frame.name);
-  const transient = canon === TRANSIENT_NAME;
-  const id = findMatch(struct, { canon, pHash: frame.pHash, module: frame.module });
+  const transient = isTransientName(frame.name);
+  const id = findMatch(struct, { canon, pHash: frame.pHash, module: frame.module, transient });
   if (id) {
     const p = struct.pages[id];
     p.visitCount = (p.visitCount ?? 0) + 1;
@@ -181,7 +217,7 @@ export function upsertPage(struct, frame) {
   const newId = stableId(`${canon}|${frame.module ?? ''}|${frame.pHash?.slice(0, 32) ?? ''}|${Object.keys(struct.pages).length}`);
   struct.pages[newId] = {
     id: newId,
-    name: transient ? TRANSIENT_NAME : String(frame.name ?? '').trim() || '未命名畫面',
+    name: transient ? transientDisplayName(frame.name) : String(frame.name ?? '').trim() || '未命名畫面',
     canonical: canon,
     ...(frame.module ? { module: frame.module } : {}),
     ...(transient ? { transient: true } : {}),
@@ -253,7 +289,8 @@ export function compactStructure(input) {
     const topAlias = Object.entries(p.aliases ?? {}).filter(([n]) => !isPlaceholderName(n)).sort((a, b) => b[1] - a[1])[0]?.[0];
     const canon = canonicalName(topAlias ?? p.name);
     const hashes = pageHashes(p);
-    const match = findMatch(out, { canon, pHash: hashes[0], module: p.module });
+    const transient = Boolean(p.transient) || isTransientName(topAlias ?? p.name);
+    const match = findMatch(out, { canon, pHash: hashes[0], module: p.module, transient });
     if (match) {
       const t = out.pages[match];
       t.visitCount += p.visitCount ?? 1;
@@ -268,12 +305,12 @@ export function compactStructure(input) {
       remap.set(p.id, match);
       continue;
     }
-    const transient = canon === TRANSIENT_NAME;
     const aliases = Object.fromEntries(
       Object.entries(p.aliases && Object.keys(p.aliases).length ? p.aliases : { [p.name]: p.visitCount ?? 1 }).filter(([n]) => !isPlaceholderName(n)),
     );
+    const { transient: _old, ...rest } = p;
     out.pages[p.id] = {
-      ...p,
+      ...rest,
       canonical: canon,
       ...(transient ? { transient: true } : {}),
       pHash: hashes[0] ?? '',
