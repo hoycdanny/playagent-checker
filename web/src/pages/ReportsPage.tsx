@@ -5,7 +5,7 @@ import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import AppBadge, { useAppLookup } from '../components/AppRef.tsx';
-import TaskIcon from '../components/TaskIcon.tsx';
+import TaskIcon, { backendIcon } from '../components/TaskIcon.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
 import { CaseVersionBadge } from '../components/cases/CaseVersions.tsx';
 import './ListPage.css';
@@ -35,6 +35,8 @@ interface ReportItem {
   /** 執行時的案例版本號 / 名稱快照。 */
   caseVersion?: string;
   caseName?: string;
+  /** Device Farm 段數(0 = 不限、>1 = 長時)。 */
+  maxSegments?: number;
 }
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
@@ -421,7 +423,10 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                         {x.caseVersion && <CaseVersionBadge version={x.caseVersion} />}
                       </td>
                       <td className="tasks__col-icon">
-                        <TaskIcon kind="backend" value={x.backend} label={t(`backend.${x.backend}` as MessageKey)} />
+                        {(() => {
+                          const bi = backendIcon(x.backend, x.maxSegments, (k) => t(k as MessageKey));
+                          return <TaskIcon kind="backend" value={bi.value} label={bi.label} />;
+                        })()}
                       </td>
                       <td className="tasks__col-steps">{x.stepCount ?? <span className="tasks__muted-cell">—</span>}</td>
                       <td className="rpts__nowrap">{formatDuration(durationOf(x))}</td>

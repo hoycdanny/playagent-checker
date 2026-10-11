@@ -2,7 +2,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import AppBadge, { type AppRef } from './AppRef.tsx';
-import TaskIcon from './TaskIcon.tsx';
+import TaskIcon, { backendIcon } from './TaskIcon.tsx';
 import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 
@@ -22,6 +22,8 @@ export interface TaskRow {
   /** 執行時的案例名稱 / 版本快照(舊任務可能沒有)。 */
   caseName?: string;
   caseVersion?: string;
+  /** Device Farm 段數(0 = 不限、>1 = 長時)。 */
+  maxSegments?: number;
 }
 
 /** 終局狀態(不再變動):決定顯示「取消」或「刪除」。 */
@@ -122,7 +124,7 @@ export default function TasksTable({
       </thead>
       <tbody>
         {tasks.map((x) => {
-          const backendLabel = t(`backend.${x.backend}` as MessageKey);
+          const bi = backendIcon(x.backend, x.maxSegments, (k) => t(k as MessageKey));
           const localityLabel = t(`locality.${x.locality}` as MessageKey);
           return (
             <tr
@@ -174,7 +176,7 @@ export default function TasksTable({
                 )}
               </td>
               <td className="tasks__col-icon">
-                <TaskIcon kind="backend" value={x.backend} label={backendLabel} />
+                <TaskIcon kind="backend" value={bi.value} label={bi.label} />
               </td>
               <td className="tasks__col-icon">
                 <TaskIcon kind="locality" value={x.locality} label={localityLabel} />

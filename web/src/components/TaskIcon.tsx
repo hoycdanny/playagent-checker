@@ -17,6 +17,15 @@ const BACKEND_MARK: Record<string, ReactNode> = {
       <line x1="10.5" y1="18.6" x2="13.5" y2="18.6" />
     </>
   ),
+  // 真機・長時(多段接續,超過 150 分鐘):手機 + 右下角時鐘
+  'devicefarm-long': (
+    <>
+      <rect x="4.5" y="2.5" width="9.5" height="17" rx="2.3" />
+      <line x1="7.8" y1="16.6" x2="10.7" y2="16.6" />
+      <circle cx="17.5" cy="16.5" r="4.6" />
+      <path d="M17.5 14.2v2.4l1.6 1" />
+    </>
+  ),
   // web:瀏覽器視窗(標題列 + 三個圓點)。以前畫成 λ(Lambda),但使用者看到的是
   // 「在瀏覽器裡跑」這件事,不是它背後是哪個 AWS 服務。
   web: (
@@ -123,6 +132,29 @@ const STATE_MARK: Record<string, ReactNode> = {
 };
 
 export type TaskIconKind = 'backend' | 'locality' | 'state';
+
+/** Device Farm 長時任務(maxSegments 0 = 不限段數、>1 = 多段接續;未帶或 1 = 單段)。 */
+export function isLongDeviceFarm(backend: string, maxSegments?: number): boolean {
+  return backend === 'devicefarm' && typeof maxSegments === 'number' && maxSegments !== 1;
+}
+
+/**
+ * 列表「環境」欄的圖示值與說明:Device Farm 長時另用「手機 + 時鐘」圖示,說明寫出段數。
+ * t = i18n 函式(避免這個元件依賴 I18nProvider)。
+ */
+export function backendIcon(
+  backend: string,
+  maxSegments: number | undefined,
+  t: (key: 'backend.devicefarmLong' | 'backend.devicefarmLongUnlimited' | string) => string,
+): { value: string; label: string } {
+  if (isLongDeviceFarm(backend, maxSegments)) {
+    return {
+      value: 'devicefarm-long',
+      label: maxSegments === 0 ? t('backend.devicefarmLongUnlimited') : t('backend.devicefarmLong').replace('{n}', String(maxSegments)),
+    };
+  }
+  return { value: backend, label: t(`backend.${backend}`) };
+}
 
 export interface TaskIconProps {
   kind: TaskIconKind;
