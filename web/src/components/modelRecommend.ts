@@ -21,14 +21,14 @@ export const RECOMMENDED: Record<SeatKind, string[]> = {
     'us.moonshotai.kimi-k3',
     'deepseek.v3.2',
   ],
-  // 分析畫面(判座標):依離線定位基準實測(像素誤差,越小越準)排名。
-  // Kimi K3 25px → Opus5.5 26px → Sonnet5 28px(性價比最佳/真機唯一玩進戰鬥)→ Opus5 32px → Opus4.8 34px。
+  // 分析畫面(讀數值 + 點位):2026-10-12 拉霸判讀實測(16 張真實截圖 × 2 輪,數值判讀 / 點位命中 / 每張中位秒數 / 每千張費用):
+  // Sonnet 4.6 100% 10/10 3.9s $6.96 → Sonnet 5 100% 8/10 6.0s $7.46 → Kimi K3 97% 10/10 8.7s $9.32
+  // → Haiku 4.5 97% 8/10 3.2s $2.37。Nova Lite / Nova Pro / Gemma 讀不到 AutoSpin 剩餘局數、點位全錯,不推薦。
   vlm: [
-    'us.moonshotai.kimi-k3',
-    'us.anthropic.claude-opus-5-5',
+    'us.anthropic.claude-sonnet-4-6',
     'us.anthropic.claude-sonnet-5',
-    'us.anthropic.claude-opus-5',
-    'us.anthropic.claude-opus-4-8',
+    'us.moonshotai.kimi-k3',
+    'us.anthropic.claude-haiku-4-5-20251001-v1:0',
   ],
   // 子代理(輔助小任務):性價比優先(無實測,依成本/能力合理排)。
   // Nova Micro(最省)→ Haiku 4.5(便宜且會看圖)→ Nova Lite → GLM 4.7 Flash → Ministral 3B。
