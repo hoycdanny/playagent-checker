@@ -26,6 +26,8 @@ const DEPLOYED_VERSION_PARAM = `/playagent/${stackPrefix}/deployed-version`;
 // 與 Execution stack 讀的 cdk context `uitarsEndpoint` 是同一個值。
 const UITARS_ENDPOINT_NAME = (app.node.tryGetContext('uitarsEndpoint') as string | undefined) ?? 'ui-tars-playagent';
 const GITHUB_REPO = (app.node.tryGetContext('githubRepo') as string | undefined) ?? 'hoycdanny/playagent-checker';
+// 一鍵部署傳入 Git SHA tag,讓 ECS task definition 不依賴可變的 latest。
+const RUNNER_IMAGE_TAG = (app.node.tryGetContext('runnerImageTag') as string | undefined) ?? 'latest';
 
 // 有狀態基礎(Cognito / 資料桶 / 租戶角色)。
 const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, {
@@ -38,6 +40,7 @@ const execution = new ExecutionStack(app, `${stackPrefix}-Execution`, {
   env,
   dataBucket: foundation.dataBucket,
   tenantRole: foundation.tenantDataRole.role,
+  runnerImageTag: RUNNER_IMAGE_TAG,
   // 成本標籤(含 stage + 部署者帶入)傳給引擎,供執行期 EC2/Fargate 動態貼標。
   costTags: { stage: cfg.stage, component: 'execution', ...cfg.costTags },
 });

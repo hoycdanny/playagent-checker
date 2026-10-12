@@ -186,7 +186,31 @@ CDK 堆疊(全部位於 `us-east-2`):
 
 ---
 
-# 🚀 在全新 AWS 帳號上安裝(逐步說明)
+# 🚀 在全新 AWS 帳號上安裝
+
+## Windows 建議:一鍵安裝／更新最新版
+
+先安裝 **Node.js 22、AWS CLI v2、Git、Docker Desktop**,完成 `aws configure`(或 AWS SSO)並在俄亥俄啟用下方列出的 Bedrock 模型。接著 clone 儲存庫,直接雙擊根目錄:
+
+```text
+Install-Latest.cmd
+```
+
+或從 PowerShell 執行:
+
+```powershell
+npm run deploy:latest
+# 建議指定帳號,避免部署到錯誤 AWS account:
+.\scripts\deploy-latest.ps1 -ExpectedAccountId 123456789012
+```
+
+腳本不會直接部署目前資料夾。它會從官方 GitHub `main` 取得當下最新 commit SHA,建立隔離的暫存 worktree,依 lockfile 安裝套件、跑測試、CDK bootstrap／部署、建置兩個 runner 映像,同時推送 `:<Git SHA>` 與 `:latest`,並讓 ECS Task Definition 鎖定 SHA tag。最後會核對 CloudFormation、ECR digest、ECS image 與 CloudFront。部署期間 `main` 若又更新,會自動改部署新版本(最多三輪);不會 reset、stash 或夾帶本機未提交檔案。
+
+第一次安裝接近結束時會詢問是否建立第一位管理員。非互動模式可使用 `-AdminEmail`、`-AdminTenant`、`-NonInteractive`,並把密碼放在 `PA_ADMIN_PASSWORD` 環境變數。
+
+> 一鍵路徑使用 Docker Desktop 在本機建出「與指定 Git SHA 完全一致」的映像。下方手動 CodeBuild 路徑仍不需要 Docker。
+
+## 手動安裝(逐步說明)
 
 本節假設你**沒有任何 AWS 經驗**。請從上到下依序操作。總時間約 **60–90 分鐘**,大部分是在等 AWS。
 

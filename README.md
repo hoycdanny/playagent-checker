@@ -186,7 +186,31 @@ Every task can have a step limit and a budget. Before running, the engine **lock
 
 ---
 
-# 🚀 Install on a clean AWS account (step by step)
+# 🚀 Install on a clean AWS account
+
+## Recommended on Windows: one-click latest installer
+
+After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**, configure your AWS credentials and enable the Bedrock models in Step 3. Then clone the repository and double-click:
+
+```text
+Install-Latest.cmd
+```
+
+Or run the same installer from PowerShell/npm:
+
+```powershell
+npm run deploy:latest
+# Optional account safety check:
+.\scripts\deploy-latest.ps1 -ExpectedAccountId 123456789012
+```
+
+The installer does not deploy the current folder blindly. It fetches canonical GitHub `main`, resolves one immutable commit SHA, creates an isolated temporary worktree, installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks, builds both runner images locally, pushes both `:<Git SHA>` and `:latest`, pins ECS task definitions to the SHA tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. If `main` changes during deployment, it automatically repeats with the newer commit (up to three rounds). Local uncommitted work is never reset or included.
+
+For the first admin account, the installer asks for email, tenant, and password near the end. In non-interactive use, pass `-AdminEmail`, `-AdminTenant`, `-NonInteractive`, and put the password in `PA_ADMIN_PASSWORD`.
+
+> The one-click path requires Docker Desktop because it builds the exact checked-out source locally. The manual CodeBuild path below still does not require Docker.
+
+## Manual installation (step by step)
 
 This section assumes **no prior AWS experience**. Follow it top to bottom. Total time: about **60–90 minutes**, most of it waiting for AWS.
 
