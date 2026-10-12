@@ -28,6 +28,8 @@ const UITARS_ENDPOINT_NAME = (app.node.tryGetContext('uitarsEndpoint') as string
 const GITHUB_REPO = (app.node.tryGetContext('githubRepo') as string | undefined) ?? 'hoycdanny/playagent-checker';
 // 一鍵部署傳入 Git SHA tag,讓 ECS task definition 不依賴可變的 latest。
 const RUNNER_IMAGE_TAG = (app.node.tryGetContext('runnerImageTag') as string | undefined) ?? 'latest';
+// cdk destroy 會 Retain ECR;重裝時安裝器傳 true,Execution 改採 import 而非建立同名 repo。
+const USE_EXISTING_RUNNER_REPOS = String(app.node.tryGetContext('existingRunnerRepos') ?? '').toLowerCase() === 'true';
 
 // 有狀態基礎(Cognito / 資料桶 / 租戶角色)。
 const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, {
@@ -41,6 +43,7 @@ const execution = new ExecutionStack(app, `${stackPrefix}-Execution`, {
   dataBucket: foundation.dataBucket,
   tenantRole: foundation.tenantDataRole.role,
   runnerImageTag: RUNNER_IMAGE_TAG,
+  useExistingRunnerRepos: USE_EXISTING_RUNNER_REPOS,
   // 成本標籤(含 stage + 部署者帶入)傳給引擎,供執行期 EC2/Fargate 動態貼標。
   costTags: { stage: cfg.stage, component: 'execution', ...cfg.costTags },
 });

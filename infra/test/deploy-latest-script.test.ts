@@ -18,6 +18,14 @@ describe('one-click latest deployment contract', () => {
     }
   });
 
+  test('all install guides explain retained resources before a reset', () => {
+    for (const file of ['README.md', 'README_ZH.md', 'README_CN.md', 'README_JP.md', 'README_KR.md']) {
+      const text = readFileSync(join(root, file), 'utf8');
+      expect(text, file).toContain('cdk destroy');
+      expect(text, file).toContain('Retain');
+    }
+  });
+
   test('deploys an isolated canonical-main SHA without touching local work', () => {
     expect(ps).toContain("RepositoryUrl = 'https://github.com/hoycdanny/playagent-checker.git'");
     expect(ps).toContain("Branch = 'main'");
@@ -35,6 +43,14 @@ describe('one-click latest deployment contract', () => {
     expect(ps).toContain('SHA tag 與 latest digest 不一致');
     expect(ps).toContain('runnerImageTag=$ImageTag');
     expect(ps).toContain('ECS task definition 仍未鎖定 SHA');
+    expect(ps).toContain('existingRunnerRepos=true');
+    expect(ps).toContain('Ensure-EcrRepository');
+  });
+
+  test('fresh admin check is non-terminating and creates a missing user', () => {
+    expect(ps).toContain("$userExists = Native-Succeeds 'aws' @('cognito-idp', 'admin-get-user'");
+    expect(ps).toContain("if (-not $userExists)");
+    expect(ps).toContain("'admin-create-user'");
   });
 
   test('fails closed and verifies every deploy surface', () => {

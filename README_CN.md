@@ -201,6 +201,8 @@ Install-Latest.cmd
 建议通过 `./scripts/deploy-latest.ps1 -ExpectedAccountId 123456789012` 指定 AWS 账户，避免部署到错误环境。首次安装结束前可创建第一个管理员。
 
 > 一键方式需要 Docker Desktop；下面的手动 CodeBuild 方式仍不需要 Docker。
+>
+> **在 `cdk destroy` 后重装：**数据桶、Cognito User Pool 和 Runner ECR 都有 `Retain` 保护。安装器会检测并复用保留的 ECR，避免同名 Repository 阻塞重装；但不会自动删除或接管旧数据桶/User Pool。若要真正完全清空，请先备份，再明确删除这些保留资源。
 
 ## 手动安装（分步说明）
 

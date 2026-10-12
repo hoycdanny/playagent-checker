@@ -209,6 +209,8 @@ The installer does not deploy the current folder blindly. It fetches canonical G
 For the first admin account, the installer asks for email, tenant, and password near the end. In non-interactive use, pass `-AdminEmail`, `-AdminTenant`, `-NonInteractive`, and put the password in `PA_ADMIN_PASSWORD`.
 
 > The one-click path requires Docker Desktop because it builds the exact checked-out source locally. The manual CodeBuild path below still does not require Docker.
+>
+> **About reinstalling after `cdk destroy`:** the data bucket, Cognito User Pool, and runner ECR repositories have `Retain` protection. The installer detects orphaned retained ECR repositories and safely reuses them, so fixed repository names do not block reinstall. It intentionally does not delete or silently adopt an old data bucket/User Pool; a true empty reset requires explicitly deleting those retained resources after backing up anything needed.
 
 ## Manual installation (step by step)
 

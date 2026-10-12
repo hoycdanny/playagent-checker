@@ -10,7 +10,7 @@ import {
 
 const env = { account: '111111111111', region: 'us-east-2' };
 
-function synthExecution(runnerImageTag?: string) {
+function synthExecution(runnerImageTag?: string, useExistingRunnerRepos = false) {
   const app = new App();
   const foundation = new FoundationStack(app, 'F', { env });
   const execution = new ExecutionStack(app, 'E', {
@@ -18,6 +18,7 @@ function synthExecution(runnerImageTag?: string) {
     dataBucket: foundation.dataBucket,
     tenantRole: foundation.tenantDataRole.role,
     ...(runnerImageTag ? { runnerImageTag } : {}),
+    ...(useExistingRunnerRepos ? { useExistingRunnerRepos: true } : {}),
   });
   return Template.fromStack(execution);
 }
@@ -52,6 +53,13 @@ describe('ExecutionStack — 裝置主機生命週期(Req 4.3/4.5/4.6)', () => {
   test('指定 Git SHA 時,兩個 Fargate task definition 都鎖定不可變 tag', () => {
     const body = JSON.stringify(synthExecution('0123456789abcdef').toJSON());
     expect(body.match(/:0123456789abcdef/g)).toHaveLength(2);
+  });
+
+  test('destroy 後可匯入 Retain 的 ECR,不再建立同名 repository', () => {
+    const t = synthExecution('git-sha', true);
+    t.resourceCountIs('AWS::ECR::Repository', 0);
+    t.resourceCountIs('AWS::ECS::TaskDefinition', 2);
+    expect(JSON.stringify(t.toJSON()).match(/:git-sha/g)).toHaveLength(2);
   });
 
   test('引擎可終結主機,但僅限帶 per-job 生命週期標籤的實例(常駐機受保護,Req 4.5)', () => {

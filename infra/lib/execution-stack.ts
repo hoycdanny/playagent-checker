@@ -26,6 +26,8 @@ const UBUNTU_X86_SSM =
 export interface ExecutionStackProps extends StackProps {
   dataBucket: s3.IBucket;
   tenantRole: iam.IRole;
+  /** cdk destroy 後 ECR 被 Retain:重裝時匯入既有固定名稱 repo,避免 already exists。 */
+  useExistingRunnerRepos?: boolean;
   /** runner 映像不可變 tag(一鍵部署傳 Git SHA);手動開發部署預設 latest。 */
   runnerImageTag?: string;
   /** 成本分攤標籤(project/stage/component + 部署者帶入),序列化後傳給引擎供執行期資源貼標。 */
@@ -396,11 +398,13 @@ export class ExecutionStack extends Stack {
     // ───────────────────────────────────────────────────────────────────────
 
     // 容器 image 走 ECR(image 由 CI/運維用 Docker build 後推上,CDK 不需 Docker 即可部署)。
-    const runnerRepo = new ecr.Repository(this, 'ExplorationRunnerRepo', {
-      repositoryName: 'playagent-exploration-runner',
-      imageScanOnPush: true,
-      lifecycleRules: [{ maxImageCount: 10 }],
-    });
+    const runnerRepo = props.useExistingRunnerRepos
+      ? ecr.Repository.fromRepositoryName(this, 'ExplorationRunnerRepoImported', 'playagent-exploration-runner')
+      : new ecr.Repository(this, 'ExplorationRunnerRepo', {
+          repositoryName: 'playagent-exploration-runner',
+          imageScanOnPush: true,
+          lifecycleRules: [{ maxImageCount: 10 }],
+        });
 
     const cluster = new ecs.Cluster(this, 'DeviceFarmCluster', { vpc: this.vpc });
 
@@ -524,11 +528,13 @@ export class ExecutionStack extends Stack {
     // 與 Device Farm 同 cluster,但各自 ECR image / task def / task role。
     // engine 只 RunTask 起 task,task 內 webExplorationRunner 跑 screenshot→VLM→click 迴圈並寫 S3。
     // ───────────────────────────────────────────────────────────────────────
-    const webRunnerRepo = new ecr.Repository(this, 'WebRunnerRepo', {
-      repositoryName: 'playagent-web-runner',
-      imageScanOnPush: true,
-      lifecycleRules: [{ maxImageCount: 10 }],
-    });
+    const webRunnerRepo = props.useExistingRunnerRepos
+      ? ecr.Repository.fromRepositoryName(this, 'WebRunnerRepoImported', 'playagent-web-runner')
+      : new ecr.Repository(this, 'WebRunnerRepo', {
+          repositoryName: 'playagent-web-runner',
+          imageScanOnPush: true,
+          lifecycleRules: [{ maxImageCount: 10 }],
+        });
 
     // Web task role:只需 S3(讀 context、寫截圖/step/report/structure)+ Bedrock(VLM)。無 Device Farm。
     const webTaskRole = new iam.Role(this, 'WebTaskRole', {
