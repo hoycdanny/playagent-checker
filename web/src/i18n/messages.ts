@@ -409,6 +409,7 @@ export type MessageKey =
   | 'tasks.caseVersionInUse'
   | 'tasks.caseVersionLoading'
   | 'tasks.backend'
+  | 'tasks.modelUnavailable'
   | 'tasks.backendLocked'
   | 'tasks.submitBtn'
   | 'tasks.submitting'
@@ -1091,6 +1092,7 @@ const zhHant: Catalog = {
   'tasks.caseVersionInUse': '使用中',
   'tasks.caseVersionLoading': '載入版本中…',
   'tasks.backend': '執行環境',
+  'tasks.modelUnavailable': "目前無法使用",
   'tasks.backendLocked': '依應用平台自動決定(Web 應用用瀏覽器,原生應用用真機)',
   'tasks.submitBtn': '提交',
   'tasks.submitting': '提交中…',
@@ -1773,6 +1775,7 @@ const en: Catalog = {
   'tasks.caseVersionInUse': 'in use',
   'tasks.caseVersionLoading': 'Loading versions…',
   'tasks.backend': 'Runtime',
+  'tasks.modelUnavailable': "unavailable",
   'tasks.backendLocked': 'Set automatically by the app platform (web apps use the browser; native apps use a real device)',
   'tasks.submitBtn': 'Submit',
   'tasks.submitting': 'Submitting…',
@@ -2459,6 +2462,7 @@ const zhHans: Catalog = {
   'tasks.caseVersionInUse': '使用中',
   'tasks.caseVersionLoading': '加载版本中…',
   'tasks.backend': '执行环境',
+  'tasks.modelUnavailable': "目前无法使用",
   'tasks.backendLocked': '按应用平台自动决定(Web 应用用浏览器,原生应用用真机)',
   'tasks.submitBtn': '提交',
   'tasks.submitting': '提交中…',
@@ -3140,6 +3144,7 @@ const ja: Catalog = {
   'tasks.caseVersionInUse': '使用中',
   'tasks.caseVersionLoading': 'バージョンを読み込み中…',
   'tasks.backend': '実行環境',
+  'tasks.modelUnavailable': "現在利用できません",
   'tasks.backendLocked': 'アプリのプラットフォームで自動決定(Web アプリはブラウザ、ネイティブアプリは実機)',
   'tasks.submitBtn': '送信',
   'tasks.submitting': '送信中…',
@@ -3822,6 +3827,7 @@ const ko: Catalog = {
   'tasks.caseVersionInUse': '사용 중',
   'tasks.caseVersionLoading': '버전 불러오는 중…',
   'tasks.backend': '실행 환경',
+  'tasks.modelUnavailable': "현재 사용할 수 없음",
   'tasks.backendLocked': '앱 플랫폼에 따라 자동 결정(웹 앱은 브라우저, 네이티브 앱은 실기기)',
   'tasks.submitBtn': '제출',
   'tasks.submitting': '제출 중…',

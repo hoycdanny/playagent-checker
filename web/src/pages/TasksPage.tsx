@@ -56,6 +56,8 @@ const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
 interface ModelEntry {
   modelId: string;
   displayName: string;
+  /** 有值 = 這個模型目前叫不動(原因為英文短句,來自後端實呼驗證);選項反灰。 */
+  unavailable?: string;
   pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
 }
 
@@ -677,8 +679,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
                     <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
                       {agentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
                           {starLabel('agent', m.modelId, modelOptionLabel(m))}
+                          {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
                     </select>
@@ -692,8 +695,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     </span>
                     <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                       {vlmModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
                           {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                          {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
                     </select>
@@ -705,8 +709,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
                     <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
                       {subagentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId}>
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
                           {starLabel('subagent', m.modelId, modelOptionLabel(m))}
+                          {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
                     </select>
