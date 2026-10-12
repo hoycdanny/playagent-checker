@@ -186,7 +186,23 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 ---
 
-# 🚀 새 AWS 계정에 설치하기(단계별)
+# 🚀 새 AWS 계정에 설치하기
+
+## Windows 권장: 최신 버전 원클릭 설치／업데이트
+
+먼저 **Node.js 22, AWS CLI v2, Git, Docker Desktop**을 설치하고 AWS에 로그인한 뒤 아래의 Bedrock 모델을 활성화합니다. 리포지토리를 clone한 다음 루트의 다음 파일을 더블클릭합니다.
+
+```text
+Install-Latest.cmd
+```
+
+`npm run deploy:latest`로도 실행할 수 있습니다. 설치 프로그램은 공식 GitHub `main`의 불변 Git SHA를 확인하고, 격리된 임시 worktree에서 설치·테스트·배포합니다. 두 러너 이미지는 SHA 태그와 `latest`를 함께 푸시하며 ECS 작업 정의는 SHA에 고정됩니다. 마지막에 CloudFormation, ECR digest, ECS 이미지, CloudFront를 검증합니다. 배포 중 `main`이 갱신되면 새 버전으로 자동 재실행합니다(최대 3회). 로컬의 커밋되지 않은 파일은 포함하거나 초기화하지 않습니다.
+
+잘못된 AWS 계정에 배포하지 않도록 `./scripts/deploy-latest.ps1 -ExpectedAccountId 123456789012` 사용을 권장합니다. 첫 설치 마지막 단계에서 첫 관리자를 만들 수 있습니다.
+
+> 원클릭 방식에는 Docker Desktop이 필요합니다. 아래의 수동 CodeBuild 방식은 Docker가 필요하지 않습니다.
+
+## 수동 설치(단계별)
 
 이 섹션은 **AWS 사용 경험이 없다고 가정**합니다. 위에서 아래로 따라 하십시오. 총 소요 시간은 약 **60–90분**이며, 대부분은 AWS 대기 시간입니다.
 
