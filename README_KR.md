@@ -195,14 +195,35 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 ```text
 Windows: Install-Latest.cmd 더블클릭
 macOS:   Install-Latest.command 더블클릭
-모든 OS: npm run deploy:latest
+Linux:   scripts/deploy-latest.sh 실행
 ```
+
+세 런처는 같은 배포 코어를 사용하며 기본 리전은 **`us-east-2`(Ohio)**입니다.
 
 모든 OS에서 `npm run deploy:latest -- --expected-account-id 123456789012`로 AWS 계정을 확인할 수 있습니다. 기존 PowerShell 스크립트는 호환 래퍼로 유지되며, 모든 OS가 동일한 Node.js 배포 코어를 사용합니다.
 
 `npm run deploy:latest`로도 실행할 수 있습니다. 설치 프로그램은 공식 GitHub `main`의 불변 Git SHA를 확인하고, 격리된 임시 worktree에서 설치·테스트·배포합니다. 두 러너 이미지는 SHA 태그와 `latest`를 함께 푸시하며 ECS 작업 정의는 SHA에 고정됩니다. 마지막에 CloudFormation, ECR digest, ECS 이미지, CloudFront를 검증합니다. 배포 중 `main`이 갱신되면 새 버전으로 자동 재실행합니다(최대 3회). 로컬의 커밋되지 않은 파일은 포함하거나 초기화하지 않습니다.
 
-잘못된 AWS 계정에 배포하지 않도록 `npm run deploy:latest -- --expected-account-id 123456789012` 사용을 권장합니다. 첫 설치 마지막 단계에서 첫 관리자를 만들 수 있습니다.
+잘못된 AWS 계정에 배포하지 않도록 `npm run deploy:latest -- --expected-account-id 123456789012` 사용을 권장합니다. 첫 설치의 대화형 입력은 관리자 **Email(로그인 username)**과 화면에 표시되지 않는 비밀번호만 묻습니다. tenant 기본값은 `default`이며 고급 설정에서 변경할 때만 `--admin-tenant <tenant>`를 사용합니다.
+
+비대화형 자동화에서는 비밀번호를 명령줄 인수에 절대 넣지 마십시오. 비밀 관리자의 출력을 stdin으로 pipe합니다.
+
+```bash
+# bash / zsh(macOS 또는 Linux)
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+```powershell
+# PowerShell
+(aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+```bat
+rem 명령 프롬프트(cmd.exe)
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+이 예제에는 리터럴 비밀번호가 없습니다. 기본 tenant를 변경할 때만 `--admin-tenant <tenant>`를 추가하십시오.
 
 > 원클릭 방식에는 Docker Desktop이 필요합니다. 아래의 수동 CodeBuild 방식은 Docker가 필요하지 않습니다.
 >
@@ -329,7 +350,7 @@ node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
 ```
 
-> 스크립트에 내장된 버킷 이름은 원 개발자의 계정에 속하므로, 반드시 `PA_SM_BUCKET`을 **본인의** 데이터 버킷으로 설정하십시오.
+> `PA_SM_BUCKET`은 필수입니다. 본인의 Foundation 스택이 출력한 DataBucket으로 설정하십시오. 스크립트에는 계정별 버킷 기본값이 더 이상 없습니다.
 
 ## 7단계 — 웹 콘솔 빌드
 
@@ -360,33 +381,20 @@ aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-
 
 ## 9단계 — 첫 번째(관리자) 로그인 생성
 
-자체 가입은 의도적으로 비활성화되어 있습니다. 이메일과 비밀번호(최소 8자, 대문자 + 소문자 + 숫자)를 정합니다. `tenant`는 고객별 데이터를 격리하며, 회사 이름처럼 짧은 값을 사용하십시오.
-
-**옵션 A — 스크립트(권장):**
+자체 가입은 의도적으로 비활성화되어 있습니다. 가장 간단한 방법은 위의 원클릭 설치 프로그램입니다. 수동 설정에서는 아래 도구를 실행합니다. 비밀번호는 화면에 표시되지 않게 입력하므로 명령이나 shell history에 남지 않습니다. tenant를 별도로 격리할 명확한 이유가 없다면 기본값 `default`를 사용하십시오.
 
 ```bash
 cd ../agent/sagemaker
-AWS_REGION=us-east-2 node createUser.mjs \
-  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin
 ```
 
-**옵션 B — 배포 시:** Foundation 배포에 `-c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme`를 추가합니다.
-
-<details>
-<summary>옵션 C — AWS CLI 직접 사용</summary>
+자동화에서는 비밀번호를 argv에 넣지 말고 비밀 관리자에서 stdin으로 pipe하십시오.
 
 ```bash
-POOL_ID=PASTE_UserPoolId
-aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
-  --message-action SUPPRESS
-aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com --password 'ChangeMe123!' --permanent
-aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com --group-name admins
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
 ```
-</details>
+
+비밀번호는 8자 이상이며 대문자, 소문자, 숫자를 포함해야 합니다.
 
 이후 다른 사용자는 모두 **멤버 관리** 페이지에서 생성합니다.
 

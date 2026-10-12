@@ -1,6 +1,13 @@
 # 以 SYSTEM 執行(SSM):裝 NVIDIA GRID 驅動、裝遊戲、設定自動登入,最後重開機。
 $ErrorActionPreference = 'Stop'
-$Bucket = 'playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i'
+$Bucket = $env:PA_DATA_BUCKET
+if ([string]::IsNullOrWhiteSpace($Bucket)) { throw 'PA_DATA_BUCKET is required' }
+if ($Bucket.Length -lt 3 -or $Bucket.Length -gt 63 -or $Bucket -notmatch '^[a-z0-9][a-z0-9.-]*[a-z0-9]$' -or $Bucket.Contains('..') -or $Bucket -match '^\d{1,3}(\.\d{1,3}){3}$') {
+  throw 'PA_DATA_BUCKET must be a valid S3 bucket name'
+}
+$Region = @($env:PA_SM_REGION, $env:AWS_REGION, $env:AWS_DEFAULT_REGION, 'us-east-2') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1
+if ($Region -notmatch '^[a-z0-9-]+$') { throw 'Region contains invalid characters' }
+
 New-Item -ItemType Directory -Force -Path C:\poc, C:\poc\out, C:\poc\nvidia | Out-Null
 Start-Transcript -Path C:\poc\out\setup.log -Append
 
@@ -18,7 +25,7 @@ foreach ($o in $objs) {
 }
 
 # 2) 遊戲(Inno Setup 安裝檔:靜默安裝到固定目錄)
-Copy-S3Object -BucketName $Bucket -Key _poc/windows/SouthParkSetup.exe -LocalFile C:\poc\SouthParkSetup.exe -Region us-east-2 | Out-Null
+Copy-S3Object -BucketName $Bucket -Key _poc/windows/SouthParkSetup.exe -LocalFile C:\poc\SouthParkSetup.exe -Region $Region | Out-Null
 $p = Start-Process -FilePath C:\poc\SouthParkSetup.exe -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', '/DIR=C:\Games\SouthPark', '/LOG=C:\poc\out\game-install.log' -Wait -PassThru
 "game install exit=$($p.ExitCode)"
 Get-ChildItem C:\Games\SouthPark -Recurse -Include *.exe | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 300

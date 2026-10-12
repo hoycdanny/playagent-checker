@@ -13,7 +13,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-node "%~dp0scripts\deploy-latest.mjs"
+node "%~dp0scripts\deploy-latest.mjs" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 echo.
 if "%EXIT_CODE%"=="0" (

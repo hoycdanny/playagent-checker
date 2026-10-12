@@ -5,7 +5,7 @@
       "Sid": "PocArtifacts",
       "Effect": "Allow",
       "Action": ["s3:GetObject", "s3:PutObject"],
-      "Resource": "arn:aws:s3:::playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i/_poc/*"
+      "Resource": "arn:aws:s3:::<YOUR_DATA_BUCKET>/_poc/*"
     },
     {
       "Sid": "NvidiaGridDrivers",

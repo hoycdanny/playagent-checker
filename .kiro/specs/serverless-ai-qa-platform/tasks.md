@@ -30,7 +30,7 @@
 - [x] 0.5 【web 驗證】部署並於瀏覽器確認空殼
   - `cdk deploy` 後開 CloudFront URL,確認看到 app shell、能切換 zh-Hant/en 且文字跟著變、能切換深/淺主題且不跳版不重整、重整後語系與主題被記憶、無主控台錯誤
   - 量測 FCP < 1.5s
-  - 已部署:https://d29e1127d79iqb.cloudfront.net(us-east-2)。暖啟 FCP ~500ms(達標);冷啟 ~1940ms(未達標,待階段 5 路由級 code-splitting 收斂,已知待改項)
+  - 已部署:https://example-distribution.cloudfront.net(us-east-2)。暖啟 FCP ~500ms(達標);冷啟 ~1940ms(未達標,待階段 5 路由級 code-splitting 收斂,已知待改項)
   - _Requirements: 10.9, 10.10, 15.1_
 
 ---
@@ -53,7 +53,7 @@
 
 - [x] 1.4 【web 驗證】部署並於瀏覽器驗證登入
   - 建測試使用者;web 登入 → 進入受保護區、頂欄顯示 email/租戶;登出 → 退回登入頁;錯誤密碼顯示 i18n 錯誤
-  - 已於 https://d29e1127d79iqb.cloudfront.net 實測:測試使用者 qa@playagent.test(tenantId=acme-tw)登入成功、頂欄顯示 email + 租戶 acme-tw、錯誤密碼顯示 i18n 錯誤(alert role)、登出退回登入頁
+  - 已於 https://example-distribution.cloudfront.net 實測:測試使用者 qa-user@example.invalid(tenantId=example-tenant-a)登入成功、頂欄顯示 email + 租戶 example-tenant-a、錯誤密碼顯示 i18n 錯誤(alert role)、登出退回登入頁
   - _Requirements: 1.1, 1.4_
 
 ---
@@ -84,12 +84,12 @@
 
 - [x] 2.5 組裝 `control-plane-stack` 與 assertions 測試
   - 組裝 HTTP API + authorizer + 租戶角色;assertions 測 authorizer 綁 User Pool、Lambda 角色最小權限
-  - 已部署:https://jyn3elpfyc.execute-api.us-east-2.amazonaws.com;curl 驗證無 token→401、帶 token→200、/me 回正確租戶
+  - 已部署:https://example-http-api-id.execute-api.us-east-2.amazonaws.com;curl 驗證無 token→401、帶 token→200、/me 回正確租戶
   - _Requirements: 1.1, CDK 基礎設施測試_
 
 - [x] 2.6 【web 驗證】部署並驗證導覽與租戶隔離
   - 登入後看到五區導覽、各頁空狀態、切頁骨架回饋;用兩個不同租戶帳號登入彼此看不到對方資料
-  - 租戶隔離已於 API 層證實(curl,同一 S3 桶):在 acme-tw 前綴種入 demo-app.json → acme-tw 使用者 GET /apps 看得到、globex-us 使用者看不到({"items":[]})。STS session tag + IAM PrincipalTag 條件鍵生效
+  - 租戶隔離已於 API 層證實(curl,同一 S3 桶):在 example-tenant-a 前綴種入 demo-app.json → example-tenant-a 使用者 GET /apps 看得到、example-tenant-b 使用者看不到({"items":[]})。STS session tag + IAM PrincipalTag 條件鍵生效
   - 備註:前端 Apps 頁顯示該筆資料的瀏覽器視覺確認,因 Playwright 擴充暫時斷線未完成;登入+導覽渲染已於階段 1 視覺確認,本階段僅在同一 shell 後加入路由頁
   - _Requirements: 1.2, 10.1, 15.4_
 
@@ -100,7 +100,7 @@
 - [x] 3.1 實作 `POST /uploads`(presigned PUT)
   - 發租戶前綴限定、限時的 presigned S3 PUT URL;校驗 key 僅限本租戶前綴
   - 單元測試:presigned key 限租戶前綴(非法 kind→400);presigned 正常路徑於部署後 curl 驗證
-  - 已驗證:POST /uploads 回 tenants/acme-tw/artifacts/... 的 presigned URL,PUT 5MB 檔→200(位元組直達 S3 不經 Lambda)
+  - 已驗證:POST /uploads 回 tenants/example-tenant-a/artifacts/... 的 presigned URL,PUT 5MB 檔→200(位元組直達 S3 不經 Lambda)
   - _Requirements: 2.1, 2.4_
 
 - [x] 3.2 實作 `POST /apps`、`GET /apps` 落 S3
@@ -144,7 +144,7 @@
 
 ## 階段 5 — 提交任務 + 統一任務表 + 狀態
 
-> 實作註記:引擎承載層採務實選擇 —— 因建置環境無 Docker daemon,Web 引擎先以 Lambda + HTTP fetch 承載(暫代真 Chromium),AgentCore 與真實無頭瀏覽器留待 Docker/Chromium layer 可用時以同一 `runWebTask` 介面替換,排程/狀態/契約不變(詳見 design 實作註記)。API URL 因 ControlPlane 重建變更為 `https://m8otdjuxb6.execute-api.us-east-2.amazonaws.com`。
+> 實作註記:引擎承載層採務實選擇 —— 因建置環境無 Docker daemon,Web 引擎先以 Lambda + HTTP fetch 承載(暫代真 Chromium),AgentCore 與真實無頭瀏覽器留待 Docker/Chromium layer 可用時以同一 `runWebTask` 介面替換,排程/狀態/契約不變(詳見 design 實作註記)。API URL 因 ControlPlane 重建變更為 `https://replacement-http-api-id.execute-api.us-east-2.amazonaws.com`。
 
 - [x] 5.1 實作 `scheduling-stack`:SQS + 分派器 + 生命週期 Lambda
   - SQS 分派佇列 + DLQ;分派器 Lambda 為佇列消費者,**直接非同步 Invoke** 引擎 Lambda(非把引擎掛在 SQS ESM 之後,Req 3.8)
@@ -184,7 +184,7 @@
 - [x] 6.1 實作 `ws-api` L3 construct 與訂閱/推送
   - WebSocket API(connect 帶 JWT 驗,Lambda authorizer + query token)、訂閱記錄(S3 `jobs/<jobId>/connections/`)、S3 事件(EventBridge)→ 推送 Lambda → PostToConnection
   - 引擎只寫 S3、不直接對 WS 端點通訊(Req 5.5)
-  - 已部署 wss://fca2bmujih.execute-api.us-east-2.amazonaws.com/prod;node 腳本驗證:連線→subscribe→收到 status+step 推送 3 則
+  - 已部署 wss://example-websocket-api-id.execute-api.us-east-2.amazonaws.com/prod;node 腳本驗證:連線→subscribe→收到 status+step 推送 3 則
   - 註:WebSocket Lambda authorizer 必須回傳 IAM policy(非 HTTP API simple response)
   - _Requirements: 5.4, 5.5_
 

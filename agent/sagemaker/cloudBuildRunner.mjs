@@ -16,8 +16,9 @@ import { packSource } from './packSource.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = join(HERE, '..');           // agent/
-const REGION = process.env.PA_SM_REGION || 'us-east-2';
-const BUCKET = process.env.PA_SM_BUCKET || 'playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-2';
+const BUCKET = process.env.PA_SM_BUCKET?.trim();
+if (!BUCKET) throw new Error('PA_SM_BUCKET is required');
 const IMAGE_REPO = 'playagent-exploration-runner';
 const PROJECT = 'playagent-runner-build';
 const ROLE_NAME = 'PlayAgentCodeBuildUitarsRole';

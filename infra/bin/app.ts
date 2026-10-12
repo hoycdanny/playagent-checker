@@ -32,10 +32,7 @@ const RUNNER_IMAGE_TAG = (app.node.tryGetContext('runnerImageTag') as string | u
 const USE_EXISTING_RUNNER_REPOS = String(app.node.tryGetContext('existingRunnerRepos') ?? '').toLowerCase() === 'true';
 
 // 有狀態基礎(Cognito / 資料桶 / 租戶角色)。
-const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, {
-  env,
-  ...(cfg.initialAdmin ? { initialAdmin: cfg.initialAdmin } : {}),
-});
+const foundation = new FoundationStack(app, `${stackPrefix}-Foundation`, { env });
 
 // 執行引擎(Web 後端 Lambda)—— 需資料桶與租戶角色。
 const execution = new ExecutionStack(app, `${stackPrefix}-Execution`, {

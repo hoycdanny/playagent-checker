@@ -8,8 +8,8 @@ param(
   [string]$ExpectedAccountId = '',
   [string]$CdkContext = '',
   [string]$AdminEmail = '',
-  [string]$AdminTenant = '',
-  [string]$AdminPasswordEnv = 'PA_ADMIN_PASSWORD',
+  [string]$AdminTenant = 'default',
+  [switch]$AdminPasswordStdin,
   [switch]$SkipTests,
   [switch]$SkipBootstrap,
   [switch]$PlanOnly,
@@ -26,14 +26,14 @@ $argsList = @(
   '--repository-url', $RepositoryUrl,
   '--branch', $Branch,
   '--region', $Region,
-  '--stage', $Stage,
-  '--admin-password-env', $AdminPasswordEnv
+  '--stage', $Stage
 )
 if ($Profile) { $argsList += @('--profile', $Profile) }
 if ($ExpectedAccountId) { $argsList += @('--expected-account-id', $ExpectedAccountId) }
 foreach ($c in ($CdkContext -split ';')) { if ($c.Trim()) { $argsList += @('--context', $c.Trim()) } }
 if ($AdminEmail) { $argsList += @('--admin-email', $AdminEmail) }
-if ($AdminTenant) { $argsList += @('--admin-tenant', $AdminTenant) }
+if ($AdminTenant -and $AdminTenant -ne 'default') { $argsList += @('--admin-tenant', $AdminTenant) }
+if ($AdminPasswordStdin) { $argsList += '--admin-password-stdin' }
 if ($SkipTests) { $argsList += '--skip-tests' }
 if ($SkipBootstrap) { $argsList += '--skip-bootstrap' }
 if ($PlanOnly) { $argsList += '--plan-only' }

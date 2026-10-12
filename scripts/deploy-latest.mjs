@@ -5,11 +5,13 @@
  * macOS/Linux use the exact same Node code (only the launcher differs).
  */
 import { spawn } from 'node:child_process';
+import { timingSafeEqual } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import readline from 'node:readline/promises';
+import { promptHidden, readSecretFromStdin, validateCognitoPassword } from './secret-input.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CALLER_ROOT = resolve(HERE, '..');
@@ -90,9 +92,9 @@ Options:
   --profile PROFILE          AWS CLI profile
   --expected-account-id ID   fail if the active AWS account differs
   --context key=value        extra CDK context (repeatable)
-  --admin-email EMAIL        create/update the first admin
-  --admin-tenant TENANT      admin tenant
-  --admin-password-env NAME  password environment variable (PA_ADMIN_PASSWORD)
+  --admin-email EMAIL        Cognito admin login email (required for install)
+  --admin-tenant TENANT      admin tenant (default: default)
+  --admin-password-stdin     read the admin password from stdin (automation only)
   --skip-tests               skip repeated tests
   --skip-bootstrap           skip CDK bootstrap
   --plan-only                latest-source + preflight check, no changes
@@ -104,7 +106,7 @@ Options:
 function parseArgs(argv) {
   const o = {
     repositoryUrl: DEFAULT_REPO, branch: 'main', region: 'us-east-2', stage: 'dev', profile: '',
-    expectedAccountId: '', context: [], adminEmail: '', adminTenant: '', adminPasswordEnv: 'PA_ADMIN_PASSWORD',
+    expectedAccountId: '', context: [], adminEmail: '', adminTenant: 'default', adminPasswordStdin: false,
     skipTests: false, skipBootstrap: false, planOnly: false, nonInteractive: false,
     internal: false, sourceRoot: '', sourceSha: '',
   };
@@ -121,7 +123,10 @@ function parseArgs(argv) {
     else if (a === '--context') o.context.push(value(i++, a));
     else if (a === '--admin-email') o.adminEmail = value(i++, a);
     else if (a === '--admin-tenant') o.adminTenant = value(i++, a);
-    else if (a === '--admin-password-env') o.adminPasswordEnv = value(i++, a);
+    else if (a === '--admin-password-stdin') o.adminPasswordStdin = true;
+    // Accepted only so an older interactive outer launcher can hand off to this newer core.
+    // The environment variable name is deliberately ignored; secrets are never read from env.
+    else if (a === '--admin-password-env') { value(i++, a); }
     else if (a === '--skip-tests') o.skipTests = true;
     else if (a === '--skip-bootstrap') o.skipBootstrap = true;
     else if (a === '--plan-only') o.planOnly = true;
@@ -139,34 +144,55 @@ async function question(prompt) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try { return (await rl.question(prompt)).trim(); } finally { rl.close(); }
 }
-async function hiddenQuestion(prompt) {
-  if (!process.stdin.isTTY || !process.stdin.setRawMode) return question(prompt);
-  process.stdout.write(prompt);
-  process.stdin.setRawMode(true); process.stdin.resume();
-  let value = '';
-  return new Promise((resolvePromise) => {
-    const onData = (b) => {
-      const s = b.toString('utf8');
-      if (s === '\r' || s === '\n') {
-        process.stdin.off('data', onData); process.stdin.setRawMode(false); process.stdout.write('\n'); resolvePromise(value); return;
+function validateAdminIdentity(o) {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(o.adminEmail)) fail('請提供有效的 Cognito 管理員 Email（登入 username）');
+  if (!/^[A-Za-z0-9._-]{1,128}$/.test(o.adminTenant)) fail('admin tenant 只能使用 1–128 個英數字、點、底線或連字號');
+}
+
+async function promptConfirmedAdminPassword() {
+  while (true) {
+    const password = await promptHidden('管理員密碼（8–256 字元，含英文大小寫與數字）: ');
+    try {
+      validateCognitoPassword(password);
+      const confirmation = await promptHidden('再次輸入密碼: ');
+      try {
+        if (password.length === confirmation.length && timingSafeEqual(password, confirmation)) return password;
+        warn('兩次密碼不同，請重新輸入。');
+      } finally {
+        confirmation.fill(0);
       }
-      if (s === '\u0003') { process.stdin.setRawMode(false); process.exit(130); }
-      if (s === '\u007f' || s === '\b') { value = value.slice(0, -1); return; }
-      if (/^[\x20-\x7e]+$/.test(s)) value += s;
-    };
-    process.stdin.on('data', onData);
-  });
+    } catch (error) {
+      if (error.message === '使用者取消') {
+        password.fill(0);
+        throw error;
+      }
+      warn(error.message);
+    }
+    password.fill(0);
+  }
+}
+
+async function collectAdminPassword(o) {
+  if (o.planOnly || !o.nonInteractive) return null;
+  if (!o.adminEmail) fail('非互動安裝必須指定 --admin-email');
+  if (!o.adminPasswordStdin) fail('非互動安裝必須使用 --admin-password-stdin 安全傳入密碼');
+  validateAdminIdentity(o);
+  const password = await readSecretFromStdin();
+  validateCognitoPassword(password);
+  return password;
 }
 
 function childArgs(o, root, sha) {
   const a = ['--internal', '--source-root', root, '--source-sha', sha,
-    '--repository-url', o.repositoryUrl, '--branch', o.branch, '--region', o.region, '--stage', o.stage,
-    '--admin-password-env', o.adminPasswordEnv];
+    '--repository-url', o.repositoryUrl, '--branch', o.branch, '--region', o.region, '--stage', o.stage];
   if (o.profile) a.push('--profile', o.profile);
   if (o.expectedAccountId) a.push('--expected-account-id', o.expectedAccountId);
   for (const c of o.context) a.push('--context', c);
-  if (o.adminEmail) a.push('--admin-email', o.adminEmail);
-  if (o.adminTenant) a.push('--admin-tenant', o.adminTenant);
+  if (!o.planOnly) {
+    if (o.adminEmail) a.push('--admin-email', o.adminEmail);
+    a.push('--admin-tenant', o.adminTenant);
+    if (o.nonInteractive) a.push('--admin-password-stdin');
+  }
   if (o.skipTests) a.push('--skip-tests');
   if (o.skipBootstrap) a.push('--skip-bootstrap');
   if (o.planOnly) a.push('--plan-only');
@@ -188,34 +214,40 @@ async function removeSource(repoRoot, work, isWorktree) {
 
 /** Always execute the latest copy of this script from an isolated source tree. */
 async function outer(o) {
-  await requireCommand('git', 'https://git-scm.com/downloads');
-  const isRepo = await succeeds('git', ['-C', CALLER_ROOT, 'rev-parse', '--is-inside-work-tree']);
-  for (let round = 1; round <= 3; round++) {
-    step(`取得最新版 (${o.repositoryUrl} / ${o.branch}),第 ${round} 輪`);
-    let work, sha, isWorktree = false;
-    if (isRepo) {
-      await run('git', ['-C', CALLER_ROOT, 'fetch', '--force', '--prune', o.repositoryUrl,
-        `+refs/heads/${o.branch}:refs/remotes/playagent-installer/${o.branch}`]);
-      sha = await capture('git', ['-C', CALLER_ROOT, 'rev-parse', `refs/remotes/playagent-installer/${o.branch}^{commit}`]);
-      work = join(tmpdir(), `playagent-latest-${sha.slice(0, 12)}-${process.pid}-${round}`);
-      await run('git', ['-C', CALLER_ROOT, 'worktree', 'add', '--detach', work, sha]);
-      isWorktree = true;
-    } else {
-      work = join(tmpdir(), `playagent-latest-clone-${process.pid}-${round}`);
-      await run('git', ['clone', '--quiet', '--single-branch', '--branch', o.branch, o.repositoryUrl, work]);
-      sha = await capture('git', ['-C', work, 'rev-parse', 'HEAD']);
+  const adminPassword = await collectAdminPassword(o);
+  try {
+    await requireCommand('git', 'https://git-scm.com/downloads');
+    const isRepo = await succeeds('git', ['-C', CALLER_ROOT, 'rev-parse', '--is-inside-work-tree']);
+    for (let round = 1; round <= 3; round++) {
+      step(`取得最新版 (${o.repositoryUrl} / ${o.branch}),第 ${round} 輪`);
+      let work, sha, isWorktree = false;
+      if (isRepo) {
+        await run('git', ['-C', CALLER_ROOT, 'fetch', '--force', '--prune', o.repositoryUrl,
+          `+refs/heads/${o.branch}:refs/remotes/playagent-installer/${o.branch}`]);
+        sha = await capture('git', ['-C', CALLER_ROOT, 'rev-parse', `refs/remotes/playagent-installer/${o.branch}^{commit}`]);
+        work = join(tmpdir(), `playagent-latest-${sha.slice(0, 12)}-${process.pid}-${round}`);
+        await run('git', ['-C', CALLER_ROOT, 'worktree', 'add', '--detach', work, sha]);
+        isWorktree = true;
+      } else {
+        work = join(tmpdir(), `playagent-latest-clone-${process.pid}-${round}`);
+        await run('git', ['clone', '--quiet', '--single-branch', '--branch', o.branch, o.repositoryUrl, work]);
+        sha = await capture('git', ['-C', work, 'rev-parse', 'HEAD']);
+      }
+      try {
+        info(color(C.green, `將部署 commit ${sha}`));
+        await run(process.execPath, [join(work, 'scripts', 'deploy-latest.mjs'), ...childArgs(o, work, sha)],
+          adminPassword ? { input: adminPassword } : {});
+      } finally {
+        await removeSource(CALLER_ROOT, work, isWorktree);
+      }
+      const latest = (await capture('git', ['ls-remote', o.repositoryUrl, `refs/heads/${o.branch}`])).split(/\s+/)[0];
+      if (latest === sha) { info(color(C.green, `\n最新版部署完成:${sha}`)); return; }
+      warn(`部署期間 main 已更新:${sha} -> ${latest};自動重跑最新版。`);
     }
-    try {
-      info(color(C.green, `將部署 commit ${sha}`));
-      await run(process.execPath, [join(work, 'scripts', 'deploy-latest.mjs'), ...childArgs(o, work, sha)]);
-    } finally {
-      await removeSource(CALLER_ROOT, work, isWorktree);
-    }
-    const latest = (await capture('git', ['ls-remote', o.repositoryUrl, `refs/heads/${o.branch}`])).split(/\s+/)[0];
-    if (latest === sha) { info(color(C.green, `\n最新版部署完成:${sha}`)); return; }
-    warn(`部署期間 main 已更新:${sha} -> ${latest};自動重跑最新版。`);
+    fail('main 在三輪部署期間持續更新,請稍後再執行一次。');
+  } finally {
+    adminPassword?.fill(0);
   }
-  fail('main 在三輪部署期間持續更新,請稍後再執行一次。');
 }
 
 function contextArgs(o, imageTag) {
@@ -260,6 +292,14 @@ async function inner(o) {
   const actual = await capture('git', ['-C', o.sourceRoot, 'rev-parse', 'HEAD']);
   if (actual !== o.sourceSha) fail(`來源 SHA 不一致:${actual} != ${o.sourceSha}`);
 
+  let adminPassword = null;
+  if (!o.planOnly && o.nonInteractive) {
+    if (!o.adminPasswordStdin) fail('Internal 安裝缺少安全密碼 stdin');
+    validateAdminIdentity(o);
+    adminPassword = await readSecretFromStdin();
+    validateCognitoPassword(adminPassword);
+  }
+
   const logDir = join(homedir(), '.playagent', 'logs'); mkdirSync(logDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
   const logFile = join(logDir, `deploy-${stamp}-${o.sourceSha.slice(0, 12)}-${process.platform}.log`);
@@ -289,6 +329,12 @@ async function inner(o) {
       info(color(C.green, `PLAN OK:${process.platform} 將從乾淨 SHA ${o.sourceSha} 部署 ${Object.values(names).join(', ')}`));
       return;
     }
+    if (!o.nonInteractive) {
+      if (!process.stdin.isTTY) fail('互動安裝需要終端機；自動化請使用 --non-interactive --admin-email ... --admin-password-stdin');
+      if (!o.adminEmail) o.adminEmail = await question('Cognito 管理員登入 Email（username）: ');
+      validateAdminIdentity(o);
+      adminPassword = await promptConfirmedAdminPassword();
+    }
     const foundationExists = await succeeds('aws', ['cloudformation', 'describe-stacks', '--region', o.region, '--stack-name', names.foundation]);
     if (!foundationExists) warn('Foundation stack 不存在:將建立新資料桶與 Cognito User Pool;Retain 的舊資料不會自動接管。');
 
@@ -299,7 +345,7 @@ async function inner(o) {
       await run('npm', ['run', 'test:web'], { cwd: o.sourceRoot });
       await run('npm', ['run', 'test:worker'], { cwd: o.sourceRoot });
       await run('npx', ['tsc', '--noEmit', '-p', '.'], { cwd: join(o.sourceRoot, 'infra') });
-      await run('npx', ['vitest', 'run', 'test/runner-dockerfiles.test.ts', 'test/apk-merge.test.ts', 'test/secretsResolver.test.ts'], { cwd: join(o.sourceRoot, 'infra') });
+      await run('npx', ['vitest', 'run', 'test/deploy-latest-script.test.ts', 'test/foundation-stack.test.ts', 'test/runner-dockerfiles.test.ts', 'test/apk-merge.test.ts', 'test/secretsResolver.test.ts'], { cwd: join(o.sourceRoot, 'infra') });
     }
     if (!o.skipBootstrap) {
       step('CDK bootstrap（可重複執行）');
@@ -322,6 +368,24 @@ async function inner(o) {
     }
     await deployStacks(o, [names.foundation, names.execution], 'latest');
     await ensureRepo('playagent-exploration-runner', o.region); await ensureRepo('playagent-web-runner', o.region);
+
+    const fo = await stackOutputs(names.foundation, o.region);
+    const poolId = outputStarting(fo, 'AuthUserPoolId');
+    if (!poolId) fail('Foundation stack 找不到 Cognito User Pool ID');
+    step('建立／更新 Cognito 管理員');
+    try {
+      await run(process.execPath, [
+        join(o.sourceRoot, 'agent', 'sagemaker', 'createUser.mjs'),
+        '--email', o.adminEmail,
+        '--tenant', o.adminTenant,
+        '--pool-id', poolId,
+        '--admin',
+        '--password-stdin',
+      ], { cwd: o.sourceRoot, input: adminPassword });
+    } finally {
+      adminPassword?.fill(0);
+      adminPassword = null;
+    }
 
     step('由同一個 Git SHA 建置並推送 runner images');
     const registry = `${account}.dkr.ecr.${o.region}.amazonaws.com`;
@@ -350,8 +414,8 @@ async function inner(o) {
     step('部署 Scheduling 與 ControlPlane'); await deployStacks(o, [names.scheduling, names.control], o.sourceSha);
 
     step('由 Stack outputs 產生前端設定並建置');
-    const fo = await stackOutputs(names.foundation, o.region), co = await stackOutputs(names.control, o.region);
-    const poolId = outputStarting(fo, 'AuthUserPoolId'), clientId = outputStarting(fo, 'AuthUserPoolClientId');
+    const co = await stackOutputs(names.control, o.region);
+    const clientId = outputStarting(fo, 'AuthUserPoolClientId');
     const apiUrl = outputStarting(co, 'ApiUrl'), wsUrl = outputStarting(co, 'WsUrl');
     const missing = Object.entries({ poolId, clientId, apiUrl, wsUrl }).filter(([, v]) => !v).map(([k]) => k);
     if (missing.length) fail(`前端設定缺少:${missing.join(',')}`);
@@ -360,21 +424,6 @@ async function inner(o) {
     await run('npm', ['run', 'build:web'], { cwd: o.sourceRoot });
     if (!filesRecursive(join(dist, 'assets')).some((f) => readFileSync(f).includes(apiUrl))) fail('前端 bundle 沒有正確嵌入 API URL');
     step('部署前端'); await deployStacks(o, [names.frontend], o.sourceSha, 1);
-
-    if (!o.adminEmail && !o.nonInteractive) o.adminEmail = await question('要建立/更新第一個管理員嗎? 輸入 email；略過請直接 Enter ');
-    if (o.adminEmail) {
-      if (!o.adminTenant) { if (o.nonInteractive) fail('指定 admin email 時也必須指定 tenant'); o.adminTenant = await question('管理員 tenant（例如 acme） '); }
-      let adminPassword = process.env[o.adminPasswordEnv] ?? '';
-      if (!adminPassword) { if (o.nonInteractive) fail(`請設定環境變數 ${o.adminPasswordEnv}`); adminPassword = await hiddenQuestion('管理員密碼（至少 8 字，大小寫與數字） '); }
-      if (adminPassword.length < 8) fail('管理員密碼至少 8 字');
-      step(`建立/更新管理員 ${o.adminEmail}`);
-      const exists = await succeeds('aws', ['cognito-idp', 'admin-get-user', '--region', o.region, '--user-pool-id', poolId, '--username', o.adminEmail]);
-      if (!exists) await run('aws', ['cognito-idp', 'admin-create-user', '--region', o.region, '--user-pool-id', poolId, '--username', o.adminEmail,
-        '--user-attributes', `Name=email,Value=${o.adminEmail}`, 'Name=email_verified,Value=true', `Name=custom:tenantId,Value=${o.adminTenant}`, '--message-action', 'SUPPRESS']);
-      await run('aws', ['cognito-idp', 'admin-set-user-password', '--region', o.region, '--user-pool-id', poolId, '--username', o.adminEmail, '--password', adminPassword, '--permanent']);
-      await run('aws', ['cognito-idp', 'admin-add-user-to-group', '--region', o.region, '--user-pool-id', poolId, '--username', o.adminEmail, '--group-name', 'admins']);
-      adminPassword = '';
-    }
 
     step('部署後驗證');
     for (const s of Object.values(names)) await verifyStack(s, o.region);
@@ -401,6 +450,7 @@ async function inner(o) {
     const localDir = join(homedir(), '.playagent', 'deployments'); mkdirSync(localDir, { recursive: true }); writeFileSync(join(localDir, `${account}-${o.stage}.json`), JSON.stringify(manifest, null, 2));
     info(color(C.green, `\n========================================\n PlayAgent 最新版部署完成\n SHA : ${o.sourceSha}\n URL : ${siteUrl}\n Log : ${logFile}\n========================================`));
   } finally {
+    adminPassword?.fill(0);
     await new Promise((r) => logStream.end(r)); logStream = null;
   }
 }

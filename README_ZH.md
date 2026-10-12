@@ -195,8 +195,10 @@ CDK 堆疊(全部位於 `us-east-2`):
 ```text
 Windows:雙擊 Install-Latest.cmd
 macOS:  雙擊 Install-Latest.command
-任何系統:npm run deploy:latest
+Linux:  執行 scripts/deploy-latest.sh
 ```
+
+這三個啟動器共用同一份部署核心,預設區域為 **`us-east-2`(俄亥俄)**。
 
 任何系統都可指定帳號,避免部署到錯誤 AWS account:
 
@@ -208,7 +210,26 @@ npm run deploy:latest -- --expected-account-id 123456789012
 
 腳本不會直接部署目前資料夾。它會從官方 GitHub `main` 取得當下最新 commit SHA,建立隔離的暫存 worktree,依 lockfile 安裝套件、跑測試、CDK bootstrap／部署、建置兩個 runner 映像,同時推送 `:<Git SHA>` 與 `:latest`,並讓 ECS Task Definition 鎖定 SHA tag。最後會核對 CloudFormation、ECR digest、ECS image 與 CloudFront。部署期間 `main` 若又更新,會自動改部署新版本(最多三輪);不會 reset、stash 或夾帶本機未提交檔案。
 
-第一次安裝接近結束時會詢問是否建立第一位管理員。非互動模式可使用 `--admin-email`、`--admin-tenant`、`--non-interactive`,並把密碼放在 `PA_ADMIN_PASSWORD` 環境變數。
+第一次安裝接近結束時,互動式安裝只會詢問管理員的 **Email(登入 username)** 與以隱藏輸入方式填寫的密碼。tenant 預設為 `default`;只有進階情境才需要用 `--admin-tenant <tenant>` 覆寫。
+
+非互動自動化時,絕對不要把密碼放進命令列參數。請從秘密管理器將密碼透過 stdin pipe 給安裝器:
+
+```bash
+# bash / zsh(macOS 或 Linux)
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+```powershell
+# PowerShell
+(aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+```bat
+rem 命令提示字元(cmd.exe)
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+以上範例不含任何字面密碼。只有需要覆寫預設 tenant 時才加上 `--admin-tenant <tenant>`。
 
 > 一鍵路徑使用 Docker Desktop 在本機建出「與指定 Git SHA 完全一致」的映像。下方手動 CodeBuild 路徑仍不需要 Docker。
 >
@@ -335,7 +356,7 @@ node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
 ```
 
-> 腳本內建的儲存貯體名稱屬於原開發者的帳號,因此請務必將 `PA_SM_BUCKET` 設為**你自己的**資料儲存貯體。
+> `PA_SM_BUCKET` 為必填,請設成你自己 Foundation stack 輸出的 DataBucket；腳本不再包含任何特定帳號的儲存貯體預設值。
 
 ## 步驟 7:建置網頁主控台
 
@@ -366,33 +387,20 @@ aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-
 
 ## 步驟 9:建立第一個(管理員)登入帳號
 
-自助註冊是刻意停用的。請選一個 email 與密碼(至少 8 個字元,包含大寫、小寫與數字)。`tenant` 用來隔離每個客戶的資料;請用簡短的名稱,例如公司名稱。
-
-**選項 A:腳本(建議):**
+自助註冊是刻意停用的。最簡單的方式是使用上方的一鍵安裝器。手動設定時,執行下方工具;程式會以隱藏輸入詢問密碼,因此密碼不會出現在命令或 shell history。除非確實要隔離不同 tenant,否則使用預設的 `default`。
 
 ```bash
 cd ../agent/sagemaker
-AWS_REGION=us-east-2 node createUser.mjs \
-  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin
 ```
 
-**選項 B:部署時建立:** 在部署 Foundation 時加上 `-c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme`。
-
-<details>
-<summary>選項 C:直接使用 AWS CLI</summary>
+自動化時,請從秘密管理器將密碼 pipe 到 stdin,不要放進 argv:
 
 ```bash
-POOL_ID=PASTE_UserPoolId
-aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
-  --message-action SUPPRESS
-aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com --password 'ChangeMe123!' --permanent
-aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com --group-name admins
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
 ```
-</details>
+
+密碼至少要有 8 個字元,並包含大寫、小寫與數字。
 
 之後,其他人都從**成員管理**頁面建立。
 
