@@ -139,7 +139,30 @@
   white-space: nowrap;
 }
 .devlogs__tag {
+  padding: 0;
+  border: none;
+  background: none;
   color: #93c5fd;
+  font: inherit;
+  cursor: pointer;
+}
+.devlogs__tag:hover {
+  text-decoration: underline;
+}
+.devlogs__tag:focus-visible {
+  outline: 1px solid #93c5fd;
+  outline-offset: 1px;
+}
+.devlogs__link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font-size: 12px;
+  cursor: pointer;
+}
+.devlogs__inline select {
+  max-width: 200px;
 }
 .devlogs__line.is-W .devlogs__lv,
 .devlogs__line.is-W .devlogs__msg { color: #fbbf24; }
@@ -192,6 +215,77 @@
   background: color-mix(in srgb, var(--brand) 14%, transparent);
   color: var(--brand);
   font-weight: 600;
+}
+.devlogs__pill.is-bad {
+  background: color-mix(in srgb, var(--status-fail) 14%, transparent);
+  color: var(--status-fail);
+  font-weight: 600;
+}
+/* 音效事件時間軸 */
+.devlogs__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.devlogs__chip {
+  padding: 1px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.devlogs__chip.is-on {
+  border-color: var(--brand);
+  color: var(--brand);
+  font-weight: 600;
+}
+.devlogs__chip:focus-visible,
+.devlogs__snd-title:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+.devlogs__snd td {
+  white-space: nowrap;
+}
+.devlogs__snd td:nth-child(3) {
+  white-space: normal;
+  min-width: 220px;
+}
+.devlogs__snd-kind {
+  display: inline-block;
+  width: 1.2em;
+  text-align: center;
+  font-weight: 700;
+}
+.devlogs__snd-kind.is-game { color: var(--brand); }
+.devlogs__snd-kind.is-fail { color: var(--status-fail); }
+.devlogs__snd-kind.is-onset { color: var(--status-running); }
+.devlogs__snd-kind.is-stream { color: var(--text-tertiary); }
+.devlogs__snd tr.is-fail td {
+  background: color-mix(in srgb, var(--status-fail) 6%, transparent);
+}
+.devlogs__snd tr.is-stream td {
+  color: var(--text-tertiary);
+}
+.devlogs__snd-title {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+button.devlogs__snd-title {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+.devlogs__snaps summary {
+  cursor: pointer;
 }
 .devlogs__player {
   display: block;

@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 const apiGet = vi.fn();
 vi.mock('../../api/client.ts', () => ({ apiGet: (p: string) => apiGet(p) }));
-const { DeviceLogsPanel, parseLogcat } = await import('./DeviceLogsPanel.tsx');
+const { DeviceLogsPanel, parseLogcat, sourceFilter } = await import('./DeviceLogsPanel.tsx');
 const { I18nProvider } = await import('../../i18n/I18nProvider.tsx');
 localStorage.clear();
 
@@ -14,6 +14,36 @@ describe('parseLogcat', () => {
     const r = parseLogcat('# step=3 at=1 pid=12345\n1791193340.500  12345 12350 I Unity   : hello: world\njunk\n');
     expect(r.pid).toBe(12345);
     expect(r.lines).toEqual([{ t: 1791193340500, pid: 12345, tid: 12350, level: 'I', tag: 'Unity', msg: 'hello: world', raw: '1791193340.500  12345 12350 I Unity   : hello: world' }]);
+  });
+});
+
+describe('sourceFilter', () => {
+  const L = (tag: string, msg = 'x') => ({ t: 0, pid: 1, tid: 1, level: 'I', tag, msg, raw: `${tag}: ${msg}` });
+  it('presets and single tag', () => {
+    const lines = [L('Unity'), L('IL2CPP'), L('AudioTrack'), L('OkHttp'), L('AndroidRuntime', 'FATAL EXCEPTION: main'), L('ActivityManager', 'ANR in com.x'), L('Game')];
+    const pick = (s: string) => lines.filter(sourceFilter(s)).map((l) => l.tag);
+    expect(pick('unity')).toEqual(['Unity', 'IL2CPP']);
+    expect(pick('audio')).toEqual(['AudioTrack']);
+    expect(pick('net')).toEqual(['OkHttp']);
+    expect(pick('crash')).toEqual(['AndroidRuntime', 'ActivityManager']);
+    expect(pick('tag:Game')).toEqual(['Game']);
+    expect(pick('')).toHaveLength(lines.length);
+  });
+
+  it('source dropdown narrows the log; clicking a tag filters to it', async () => {
+    apiGet.mockResolvedValue({
+      items: [{ name: '000000.txt', text: '# step=0 at=1 pid=1\n1791193340.500  1 2 I Unity: u1\n1791193341.000  1 2 I Net: n1\n1791193342.000  1 2 I Unity: u2\n' }],
+      more: false,
+    });
+    render(<I18nProvider><DeviceLogsPanel jobId="job-1" isLive={false} /></I18nProvider>);
+    await waitFor(() => expect(screen.getByRole('log')).toBeTruthy());
+    const msgs = () => [...screen.getByRole('log').querySelectorAll('.devlogs__msg')].map((e) => e.textContent);
+    expect(msgs()).toHaveLength(3);
+    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: 'unity' } });
+    expect(msgs()).toEqual(['u2', 'u1']);
+    fireEvent.change(screen.getAllByRole('combobox')[0]!, { target: { value: '' } });
+    fireEvent.click(screen.getAllByText('Net')[0]!);
+    expect(msgs()).toEqual(['n1']);
   });
 });
 

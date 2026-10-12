@@ -192,6 +192,14 @@ export default function TaskDetailPage() {
   const hasRecording = !isLive && !!audioLevels?.chunks.some((c) => typeof c.url === 'string' && c.dur > 0);
   const [seek, setSeek] = useState<SeekRequest | null>(null);
   const [playingStep, setPlayingStep] = useState<number | null>(null);
+  // 音效事件要標上「第幾步 / 哪個畫面」。
+  const soundStepRefs = useMemo(
+    () => steps
+      .filter((s) => typeof s.at === 'string')
+      .map((s) => ({ index: s.index, t: Date.parse(s.at as string), ...(s.screen && !s.parseFailed ? { screen: String(s.screen) } : {}) }))
+      .filter((m) => Number.isFinite(m.t)),
+    [steps],
+  );
   const stepMarks = useMemo(
     () => steps.filter((s) => typeof s.at === 'string').map((s) => ({ index: s.index, t: Date.parse(s.at as string) })).filter((m) => Number.isFinite(m.t)),
     [steps],
@@ -500,7 +508,16 @@ export default function TaskDetailPage() {
         {/* 裝置 log:Device Farm 真機與 Android 容器(Redroid)的 runner 都會上傳 devlogs/logcat。 */}
         {jobId && (
           <section className="detail__col detail__col--devlogs">
-            <DeviceLogsPanel jobId={jobId} isLive={isLive} device={backend === 'devicefarm' || backend === 'emulator'} {...(appId ? { appId } : {})} seats={meta?.seats ?? []} />
+            <DeviceLogsPanel
+              jobId={jobId}
+              isLive={isLive}
+              device={backend === 'devicefarm' || backend === 'emulator'}
+              {...(appId ? { appId } : {})}
+              seats={meta?.seats ?? []}
+              levels={audioLevels}
+              steps={soundStepRefs}
+              {...(hasRecording ? { onSeek: (t: number) => setSeek((p) => ({ t, n: (p?.n ?? 0) + 1 })) } : {})}
+            />
           </section>
         )}
       </div>
