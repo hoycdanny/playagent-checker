@@ -1,2 +1,6 @@
-# Shell scripts run on Linux hosts (EC2 userdata, CodeBuild); CRLF breaks them.
+# Shell scripts run on Linux/macOS hosts; CRLF breaks shebang execution.
 *.sh text eol=lf
+*.command text eol=lf
+# Native Windows launchers keep Windows line endings.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

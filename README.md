@@ -188,25 +188,27 @@ Every task can have a step limit and a budget. Before running, the engine **lock
 
 # 🚀 Install on a clean AWS account
 
-## Recommended on Windows: one-click latest installer
+## Recommended on Windows and macOS: one-click latest installer
 
-After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**, configure your AWS credentials and enable the Bedrock models in Step 3. Then clone the repository and double-click:
+After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**, configure your AWS credentials and enable the Bedrock models in Step 3. Then clone the repository and launch:
 
 ```text
-Install-Latest.cmd
+Windows: double-click Install-Latest.cmd
+macOS:   double-click Install-Latest.command
+Any OS:  npm run deploy:latest
 ```
 
-Or run the same installer from PowerShell/npm:
+Optional account safety check on any OS:
 
-```powershell
-npm run deploy:latest
-# Optional account safety check:
-.\scripts\deploy-latest.ps1 -ExpectedAccountId 123456789012
+```bash
+npm run deploy:latest -- --expected-account-id 123456789012
 ```
+
+The legacy Windows PowerShell entry `scripts/deploy-latest.ps1` remains as a compatibility wrapper; Windows, macOS, and Linux all execute the same Node.js deployment core.
 
 The installer does not deploy the current folder blindly. It fetches canonical GitHub `main`, resolves one immutable commit SHA, creates an isolated temporary worktree, installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks, builds both runner images locally, pushes both `:<Git SHA>` and `:latest`, pins ECS task definitions to the SHA tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. If `main` changes during deployment, it automatically repeats with the newer commit (up to three rounds). Local uncommitted work is never reset or included.
 
-For the first admin account, the installer asks for email, tenant, and password near the end. In non-interactive use, pass `-AdminEmail`, `-AdminTenant`, `-NonInteractive`, and put the password in `PA_ADMIN_PASSWORD`.
+For the first admin account, the installer asks for email, tenant, and password near the end. In non-interactive use, pass `--admin-email`, `--admin-tenant`, `--non-interactive`, and put the password in `PA_ADMIN_PASSWORD`.
 
 > The one-click path requires Docker Desktop because it builds the exact checked-out source locally. The manual CodeBuild path below still does not require Docker.
 >

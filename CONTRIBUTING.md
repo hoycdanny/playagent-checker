@@ -37,15 +37,15 @@ Both must pass. The web `ci` script includes `check:i18n`, which enforces that t
 
 ## Deploying
 
-For a complete verified deployment from canonical `main`, use the root one-click installer on Windows:
+For a complete verified deployment from canonical `main`, use the platform launcher or npm:
 
-```powershell
-.\Install-Latest.cmd
-# or
-npm run deploy:latest
+```text
+Windows: double-click Install-Latest.cmd
+macOS:   double-click Install-Latest.command
+Any OS:  npm run deploy:latest
 ```
 
-It deploys from an isolated Git SHA, builds and pushes both runner images, pins ECS task definitions to that SHA, builds the frontend from stack outputs, and verifies CloudFormation/ECR/ECS/CloudFront. It never deploys uncommitted local files. Use `-ExpectedAccountId` with `scripts/deploy-latest.ps1` for account safety.
+It deploys from an isolated Git SHA, builds and pushes both runner images, pins ECS task definitions to that SHA, builds the frontend from stack outputs, and verifies CloudFormation/ECR/ECS/CloudFront. It never deploys uncommitted local files. Use `npm run deploy:latest -- --expected-account-id 123456789012` for account safety. Windows, macOS and Linux share `scripts/deploy-latest.mjs`; the `.cmd`, `.command`, `.sh`, and `.ps1` files are launchers only.
 
 For targeted development deployments, deploy only the affected stack explicitly from `infra/`. Do **not** use `cdk deploy --all` as a substitute for the installer: that neither guarantees runner images were rebuilt nor that `web/dist` matches the deployed API.
 

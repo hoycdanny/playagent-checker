@@ -7,13 +7,14 @@ echo ============================================================
 echo  PlayAgent Checker - one-click latest installer / updater
 echo ============================================================
 echo.
-echo This will fetch canonical main, deploy from an isolated copy,
-echo build both runner images, pin ECS to the Git SHA, and verify it.
-echo.
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\deploy-latest.ps1"
+where node >nul 2>nul
+if errorlevel 1 (
+  echo [FAILED] Node.js 22+ is required: https://nodejs.org/
+  pause
+  exit /b 1
+)
+node "%~dp0scripts\deploy-latest.mjs"
 set "EXIT_CODE=%ERRORLEVEL%"
-
 echo.
 if "%EXIT_CODE%"=="0" (
   echo [SUCCESS] Latest PlayAgent Checker is installed and verified.

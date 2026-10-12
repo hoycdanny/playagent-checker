@@ -188,25 +188,27 @@ CDK 堆疊(全部位於 `us-east-2`):
 
 # 🚀 在全新 AWS 帳號上安裝
 
-## Windows 建議:一鍵安裝／更新最新版
+## Windows 與 macOS 建議:一鍵安裝／更新最新版
 
-先安裝 **Node.js 22、AWS CLI v2、Git、Docker Desktop**,完成 `aws configure`(或 AWS SSO)並在俄亥俄啟用下方列出的 Bedrock 模型。接著 clone 儲存庫,直接雙擊根目錄:
+先安裝 **Node.js 22、AWS CLI v2、Git、Docker Desktop**,完成 `aws configure`(或 AWS SSO)並在俄亥俄啟用下方列出的 Bedrock 模型。接著 clone 儲存庫並執行:
 
 ```text
-Install-Latest.cmd
+Windows:雙擊 Install-Latest.cmd
+macOS:  雙擊 Install-Latest.command
+任何系統:npm run deploy:latest
 ```
 
-或從 PowerShell 執行:
+任何系統都可指定帳號,避免部署到錯誤 AWS account:
 
-```powershell
-npm run deploy:latest
-# 建議指定帳號,避免部署到錯誤 AWS account:
-.\scripts\deploy-latest.ps1 -ExpectedAccountId 123456789012
+```bash
+npm run deploy:latest -- --expected-account-id 123456789012
 ```
+
+舊的 Windows `scripts/deploy-latest.ps1` 仍可使用,但只是相容包裝；Windows、macOS、Linux 都執行同一份 Node.js 部署核心。
 
 腳本不會直接部署目前資料夾。它會從官方 GitHub `main` 取得當下最新 commit SHA,建立隔離的暫存 worktree,依 lockfile 安裝套件、跑測試、CDK bootstrap／部署、建置兩個 runner 映像,同時推送 `:<Git SHA>` 與 `:latest`,並讓 ECS Task Definition 鎖定 SHA tag。最後會核對 CloudFormation、ECR digest、ECS image 與 CloudFront。部署期間 `main` 若又更新,會自動改部署新版本(最多三輪);不會 reset、stash 或夾帶本機未提交檔案。
 
-第一次安裝接近結束時會詢問是否建立第一位管理員。非互動模式可使用 `-AdminEmail`、`-AdminTenant`、`-NonInteractive`,並把密碼放在 `PA_ADMIN_PASSWORD` 環境變數。
+第一次安裝接近結束時會詢問是否建立第一位管理員。非互動模式可使用 `--admin-email`、`--admin-tenant`、`--non-interactive`,並把密碼放在 `PA_ADMIN_PASSWORD` 環境變數。
 
 > 一鍵路徑使用 Docker Desktop 在本機建出「與指定 Git SHA 完全一致」的映像。下方手動 CodeBuild 路徑仍不需要 Docker。
 >
