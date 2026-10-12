@@ -681,3 +681,21 @@
 
 .tform__actions { justify-content: flex-end; margin-left: 0; }
 .tform .tasks__go:disabled { opacity: 0.5; cursor: default; }
+
+/* 標題列右側的動作群:提交任務 +(勾選後出現的)批次取消 / 批次刪除。
+   勾選是在下方表格做的,動作鈕放在這裡才跟「提交任務」同一個落點;
+   以前放在篩選列末端,篩選條件一多就會被推到別處。 */
+.tasks__header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* 批次鈕在標題列裡與提交鈕同高(篩選列版本另有 align-self: flex-end)。 */
+.tasks__header-actions .tasks__batch-cancel,
+.tasks__header-actions .tasks__batch-delete {
+  align-self: auto;
+  white-space: nowrap;
+}
