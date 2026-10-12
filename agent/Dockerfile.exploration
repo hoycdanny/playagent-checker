@@ -12,17 +12,25 @@ WORKDIR /app
 # unzip:偵測 XAPK(列 ZIP 內容找 .apk)。
 # default-jre-headless:跑 APKEditor.jar 合併 XAPK/split → universal APK(Device Farm 只吃單一 APK)。
 # ffmpeg:分析整場錄影的音量時間軸(mediaAudio.mjs)。
+# aapt / zipalign / apksigner:合併後先驗證 manifest/resources,再對齊、測試簽章與驗證。
+# 新增的 Android 工具釘 Debian bookworm 版本,避免建置漂移。
 RUN apt-get update \
   && apt-get install -y --no-install-recommends imagemagick fonts-dejavu-core unzip default-jre-headless curl ffmpeg \
+     aapt=1:10.0.0+r36-10 apksigner=31.0.2-1 zipalign=1:10.0.0+r36-1 \
   && rm -rf /var/lib/apt/lists/*
 
-# APKEditor:把 XAPK / split APK 合併成單一 universal APK。釘版本以求可重現建置。
-# 來源為官方 GitHub release(REAndroid/APKEditor),純 Java jar,無需額外相依。
-ARG APKEDITOR_VERSION=1.4.3
+# APKEditor:把 XAPK / split APK 合併成單一 universal APK。釘版本與 SHA-256 以求可重現建置。
+# 1.4.9 官方 release 含 split merge issue 修正;輸出再由 aapt/zipalign/apksigner 驗證。
+ARG APKEDITOR_VERSION=1.4.9
+ARG APKEDITOR_SHA256=a9cd40df818845456be6d696de6110c89edf4b0a0580cb83438ed6b25a366e67
 RUN mkdir -p /opt/apkeditor \
   && curl -fsSL -o /opt/apkeditor/APKEditor.jar \
      "https://github.com/REAndroid/APKEditor/releases/download/V${APKEDITOR_VERSION}/APKEditor-${APKEDITOR_VERSION}.jar" \
-  && test -s /opt/apkeditor/APKEditor.jar
+  && echo "${APKEDITOR_SHA256}  /opt/apkeditor/APKEditor.jar" | sha256sum -c - \
+  && mkdir -p /opt/playagent \
+  && keytool -genkeypair -noprompt -keystore /opt/playagent/android-debug.keystore \
+     -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 \
+     -dname "CN=PlayAgent Test,O=PlayAgent,C=US"
 
 # 只裝執行相依(webdriverio + aws-sdk)。用容器專用 package.json。
 COPY exploration-runner.package.json ./package.json
