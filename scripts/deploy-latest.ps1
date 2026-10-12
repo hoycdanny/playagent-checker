@@ -81,12 +81,27 @@ function Output-Containing([object[]]$Outputs, [string]$Text) {
 function Remove-TempWorktree([string]$Repo, [string]$Path) {
   # npm/node_modules/CloudFront asset staging 在 Windows 偶爾延遲釋放檔案;清理失敗不可把成功部署誤報失敗。
   for ($i = 0; $i -lt 3; $i++) {
-    & git -C $Repo worktree remove --force $Path 2>$null
-    if ($LASTEXITCODE -eq 0) { return }
+    # Windows PowerShell 5 在 ErrorActionPreference=Stop 時會把 native stderr 包成 terminating
+    # NativeCommandError,因此這小段必須暫時 Continue,才能讀 LASTEXITCODE 並真的重試。
+    $oldPreference = $ErrorActionPreference
+    try {
+      $ErrorActionPreference = 'Continue'
+      & git -C $Repo worktree remove --force $Path 2>$null
+      $removeCode = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $oldPreference
+    }
+    if ($removeCode -eq 0) { return }
     Start-Sleep -Seconds 2
   }
   Write-Warning "暫存 worktree 自動清理失敗,嘗試解除登記:$Path"
-  & git -C $Repo worktree prune 2>$null
+  $oldPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    & git -C $Repo worktree prune 2>$null
+  } finally {
+    $ErrorActionPreference = $oldPreference
+  }
   try { Remove-Item $Path -Recurse -Force -ErrorAction Stop }
   catch { Write-Warning "請稍後手動刪除暫存目錄:$Path" }
 }
