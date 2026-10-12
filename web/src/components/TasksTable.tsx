@@ -5,6 +5,7 @@ import AppBadge, { type AppRef } from './AppRef.tsx';
 import TaskIcon, { backendIcon } from './TaskIcon.tsx';
 import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
+import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome.ts';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
 export interface TaskRow {
@@ -24,6 +25,8 @@ export interface TaskRow {
   caseVersion?: string;
   /** Device Farm 段數(0 = 不限、>1 = 長時)。 */
   maxSegments?: number;
+  /** 測試結論(驗收標準;終局且有報告才有)。 */
+  verdict?: VerdictInfo;
 }
 
 /** 終局狀態(不再變動):決定顯示「取消」或「刪除」。 */
@@ -42,17 +45,6 @@ function formatCreated(iso: string): string {
   if (Number.isNaN(d.getTime())) return iso;
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
-function stateClass(state: string): string {
-  if (state === 'pass') return 'task-state--pass';
-  if (state === 'fail') return 'task-state--fail';
-  if (state === 'error') return 'task-state--error';
-  if (state === 'cancelled') return 'task-state--cancelled';
-  if (state === 'budget_exceeded') return 'task-state--budget';
-  if (state === 'dead') return 'task-state--dead';
-  if (state === 'running') return 'task-state--running';
-  return 'task-state--queued';
 }
 
 export interface TasksTableProps {
@@ -82,7 +74,7 @@ export default function TasksTable({
   onToggleRow,
   onToggleAll,
 }: TasksTableProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const navigate = useNavigate();
   const sel = selectedIds ?? new Set<string>();
 
@@ -148,11 +140,12 @@ export default function TasksTable({
                 </td>
               )}
               <td className="tasks__col-icon">
-                <span className={`tasks__state-link ${stateClass(x.state)}`}>
+                {/* 終局任務顯示測試結論(與報告封面同一個值);執行中 / 沒有結論才顯示執行狀態。 */}
+                <span className={`tasks__state-link ${outcomeClass(outcomeOf(x))}`}>
                   <TaskIcon
                     kind="state"
-                    value={x.state}
-                    label={t(`state.${x.state}` as MessageKey)}
+                    value={outcomeOf(x)}
+                    label={outcomeTip(x, (k) => t(k), locale === 'en' ? 'en' : 'zh')}
                   />
                 </span>
               </td>

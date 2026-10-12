@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { apiDelete, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
+import { outcomeOf, type VerdictInfo } from '../outcome.ts';
 
 export interface AppBuild {
   artifactId: string;
@@ -13,6 +14,7 @@ export interface AppBuild {
 
 interface TaskLike {
   state: string;
+  verdict?: VerdictInfo;
   artifactVersion?: string;
 }
 
@@ -28,8 +30,9 @@ function acceptFor(platform: string): string {
   return '.apk,.xapk,.apkm,.apks';
 }
 
-const PASS = 'pass';
-const DECIDED = new Set(['pass', 'fail']);
+// 以測試結論計(與報告封面一致):通過含「通過(有風險)」;受阻不列入通過率。
+const PASS = new Set(['pass', 'pass_risk']);
+const DECIDED = new Set(['pass', 'pass_risk', 'fail']);
 
 /**
  * BuildsPanel —— 同一個 App 的多個版本(APK/IPA/EXE)。
@@ -72,9 +75,10 @@ export default function BuildsPanel({
       if (!key) continue;
       const cur = m.get(key) ?? { runs: 0, decided: 0, passed: 0 };
       cur.runs += 1;
-      if (DECIDED.has(x.state)) {
+      const o = outcomeOf(x);
+      if (DECIDED.has(o)) {
         cur.decided += 1;
-        if (x.state === PASS) cur.passed += 1;
+        if (PASS.has(o)) cur.passed += 1;
       }
       m.set(key, cur);
     }

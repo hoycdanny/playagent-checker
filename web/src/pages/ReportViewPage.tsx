@@ -8,6 +8,7 @@ import { NavGraph } from '../components/NavGraph.tsx';
 import { RtpChart, type RtpStats } from '../components/RtpChart.tsx';
 import { StructuredReportView } from '../components/report/StructuredReportView.tsx';
 import type { ReportInsights, StructuredReport } from '../components/report/reportTypes.ts';
+import { outcomeKey, outcomeOfVerdict } from '../components/outcome.ts';
 import './ListPage.css';
 import './ReportViewPage.css';
 
@@ -135,7 +136,12 @@ export default function ReportViewPage() {
 
       <header className="listpage__header">
         <h1 className="listpage__title">{t('report.title')}</h1>
-        <p className="report__state">{t(`state.${report.state}` as MessageKey)}</p>
+        {/* 標題列與封面同一個結論(驗收標準);執行結果另外標示,不再出現「通過」與「失敗」並列。 */}
+        <p className="report__state">
+          {report.structured?.overallStatus
+            ? `${t(outcomeKey(outcomeOfVerdict(report.structured.overallStatus)))} · ${t('outcome.execution')}:${t(`state.${report.state}` as MessageKey)}`
+            : t(`state.${report.state}` as MessageKey)}
+        </p>
       </header>
 
       {report.task && <p className="report__task">{report.task}</p>}

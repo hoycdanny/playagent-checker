@@ -6,7 +6,7 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
-import { effectiveState, type TaskState } from './status.js';
+import { effectiveState, isTerminal, type TaskState } from './status.js';
 import { computeSpend, PricingError } from './pricing.js';
 
 export const BACKENDS = ['web', 'emulator', 'windows', 'devicefarm', 'attached'] as const;
@@ -140,6 +140,42 @@ function configKey(tenantId: string, jobId: string): string {
 }
 function reportKey(tenantId: string, jobId: string): string {
   return `${jobsPrefix(tenantId)}${jobId}/report.json`;
+}
+/** 測試結論快取(由報告引擎依驗收標準算出;列表、任務詳情、報告共用同一個結論)。 */
+export function verdictKey(tenantId: string, jobId: string): string {
+  return `${jobsPrefix(tenantId)}${jobId}/verdict.json`;
+}
+
+export type Verdict = 'PASS' | 'PASS_WITH_RISK' | 'FAIL' | 'BLOCKED';
+
+/** verdict.json 內容。standard / reportAt 不符就重算(驗收標準改版或報告重寫)。 */
+export interface VerdictRecord {
+  standard: string;
+  verdict: Verdict;
+  reason: { zh: string; en: string };
+  /** 必要項目通過數 / 總數。 */
+  must: { passed: number; total: number };
+  /** 判定所依據的 report.json generatedAt。 */
+  reportAt?: string;
+  computedAt: string;
+}
+
+/**
+ * 任務的「結果」:有測試結論就用結論(pass / pass_risk / fail / blocked),否則用執行狀態
+ * (running / queued / error / cancelled …)。所有「通過率 / 失敗數」都用這個,和報告封面一致。
+ */
+export function outcomeOf(t: { state: string; verdict?: { status: Verdict } }): string {
+  switch (t.verdict?.status) {
+    case 'PASS': return 'pass';
+    case 'PASS_WITH_RISK': return 'pass_risk';
+    case 'FAIL': return 'fail';
+    case 'BLOCKED': return 'blocked';
+    default: return t.state;
+  }
+}
+
+export async function writeVerdict(s3: S3Client, bucket: string, tenantId: string, jobId: string, rec: VerdictRecord): Promise<void> {
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: verdictKey(tenantId, jobId), Body: JSON.stringify(rec), ContentType: 'application/json' }));
 }
 
 interface SubmitInput {
@@ -379,6 +415,11 @@ export interface TaskListItem {
   tokens?: { input?: number; output?: number };
   /** 各 seat 的 token 用量(agent=控制遊戲、vlm=分析畫面、subagent=子代理)。 */
   tokensBySeat?: Partial<Record<'agent' | 'vlm' | 'subagent', { input?: number; output?: number }>>;
+  /**
+   * 測試結論(驗收標準判定,與報告封面同一個值)。只有終局且有報告的任務才有;
+   * state 是「執行結果」(AI 有沒有走完),verdict 才是「通過 / 失敗 / 受阻」。
+   */
+  verdict?: { status: Verdict; reason: { zh: string; en: string }; standard: string };
 }
 
 /** 讀某物件 JSON(不存在回 null)。 */
@@ -403,6 +444,14 @@ async function readJson<T>(
 export interface ListJobsOptions {
   /** 只回最新的 N 筆(依 jobId 時間序);省略=全部。 */
   limit?: number;
+  /**
+   * 終局任務缺 verdict.json(或標準改版)時呼叫報告引擎算結論並寫回。
+   * 每次列表最多算 maxVerdictComputes 筆(預設 6),其餘下次列表再補,列表不會因此變慢太多。
+   */
+  resolveVerdict?: (jobId: string, report: Record<string, unknown>) => Promise<VerdictRecord | null>;
+  /** 目前的驗收標準版本(verdict.json 不同版本就重算)。 */
+  verdictStandard?: string;
+  maxVerdictComputes?: number;
 }
 
 /** listJobs 結果:任務清單 + 該租戶任務總數(供前端顯示「N 之中的前 M」)。 */
@@ -451,13 +500,14 @@ export async function listJobs(
       ? ordered.slice(0, opts.limit)
       : ordered;
   const jobKeys = selected.map((prefix) => `${prefix}job.json`);
+  let verdictBudget = opts.maxVerdictComputes ?? 6;
 
   const items = await Promise.all(
     jobKeys.map(async (key) => {
       const job = await readJson<JobRecord>(s3, bucket, key);
       if (!job) return null;
       // status(狀態)、report(花費/模型)、config(各角色模型)併發讀取,避免序列往返拖慢列表。
-      const [status, report, config] = await Promise.all([
+      const [status, report, config, savedVerdict] = await Promise.all([
         readJson<{ state: TaskState; updatedAt: string; steps?: number; message?: string }>(
           s3,
           bucket,
@@ -465,6 +515,7 @@ export async function listJobs(
         ),
         readJson<ReportShape>(s3, bucket, reportKey(tenantId, job.jobId)),
         readJson<ConfigSnapshot>(s3, bucket, configKey(tenantId, job.jobId)),
+        readJson<VerdictRecord>(s3, bucket, verdictKey(tenantId, job.jobId)).catch(() => null),
       ]);
       // 各角色(seat)模型:agent=控制遊戲、vlm=分析畫面、subagent=子代理(來自 config 快照)。
       const seatModels = config?.seats
@@ -503,6 +554,21 @@ export async function listJobs(
       }
       // 執行中但很久沒回報 → 失聯(dead);見 status.ts effectiveState。
       const eff = effectiveState(status);
+      // 測試結論:終局 + 有報告才有。快取過期(標準改版 / 報告重寫)或沒有快取時,在預算內現算。
+      let verdictRec: VerdictRecord | null = null;
+      if (report && isTerminal(eff.state as TaskState)) {
+        const fresh = savedVerdict
+          && (!opts.verdictStandard || savedVerdict.standard === opts.verdictStandard)
+          && (!report.generatedAt || savedVerdict.reportAt === report.generatedAt);
+        if (fresh) verdictRec = savedVerdict;
+        else if (opts.resolveVerdict && verdictBudget > 0) {
+          verdictBudget--;
+          verdictRec = await opts.resolveVerdict(job.jobId, report as Record<string, unknown>).catch((err) => {
+            console.warn('[verdict] compute failed', job.jobId, err);
+            return null;
+          });
+        } else if (savedVerdict) verdictRec = savedVerdict; // 舊版結論先顯示,下次列表再更新
+      }
       // 步數:終局優先取 report.stepCount(最終記錄),否則取 status.steps(執行中即時計數)。
       const stepCount =
         typeof report?.stepCount === 'number'
@@ -536,6 +602,7 @@ export async function listJobs(
         // token 用量照原樣帶出(不另外讀 S3,report 已經在手上),費用頁的逐筆明細要用。
         ...(report?.tokens ? { tokens: report.tokens } : {}),
         ...(report?.tokensBySeat ? { tokensBySeat: report.tokensBySeat } : {}),
+        ...(verdictRec ? { verdict: { status: verdictRec.verdict, reason: verdictRec.reason, standard: verdictRec.standard } } : {}),
       };
       return item;
     }),
@@ -844,6 +911,7 @@ export async function readJobDetail(
   bucket: string,
   tenantId: string,
   jobId: string,
+  opts: Pick<ListJobsOptions, 'resolveVerdict' | 'verdictStandard'> = {},
 ): Promise<{
   job: JobRecord | null;
   state: string;
@@ -852,6 +920,7 @@ export async function readJobDetail(
   updatedAt?: string;
   steps: StepRecord[];
   meta: TaskMeta;
+  verdict?: TaskListItem['verdict'];
 } | null> {
   const job = await readJson<JobRecord>(
     s3,
@@ -859,15 +928,23 @@ export async function readJobDetail(
     jobKey(tenantId, jobId),
   );
   if (!job) return null;
-  const [status, steps, meta] = await Promise.all([
+  const [status, steps, meta, saved] = await Promise.all([
     readJson<{ state: string; message?: string; boot?: BootProgress; updatedAt?: string }>(s3, bucket, statusKeyFor(tenantId, jobId)),
     readSteps(s3, bucket, tenantId, jobId),
     buildTaskMeta(s3, bucket, tenantId, jobId, job),
+    readJson<VerdictRecord>(s3, bucket, verdictKey(tenantId, jobId)).catch(() => null),
   ]);
   const eff = effectiveState(status);
+  // 測試結論(與報告封面同一個值):快取不在 / 過期就現算一次。
+  let verdict: VerdictRecord | null = saved && (!opts.verdictStandard || saved.standard === opts.verdictStandard) ? saved : null;
+  if (!verdict && isTerminal(eff.state as TaskState) && opts.resolveVerdict) {
+    const report = await readJson<Record<string, unknown>>(s3, bucket, reportKey(tenantId, jobId)).catch(() => null);
+    if (report) verdict = await opts.resolveVerdict(jobId, report).catch(() => saved ?? null);
+  }
   return {
     job,
     state: eff.state,
+    ...(verdict ? { verdict: { status: verdict.verdict, reason: verdict.reason, standard: verdict.standard } } : {}),
     ...(eff.message ? { message: eff.message } : {}),
     ...(status?.boot && typeof status.boot === 'object' ? { boot: status.boot } : {}),
     ...(status?.updatedAt ? { updatedAt: status.updatedAt } : {}),

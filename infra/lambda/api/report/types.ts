@@ -559,6 +559,8 @@ export interface StructuredReport {
   header: ReportHeader;
   overallStatus: OverallStatus;
   statusReason: L10n;
+  /** 驗收標準判定(overallStatus 的唯一來源;每個項目含要求來源、門檻、實際值與證據步驟)。 */
+  acceptance: import('./acceptance.js').Acceptance;
   terminal: { state: string; message?: string; classification?: FailureClass };
   release: { readiness: ReleaseReadiness; hits: RuleHit[]; thresholds: Record<string, number> };
   summaryLines: L10n[];

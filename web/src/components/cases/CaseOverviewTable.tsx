@@ -121,9 +121,12 @@ const T = {
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 
+// pass / pass_risk / fail / blocked = 測試結論(後端以驗收標準判定,與報告封面一致);其餘為執行狀態。
 const STATE: Record<string, [string, string]> = {
   pass: ['通過', 'Pass'],
+  pass_risk: ['通過(有風險)', 'Pass with risk'],
   fail: ['失敗', 'Fail'],
+  blocked: ['受阻', 'Blocked'],
   error: ['錯誤', 'Error'],
   cancelled: ['已取消', 'Cancelled'],
   budget_exceeded: ['超出預算', 'Over budget'],

@@ -236,6 +236,13 @@
 .task-state--queued {
   color: var(--text-tertiary);
 }
+/* 測試結論:通過(有風險)= 黃;受阻(無法作為驗收依據)= 橘灰。 */
+.task-state--risk {
+  color: var(--status-error);
+}
+.task-state--blocked {
+  color: var(--status-cancelled);
+}
 
 .tasks__state-link {
   text-decoration: none;
@@ -256,8 +263,12 @@
 .tasks__state-link.task-state--running {
   color: color-mix(in srgb, var(--status-running) 55%, var(--surface));
 }
-.tasks__state-link.task-state--error {
+.tasks__state-link.task-state--error,
+.tasks__state-link.task-state--risk {
   color: color-mix(in srgb, var(--status-error) 60%, var(--surface));
+}
+.tasks__state-link.task-state--blocked {
+  color: color-mix(in srgb, var(--status-error) 35%, var(--text-tertiary));
 }
 /* 其他狀態(budget/dead/cancelled/queued)不特別上色,用次要文字色的中性灰。 */
 .tasks__state-link.task-state--budget,

@@ -63,9 +63,12 @@ import {
   liveFrameKey,
   localityOf,
   ValidationError as TaskValidationError,
+  writeVerdict,
   type Backend,
+  type VerdictRecord,
 } from './tasks.js';
-import { writeStatus, readStatus } from './status.js';
+import { writeStatus, readStatus, isTerminal, type TaskState } from './status.js';
+import { ACCEPTANCE_STANDARD_TAG } from './report/acceptance.js';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { listMediaSegments, readAudioLevels, withRecordingUrls } from './liveMedia.js';
 import { DEVICE_LOG_KINDS, readDeviceLogs, type DeviceLogKind } from './deviceLogs.js';
@@ -500,7 +503,7 @@ export async function handleRequest(
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const [cases, { items: jobs }, sessions] = await Promise.all([
           listCasesDetailed(s3, deps.bucket, tenant.tenantId),
-          listJobs(s3, deps.bucket, tenant.tenantId),
+          listJobs(s3, deps.bucket, tenant.tenantId, verdictOpts(deps, s3, tenant.tenantId)),
           deps.listDeviceSessions ? deps.listDeviceSessions().catch(() => null) : Promise.resolve(null),
         ]);
         const minutes = new Map<string, number>();
@@ -537,7 +540,7 @@ export async function handleRequest(
       case 'GET /reports': {
         // 報告清單 = 任務清單(前端只顯示已終局者)。?app= 只回該 App。
         const s3 = await deps.getTenantS3(tenant.tenantId);
-        const { items } = await listJobs(s3, deps.bucket, tenant.tenantId);
+        const { items } = await listJobs(s3, deps.bucket, tenant.tenantId, verdictOpts(deps, s3, tenant.tenantId));
         const app = req.query?.['app'];
         return json(200, { items: app ? items.filter((x) => x.appId === app) : items });
       }
@@ -744,7 +747,7 @@ export async function handleRequest(
         // 估算成本:由本租戶任務清單彙整(依應用/模型/月)。
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const [{ items: tasks }, sessions] = await Promise.all([
-          listJobs(s3, deps.bucket, tenant.tenantId),
+          listJobs(s3, deps.bucket, tenant.tenantId, verdictOpts(deps, s3, tenant.tenantId)),
           // Device Farm 實際計量分鐘(依 session 名稱 pa-<jobId>- 歸屬到任務);取不到則裝置費用不計並標示。
           deps.listDeviceSessions
             ? deps.listDeviceSessions().catch((err) => { console.warn('[cost] device sessions', err); return null; })
@@ -861,11 +864,12 @@ export async function handleRequest(
         // 否則先取最新 30 筆再篩,冷門 App 會看起來沒有任務。
         const app = req.query?.['app'];
         if (app) {
-          const { items: all } = await listJobs(s3, deps.bucket, tenant.tenantId);
+          const { items: all } = await listJobs(s3, deps.bucket, tenant.tenantId, verdictOpts(deps, s3, tenant.tenantId));
           const mine = all.filter((x) => x.appId === app);
           return json(200, { items: limit ? mine.slice(0, limit) : mine, total: mine.length });
         }
         const { items, total } = await listJobs(s3, deps.bucket, tenant.tenantId, {
+          ...verdictOpts(deps, s3, tenant.tenantId),
           ...(limit ? { limit } : {}),
         });
         return json(200, { items, total });
@@ -1527,7 +1531,7 @@ export async function handleRequest(
           const jobId = detailMatch[1]!;
           if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
           const s3 = await deps.getTenantS3(tenant.tenantId);
-          const detail = await readJobDetail(s3, deps.bucket, tenant.tenantId, jobId);
+          const detail = await readJobDetail(s3, deps.bucket, tenant.tenantId, jobId, verdictOpts(deps, s3, tenant.tenantId));
           if (!detail) return json(404, { error: '找不到任務' });
           // 為每步截圖(devicefarm/emulator runner 落的 screenshotKey/annotatedKey)附上限時
           // presigned GET URL,讓任務詳情頁能即時圖文並茂顯示(位元組不經 Lambda)。
@@ -1555,6 +1559,12 @@ export async function handleRequest(
                 readJsonObject<ReportInsights>(s3, deps.bucket, insightsKey(tenant.tenantId, jobId, 'en')).catch(() => null),
               ]);
               (enriched as Record<string, unknown>)['structured'] = structured;
+              // 結論寫回 verdict.json:任務列表 / 報告列表顯示的通過與否,和這份報告封面是同一個值。
+              const rawState = (report as Record<string, unknown>)['state'];
+              if (typeof rawState === 'string' && isTerminal(rawState as TaskState)) {
+                await writeVerdict(s3, deps.bucket, tenant.tenantId, jobId, verdictRecordOf(structured, report as Record<string, unknown>))
+                  .catch((err) => console.warn('[verdict] write failed', jobId, err));
+              }
               if (insZh || insEn) {
                 (enriched as Record<string, unknown>)['insights'] = { ...(insZh ? { zh: insZh } : {}), ...(insEn ? { en: insEn } : {}) };
               }
@@ -1824,6 +1834,32 @@ async function buildReportForJob(
     await Promise.all([...structured.evidence, ...structured.findings, ...structured.aiFailures].map(withUrls));
   }
   return structured;
+}
+
+/** 由結構化報告取出要快取的測試結論。 */
+function verdictRecordOf(st: StructuredReport, raw: Record<string, unknown>): VerdictRecord {
+  const must = st.acceptance.criteria.filter((c) => c.level === 'must' && c.result !== 'not_applicable');
+  return {
+    standard: st.acceptance.standard,
+    verdict: st.overallStatus,
+    reason: st.statusReason,
+    must: { passed: must.filter((c) => c.result === 'pass').length, total: must.length },
+    ...(typeof raw['generatedAt'] === 'string' ? { reportAt: raw['generatedAt'] } : {}),
+    computedAt: new Date().toISOString(),
+  };
+}
+
+/** 任務列表用:缺結論的終局任務,現算(報告引擎)並寫回 verdict.json。 */
+function verdictOpts(deps: ApiDeps, s3: S3Client, tenantId: string) {
+  return {
+    verdictStandard: ACCEPTANCE_STANDARD_TAG,
+    resolveVerdict: async (jobId: string, raw: Record<string, unknown>): Promise<VerdictRecord | null> => {
+      const st = await buildReportForJob(deps, s3, tenantId, jobId, raw, { sign: false });
+      const rec = verdictRecordOf(st, raw);
+      await writeVerdict(s3, deps.bucket, tenantId, jobId, rec).catch((err) => console.warn('[verdict] write failed', jobId, err));
+      return rec;
+    },
+  };
 }
 
 /** AI 洞察快取位置(與 report.json 同一 job 前綴)。 */

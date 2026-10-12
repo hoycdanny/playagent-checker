@@ -230,6 +230,8 @@ export interface StructuredReport {
     result: OverallStatus; startTime?: string; endTime?: string; durationMs?: number; aiGenerated: boolean;
     aiConfidence?: number; agentModel?: string; vlmModel?: string; retryCount: number; recoveryCount: number;
   };
+  /** 驗收標準判定(overallStatus 的來源)。舊版後端沒有此欄位。 */
+  acceptance?: Acceptance;
   /** 舊版後端沒有此欄位。 */
   checks?: CheckItem[];
   findings: Finding[];
@@ -245,4 +247,83 @@ export interface StructuredReport {
     betChanges: Array<{ step: number; prevStep: number; key: string; from: number; to: number }>;
   };
   notes: L10n[];
+}
+
+// ───────── 驗收標準(後端 report/acceptance.ts、rtpLedger.ts)─────────
+
+export type AcLevel = 'must' | 'should';
+export type AcResult = 'pass' | 'fail' | 'not_evaluable' | 'not_applicable';
+export type AcAttribution = 'game' | 'test_execution' | 'environment' | 'ai_agent' | 'data';
+
+export interface AcceptanceCriterion {
+  id: string;
+  group: string;
+  level: AcLevel;
+  title: L10n;
+  requirement: L10n;
+  threshold?: L10n;
+  actual?: L10n;
+  result: AcResult;
+  attribution?: AcAttribution;
+  basis: 'deterministic' | 'ai_evaluation';
+  evidenceSteps: number[];
+  relatedFindings: string[];
+  sources: Array<{ kind: 'case' | 'standard' | 'engine'; ref: string; quote?: string }>;
+  note?: L10n;
+}
+
+export interface LedgerPoint { step: number; value: number }
+
+export interface RtpWindow {
+  id: string;
+  segment: number;
+  bet: number;
+  firstStep: number;
+  lastStep: number;
+  counterStart: LedgerPoint;
+  counterEnd: LedgerPoint;
+  spins: number;
+  wagered: number;
+  balanceStart: LedgerPoint;
+  balanceEnd: LedgerPoint;
+  balanceDelta: number;
+  steps: number[];
+}
+
+export interface NonSlotCredit {
+  id: string;
+  steps: number[];
+  screen: string;
+  amount: number | null;
+  basis: 'obs' | 'balance_diff' | 'ai_read' | 'none_seen' | 'unresolved';
+  windowId?: string;
+  quote?: string;
+  note: L10n;
+}
+
+export interface RtpLedger {
+  method: 'autospin_balance';
+  windows: RtpWindow[];
+  spins: number;
+  wagered: number;
+  balanceDelta: number;
+  credits: NonSlotCredit[];
+  creditsInWindow: number;
+  unresolvedInWindow: number;
+  rtpGross: number;
+  rtpNet: number | null;
+  derivedWin: number | null;
+  stats: { sigma: number; sigmaSource: 'spec' | 'assumed'; ci95Pp: number | null; spinsFor1Pp: number; expectedRtp?: number; z?: number };
+  formula: L10n;
+}
+
+export interface Acceptance {
+  standard: string;
+  verdict: OverallStatus;
+  verdictReason: L10n;
+  decidedBy: string[];
+  criteria: AcceptanceCriterion[];
+  rtp?: RtpLedger;
+  references: Array<{ id: string; title: string; url: string; use: L10n }>;
+  rules: L10n[];
 }

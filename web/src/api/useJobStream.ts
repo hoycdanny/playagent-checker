@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { getConfig } from '../config.ts';
 import { loadTokens } from '../auth/tokenStore.ts';
 import { apiGet } from './client.ts';
+import type { VerdictInfo } from '../components/outcome.ts';
 
 export interface Step {
   index: number;
@@ -70,10 +71,14 @@ export interface JobDetail {
   updatedAt?: string;
   steps: Step[];
   meta?: TaskMeta;
+  /** 測試結論(驗收標準;終局且有報告才有)。 */
+  verdict?: VerdictInfo;
 }
 
 export interface JobStream {
   state: string;
+  /** 測試結論(與報告封面同一個值);state 只是執行結果。 */
+  verdict?: VerdictInfo;
   message?: string;
   steps: Step[];
   meta?: TaskMeta;
@@ -108,6 +113,7 @@ export function useJobStream(jobId: string | null): JobStream {
   const [createdAt, setCreatedAt] = useState<string | undefined>();
   const [boot, setBoot] = useState<BootProgress | undefined>();
   const [updatedAt, setUpdatedAt] = useState<string | undefined>();
+  const [verdict, setVerdict] = useState<VerdictInfo | undefined>();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
@@ -132,6 +138,7 @@ export function useJobStream(jobId: string | null): JobStream {
         const detail = await apiGet<JobDetail>(`/tasks/${jobId}`);
         setState(detail.state);
         setMessage(detail.message);
+        setVerdict(detail.verdict);
         if (detail.meta) setMeta(detail.meta);
         if (detail.job?.appId) setAppId(detail.job.appId);
         if (detail.job?.backend) setBackend(detail.job.backend);
@@ -191,6 +198,8 @@ export function useJobStream(jobId: string | null): JobStream {
             setMessage(d.message);
             if (d.boot) setBoot(d.boot);
             if (d.updatedAt) setUpdatedAt(d.updatedAt);
+            // 終局:補讀一次拿測試結論(報告引擎依驗收標準算出,和報告封面同一個值)。
+            if (TERMINAL.has(d.state)) setTimeout(() => { if (!closedRef.current) void replay(); }, 1500);
           }
         } catch {
           /* 忽略非 JSON */
@@ -231,5 +240,5 @@ export function useJobStream(jobId: string | null): JobStream {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  return { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, connected, loading };
+  return { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, ...(verdict ? { verdict } : {}), connected, loading };
 }

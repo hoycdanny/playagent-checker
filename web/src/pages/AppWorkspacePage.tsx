@@ -7,6 +7,7 @@ import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.ts
 import MemoryPanel from '../components/memory/MemoryPanel.tsx';
 import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
 import { CredentialsPanel } from '../components/credentials/CredentialsPanel.tsx';
+import { outcomeClass, outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 // 案例/任務/報告分頁直接用獨立頁面的元件(傳 appId 進入嵌入模式),
 // 這樣工作區與主頁面的排版是「同一份」,不會各自長歪。
 import CasesPage from './CasesPage.tsx';
@@ -57,10 +58,11 @@ interface TaskItem {
   /** 這次測的是哪一版(多版本 App)。 */
   artifactLabel?: string;
   artifactVersion?: string;
+  /** 測試結論(驗收標準)。 */
+  verdict?: VerdictInfo;
 }
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
-const PASS_STATES = new Set(['pass']);
 
 type Tab = 'overview' | 'builds' | 'cases' | 'tasks' | 'reports' | 'memory' | 'knowledge' | 'credentials';
 
@@ -76,16 +78,7 @@ const TABS: { key: Tab; labelKey: MessageKey }[] = [
 ];
 const TAB_KEYS = new Set<string>(TABS.map((x) => x.key));
 
-function stateClass(state: string): string {
-  if (state === 'pass') return 'task-state--pass';
-  if (state === 'fail') return 'task-state--fail';
-  if (state === 'error') return 'task-state--error';
-  if (state === 'cancelled') return 'task-state--cancelled';
-  if (state === 'budget_exceeded') return 'task-state--budget';
-  if (state === 'dead') return 'task-state--dead';
-  if (state === 'running') return 'task-state--running';
-  return 'task-state--queued';
-}
+
 
 export default function AppWorkspacePage() {
   const { t } = useI18n();
@@ -167,8 +160,11 @@ export default function AppWorkspacePage() {
   const reports = useMemo(() => tasks.filter((x) => TERMINAL.has(x.state)), [tasks]);
   const passRate = useMemo(() => {
     if (reports.length === 0) return null;
-    const passed = reports.filter((x) => PASS_STATES.has(x.state)).length;
-    return Math.round((passed / reports.length) * 100);
+    // 通過率以測試結論為準:通過(含有風險)÷(通過 + 失敗);受阻與沒有結論的不算。
+    const oc = reports.map(outcomeOf);
+    const passed = oc.filter((o) => o === 'pass' || o === 'pass_risk').length;
+    const decided = passed + oc.filter((o) => o === 'fail').length;
+    return decided ? Math.round((passed / decided) * 100) : null;
   }, [reports]);
 
   const caseNameById = useMemo(() => {
@@ -331,8 +327,8 @@ export default function AppWorkspacePage() {
               {tasks.slice(0, 5).map((x) => (
                 <li key={x.jobId} className="listpage__item">
                   <Link to={`/tasks/${x.jobId}`} className="tasks__state-link">
-                    <span className={`task-state ${stateClass(x.state)}`}>
-                      {t(`state.${x.state}` as MessageKey)}
+                    <span className={`task-state ${outcomeClass(outcomeOf(x))}`} title={x.verdict ? (x.verdict.reason.zh) : undefined}>
+                      {t(outcomeKey(outcomeOf(x)))}
                     </span>
                   </Link>
                   <span className="ws__muted">

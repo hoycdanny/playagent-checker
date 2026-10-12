@@ -5,7 +5,7 @@
  * YAML 解析刻意只支援案例實際用到的子集(頂層 key、區塊純量 |/>、清單 - item、行內 [a, b]),
  * 不引入 YAML 套件;未知的頂層 key 也會列出,不會被吞掉。
  */
-import type { TaskListItem } from './tasks.js';
+import { outcomeOf, type TaskListItem } from './tasks.js';
 
 export interface ParsedCase {
   task?: string;
@@ -147,8 +147,12 @@ export interface CaseRunSummary {
 
 export interface CaseRunStats {
   runs: number;
+  /** 測試結論為通過(含通過・有風險)的次數。 */
   pass: number;
+  /** 測試結論為失敗的次數。 */
   fail: number;
+  /** 測試結論為受阻(無法作為驗收依據)的次數。 */
+  blocked: number;
   error: number;
   cancelled: number;
   running: number;
@@ -187,12 +191,13 @@ export function runStats(
   costOf: (t: TaskListItem) => number,
 ): CaseRunStats {
   const sorted = [...jobs].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const count = (s: string) => sorted.filter((j) => j.state === s).length;
-  const pass = count('pass');
+  // 通過 / 失敗以測試結論為準(與報告封面一致);沒有結論的任務才看執行狀態。
+  const count = (s: string) => sorted.filter((j) => outcomeOf(j) === s).length;
+  const pass = count('pass') + count('pass_risk');
   const fail = count('fail');
   const summary = (t: TaskListItem): CaseRunSummary => ({
     jobId: t.jobId,
-    state: t.state,
+    state: outcomeOf(t),
     createdAt: t.createdAt,
     ...(t.finishedAt ? { finishedAt: t.finishedAt } : {}),
     ...(t.caseVersion ? { caseVersion: t.caseVersion } : {}),
@@ -208,16 +213,17 @@ export function runStats(
     .filter((d) => Number.isFinite(d) && d > 0);
   const steps = sorted.map((t) => t.stepCount).filter((s): s is number => typeof s === 'number');
   const last = sorted[sorted.length - 1];
-  const lastResult = [...sorted].reverse().find((t) => t.state === 'pass' || t.state === 'fail');
+  const lastResult = [...sorted].reverse().find((t) => ['pass', 'pass_risk', 'fail', 'blocked'].includes(outcomeOf(t)));
   return {
     runs: sorted.length,
     pass,
     fail,
+    blocked: count('blocked'),
     error: count('error'),
     cancelled: count('cancelled') + count('budget_exceeded'),
     running: sorted.filter((t) => TERMINAL_RUNNING.has(t.state)).length,
     passRate: pass + fail > 0 ? Math.round((pass / (pass + fail)) * 1000) / 10 : null,
-    recent: sorted.slice(-10).map((t) => ({ jobId: t.jobId, state: t.state })),
+    recent: sorted.slice(-10).map((t) => ({ jobId: t.jobId, state: outcomeOf(t) })),
     ...(last ? { last: summary(last) } : {}),
     ...(lastResult ? { lastResult: summary(lastResult) } : {}),
     costUsd: Math.round(sorted.reduce((a, t) => a + costOf(t), 0) * 100) / 100,

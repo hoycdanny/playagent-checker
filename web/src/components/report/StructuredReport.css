@@ -462,3 +462,51 @@
   .vm__table .vm__wrap { max-width: none; }
   .vm__clamp { -webkit-line-clamp: unset; display: block; }
 }
+
+/* 驗收結論與標準 */
+.srep__h4 { margin: var(--space-3) 0 var(--space-2); font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.srep__ac { display: flex; flex-direction: column; gap: var(--space-3); }
+.srep__ac-verdict {
+  display: flex; flex-direction: column; gap: 4px;
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid currentColor; border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+.srep__ac-verdict strong { font-size: 18px; }
+.srep__ac-verdict span { color: var(--text-primary); font-size: 14px; line-height: 1.5; }
+.srep__ac-verdict--PASS { color: var(--status-pass); }
+.srep__ac-verdict--PASS_WITH_RISK { color: var(--status-error); }
+.srep__ac-verdict--FAIL { color: var(--status-fail); }
+.srep__ac-verdict--BLOCKED { color: var(--status-cancelled); }
+.srep__ac-table td { white-space: normal; vertical-align: top; min-width: 70px; }
+.srep__ac-table td:nth-child(2) { min-width: 260px; }
+.srep__ac-row.is-decisive td:first-child { box-shadow: inset 3px 0 0 var(--status-fail); }
+.srep__ac-row--fail { background: color-mix(in srgb, var(--status-fail) 6%, transparent); }
+.srep__ac-row--not_evaluable { background: color-mix(in srgb, var(--status-cancelled) 8%, transparent); }
+.srep__ac-row--not_applicable { opacity: 0.6; }
+.srep__ac-level { display: inline-block; padding: 1px 6px; border-radius: var(--radius-sm); font-size: 11px; font-weight: 650; border: 1px solid var(--border); }
+.srep__ac-level--must { color: var(--text-primary); border-color: var(--border-strong); }
+.srep__ac-level--should { color: var(--text-tertiary); }
+.srep__ac-result { font-weight: 650; }
+.srep__ac-result--pass { color: var(--status-pass); }
+.srep__ac-result--fail { color: var(--status-fail); }
+.srep__ac-result--not_evaluable { color: var(--status-error); }
+.srep__ac-result--not_applicable { color: var(--text-tertiary); }
+.srep__ac-src, .srep__ac-note { margin-top: 4px; font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+.srep__ac-note { color: var(--text-tertiary); }
+.srep__ac-steps { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.srep__ac-step {
+  font-family: var(--font-mono); font-size: 11px; line-height: 1.6;
+  padding: 0 6px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--brand); cursor: pointer;
+}
+.srep__ac-step:hover, .srep__ac-step:focus-visible { border-color: var(--brand); outline: none; }
+.srep__ac-step--noimg { color: var(--text-secondary); cursor: default; }
+.srep__ac-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); }
+.srep__ac-kpis > div { display: flex; flex-direction: column; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.srep__ac-kpis span { font-size: 11px; color: var(--text-tertiary); }
+.srep__ac-kpis strong { font-size: 17px; color: var(--text-primary); }
+.srep__ac-total td { font-weight: 650; border-top: 2px solid var(--border-strong); }
+.srep__ac-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.srep__ac-details ol, .srep__ac-details ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); font-size: 13px; line-height: 1.6; color: var(--text-primary); }
+.srep__ac-details a { color: var(--brand); }

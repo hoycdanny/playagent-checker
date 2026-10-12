@@ -43,6 +43,8 @@
 .cov__pill { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: var(--brand-contrast); background: var(--status-cancelled); text-decoration: none; }
 .cov__pill--pass { background: var(--status-pass); }
 .cov__pill--fail { background: var(--status-fail); }
+.cov__pill--pass_risk { background: var(--status-error); }
+.cov__pill--blocked { background: color-mix(in srgb, var(--status-error) 40%, var(--status-cancelled)); }
 .cov__pill--error { background: var(--status-error); }
 .cov__pill--running, .cov__pill--queued { background: var(--brand); }
 .cov__pill:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
@@ -55,6 +57,8 @@
 .cov__dot { width: 10px; height: 10px; border-radius: 50%; background: var(--status-cancelled); display: inline-block; }
 .cov__dot--pass { background: var(--status-pass); }
 .cov__dot--fail { background: var(--status-fail); }
+.cov__dot--pass_risk { background: var(--status-error); }
+.cov__dot--blocked { background: color-mix(in srgb, var(--status-error) 40%, var(--status-cancelled)); }
 .cov__dot--error { background: var(--status-error); }
 .cov__dot--running, .cov__dot--queued { background: var(--brand); }
 .cov__actions-h { text-align: right; }

@@ -94,6 +94,21 @@ const STATE_MARK: Record<string, ReactNode> = {
       <path d="M8 12.2l2.6 2.6L16 9.4" />
     </>
   ),
+  // 通過(有風險):打勾 + 右上驚嘆點
+  pass_risk: (
+    <>
+      <path d="M19.6 9.2A8.5 8.5 0 1 1 14.8 4" />
+      <path d="M8 12.2l2.6 2.6L16 9.4" />
+      <path d="M19.5 3.2v2.6M19.5 7.9v.2" />
+    </>
+  ),
+  // 受阻(無法作為驗收依據):圓圈 + 橫槓
+  blocked: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M7.5 12h9" />
+    </>
+  ),
   // 失敗:叉叉圓圈
   fail: (
     <>
