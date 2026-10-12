@@ -16,7 +16,8 @@ describe('one-click latest deployment contract', () => {
     expect(ps).toContain("RepositoryUrl = 'https://github.com/hoycdanny/playagent-checker.git'");
     expect(ps).toContain("Branch = 'main'");
     expect(ps).toContain("'worktree', 'add', '--detach'");
-    expect(ps).toContain("'worktree', 'remove', '--force'");
+    expect(ps).toContain('worktree remove --force');
+    expect(ps).toContain('Remove-TempWorktree');
     expect(ps).toContain('main 已更新'); // re-check after a long deployment
     expect(ps).not.toMatch(/git[^\n]*(?:reset|stash|clean)/i);
   });
@@ -35,6 +36,7 @@ describe('one-click latest deployment contract', () => {
     expect(ps).toContain('test/runner-dockerfiles.test.ts');
     expect(ps).toContain('test/apk-merge.test.ts');
     expect(ps).toContain('前端 bundle 沒有正確嵌入 API URL');
+    expect(ps).toContain("Output-Containing $frontOut 'SiteUrl'");
     expect(ps).toContain('CloudFront 尚未回傳新版網站');
     expect(ps).toContain("'ssm', 'put-parameter'");
   });

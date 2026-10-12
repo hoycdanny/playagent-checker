@@ -73,6 +73,23 @@ function Output-Starting([object[]]$Outputs, [string]$Prefix) {
   if ($null -ne $o) { return [string]$o.OutputValue }
   return ''
 }
+function Output-Containing([object[]]$Outputs, [string]$Text) {
+  $o = $Outputs | Where-Object { [string]$_.OutputKey -like "*$Text*" } | Select-Object -First 1
+  if ($null -ne $o) { return [string]$o.OutputValue }
+  return ''
+}
+function Remove-TempWorktree([string]$Repo, [string]$Path) {
+  # npm/node_modules/CloudFront asset staging 在 Windows 偶爾延遲釋放檔案;清理失敗不可把成功部署誤報失敗。
+  for ($i = 0; $i -lt 3; $i++) {
+    & git -C $Repo worktree remove --force $Path 2>$null
+    if ($LASTEXITCODE -eq 0) { return }
+    Start-Sleep -Seconds 2
+  }
+  Write-Warning "暫存 worktree 自動清理失敗,嘗試解除登記:$Path"
+  & git -C $Repo worktree prune 2>$null
+  try { Remove-Item $Path -Recurse -Force -ErrorAction Stop }
+  catch { Write-Warning "請稍後手動刪除暫存目錄:$Path" }
+}
 function Image-Digest([string]$Repo, [string]$Tag) {
   return Capture 'aws' @('ecr', 'describe-images', '--region', $Region, '--repository-name', $Repo, '--image-ids', "imageTag=$Tag", '--query', 'imageDetails[0].imageDigest', '--output', 'text')
 }
@@ -113,7 +130,7 @@ if (-not $Internal) {
       $childCode = $LASTEXITCODE
       if ($childCode -ne 0) { exit $childCode }
     } finally {
-      Run 'git' @('worktree', 'remove', '--force', $work) $callerRoot
+      Remove-TempWorktree $callerRoot $work
     }
     # 部署時間可能很長;結束時再看 main 是否前進。若有,自動部署新 SHA。
     Run 'git' @('fetch', '--force', $RepositoryUrl, "+refs/heads/$Branch`:refs/remotes/playagent-installer/$Branch") $callerRoot
@@ -302,7 +319,7 @@ try {
     }
   }
   $frontOut = Stack-Outputs $frontend
-  $siteUrl = Output-Starting $frontOut 'SiteUrl'
+  $siteUrl = Output-Containing $frontOut 'SiteUrl'
   if (-not $siteUrl) { Fail 'Frontend stack 沒有 SiteUrl output' }
   $siteOk = $false
   for ($i = 0; $i -lt 12; $i++) {
