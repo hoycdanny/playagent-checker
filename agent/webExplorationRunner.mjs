@@ -153,16 +153,20 @@ function totalImageBytes(messages) {
   for (const m of messages) for (const c of m.content || []) if (c.type === 'image' && c.source?.data) bytes += Math.floor((c.source.data.length * 3) / 4);
   return bytes;
 }
-async function decide(system, messages) {
+// Web runner 解析失敗備援:先用同模型精簡歷史重問,再改用穩定模型。
+const VLM_RETRY_FALLBACK = process.env.PA_VLM_FALLBACK
+  || (VLM.includes('anthropic') ? 'us.amazon.nova-pro-v1:0' : 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+
+async function decide(system, messages, modelId = VLM) {
   pruneImages(messages, 2);
   if (totalImageBytes(messages) > 1_500_000) pruneImages(messages, 1);
-  const channel = channelFor(VLM);
+  const channel = channelFor(modelId);
   const request = summarizeRequest(system, messages);
-  const baseTrace = { modelId: VLM, channel, request };
+  const baseTrace = { modelId, channel, request };
   try {
     if (channel === 'bedrock') {
-      const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 500, system, messages };
-      const res = await bedrock.send(new InvokeModelCommand({ modelId: VLM, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body) }));
+      const body = { anthropic_version: 'bedrock-2023-05-31', max_tokens: 1000, system, messages };
+      const res = await bedrock.send(new InvokeModelCommand({ modelId, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body) }));
       const parsed = JSON.parse(new TextDecoder().decode(res.body));
       const out = parsed.content?.find((c) => c.type === 'text')?.text ?? '{}';
       const usage = parsed.usage ? { input: parsed.usage.input_tokens, output: parsed.usage.output_tokens } : null;
@@ -317,6 +321,17 @@ async function main() {
           return { cmd: op, usage: null, rawText: JSON.stringify(op), trace: { modelId: 'operator', ok: true } };
         })()
       : await decide(system, messages);
+    // 模型回空白/亂碼:同模型只帶當前畫面重問;仍失敗則換穩定備援模型。
+    if (!pointCmd && decided.cmd.parseFailed && decided.trace?.ok !== false) {
+      for (const model of [VLM, VLM_RETRY_FALLBACK]) {
+        const retry = await decide(system, [messages[messages.length - 1]], model);
+        if (retry.trace?.ok === false) continue;
+        if (retry.usage && decided.usage) retry.usage = { input: retry.usage.input + decided.usage.input, output: retry.usage.output + decided.usage.output };
+        decided = { ...retry, trace: { ...retry.trace, retries: (decided.trace?.retries ?? 0) + 1, ...(model !== VLM ? { fallbackModel: model } : {}) } };
+        if (!retry.cmd.parseFailed) break;
+      }
+    }
+    const { cmd, usage, rawText, trace } = decided;
     const vlmMs = Date.now() - tVlm;
     messages.push(makeAssistantTurn(rawText));
     if (usage) { tok.input += usage.input; tok.output += usage.output; }
