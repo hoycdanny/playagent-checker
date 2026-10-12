@@ -21,6 +21,7 @@
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
+import { foldSystemIntoFirstUser } from './converseShape.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -137,6 +138,8 @@ function toConverseMessages(messages) {
     }),
   }));
 }
+/** 拒收獨立 system 回合的模型(與 explorationRunner 同一套處理,見 converseShape.mjs)。 */
+const systemUnsupportedModels = new Set();
 function summarizeRequest(system, messages) {
   let imageCount = 0, imageBytes = 0, lastText = '';
   for (const m of messages) for (const c of m.content || []) {
@@ -165,7 +168,22 @@ async function decide(system, messages) {
       const usage = parsed.usage ? { input: parsed.usage.input_tokens, output: parsed.usage.output_tokens } : null;
       return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
     }
-    const res = await bedrock.send(new ConverseCommand({ modelId: VLM, system: [{ text: system }], messages: toConverseMessages(messages), inferenceConfig: { maxTokens: 500 } }));
+    // 有些模型不吃 Converse 的獨立 system 欄位(服務端併成 user 回合 → user→user →
+    // 「roles must alternate」被拒)。被拒一次就記住,改把 system 併進第一個 user 回合。
+    const send = (withSystem) => bedrock.send(new ConverseCommand({
+      modelId: VLM,
+      ...(withSystem ? { system: [{ text: system }] } : {}),
+      messages: toConverseMessages(withSystem ? messages : foldSystemIntoFirstUser(system, messages)),
+      inferenceConfig: { maxTokens: 500 },
+    }));
+    let res;
+    try {
+      res = await send(!systemUnsupportedModels.has(VLM));
+    } catch (e) {
+      if (!/roles must alternate/i.test(String(e?.message || '')) || systemUnsupportedModels.has(VLM)) throw e;
+      systemUnsupportedModels.add(VLM);
+      res = await send(false);
+    }
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';
     const usage = res.usage ? { input: res.usage.inputTokens, output: res.usage.outputTokens } : null;
     return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
