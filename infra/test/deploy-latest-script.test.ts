@@ -19,6 +19,8 @@ describe('cross-platform one-click latest deployment contract', () => {
     expect(sh).toMatch(/^#!\/usr\/bin\/env bash/);
     expect(sh).toContain('scripts/deploy-latest.mjs');
     expect(ps).toContain("'deploy-latest.mjs'");
+    expect(core).toContain("file === 'npm' ? 'npm-cli.js' : 'npx-cli.js'");
+    expect(core).toContain('shell: false');
     expect(pkg.scripts['deploy:latest']).toBe('node scripts/deploy-latest.mjs');
   });
 

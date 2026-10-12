@@ -24,15 +24,23 @@ function info(text) { console.log(text); logStream?.write(`${text}\n`); }
 function warn(text) { const s = `WARNING: ${text}`; console.warn(color(C.yellow, s)); logStream?.write(`${s}\n`); }
 function fail(text) { throw new Error(text); }
 
-function executable(name) {
-  // Node spawn on Windows cannot execute npm/npx .cmd without the extension.
-  return IS_WIN && (name === 'npm' || name === 'npx') ? `${name}.cmd` : name;
+
+function commandSpec(file, args) {
+  // Windows cannot spawn *.cmd with shell:false (EINVAL). Invoke npm's JS entry through the
+  // current node.exe instead; this preserves argument boundaries and avoids shell injection.
+  if (IS_WIN && (file === 'npm' || file === 'npx')) {
+    const cli = join(dirname(process.execPath), 'node_modules', 'npm', 'bin', file === 'npm' ? 'npm-cli.js' : 'npx-cli.js');
+    if (!existsSync(cli)) fail(`找不到 ${file} CLI:${cli}`);
+    return { file: process.execPath, args: [cli, ...args] };
+  }
+  return { file, args };
 }
 
 /** Spawn without a shell (no quoting differences/injection); optionally capture or suppress output. */
 function run(file, args = [], { cwd, capture = false, quiet = false, input, allowFailure = false, env } = {}) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(executable(file), args, {
+    const spec = commandSpec(file, args);
+    const child = spawn(spec.file, spec.args, {
       cwd,
       env: { ...process.env, ...(env ?? {}) },
       shell: false,
