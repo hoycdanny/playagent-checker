@@ -1,4 +1,4 @@
-import { describe, test } from 'vitest';
+import { describe, expect, test } from 'vitest';
 import { App } from 'aws-cdk-lib';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { FoundationStack } from '../lib/foundation-stack.js';
@@ -10,13 +10,14 @@ import {
 
 const env = { account: '111111111111', region: 'us-east-2' };
 
-function synthExecution() {
+function synthExecution(runnerImageTag?: string) {
   const app = new App();
   const foundation = new FoundationStack(app, 'F', { env });
   const execution = new ExecutionStack(app, 'E', {
     env,
     dataBucket: foundation.dataBucket,
     tenantRole: foundation.tenantDataRole.role,
+    ...(runnerImageTag ? { runnerImageTag } : {}),
   });
   return Template.fromStack(execution);
 }
@@ -46,6 +47,11 @@ describe('ExecutionStack — 裝置主機生命週期(Req 4.3/4.5/4.6)', () => {
     t.hasResourceProperties('AWS::ECR::Repository', {
       RepositoryName: 'playagent-web-runner',
     });
+  });
+
+  test('指定 Git SHA 時,兩個 Fargate task definition 都鎖定不可變 tag', () => {
+    const body = JSON.stringify(synthExecution('0123456789abcdef').toJSON());
+    expect(body.match(/:0123456789abcdef/g)).toHaveLength(2);
   });
 
   test('引擎可終結主機,但僅限帶 per-job 生命週期標籤的實例(常駐機受保護,Req 4.5)', () => {

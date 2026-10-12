@@ -26,6 +26,8 @@ const UBUNTU_X86_SSM =
 export interface ExecutionStackProps extends StackProps {
   dataBucket: s3.IBucket;
   tenantRole: iam.IRole;
+  /** runner 映像不可變 tag(一鍵部署傳 Git SHA);手動開發部署預設 latest。 */
+  runnerImageTag?: string;
   /** 成本分攤標籤(project/stage/component + 部署者帶入),序列化後傳給引擎供執行期資源貼標。 */
   costTags?: Record<string, string>;
 }
@@ -464,8 +466,8 @@ export class ExecutionStack extends Stack {
     });
     const DF_CONTAINER_NAME = 'exploration-runner';
     taskDef.addContainer(DF_CONTAINER_NAME, {
-      // image tag `latest` 由 CI/運維用 agent/Dockerfile.exploration build 後推到此 ECR repo。
-      image: ecs.ContainerImage.fromEcrRepository(runnerRepo, 'latest'),
+      // 一鍵部署用 Git SHA tag 鎖定 source=image;手動開發部署才回退 latest。
+      image: ecs.ContainerImage.fromEcrRepository(runnerRepo, props.runnerImageTag ?? 'latest'),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'exploration',
         logRetention: logs.RetentionDays.TWO_WEEKS,
@@ -563,8 +565,8 @@ export class ExecutionStack extends Stack {
     });
     const WEB_CONTAINER_NAME = 'web-runner';
     webTaskDef.addContainer(WEB_CONTAINER_NAME, {
-      // image tag `latest` 由 CI/運維用 agent/Dockerfile.web build 後推到此 ECR repo。
-      image: ecs.ContainerImage.fromEcrRepository(webRunnerRepo, 'latest'),
+      // 與 Device Farm runner 使用同一個不可變 Git SHA tag。
+      image: ecs.ContainerImage.fromEcrRepository(webRunnerRepo, props.runnerImageTag ?? 'latest'),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'web-runner',
         logRetention: logs.RetentionDays.TWO_WEEKS,
