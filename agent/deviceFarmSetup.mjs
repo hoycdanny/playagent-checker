@@ -329,7 +329,7 @@ export async function setupDeviceFarmSession(deps, params) {
           for await (const chunk of source) { hash.update(chunk); yield chunk; }
         }, async function (source) { for await (const _ of source) { /* drain */ } });
         uploadArtifact = { path: mergedPath, sha256: hash.digest('hex'), size };
-        console.log(`XAPK 合併完成:${Math.round(size / 1024 / 1024)}MB universal APK`);
+        console.log(`XAPK 合併完成:${Math.round(size / 1024 / 1024)}MB signed universal APK(aapt/zipalign/apksigner 已驗證)`);
       } catch (mergeErr) {
         // 保底:若合併失敗但原檔本就是合法單一 APK(誤判成 XAPK),直接沿用原檔上傳,不阻斷任務。
         if (isStandaloneApk(artifact.path)) {
