@@ -56,7 +56,30 @@ export function outcomeClass(o: Outcome): string {
   }
 }
 
-/** 圖示提示文字:結論 + 理由 + 執行結果(例:「受阻 — … · 執行結果:執行完成」)。 */
+/**
+ * 理由精簡成一小句(完整理由在報告裡)。
+ * 報告引擎的理由常是「本次測試無法作為驗收依據 —— AC-G01 …、AC-S01 … 未通過或無法判定(…),需修正後重測」,
+ * 有驗收標準編號時改成「N 項未通過或無法判定:AC-G01、AC-S01 等」;否則取第一句。
+ */
+export function shortReason(reason: string, lang: 'zh' | 'en' = 'zh', max = lang === 'en' ? 60 : 40): string {
+  const ids = [...new Set(reason.match(/\bAC-[A-Z]+\d+\b/g) ?? [])];
+  if (ids.length) {
+    const list = ids.slice(0, 3).join(lang === 'en' ? ', ' : '、');
+    const more = ids.length > 3 ? (lang === 'en' ? '…' : ' 等') : '';
+    return lang === 'en'
+      ? `${ids.length} ${ids.length > 1 ? 'criteria' : 'criterion'} not met: ${list}${more}`
+      : `${ids.length} 項未通過或無法判定:${list}${more}`;
+  }
+  const head = reason.trim().split(/\s+[—–]{1,2}\s+/)[0] ?? '';
+  const first = head.split(/(?<=[。!?;!?;])\s*|\n|(?<=\.)\s+/)[0] ?? '';
+  const s = first.replace(/[。;;,,.]+$/, '').trim();
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
+/**
+ * 圖示提示文字(精簡):「結論 — 理由第一句」;執行本身有異常(錯誤 / 取消 / 超出預算…)才補一句執行結果。
+ * 例:「受阻 — 4 項未通過或無法判定:AC-G01、AC-S01、AC-S04 等」。
+ */
 export function outcomeTip(
   x: { state: string; verdict?: VerdictInfo },
   t: (k: MessageKey) => string,
@@ -64,6 +87,10 @@ export function outcomeTip(
 ): string {
   const o = outcomeOf(x);
   if (!x.verdict) return t(outcomeKey(o));
-  const reason = x.verdict.reason[lang] ?? x.verdict.reason.zh;
-  return `${t(outcomeKey(o))} — ${reason.length > 120 ? `${reason.slice(0, 118)}…` : reason} · ${t('outcome.execution')}:${t(`state.${x.state}` as MessageKey)}`;
+  const reason = shortReason(x.verdict.reason[lang] ?? x.verdict.reason.zh ?? '', lang);
+  const abnormal = x.state !== 'pass' && x.state !== 'fail' && x.state !== 'running' && x.state !== 'queued';
+  return [
+    reason ? `${t(outcomeKey(o))} — ${reason}` : t(outcomeKey(o)),
+    abnormal ? `${t('outcome.execution')}:${t(`state.${x.state}` as MessageKey)}` : '',
+  ].filter(Boolean).join(' · ');
 }
