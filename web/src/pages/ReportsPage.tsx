@@ -8,6 +8,7 @@ import AppBadge, { useAppLookup } from '../components/AppRef.tsx';
 import TaskIcon, { backendIcon } from '../components/TaskIcon.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
 import { CaseVersionBadge } from '../components/cases/CaseVersions.tsx';
+import { outcomeClass, outcomeKey, outcomeOf, outcomeTip, type VerdictInfo } from '../components/outcome.ts';
 import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
@@ -37,10 +38,13 @@ interface ReportItem {
   caseName?: string;
   /** Device Farm 段數(0 = 不限、>1 = 長時)。 */
   maxSegments?: number;
+  /** 測試結論(驗收標準;與報告封面同一個值)。 */
+  verdict?: VerdictInfo;
 }
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
-const STATE_ORDER = ['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead'];
+/** 篩選 chip 的順序:先測試結論,再其餘執行狀態(尚未算出結論的舊任務)。 */
+const STATE_ORDER = ['pass', 'pass_risk', 'fail', 'blocked', 'error', 'cancelled', 'budget_exceeded', 'dead'];
 const RANGES: Record<string, number> = { '24h': 24 * 3600_000, '7d': 7 * 24 * 3600_000, '30d': 30 * 24 * 3600_000 };
 type SortKey = 'newest' | 'oldest' | 'duration' | 'steps' | 'cost';
 
@@ -155,7 +159,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
   }, [items, q, appF, catF, backendF, rangeF, lookup]);
 
   const filtered = useMemo(() => {
-    const list = stateF === 'all' ? baseFiltered : baseFiltered.filter((x) => x.state === stateF);
+    const list = stateF === 'all' ? baseFiltered : baseFiltered.filter((x) => outcomeOf(x) === stateF);
     const val = (x: ReportItem): number => {
       switch (sortF) {
         case 'duration': return durationOf(x) ?? -1;
@@ -171,21 +175,24 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
 
   const stateCounts = useMemo(() => {
     const m = new Map<string, number>();
-    for (const x of baseFiltered) m.set(x.state, (m.get(x.state) ?? 0) + 1);
+    for (const x of baseFiltered) { const o = outcomeOf(x); m.set(o, (m.get(o) ?? 0) + 1); }
     return m;
   }, [baseFiltered]);
 
   const stats = useMemo(() => {
-    const pass = filtered.filter((x) => x.state === 'pass').length;
-    const fail = filtered.filter((x) => x.state === 'fail').length;
+    // 通過率 = 通過(含有風險)÷(通過 + 失敗);受阻不算進分母(那次測試不能作為驗收依據)。
+    const oc = filtered.map(outcomeOf);
+    const pass = oc.filter((o) => o === 'pass' || o === 'pass_risk').length;
+    const fail = oc.filter((o) => o === 'fail').length;
     const durs = filtered.map(durationOf).filter((d): d is number => d !== null);
     const cost = filtered.reduce((a, x) => a + (x.billableSpendUsd ?? 0), 0);
-    const concluded = filtered.filter((x) => x.state === 'pass' || x.state === 'fail').length;
+    const concluded = pass + fail;
     return {
       total: filtered.length,
       pass,
       fail,
-      error: filtered.filter((x) => x.state === 'error' || x.state === 'dead').length,
+      blocked: oc.filter((o) => o === 'blocked').length,
+      error: oc.filter((o) => o === 'error' || o === 'dead').length,
       passRate: concluded ? Math.round((pass / concluded) * 100) : null,
       avgDuration: durs.length ? durs.reduce((a, b) => a + b, 0) / durs.length : null,
       cost,
@@ -262,8 +269,9 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
           {/* 統計(依目前篩選結果) */}
           <div className="rpts__stats" aria-live="polite">
             <Stat label={t('reports.stat.total')} value={String(stats.total)} />
-            <Stat label={t('state.pass')} value={String(stats.pass)} tone="pass" />
-            <Stat label={t('state.fail')} value={String(stats.fail)} tone={stats.fail ? 'fail' : undefined} />
+            <Stat label={t('outcome.pass')} value={String(stats.pass)} tone="pass" />
+            <Stat label={t('outcome.fail')} value={String(stats.fail)} tone={stats.fail ? 'fail' : undefined} />
+            <Stat label={t('outcome.blocked')} value={String(stats.blocked)} tone={stats.blocked ? 'warn' : undefined} />
             <Stat label={t('state.error')} value={String(stats.error)} tone={stats.error ? 'warn' : undefined} />
             <Stat label={t('reports.stat.passRate')} value={stats.passRate === null ? '—' : `${stats.passRate}%`} />
             <Stat label={t('reports.stat.avgDuration')} value={formatDuration(stats.avgDuration)} />
@@ -299,7 +307,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                   onClick={() => setParam('state', stateF === s ? 'all' : s)}
                 >
                   <span className="rpts__dot" aria-hidden="true" />
-                  {t(`state.${s}` as MessageKey)} <span className="rpts__chip-count">{stateCounts.get(s)}</span>
+                  {t(outcomeKey(s))} <span className="rpts__chip-count">{stateCounts.get(s)}</span>
                 </button>
               ))}
             </div>
@@ -408,7 +416,9 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                         />
                       </td>
                       <td className="tasks__col-icon">
-                        <TaskIcon kind="state" value={x.state} label={t(`state.${x.state}` as MessageKey)} />
+                        <span className={`tasks__state-link ${outcomeClass(outcomeOf(x))}`}>
+                          <TaskIcon kind="state" value={outcomeOf(x)} label={outcomeTip(x, (k) => t(k), locale === 'en' ? 'en' : 'zh')} />
+                        </span>
                       </td>
                       <td className="tasks__created" title={relativeTime(x.createdAt, locale)}>
                         <Link to={`/reports/${x.jobId}`} className="tasks__row-link" aria-label={`${t('report.open')} ${formatDateTime(x.createdAt)}`}>

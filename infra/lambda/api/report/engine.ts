@@ -13,6 +13,7 @@ import { autospinRtp, computeMetric, isInteractive, obsSeries, round2, spinTrans
 import { applyExclude, mergeProfiles, metricOrigin, type MergedProfile } from './profiles.js';
 import { mergeSpecs, specFromKb } from './reportSpec.js';
 import { sanitizeObs, type DataQuality } from './dataQuality.js';
+import { buildAcceptance } from './acceptance.js';
 import type {
   Assertion,
   ChartData,
@@ -388,6 +389,13 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
   };
 }
 
+/** 連線 / 帳號環境類回報(斷線、重連、另一裝置登入、逾時)。 */
+const ENV_ISSUE = /斷線|断线|連線|连线|重連|重连|reconnect|disconnect|lost\s*connection|connection|network|網路|网络|另一裝置|另一个设备|another\s*device|逾時|timeout|伺服器|server/i;
+const allTitlesOf = (list: EvidenceStep[]) => [...new Set(list.map((s) => s.issue!.title))].join(' ');
+
+/** AI 回報「按了沒反應」類缺陷的字樣(需要操作紀錄佐證)。 */
+const UNRESPONSIVE_CLAIM = /無反應|沒反應|没反应|沒有反應|沒有回應|點擊.{0,6}無效|點不動|按不下|按了沒|unresponsive|no\s+response|not\s+respond|doesn'?t\s+respond|does\s+not\s+respond/i;
+
 function reproLabel(freq: number, opportunities: number): Finding['reproducibility'] {
   if (freq <= 1) return 'single';
   const r = opportunities > 0 ? freq / opportunities : 0;
@@ -441,10 +449,58 @@ function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleO
     const variants = [...new Set(list.map((s) => s.issue!.title))].filter((t) => t !== iss.title);
     const confs = list.map((s) => s.confidence).filter((c): c is number => typeof c === 'number');
     const conf = confs.length ? round2(confs.reduce((a, b) => a + b, 0) / confs.length) : undefined;
-    // AI 觀察型缺陷:重複出現或高信心才算 GAME_FAILURE;否則列待判讀,避免 AI 誤判直接擋發布。
-    const confirmed = (list.length >= 2 && (conf === undefined || conf >= 0.5)) || (conf !== undefined && conf >= 0.8);
+    // AI 觀察型缺陷要「可重現」才算 GAME_FAILURE(驗收標準 PA-AS §4):至少 2 個步驟都看到、平均信心 ≥ 0.5。
+    // 只看到一次(即使信心很高)→ 待判讀:會讓結論變「通過(有風險)」,不會單憑一張截圖判遊戲失敗。
+    let confirmed = list.length >= 2 && (conf === undefined || conf >= 0.5);
+    // 斷線 / 連線錯誤 / 帳號在另一裝置登入:雲端真機的網路與帳號狀態是測試環境的一部分,
+    // AI 看到彈窗無法分辨是伺服器問題還是環境 → 一律待判讀(需要對照伺服器紀錄或在穩定網路重現)。
+    const envLike = iss.category === 'network' || ENV_ISSUE.test(allTitlesOf(list));
+    if (envLike) confirmed = false;
     const sevRank: Severity[] = ['critical', 'high', 'medium', 'low'];
     const severity = list.map((s) => s.issue!.severity).sort((a, b) => sevRank.indexOf(a) - sevRank.indexOf(b))[0]!;
+    // 「按了沒反應」類的回報必須有實際操作紀錄佐證:回報前 8 步內要有點擊 / 長按等動作,且至少一次畫面沒變。
+    // 2026-10-12 job-mv3xfeax:AI 回報「減注鈕多次點擊無反應」(High),但第 78–95 步實際執行的全是 wait,
+    // 減注鈕一次都沒按過 —— 舊規則照樣當成已確認缺陷,報告判「失敗」。沒有操作紀錄 → 是 AI 回報錯誤,不是遊戲缺陷。
+    const allTitles = allTitlesOf(list);
+    if (UNRESPONSIVE_CLAIM.test(allTitles)) {
+      const from = first.index - 8;
+      const window = steps.filter((s) => s.index >= from && s.index <= first.index);
+      const tried = window.filter(isInteractive);
+      if (tried.length === 0) {
+        const acts = [...new Set(window.map((s) => s.action))].join(' / ');
+        aiFailures.push({
+          id: nextId('AIF'),
+          title: L('AI 回報的缺陷沒有對應的操作紀錄', 'AI-reported defect has no matching action'),
+          description: L(
+            `AI 在第 ${first.index}${last.index !== first.index ? `–${last.index}` : ''} 步回報「${iss.title}」,但第 ${Math.max(0, from)}–${first.index} 步實際執行的動作只有 ${acts},沒有任何點擊 / 長按紀錄。此回報不能當成遊戲缺陷;同時代表 AI 的畫面描述與實際操作不一致。`,
+            `At step ${first.index}${last.index !== first.index ? `–${last.index}` : ''} the AI reported "${iss.title}", but steps ${Math.max(0, from)}–${first.index} only executed ${acts} — no tap / hold at all. This is not a game defect, and the AI's narrative disagrees with the recorded actions.`,
+          ),
+          severity: 'medium',
+          category: 'ai',
+          classification: 'AI_TEST_FAILURE',
+          certainty: 'deterministic',
+          gameState: first.screen,
+          frequency: list.length,
+          reproducibility: list.length > 1 ? 'frequent' : 'single',
+          firstStep: first.index,
+          lastStep: last.index,
+          stepsToReproduce: stepsBefore(steps, first.index, 8),
+          ...(first.screenshotKey ? { screenshotKey: first.screenshotKey } : {}),
+          status: 'open',
+        });
+        continue;
+      }
+      if (!tried.some((s) => s.effective === false)) confirmed = false;
+      // 「卡死 / 沒反應」= 只有重啟才救得回來。回報之後、在任何重啟之前,同一畫面的操作又生效了(畫面有變)
+      // → 回報被後續證據推翻(常見原因:AI 座標偏移、截圖尺寸改變、動畫未結束),只能列待判讀。
+      for (const s of steps) {
+        if (s.index <= first.index) continue;
+        // 重啟 = launch、runner 重啟 App、或程序已終止後被拉起(只是退到背景再拉回前景不算重啟)。
+        const relaunched = s.foregroundLost && (s.appState === undefined || s.appState <= 1);
+        if (s.action === 'launch' || relaunched || /runner 重啟 App/.test(s.thinking ?? '')) break;
+        if (s.screen === first.screen && isInteractive(s) && s.effective === true) { confirmed = false; break; }
+      }
+    }
     findings.push({
       id: nextId('DEF'),
       title: L(iss.title, iss.title),
@@ -704,9 +760,10 @@ function buildChecks(
   const goalResult: CheckResult = state === 'pass' ? 'pass' : state === 'cancelled' || state === 'budget_exceeded' ? 'skipped' : terminal.classification === 'AI_TEST_FAILURE' || terminal.classification === 'ENVIRONMENT' ? 'unclear' : 'fail';
   out.push({
     id: msId(), kind: 'milestone', basis: state === 'pass' ? 'ai_evaluation' : 'deterministic',
-    title: L('完成測試目標', 'Test goal completed'),
+    // 這是「AI 有沒有走完流程」的里程碑;案例要求是否真的達成,由驗收標準(acceptance)逐項判定。
+    title: L('AI 宣告完成測試流程', 'AI declared the procedure complete'),
     step: last?.index ?? 0, screen: last?.screen ?? '—', action: last?.action ?? '—',
-    expected: L('AI 依案例完成測試目標', 'AI completes the case goal').zh,
+    expected: L('AI 依案例走完流程並宣告完成(是否達成案例要求見驗收標準)', 'AI walks the case to its end and declares completion (whether the case requirements are met: see acceptance criteria)').zh,
     actual: terminal.reason.zh,
     result: goalResult,
     reason: [terminal.reason.zh, termFinding?.description.zh].filter(Boolean).join(' — '),
@@ -1124,23 +1181,25 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   // 被阻斷時仍要把已觸發的 NOT_READY 規則呈現(遊戲缺陷優先告知)。
   if (terminal.blocked && hits.some((h) => h.outcome === 'NOT_READY')) readiness = 'NOT_READY';
 
-  // Overall Test Status(遊戲 vs AI 分開:AI/環境失敗 → BLOCKED,不是 FAIL)。
-  const severeGame = gameFindings.filter((f) => f.severity === 'critical' || f.severity === 'high');
-  let overallStatus: OverallStatus;
-  let statusReason: L10n;
-  if (severeGame.length > 0) {
-    overallStatus = 'FAIL';
-    statusReason = L(`發現 ${severeGame.length} 個 Critical/High 遊戲缺陷`, `${severeGame.length} Critical/High game defect(s) found`);
-  } else if (terminal.blocked) {
-    overallStatus = 'BLOCKED';
-    statusReason = terminal.reason;
-  } else if (gameFindings.length > 0 || findings.some((f) => f.classification === 'NEEDS_TRIAGE') || risks.length > 0) {
-    overallStatus = 'PASS_WITH_RISK';
-    statusReason = L('目標完成,但有缺陷或風險需關注', 'Goal completed with defects or risks to review');
-  } else {
-    overallStatus = 'PASS';
-    statusReason = terminal.reason;
-  }
+  // 測試結論:唯一來源 = 驗收標準(acceptance.ts)。列表、任務詳情、報告封面都讀同一個結論。
+  const acceptance = buildAcceptance({
+    task: typeof raw['task'] === 'string' ? raw['task'] : job?.caseName ?? '',
+    state,
+    terminal,
+    ...(message ? { conclusion: message } : {}),
+    steps,
+    findings,
+    aiFailures,
+    risks,
+    quality,
+    values: spec.values,
+    thresholds,
+  });
+  const overallStatus: OverallStatus = acceptance.verdict;
+  const statusReason: L10n = acceptance.verdictReason;
+  // 發布建議不能比測試結論樂觀:結論失敗 → 不可發布;結論受阻 → 受阻(已觸發 NOT_READY 規則時維持不可發布)。
+  if (overallStatus === 'FAIL') readiness = 'NOT_READY';
+  else if (overallStatus === 'BLOCKED' && readiness !== 'NOT_READY') readiness = 'BLOCKED';
 
   // 判定明細:KPI 的通過/失敗/不確定數字 = 這張表的列數,點擊可一一對應。
   const checks = buildChecks(steps, state, terminal, findings, aiFailures, moduleOf, executedEvidence.gameplay);
@@ -1187,6 +1246,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     },
     overallStatus,
     statusReason,
+    acceptance,
     terminal: { state, ...(message ? { message } : {}), ...(terminal.classification ? { classification: terminal.classification } : {}) },
     release: { readiness, hits, thresholds },
     summaryLines: [],
@@ -1300,7 +1360,15 @@ function buildSummary(r: StructuredReport, mval: (id: string) => number | null):
   const lines: L10n[] = [];
   const statusZh: Record<OverallStatus, string> = { PASS: '通過', PASS_WITH_RISK: '通過(有風險)', FAIL: '失敗', BLOCKED: '受阻(無法下結論)' };
   const readyZh: Record<ReleaseReadiness, string> = { READY: '可發布', READY_WITH_RISK: '可發布(有風險)', NOT_READY: '不可發布', BLOCKED: '受阻', INSUFFICIENT_TESTING: '測試不足' };
-  lines.push(L(`測試結果:${statusZh[r.overallStatus]} —— ${r.statusReason.zh}。`, `Result: ${r.overallStatus} — ${r.statusReason.en}.`));
+  lines.push(L(`測試結論:${statusZh[r.overallStatus]} —— ${r.statusReason.zh}。`, `Verdict: ${r.overallStatus} — ${r.statusReason.en}.`));
+  const ac = r.acceptance.criteria;
+  const applicable = ac.filter((c) => c.result !== 'not_applicable');
+  const passedAc = applicable.filter((c) => c.result === 'pass').length;
+  const mustAc = applicable.filter((c) => c.level === 'must');
+  lines.push(L(
+    `驗收標準 ${r.acceptance.standard}:${applicable.length} 項中通過 ${passedAc} 項(必要項目 ${mustAc.filter((c) => c.result === 'pass').length}/${mustAc.length})。`,
+    `Acceptance standard ${r.acceptance.standard}: ${passedAc} of ${applicable.length} criteria pass (MUST ${mustAc.filter((c) => c.result === 'pass').length}/${mustAc.length}).`,
+  ));
   lines.push(L(`發布建議(規則引擎):${readyZh[r.release.readiness]}${r.release.hits.length ? `,觸發 ${r.release.hits.length} 條規則` : ''}。`, `Release readiness (rules engine): ${r.release.readiness}${r.release.hits.length ? `, ${r.release.hits.length} rule(s) triggered` : ''}.`));
   const d = r.counts.defects;
   const total = d.critical + d.high + d.medium + d.low;
@@ -1316,8 +1384,19 @@ function buildSummary(r: StructuredReport, mval: (id: string) => number | null):
     `AI 共 ${mval('ai_action_count') ?? 0} 次操作${sr !== null ? `,成功率 ${sr}%` : ''}${cov !== null ? `;模組覆蓋率 ${cov}%` : ''}。`,
     `${mval('ai_action_count') ?? 0} AI action(s)${sr !== null ? `, success ${sr}%` : ''}${cov !== null ? `; module coverage ${cov}%` : ''}.`,
   ));
+  const led = r.acceptance.rtp;
   const rtp = mval('observed_rtp');
-  if (rtp !== null) {
+  if (led) {
+    lines.push(led.rtpNet !== null
+      ? L(
+        `RTP(帳務重算):淨 ${led.rtpNet}%,${led.spins.toLocaleString('en-US')} 局付費旋轉,95% 信賴區間 ±${led.stats.ci95Pp} 個百分點${led.stats.sigmaSource === 'assumed' ? '(σ 為假設值)' : ''}。`,
+        `RTP (ledger): net ${led.rtpNet}% over ${led.spins.toLocaleString('en-US')} paid spins, 95% CI ±${led.stats.ci95Pp} pp${led.stats.sigmaSource === 'assumed' ? ' (assumed σ)' : ''}.`,
+      )
+      : L(
+        `RTP(帳務重算):淨 RTP 不可算 —— 量測區間內有 ${led.unresolvedInWindow} 筆非拉霸收入金額未確認;未扣贈送的上限為 ${led.rtpGross}%(${led.spins.toLocaleString('en-US')} 局)。`,
+        `RTP (ledger): net RTP not computable — ${led.unresolvedInWindow} non-slot credit(s) in the windows are unconfirmed; upper bound before credits ${led.rtpGross}% (${led.spins.toLocaleString('en-US')} spins).`,
+      ));
+  } else if (rtp !== null) {
     const exp = r.spec.values['expectedRtp'];
     const spins = mval('spin_count') ?? 0;
     const minSamples = r.release.thresholds['rtpMinSamples'] ?? 100;
@@ -1329,7 +1408,7 @@ function buildSummary(r: StructuredReport, mval: (id: string) => number | null):
   }
   const topRisk = r.risks[0];
   if (topRisk) lines.push(L(`最高風險:${topRisk.title.zh}(${topRisk.level})。`, `Top risk: ${topRisk.title.en} (${topRisk.level}).`));
-  return lines.slice(0, 8);
+  return lines.slice(0, 10);
 }
 
 // ───────── 圖表 ─────────

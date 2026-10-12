@@ -3,6 +3,14 @@
  * MetricDefinition.calc 以資料指向這裡的計算器,profile 不含任何函式。
  */
 import type { EvidenceStep, Finding, MetricCalc, ModuleDef, PerfMeta, PerfSample } from './types.js';
+import { autospinWindows, buildRtpLedger, type RtpLedger } from './rtpLedger.js';
+
+/** 同一份 steps 只算一次 RTP 帳務(多個指標共用)。 */
+const ledgerCache = new WeakMap<EvidenceStep[], RtpLedger | null>();
+function ledgerOf(c: { steps: EvidenceStep[]; values: Record<string, number> }): RtpLedger | null {
+  if (!ledgerCache.has(c.steps)) ledgerCache.set(c.steps, buildRtpLedger(c.steps, c.values));
+  return ledgerCache.get(c.steps) ?? null;
+}
 
 export interface MetricContext {
   steps: EvidenceStep[];
@@ -22,7 +30,8 @@ export interface MetricContext {
   perfMeta?: PerfMeta;
 }
 
-const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch']);
+// hold(長按,例如拉霸長按 SPIN 開 AutoSpin)、combo、pinch 也是對畫面的實際操作。
+const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch', 'hold', 'combo', 'pinch']);
 
 export function isInteractive(s: EvidenceStep): boolean {
   return INTERACTIVE.has(s.action);
@@ -97,51 +106,22 @@ export function spinTransactions(steps: EvidenceStep[]): SpinTxn[] {
  * 限制:期間若有非 spin 的獎勵入帳(升級/任務獎金)會使 RTP 偏高;報告附註說明。
  */
 export function autospinRtp(steps: EvidenceStep[]): { spins: number; bet: number; startBalance: number; endBalance: number; rtp: number; groups: number } | null {
-  const pts: Array<{ left: number; balance: number; bet?: number; seg: number }> = [];
-  for (const s of steps) {
-    const o = s.obs;
-    if (!o) continue;
-    const left = toNum(o['autospin_left']);
-    const balance = toNum(o['balance']);
-    if (left === null || balance === null || left < 0) continue;
-    const bet = toNum(o['bet']);
-    pts.push({ left, balance, seg: s.segment ?? 1, ...(bet !== null && bet > 0 ? { bet } : {}) });
-  }
-  if (pts.length < 2) return null;
-  const bets = pts.map((p) => p.bet).filter((b): b is number => typeof b === 'number').sort((a, b) => a - b);
-  const median = bets.length ? bets[Math.floor(bets.length / 2)]! : null;
-  if (!median) return null;
-  // 依「連線段 + 投注額」切成連續區段,各段各自算:旋轉數 × 該段投注額、餘額變化。
-  // 換連線(遊戲重裝、餘額重置)或改投注額時,跨段的那一截不計(旋轉數與餘額變化同時略過,不會偏)。
-  let curBet = pts[0]!.bet ?? median;
-  let group: typeof pts = [];
-  const groups: Array<{ pts: typeof pts; bet: number }> = [];
-  for (const p of pts) {
-    const b = p.bet ?? curBet;
-    const last = group[group.length - 1];
-    if (last && (last.seg !== p.seg || b !== curBet)) { groups.push({ pts: group, bet: curBet }); group = []; }
-    curBet = b;
-    group.push(p);
-  }
-  if (group.length) groups.push({ pts: group, bet: curBet });
-  let spins = 0, wagered = 0, delta = 0, used = 0;
-  for (const g of groups) {
-    if (g.pts.length < 2) continue;
-    let n = 0;
-    for (let i = 1; i < g.pts.length; i++) {
-      const d = g.pts[i - 1]!.left - g.pts[i]!.left;
-      if (d > 0) n += d;
-    }
-    if (!n) continue;
-    spins += n;
-    wagered += n * g.bet;
-    delta += g.pts[g.pts.length - 1]!.balance - g.pts[0]!.balance;
-    used++;
-  }
+  // 量測區間的切法(換連線 / 換投注額 / 重開 AutoSpin 都切開)集中在 rtpLedger,報告各處用同一套數字。
+  const windows = autospinWindows(steps);
+  if (!windows.length) return null;
+  const spins = windows.reduce((a, w) => a + w.spins, 0);
+  const wagered = windows.reduce((a, w) => a + w.wagered, 0);
+  const delta = windows.reduce((a, w) => a + w.balanceDelta, 0);
   if (!spins || !wagered) return null;
-  const startBalance = pts[0]!.balance;
-  const endBalance = pts[pts.length - 1]!.balance;
-  return { spins, bet: median, startBalance, endBalance, groups: used, rtp: round2((1 + delta / wagered) * 100) };
+  const bets = windows.map((w) => w.bet).sort((a, b) => a - b);
+  return {
+    spins,
+    bet: bets[Math.floor(bets.length / 2)]!,
+    startBalance: windows[0]!.balanceStart.value,
+    endBalance: windows[windows.length - 1]!.balanceEnd.value,
+    groups: windows.length,
+    rtp: round2((1 + delta / wagered) * 100),
+  };
 }
 
 /** 本次可用的 Spin 樣本數(逐次交易與 AutoSpin 餘額差法取較大者)。 */
@@ -413,13 +393,24 @@ const BUILTIN: Record<string, Calc> = {
     const t = spinTransactions(c.steps);
     return t.length ? pct(t.filter((x) => x.win > 0).length, t.length) : null;
   },
-  total_bet: (c) => nz0(spinTransactions(c.steps), (t) => t.reduce((a, x) => a + x.bet, 0)),
-  total_win: (c) => nz0(spinTransactions(c.steps), (t) => t.reduce((a, x) => a + x.win, 0)),
+  // AutoSpin(餘額差法)樣本較多時,總下注 / 總派彩 / RTP 一律取 RTP 帳務(與報告「RTP 帳務」表同一組數字)。
+  total_bet: (c) => {
+    const t = spinTransactions(c.steps);
+    const led = ledgerOf(c);
+    if (led && led.spins >= t.length) return led.wagered;
+    return nz0(t, (x) => x.reduce((a, y) => a + y.bet, 0));
+  },
+  total_win: (c) => {
+    const t = spinTransactions(c.steps);
+    const led = ledgerOf(c);
+    if (led && led.spins >= t.length) return led.derivedWin;
+    return nz0(t, (x) => x.reduce((a, y) => a + y.win, 0));
+  },
+  /** 淨 RTP(已扣除量測區間內的非拉霸收入);區間內有金額未確認的贈送 → null(不可算)。 */
   observed_rtp: (c) => {
     const t = spinTransactions(c.steps);
-    const auto = autospinRtp(c.steps);
-    // AutoSpin 樣本較多時以餘額差法為準(逐次讀派彩的樣本太少,統計意義不足)。
-    if (auto && auto.spins >= t.length) return auto.rtp;
+    const led = ledgerOf(c);
+    if (led && led.spins >= t.length) return led.rtpNet;
     const bet = t.reduce((a, x) => a + x.bet, 0);
     return bet > 0 ? pct(t.reduce((a, x) => a + x.win, 0), bet) : null;
   },

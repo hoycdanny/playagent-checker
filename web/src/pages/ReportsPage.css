@@ -112,6 +112,8 @@
 .rpts__chip--pass .rpts__dot, .rpts__state--pass .rpts__dot { background: var(--status-pass); }
 .rpts__chip--fail .rpts__dot, .rpts__state--fail .rpts__dot,
 .rpts__chip--dead .rpts__dot, .rpts__state--dead .rpts__dot { background: var(--status-fail); }
+.rpts__chip--pass_risk .rpts__dot { background: var(--status-error); }
+.rpts__chip--blocked .rpts__dot { background: color-mix(in srgb, var(--status-error) 40%, var(--status-cancelled)); }
 .rpts__chip--error .rpts__dot, .rpts__state--error .rpts__dot,
 .rpts__chip--budget_exceeded .rpts__dot, .rpts__state--budget_exceeded .rpts__dot { background: var(--status-error); }
 

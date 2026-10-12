@@ -17,6 +17,7 @@ import { DeviceLogsPanel } from '../components/tasks/DeviceLogsPanel.tsx';
 import { TaskAskPanel } from '../components/tasks/TaskAskPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
+import { outcomeKey, outcomeOf, outcomeTip } from '../components/outcome.ts';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -104,7 +105,7 @@ export default function TaskDetailPage() {
   const { t, locale } = useI18n();
   const lang = reportLang(locale);
   const { jobId } = useParams<{ jobId: string }>();
-  const { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, connected, loading } = useJobStream(jobId ?? null);
+  const { state, verdict, message, steps, meta, appId, backend, createdAt, boot, updatedAt, connected, loading } = useJobStream(jobId ?? null);
 
   // 知識庫 id → 名稱對照(供資訊列以人類可讀名稱呈現)。
   const [kbNames, setKbNames] = useState<Map<string, string>>(new Map());
@@ -211,7 +212,18 @@ export default function TaskDetailPage() {
             <span aria-hidden="true">←</span>
           </Link>
           <h1 className="detail__title">{t('detail.title')}</h1>
-          <span className={`detail__pill detail__pill--${state}`}>{t(`state.${state}` as MessageKey)}</span>
+          {/* 測試結論(與報告封面同一個值);沒有結論(執行中 / 舊任務)才顯示執行狀態。 */}
+          <span
+            className={`detail__pill detail__pill--${outcomeOf({ state, ...(verdict ? { verdict } : {}) })}`}
+            title={outcomeTip({ state, ...(verdict ? { verdict } : {}) }, (k) => t(k), lang)}
+          >
+            {t(outcomeKey(outcomeOf({ state, ...(verdict ? { verdict } : {}) })))}
+          </span>
+          {verdict && (
+            <span className="detail__exec" title={t('outcome.execution')}>
+              {t('outcome.execution')}:{t(`state.${state}` as MessageKey)}
+            </span>
+          )}
           {stepNo > 0 && (
             <span className="detail__progress">
               {pt('progress', lang).replace('{n}', String(stepNo))}
@@ -249,8 +261,14 @@ export default function TaskDetailPage() {
             </span>
           </span>
         </div>
+        {/* 測試結論的理由(驗收標準;細節在報告的「驗收結論與標準」)。 */}
+        {verdict && verdict.status !== 'PASS' && (
+          <p className={`detail__triage detail__triage--${verdict.status === 'FAIL' ? 'fail' : 'error'}`}>
+            {t('outcome.verdict')}:{verdict.reason[lang] ?? verdict.reason.zh}
+          </p>
+        )}
         {/* 成因引導(Req 12.3):fail → 被測 App/案例;error → 環境/基礎設施 */}
-        {state === 'fail' && (
+        {!verdict && state === 'fail' && (
           <p className="detail__triage detail__triage--fail">{t('trend.triageFail')}</p>
         )}
         {state === 'error' && (

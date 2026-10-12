@@ -14,6 +14,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import IconSelect, { type IconSelectOption } from '../components/IconSelect.tsx';
 import Sparkline from '../components/charts/Sparkline.tsx';
+import { outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import './ListPage.css';
 import './AppsPage.css';
 
@@ -124,9 +125,9 @@ export default function AppsPage() {
   const costQuery = useQuery<CostResponse>('cost:30', () => apiGet<CostResponse>('/cost?days=30'));
   const daily = costQuery.data?.daily;
   // 通過率:取最近 200 筆任務(後端上限)分組算。這是「近期」通過率,不是全期間。
-  const taskQuery = useQuery<ListResponse<{ appId: string; state: string }>>(
+  const taskQuery = useQuery<ListResponse<{ appId: string; state: string; verdict?: VerdictInfo }>>(
     'tasks:200',
-    () => apiGet<ListResponse<{ appId: string; state: string }>>('/tasks?limit=200'),
+    () => apiGet<ListResponse<{ appId: string; state: string; verdict?: VerdictInfo }>>('/tasks?limit=200'),
   );
 
   const [form, setForm] = useState<FormState | null>(null);
@@ -164,10 +165,12 @@ export default function AppsPage() {
     const m = new Map<string, { spendUsd: number; runs: number; passRate: number | null; spark: number[] }>();
     const decided = new Map<string, { decided: number; passed: number }>();
     for (const x of taskQuery.data?.items ?? []) {
-      if (x.state !== 'pass' && x.state !== 'fail') continue;
+      // 通過率以測試結論為準(和報告封面一致);受阻 / 沒有結論的不算進分母。
+      const o = outcomeOf(x);
+      if (o !== 'pass' && o !== 'pass_risk' && o !== 'fail') continue;
       const cur = decided.get(x.appId) ?? { decided: 0, passed: 0 };
       cur.decided += 1;
-      if (x.state === 'pass') cur.passed += 1;
+      if (o !== 'fail') cur.passed += 1;
       decided.set(x.appId, cur);
     }
     for (const a of items) {

@@ -7,6 +7,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
 import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
+import { outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import RangeSlider from '../components/RangeSlider.tsx';
 import TasksTable from '../components/TasksTable.tsx';
 import DevicePicker from '../components/DevicePicker.tsx';
@@ -41,6 +42,8 @@ interface TaskItem {
   billableSpendUsd?: number;
   spendEstimated?: boolean;
   stepCount?: number;
+  /** 測試結論(驗收標準;與報告封面同一個值)。 */
+  verdict?: VerdictInfo;
 }
 
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
@@ -66,12 +69,14 @@ function modelOptionLabel(m: ModelEntry): string {
   return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} 每百萬 token${estimated ? '(估算)' : ''}`;
 }
 
-/** 六終局狀態 + 執行中 + 排隊。狀態篩選對每個狀態只有一個選項(Req 10.4)。 */
+/** 狀態篩選:測試結論(通過 / 有風險 / 失敗 / 受阻)+ 執行狀態(排隊、執行中、錯誤…)。值 = outcomeOf。 */
 const STATES = [
   'queued',
   'running',
   'pass',
+  'pass_risk',
   'fail',
+  'blocked',
   'error',
   'cancelled',
   'budget_exceeded',
@@ -441,7 +446,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
 
   const filtered = tasks.filter(
     (x) =>
-      (!stateFilter || x.state === stateFilter) &&
+      (!stateFilter || outcomeOf(x) === stateFilter) &&
       (!backendFilter || x.backend === backendFilter) &&
       (!localityFilter || x.locality === localityFilter) &&
       (!appFilter || x.appId === appFilter) &&
@@ -828,7 +833,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
             <option value="">{t('tasks.filterAll')}</option>
             {STATES.map((s) => (
               <option key={s} value={s}>
-                {t(`state.${s}` as MessageKey)}
+                {t(outcomeKey(s))}
               </option>
             ))}
           </select>
