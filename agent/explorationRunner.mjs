@@ -31,6 +31,7 @@ import { pipeline } from 'node:stream/promises';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
+import { foldSystemIntoFirstUser, isRoleAlternationError } from './converseShape.mjs';
 import {
   DeviceFarmClient,
   StopRemoteAccessSessionCommand,
@@ -383,6 +384,8 @@ function totalImageBytes(messages) {
 
 // 拒收 temperature/topP 的模型(首次被拒後記住,見 decide() 的 Converse 分支)。
 const samplingUnsupportedModels = new Set();
+// 拒收獨立 `system` 回合的模型(首次被拒後記住,之後直接把 system 併進 user)。
+const systemUnsupportedModels = new Set();
 // 解析失敗的最後一道備援:換一個穩定的視覺模型重問(2026-10-05:Kimi K3 長任務中段開始
 // 頻繁吐出 1000 token 亂碼/空字串,連同重問都失敗,測試人員下的指令也因此被吞掉)。
 const VLM_FALLBACK = process.env.PA_VLM_FALLBACK
@@ -423,22 +426,29 @@ async function decide(system, messages, modelId = VLM) {
     // 2026-10-04:但 Kimi K3 等模型直接拒收 temperature/topP 欄位(ValidationException:
     // "This model doesn't support the temperature field"),第 0 步就失敗。改為:被拒時去掉取樣參數
     // 重送一次,並記住此模型不支援,後續步驟直接不送。
-    const converse = (withSampling) => bedrock.send(new ConverseCommand({
+    // withSystem=false:不送 system 欄位,改把它併進第一個 user 回合(見 foldSystemIntoFirstUser)。
+    const converse = (withSampling, withSystem = true) => bedrock.send(new ConverseCommand({
       modelId,
-      system: [{ text: system }],
-      messages: toConverseMessages(messages),
+      ...(withSystem ? { system: [{ text: system }] } : {}),
+      messages: toConverseMessages(withSystem ? messages : foldSystemIntoFirstUser(system, messages)),
       inferenceConfig: withSampling ? { maxTokens: 1600, temperature: 0.2, topP: 0.9 } : { maxTokens: 1600 },
     }));
+    const sampling = !samplingUnsupportedModels.has(modelId);
+    const withSystem = !systemUnsupportedModels.has(modelId);
     let res;
-    if (samplingUnsupportedModels.has(modelId)) {
-      res = await converse(false);
-    } else {
-      try {
-        res = await converse(true);
-      } catch (e) {
-        if (!/temperature|top_?p/i.test(String(e?.message || ''))) throw e;
+    try {
+      res = await converse(sampling, withSystem);
+    } catch (e) {
+      if (/temperature|top_?p/i.test(String(e?.message || ''))) {
+        // 取樣參數不支援:記住並去掉重送。
         samplingUnsupportedModels.add(modelId);
-        res = await converse(false);
+        res = await converse(false, withSystem);
+      } else if (withSystem && isRoleAlternationError(e)) {
+        // 獨立 system 回合不支援:記住並改用「system 併進第一個 user」重送。
+        systemUnsupportedModels.add(modelId);
+        res = await converse(sampling, false);
+      } else {
+        throw e;
       }
     }
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';

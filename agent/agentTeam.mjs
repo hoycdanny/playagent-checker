@@ -283,6 +283,8 @@ export function createAgentTeam({
   const steps = scriptSteps(task);
   const tokens = { agent: { input: 0, output: 0 }, subagent: { input: 0, output: 0 } };
   const noSampling = new Set();
+  // 拒收獨立 system 回合的模型(首次被拒後記住)。
+  const noSystem = new Set();
   const history = []; // { i, screen, action, goal, effect }
   let summary = '';
   let plan = null; // 最近一次決策(目標 / 預期 / 實際動作)
@@ -298,10 +300,13 @@ export function createAgentTeam({
     const modelId = seat === 'agent' ? agentModel : subagentModel;
     if (!modelId || failStreak[seat] >= 5) return null;
     const t0 = Date.now();
-    const send = (withSampling) => bedrock.send(new ConverseCommand({
+    // withSystem=false:有些模型不吃 Converse 的獨立 system 欄位(服務端會把它併成一個
+    // user 回合,變成 user→user,chat template 直接拒收「roles must alternate」)。
+    // 這時把 system 併進同一個 user 回合重送。
+    const send = (withSampling, withSystem = true) => bedrock.send(new ConverseCommand({
       modelId,
-      system: [{ text: system }],
-      messages: [{ role: 'user', content: [{ text: user }] }],
+      ...(withSystem ? { system: [{ text: system }] } : {}),
+      messages: [{ role: 'user', content: [{ text: withSystem ? user : `${system}\n\n${user}` }] }],
       inferenceConfig: withSampling ? { maxTokens, temperature: 0.2, topP: 0.9 } : { maxTokens },
     }));
     const withTimeout = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error(`逾時 ${timeoutMs}ms`), { name: 'Timeout' })), timeoutMs))]);
@@ -310,13 +315,20 @@ export function createAgentTeam({
     let error = null;
     try {
       let res;
-      if (noSampling.has(modelId)) res = await withTimeout(send(false));
-      else {
-        try { res = await withTimeout(send(true)); }
-        catch (e) {
-          if (!/temperature|top_?p/i.test(String(e?.message || ''))) throw e;
+      const sampling = !noSampling.has(modelId);
+      const withSystem = !noSystem.has(modelId);
+      try {
+        res = await withTimeout(send(sampling, withSystem));
+      } catch (e) {
+        const msg = String(e?.message || '');
+        if (/temperature|top_?p/i.test(msg)) {
           noSampling.add(modelId);
-          res = await withTimeout(send(false));
+          res = await withTimeout(send(false, withSystem));
+        } else if (withSystem && /roles must alternate/i.test(msg)) {
+          noSystem.add(modelId);
+          res = await withTimeout(send(sampling, false));
+        } else {
+          throw e;
         }
       }
       rawText = res?.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '';
