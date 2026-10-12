@@ -313,7 +313,7 @@ async function main() {
     const tVlm = Date.now();
     // 測試人員在即時畫面上點了位置 → 這一步直接點那裡(不靠 AI 猜座標)。
     const pointCmd = [...newCmds].reverse().find((c) => c.point);
-    const { cmd, usage, rawText, trace } = pointCmd
+    let decided = pointCmd
       ? (() => {
           const px = Math.round(pointCmd.point.x * cw), py = Math.round(pointCmd.point.y * ch);
           const label = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? pointCmd.text : '';
