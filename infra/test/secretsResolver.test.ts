@@ -24,6 +24,30 @@ describe('runner substituteText — App 憑證表(${key})', () => {
     expect(r.missing).toEqual([]);
   });
 
+  it('案例常見別名在只有一組帳密時自動對應 TEST/MEMBER → 帳號/密碼', async () => {
+    const creds = { 帳號: 'account-value', 密碼: 'password-value' };
+    const r = await mod.substituteText(
+      '${TEST_USERNAME}|${TEST_PASSWORD}|${MEMBER_USERNAME}|${MEMBER_PASSWORD}',
+      creds,
+      stubGetter({}),
+    );
+    expect(r.text).toBe('account-value|password-value|account-value|password-value');
+    expect(r.resolved).toBe(4);
+    expect(r.missing).toEqual([]);
+    expect(mod.credentialAliasKey('TEST_USERNAME', creds)).toBe('帳號');
+  });
+
+  it('多組同語意帳號時不猜;完全同名及獨立機密優先', async () => {
+    const ambiguous = { 帳號: 'a', 會員帳號: 'b', 密碼: 'p' };
+    expect(mod.credentialAliasKey('TEST_USERNAME', ambiguous)).toBeNull();
+    const missing = await mod.substituteText('${TEST_USERNAME}', ambiguous, stubGetter({}));
+    expect(missing.missing).toEqual(['${TEST_USERNAME}']);
+    const exact = await mod.substituteText('${TEST_USERNAME}', { ...ambiguous, TEST_USERNAME: 'exact' }, stubGetter({}));
+    expect(exact.text).toBe('exact');
+    const legacy = await mod.substituteText('${MEMBER_USERNAME}', ambiguous, stubGetter({ [`${PREFIX}MEMBER_USERNAME`]: 'legacy-exact' }));
+    expect(legacy.text).toBe('legacy-exact');
+  });
+
   it('App 憑證表沒有 → 退回本租戶獨立機密', async () => {
     const r = await mod.substituteText('填 ${TOKEN}', {}, stubGetter({ [`${PREFIX}TOKEN`]: 'abc' }));
     expect(r.text).toBe('填 abc');

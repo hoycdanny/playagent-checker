@@ -295,6 +295,12 @@ export class AppiumClient {
         break;
       }
       case 'type':
+        // type 若帶 x/y,先精確點該欄位再輸入;避免登入頁有多個輸入框時文字跑到前一個焦點。
+        if (Number.isFinite(cmd.x) && Number.isFinite(cmd.y)) {
+          const [tx, ty] = this.#toWindow(Math.round(cmd.x), Math.round(cmd.y));
+          await this.#tapWithFallback(tx, ty);
+          await sleep(150);
+        }
         await this.#typeText(cmd.text ?? '');
         break;
       case 'back':
@@ -457,12 +463,19 @@ export class AppiumClient {
     await this.#hideKeyboard();
   }
 
-  /** 收起軟鍵盤:輸入後鍵盤常遮住畫面下半的按鈕(Log in/Register/Create/OK),不收起會卡死。
-   *  用 UiAutomator2 的 mobile: pressKey 送 Android BACK(實測比 webdriverio hideKeyboard 可靠),多重 fallback。 */
+  /**
+   * 收起軟鍵盤。先確認鍵盤真的有顯示;沒有鍵盤時送 Android BACK 會把登入彈窗關掉。
+   * 驅動無法判斷時只試 hideKeyboard(失敗就保持原狀),不冒險送 BACK。
+   */
   async #hideKeyboard() {
-    try { await this.#driver.execute('mobile: pressKey', { keycode: 4 }); return; } catch { /* try next */ }
-    try { await this.#driver.hideKeyboard(); return; } catch { /* try next */ }
-    try { await this.#driver.pressKeyCode(4); } catch { /* ignore */ } // 4 = Android BACK
+    let shown;
+    try { shown = await this.#driver.isKeyboardShown(); } catch { shown = undefined; }
+    if (shown === false) return;
+    try { await this.#driver.hideKeyboard(); return; } catch { /* fallback only when confirmed visible */ }
+    if (shown === true) {
+      try { await this.#driver.execute('mobile: pressKey', { keycode: 4 }); return; } catch { /* try next */ }
+      try { await this.#driver.pressKeyCode(4); } catch { /* ignore */ }
+    }
   }
 
   /** Device Farm endpoint 失效時重新取得 URL 並 attach 回原 session(每次最多重試一次)。 */

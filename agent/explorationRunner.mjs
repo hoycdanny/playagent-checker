@@ -232,7 +232,8 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
       ? (controls.joystick ? `move 需 dir 與可選 holdMs(按住毫秒,預設1500),x,y 省略時 runner 用本遊戲搖桿的預設位置,看得到搖桿圓圈時用 x,y 指定其中心更準;` : '')
       : `move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;`) +
     gestureHelp +
-    `type 需 text;done 只在真正完成或完全無法進行時用。` +
+    `type 需 text;登入/表單有多個輸入框時,type 必須同時帶該欄位中心 x,y,runner 會先點該欄位再輸入;` +
+    `每次只輸入一個欄位(帳號、密碼分兩步),不要假設前一步焦點仍在。done 只在真正完成或完全無法進行時用。` +
     `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
     `【品牌 Logo/開場動畫畫面|重要】若畫面是純展示性的「遊戲 Logo/工作室 Logo/品牌動畫/Config Ready/Loading」(畫面上沒有任何按鈕,只有標題文字、角色插圖、特效動畫,正在自動播放等待載入完成),` +
     `這種畫面本來就【沒有可互動元素】,【只能用 wait】,絕對不要對著它亂 tap/swipe/move——這種畫面不管點哪裡都不會有反應,亂點只會浪費步數並可能被系統誤判為死循環而提早中止任務。` +
@@ -1712,9 +1713,38 @@ async function main() {
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDeviceX(cmd.x2);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) deviceCmd.y2 = toDeviceY(cmd.y2);
     // 憑證替換:僅在「輸入到裝置」時把 text 的 ${key}/secretRef 換成真值(step/trace 已存原佔位符)。
+    // 找不到時重載一次(使用者可能剛更新憑證);仍缺少就 fail closed,絕不把 `${...}` 原樣打進遊戲。
     if (deviceCmd.action === 'type' && typeof deviceCmd.text === 'string' && deviceCmd.text.length > 0) {
-      try { deviceCmd.text = (await substituteText(deviceCmd.text, appCredentials)).text; }
-      catch (e) { console.warn('[secrets] type 替換例外(用原文):', e?.message || e); }
+      const refs = [...deviceCmd.text.matchAll(/\$\{([^}]+)\}/g)].map((m) => m[1]);
+      let sub;
+      try {
+        sub = await substituteText(deviceCmd.text, appCredentials);
+        if (sub.missing.length > 0) {
+          appCredentials = await loadAppCredentials();
+          sub = await substituteText(deviceCmd.text, appCredentials);
+        }
+      } catch (e) {
+        const why = String(e?.message || e).replace(/\s+/g, ' ').slice(0, 200);
+        step.credentialError = { refs, reason: 'resolver_error' };
+        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        finalState = 'error'; finalMsg = `測試憑證解析失敗:${why}`;
+        await writeStatus('error', finalMsg, steps.length);
+        break;
+      }
+      step.credentialRefs = refs;
+      step.credentialResolved = sub.resolved;
+      if (sub.missing.length > 0) {
+        const missingKeys = sub.missing.map((x) => x.replace(/^\$\{|\}$/g, ''));
+        step.credentialError = { refs: missingKeys, reason: 'missing' };
+        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        finalState = 'error';
+        finalMsg = `測試案例引用的憑證尚未設定:${missingKeys.join('、')}。請在應用管理設定同名 key,或只保留一組「帳號/密碼」供系統自動對應。`;
+        await writeStatus('error', finalMsg, steps.length);
+        break;
+      }
+      deviceCmd.text = sub.text;
+      // 只重寫「解析結果/引用名稱」,不寫 substituted text(明文永不落 S3)。
+      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     }
     // launch 沒帶 app 時(AI 想「重開遊戲」),實際關閉並重開被測 App;舊版只 activateApp(已在前景時等於什麼都沒做)。
     if (deviceCmd.action === 'launch' && !deviceCmd.app && effectivePkg) {
