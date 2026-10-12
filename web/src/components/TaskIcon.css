@@ -17,8 +17,8 @@
 .taskicon__tip {
   position: absolute;
   bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  /* 從圖示左緣往右展開:狀態欄在表格最左邊,置中會被切掉 */
+  left: -6px;
   z-index: 20;
   white-space: nowrap;
   padding: 4px 8px;
