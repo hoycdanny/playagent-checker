@@ -12,6 +12,12 @@ describe('one-click latest deployment contract', () => {
     expect(cmd).toContain('pause');
   });
 
+  test('all installation guides point to the same one-click entry', () => {
+    for (const file of ['README.md', 'README_ZH.md', 'README_CN.md', 'README_JP.md', 'README_KR.md', 'CONTRIBUTING.md']) {
+      expect(readFileSync(join(root, file), 'utf8'), file).toContain('Install-Latest.cmd');
+    }
+  });
+
   test('deploys an isolated canonical-main SHA without touching local work', () => {
     expect(ps).toContain("RepositoryUrl = 'https://github.com/hoycdanny/playagent-checker.git'");
     expect(ps).toContain("Branch = 'main'");
