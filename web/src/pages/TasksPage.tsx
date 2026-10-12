@@ -472,15 +472,43 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
     <section className={`listpage listpage--wide${embedded ? ' listpage--embed' : ''}`}>
       <header className="listpage__header tasks__header">
         {!embedded && <h1 className="listpage__title">{t('page.tasks.title')}</h1>}
-        {!showForm && (
-          <button
-            type="button"
-            className="tasks__submit-btn"
-            onClick={() => setShowForm(true)}
-          >
-            {t('tasks.submit')}
-          </button>
-        )}
+        {/* 勾選後的批次動作放在「提交任務」旁邊:勾選是在表格裡做的,動作鈕要在同一個
+            視線範圍內(放在篩選列末端時,篩選條件一多就會被推到別的位置)。 */}
+        <div className="tasks__header-actions">
+          {!showForm && (
+            <button
+              type="button"
+              className="tasks__submit-btn"
+              onClick={() => setShowForm(true)}
+            >
+              {t('tasks.submit')}
+            </button>
+          )}
+          {selectedActive.length > 0 && (
+            <button
+              type="button"
+              className="tasks__batch-cancel"
+              onClick={onBatchCancel}
+              disabled={batchCancelling}
+            >
+              {batchCancelling
+                ? t('tasks.batchCancelling')
+                : t('tasks.batchCancel').replace('{n}', String(selectedActive.length))}
+            </button>
+          )}
+          {selectedDone.length > 0 && (
+            <button
+              type="button"
+              className="tasks__batch-delete"
+              onClick={onBatchDelete}
+              disabled={batchDeleting}
+            >
+              {batchDeleting
+                ? t('tasks.batchDeleting')
+                : t('tasks.batchDelete').replace('{n}', String(selectedDone.length))}
+            </button>
+          )}
+        </div>
       </header>
 
       {showForm && (
@@ -966,30 +994,6 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
             }}
           >
             {t('tasks.filterClear')}
-          </button>
-        )}
-        {selectedActive.length > 0 && (
-          <button
-            type="button"
-            className="tasks__batch-cancel"
-            onClick={onBatchCancel}
-            disabled={batchCancelling}
-          >
-            {batchCancelling
-              ? t('tasks.batchCancelling')
-              : t('tasks.batchCancel').replace('{n}', String(selectedActive.length))}
-          </button>
-        )}
-        {selectedDone.length > 0 && (
-          <button
-            type="button"
-            className="tasks__batch-delete"
-            onClick={onBatchDelete}
-            disabled={batchDeleting}
-          >
-            {batchDeleting
-              ? t('tasks.batchDeleting')
-              : t('tasks.batchDelete').replace('{n}', String(selectedDone.length))}
           </button>
         )}
       </div>
