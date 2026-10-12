@@ -15,7 +15,7 @@
     "synth": "npm run synth --workspace infra",
     "test:infra": "npm run test --workspace infra",
     "test:worker": "npm run test --workspace worker",
-    "deploy:latest": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/deploy-latest.ps1"
+    "deploy:latest": "node scripts/deploy-latest.mjs"
   },
   "engines": {
     "node": ">=20"

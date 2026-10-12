@@ -188,17 +188,21 @@ CDK 堆栈（全部位于 `us-east-2`）：
 
 # 🚀 在全新 AWS 账户上安装
 
-## Windows 推荐：一键安装／更新到最新版
+## Windows 和 macOS 推荐：一键安装／更新到最新版
 
-先安装 **Node.js 22、AWS CLI v2、Git、Docker Desktop**，完成 AWS 登录并启用下文列出的 Bedrock 模型。然后 clone 仓库并双击根目录中的：
+先安装 **Node.js 22、AWS CLI v2、Git、Docker Desktop**，完成 AWS 登录并启用下文列出的 Bedrock 模型。然后 clone 仓库并运行：
 
 ```text
-Install-Latest.cmd
+Windows：双击 Install-Latest.cmd
+macOS：  双击 Install-Latest.command
+任何系统：npm run deploy:latest
 ```
+
+任何系统都可以使用 `npm run deploy:latest -- --expected-account-id 123456789012` 校验 AWS 账户。旧的 Windows PowerShell 脚本仍可使用，但只是兼容包装；三个系统共用同一份 Node.js 部署核心。
 
 也可以运行 `npm run deploy:latest`。安装器始终从官方 GitHub `main` 解析不可变 Git SHA，在隔离的临时 worktree 中安装、测试和部署；两个 Runner 同时推送 SHA 标签与 `latest`，ECS 任务定义锁定 SHA。最后会验证 CloudFormation、ECR digest、ECS 镜像和 CloudFront。如果部署期间 `main` 又有更新，会自动改为部署更新版本（最多三轮）。本机未提交的文件不会被带入或重置。
 
-建议通过 `./scripts/deploy-latest.ps1 -ExpectedAccountId 123456789012` 指定 AWS 账户，避免部署到错误环境。首次安装结束前可创建第一个管理员。
+建议通过 `npm run deploy:latest -- --expected-account-id 123456789012` 指定 AWS 账户，避免部署到错误环境。首次安装结束前可创建第一个管理员。
 
 > 一键方式需要 Docker Desktop；下面的手动 CodeBuild 方式仍不需要 Docker。
 >

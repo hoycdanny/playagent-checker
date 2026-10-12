@@ -188,17 +188,21 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 # 🚀 クリーンな AWS アカウントへのインストール
 
-## Windows 推奨：最新版をワンクリックでインストール／更新
+## Windows / macOS 推奨：最新版をワンクリックでインストール／更新
 
-**Node.js 22、AWS CLI v2、Git、Docker Desktop** をインストールし、AWS にログインして下記の Bedrock モデルを有効にします。その後リポジトリを clone し、ルートの次のファイルをダブルクリックします。
+**Node.js 22、AWS CLI v2、Git、Docker Desktop** をインストールし、AWS にログインして下記の Bedrock モデルを有効にします。その後リポジトリを clone し、次を実行します。
 
 ```text
-Install-Latest.cmd
+Windows: Install-Latest.cmd をダブルクリック
+macOS:   Install-Latest.command をダブルクリック
+全 OS:   npm run deploy:latest
 ```
+
+どの OS でも `npm run deploy:latest -- --expected-account-id 123456789012` で AWS アカウントを検証できます。従来の PowerShell スクリプトは互換ラッパーとして残りますが、全 OS が同じ Node.js デプロイコアを使用します。
 
 `npm run deploy:latest` でも実行できます。インストーラーは公式 GitHub `main` の不変 Git SHA を解決し、隔離した一時 worktree で依存関係のインストール、テスト、デプロイを行います。両ランナーには SHA タグと `latest` を付け、ECS タスク定義は SHA に固定します。最後に CloudFormation、ECR digest、ECS イメージ、CloudFront を検証します。デプロイ中に `main` が更新された場合は、新しい版を自動的に再デプロイします（最大 3 回）。ローカルの未コミット変更は含めず、リセットもしません。
 
-誤った AWS アカウントへのデプロイを防ぐため、`./scripts/deploy-latest.ps1 -ExpectedAccountId 123456789012` の使用を推奨します。初回インストールの最後に最初の管理者を作成できます。
+誤った AWS アカウントへのデプロイを防ぐため、`npm run deploy:latest -- --expected-account-id 123456789012` の使用を推奨します。初回インストールの最後に最初の管理者を作成できます。
 
 > ワンクリック方式には Docker Desktop が必要です。下記の手動 CodeBuild 方式では Docker は不要です。
 >
