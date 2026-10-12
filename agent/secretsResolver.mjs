@@ -61,6 +61,27 @@ export async function loadAppCredentials() {
 }
 
 /**
+ * 常見憑證命名的語意角色。案例可能寫 TEST_USERNAME / MEMBER_PASSWORD,但 App 設定只有
+ * 「帳號 / 密碼」;只有在該角色恰好只有一個候選時才自動對應,多組帳密時不猜。
+ */
+function credentialRole(key) {
+  const k = String(key ?? '').normalize('NFKC').toLowerCase().replace(/[\s_.\-]/g, '');
+  if (/password|passwd|passcode|pwd|密碼|密码/.test(k)) return 'password';
+  if (/username|userid|useraccount|loginid|account|email|帳號|账号|使用者名稱|用户名|用戶名/.test(k)) return 'username';
+  return null;
+}
+
+/** requested key 不存在時,找唯一同語意 key;回 key 名而不是值(避免誤記明文)。 */
+export function credentialAliasKey(requested, creds) {
+  if (!creds || typeof creds !== 'object') return null;
+  if (Object.prototype.hasOwnProperty.call(creds, requested)) return requested;
+  const role = credentialRole(requested);
+  if (!role) return null;
+  const candidates = Object.keys(creds).filter((k) => credentialRole(k) === role && String(creds[k] ?? '') !== '');
+  return candidates.length === 1 ? candidates[0] : null;
+}
+
+/**
  * 把單一文字(通常是 type 動作的 cmd.text)裡的 ${key} 與 secretRef:<全名> 替換成真值。
  * 來源:
  *   1. App 憑證表 creds(key→value):${key} 直接用 creds[key]。
@@ -82,12 +103,23 @@ export async function substituteText(text, creds, getStandalone = getSecretValue
     if (creds && Object.prototype.hasOwnProperty.call(creds, key)) {
       out = out.split(placeholder).join(creds[key]);
       resolved += 1;
+      continue;
+    }
+    // App 表沒有完全同名 key → 先找舊式獨立機密(完全同名),再做唯一語意對應。
+    const full = `${prefix}${key}`;
+    const v = await getStandalone(full);
+    if (v !== null && v !== undefined) {
+      out = out.split(placeholder).join(v);
+      resolved += 1;
+      continue;
+    }
+    const aliasKey = credentialAliasKey(key, creds);
+    if (aliasKey) {
+      out = out.split(placeholder).join(creds[aliasKey]);
+      resolved += 1;
+      console.log(`[secrets] 憑證語意對應:${placeholder} → \${${aliasKey}}`);
     } else {
-      // App 憑證表沒有 → 試舊式獨立機密 playagent/tenant/<t>/<key>。
-      const full = `${prefix}${key}`;
-      const v = await getStandalone(full);
-      if (v !== null && v !== undefined) { out = out.split(placeholder).join(v); resolved += 1; }
-      else missing.push(placeholder);
+      missing.push(placeholder);
     }
   }
 

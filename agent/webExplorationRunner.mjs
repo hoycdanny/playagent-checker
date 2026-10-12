@@ -422,10 +422,27 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) deviceCmd.y = toDevY(cmd.y);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDevX(cmd.x2);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) deviceCmd.y2 = toDevY(cmd.y2);
-    // 憑證替換:僅在「輸入到頁面」時把 text 的 ${key}/secretRef 換成真值(step/trace 已存原佔位符)。
+    // 憑證替換:僅在「輸入到頁面」時換成真值。缺值時重載一次後 fail closed,不輸入 literal `${...}`。
     if (deviceCmd.action === 'type' && typeof deviceCmd.text === 'string' && deviceCmd.text.length > 0) {
-      try { deviceCmd.text = (await substituteText(deviceCmd.text, appCredentials)).text; }
-      catch (e) { console.warn('[secrets] type 替換例外(用原文):', e?.message || e); }
+      try {
+        let sub = await substituteText(deviceCmd.text, appCredentials);
+        if (sub.missing.length > 0) {
+          appCredentials = await loadAppCredentials();
+          sub = await substituteText(deviceCmd.text, appCredentials);
+        }
+        if (sub.missing.length > 0) {
+          const missingKeys = sub.missing.map((x) => x.replace(/^\$\{|\}$/g, ''));
+          finalState = 'error';
+          finalMsg = `測試案例引用的憑證尚未設定:${missingKeys.join('、')}。請在應用管理設定同名 key。`;
+          await writeStatus('error', finalMsg, steps.length);
+          break;
+        }
+        deviceCmd.text = sub.text;
+      } catch (e) {
+        finalState = 'error'; finalMsg = `測試憑證解析失敗:${String(e?.message || e).slice(0, 200)}`;
+        await writeStatus('error', finalMsg, steps.length);
+        break;
+      }
     }
     try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
     // 導覽圖:AI 沒給畫面名時沿用上一個已知畫面;該步只是 wait 則不覆蓋真正造成轉場的動作。

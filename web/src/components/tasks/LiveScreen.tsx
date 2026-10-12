@@ -10,6 +10,7 @@ const T = {
   noAudio: ['此裝置無法錄製聲音', 'Sound recording unavailable on this device'],
   recording: ['錄影中(含聲音)· 測試結束後可回放', 'Recording with sound · replay after the test'],
   recordingHint: ['為了不打斷遊戲,測試中不播放聲音;整場錄影(含聲音)會在結束後出現在這裡。', 'To avoid pausing the game, sound is not played live; the full recording with sound appears here after the test.'],
+  pickMode: ['指定點擊位置', 'Pick a tap position'],
   pickHint: ['點畫面可指定位置讓 AI 點', 'Click the screen to tell the AI where to tap'],
   pickTitle: ['指定點擊位置', 'Tap position'],
   tapHere: ['讓 AI 點這裡', 'Tap here'],
@@ -18,6 +19,14 @@ const T = {
   pointSent: ['已送出,AI 下一步會點這裡', 'Sent — the AI taps it next step'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+
+function CrosshairIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" aria-hidden="true" focusable="false">
+      <circle cx="12" cy="12" r="6" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
 
 function PopoutIcon() {
   return (
@@ -82,11 +91,12 @@ export function LiveScreen({
   const [aspect, setAspect] = useState(9 / 20);
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState(0);
+  const [pickMode, setPickMode] = useState(false);
   const handleAspect = (a: number) => { setAspect(a); onAspect?.(a); };
   const open = () => openLivePopout(jobId, aspect);
   const delay = ps.delaySec !== undefined ? Math.max(1, Math.round(ps.delaySec)) : undefined;
-  // 執行中且外層有接收 → 點畫面 = 選位置(新視窗改由 ↗ 按鈕開)。
-  const pickable = isLive && !!onPoint;
+  // 「指定點擊」要使用者主動開啟;平常觀看不顯示藍框,點畫面仍是開新視窗。
+  const pickable = isLive && !!onPoint && pickMode;
 
   async function sendPoint() {
     if (!point || !onSendPoint || sending) return;
@@ -94,6 +104,7 @@ export function LiveScreen({
     try {
       await onSendPoint(point);
       onPoint?.(null);
+      setPickMode(false);
       setSentAt(Date.now());
     } finally {
       setSending(false);
@@ -104,6 +115,11 @@ export function LiveScreen({
     const t = setTimeout(() => setSentAt(0), 2500);
     return () => clearTimeout(t);
   }, [sentAt]);
+  useEffect(() => {
+    if (isLive) return;
+    setPickMode(false);
+    onPoint?.(null);
+  }, [isLive, onPoint]);
   // Esc 取消選取。
   useEffect(() => {
     if (!point || !onPoint) return;
@@ -155,6 +171,22 @@ export function LiveScreen({
             {ps.playing ? `${tx('realtime', lang)}${delay ? ` · ~${delay}s` : ''}` : tx('frames', lang)}
           </span>
           <span className="livescreen__spacer" />
+          {onPoint && (
+            <button
+              type="button"
+              className={`livescreen__btn ${pickMode ? 'is-on' : ''}`}
+              onClick={() => {
+                const next = !pickMode;
+                setPickMode(next);
+                if (!next) onPoint(null);
+              }}
+              aria-pressed={pickMode}
+              title={tx('pickMode', lang)}
+              aria-label={tx('pickMode', lang)}
+            >
+              <CrosshairIcon />
+            </button>
+          )}
           {audioState === 'recording' && (
             <span className="livescreen__rec" title={tx('recordingHint', lang)}>{tx('recording', lang)}</span>
           )}
