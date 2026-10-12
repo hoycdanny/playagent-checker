@@ -6,6 +6,8 @@ import { AgentLogView, useTraces, type AgentSeat } from './AgentLogView.tsx';
 import { LiveAnalysisView } from './LiveAnalysisView.tsx';
 import { UsageView } from './UsageView.tsx';
 import type { MetaSeat } from '../../api/useJobStream.ts';
+import type { AudioLevels } from './audioLevels.ts';
+import { buildSoundEvents, type SoundKind, type StepRef } from './soundEvents.ts';
 import './DeviceLogsPanel.css';
 
 /** 文案:[繁中, English, 简中, 日本語, 한국어](依介面語系)。 */
@@ -193,6 +195,22 @@ const T = {
     "「再生中」= 再生中のプレーヤーがある;「出力中」= 音声出力が待機していない。多くのゲームエンジンは全ての効果音を1本に混ぜるため、通常は音声が動いているかどうかだけが分かり、個々の効果音やどの BGM が流れているかは区別できません(録画の音声を使ったテスト後分析が必要です)。同じ状態の連続ステップは 1 行にまとめます。",
     "\"재생 중\" = 재생 중인 플레이어가 있음, \"출력 중\" = 오디오 출력이 대기 상태가 아님. 대부분의 게임 엔진은 모든 효과음을 하나의 트랙으로 섞기 때문에 보통 소리가 나는지 여부만 알 수 있고 개별 효과음이나 어떤 음악이 재생 중인지는 구분할 수 없습니다(녹화 음성으로 테스트 후 분석이 필요합니다). 같은 상태가 이어지는 단계는 한 줄로 합칩니다."
   ],
+  sndGame: ["遊戲音效", "Game sound", "游戏音效", "ゲーム効果音", "게임 효과음"],
+  sndFail: ["沒播出", "Failed", "没播出", "再生失敗", "재생 실패"],
+  sndOnset: ["錄影偵測", "Heard in recording", "录像侦测", "録画で検出", "녹화 감지"],
+  sndStream: ["聲音串流", "Audio stream", "声音串流", "音声ストリーム", "오디오 스트림"],
+  sndCol: ["聲音", "Sound", "声音", "サウンド", "사운드"],
+  sndHeard: ["錄影有聲", "In recording", "录像有声", "録画に音", "녹화에 소리"],
+  sndHeardYesShort: ["有", "Yes", "有", "あり", "있음"],
+  sndHeardNoShort: ["沒聽到", "Silent", "没听到", "無音", "없음"],
+  sndHeardYes: ["遊戲呼叫播放後 1 秒內,錄影裡有聽到聲音", "The recording has a sound within 1 s after the game played it", "游戏调用播放后 1 秒内,录像里有听到声音", "ゲームが再生してから 1 秒以内に録画で音が聞こえた", "게임이 재생한 뒤 1초 안에 녹화에서 소리가 들림"],
+  sndHeardNo: ["遊戲呼叫播放後 1 秒內,錄影裡沒有聽到突然的聲音(可能沒播出來,或被背景音樂蓋過)", "No sudden sound in the recording within 1 s (it may not have played, or the music covered it)", "游戏调用播放后 1 秒内,录像里没有听到突然的声音(可能没播出来,或被背景音乐盖过)", "1 秒以内に録画で目立つ音がない(再生されていないか、BGM に埋もれた可能性)", "1초 안에 녹화에서 뚜렷한 소리가 없음(재생되지 않았거나 배경음에 묻혔을 수 있음)"],
+  sndOnsetTitle: ["突發聲音 · 最大 {db} dB · {s} 秒", "Sudden sound · peak {db} dB · {s}s", "突发声音 · 最大 {db} dB · {s} 秒", "突発音 · 最大 {db} dB · {s} 秒", "갑작스러운 소리 · 최대 {db} dB · {s}초"],
+  sndReplay: ["回放這個時間點", "Replay this moment", "回放这个时间点", "この時点を再生", "이 시점 재생"],
+  sndSnaps: ["播放器狀態快照(系統層)", "Player state snapshots (system)", "播放器状态快照(系统层)", "プレーヤー状態スナップショット(システム)", "플레이어 상태 스냅샷(시스템)"],
+  sndEmpty: ["還沒有聲音事件(遊戲還沒出聲,或這次測試沒有收集裝置 Log / 錄影)。", "No sound events yet (no sound so far, or this run has no device logs / recording).", "还没有声音事件(游戏还没出声,或这次测试没有收集设备 Log / 录像)。", "まだサウンドイベントがありません(まだ音が出ていないか、ログ / 録画がありません)。", "아직 사운드 이벤트가 없습니다(아직 소리가 없거나 로그 / 녹화가 없습니다)."],
+  sndHint: ["每列是一個聲音事件:遊戲音效 = 遊戲 log 回報的播放(含音效名稱);錄影偵測 = 錄影聲音裡突然變大聲的時刻;「錄影有聲」對照遊戲呼叫播放後有沒有真的聽到。點標題看完整 log,▶ 跳到錄影該時間。", "Each row is a sound event: Game sound = playback reported in the game log (with name); Heard in recording = moments the recording suddenly gets louder; \"In recording\" checks whether a played sound was actually heard. Click a title for the full log, ▶ jumps the recording.", "每行是一个声音事件:游戏音效 = 游戏 log 报告的播放(含音效名称);录像侦测 = 录像声音里突然变大声的时刻;「录像有声」对照游戏调用播放后有没有真的听到。点标题看完整 log,▶ 跳到录像该时间。", "各行がサウンドイベントです。ゲーム効果音 = ゲームログに出た再生(名前付き)、録画で検出 = 録画の音が急に大きくなった時点、「録画に音」= 再生後に実際に聞こえたか。タイトルで全ログ、▶ で録画へ。", "각 행이 사운드 이벤트입니다. 게임 효과음 = 게임 로그의 재생(이름 포함), 녹화 감지 = 녹화 소리가 갑자기 커진 시점, \"녹화에 소리\" = 재생 후 실제로 들렸는지. 제목을 누르면 전체 로그, ▶ 는 녹화로 이동."],
+  sndHintNoLog: ["這款遊戲沒有在 log 裡回報播放了哪個音效,所以這裡只有「錄影偵測」的時間點,沒有音效名稱。實測 Unity 遊戲把所有音效混成同一條聲音串流,Android 系統層分不出個別音效。要看到名稱:請開發者在播放音效的地方加一行 log,例如 Debug.Log(\"[SFX] \" + clip.name),之後這裡就會列出每個音效名稱,並自動對照錄影有沒有真的出聲。", "This game does not log which sound it plays, so only recording-detected moments are listed, without names. Unity games mix every sound into one stream, so Android cannot tell sounds apart. To get names, ask the developers to log each play, e.g. Debug.Log(\"[SFX] \" + clip.name); each sound will then be listed by name and checked against the recording.", "这款游戏没有在 log 里报告播放了哪个音效,所以这里只有「录像侦测」的时间点,没有音效名称。实测 Unity 游戏把所有音效混成同一条声音串流,Android 系统层分不出个别音效。要看到名称:请开发者在播放音效的地方加一行 log,例如 Debug.Log(\"[SFX] \" + clip.name),之后这里就会列出每个音效名称,并自动对照录像有没有真的出声。", "このゲームは再生した効果音をログに出さないため、録画で検出した時点のみ(名前なし)です。Unity は全効果音を 1 本のストリームに混ぜるため Android では区別できません。名前を出すには再生箇所で Debug.Log(\"[SFX] \" + clip.name) のようにログを出してもらってください。", "이 게임은 어떤 효과음을 재생했는지 로그에 남기지 않아 녹화로 감지한 시점만(이름 없이) 표시됩니다. Unity 게임은 모든 효과음을 하나의 스트림으로 섞어 Android에서 구분할 수 없습니다. 이름을 보려면 재생 위치에 Debug.Log(\"[SFX] \" + clip.name) 같은 로그를 추가해 달라고 요청하세요."],
   sameSteps: [
     "{n} 步狀態相同",
     "{n} steps, same state",
@@ -200,6 +218,15 @@ const T = {
     "{n} ステップ同じ状態",
     "{n}단계 동일한 상태"
   ],
+  source: ["來源", "Source", "来源", "ソース", "소스"],
+  srcAll: ["全部", "All", "全部", "すべて", "전체"],
+  srcUnity: ["Unity", "Unity", "Unity", "Unity", "Unity"],
+  srcAudio: ["音效 / 媒體", "Audio / media", "音效 / 媒体", "音声 / メディア", "오디오 / 미디어"],
+  srcNet: ["網路", "Network", "网络", "ネットワーク", "네트워크"],
+  srcCrash: ["崩潰 / ANR", "Crash / ANR", "崩溃 / ANR", "クラッシュ / ANR", "크래시 / ANR"],
+  srcTags: ["依標籤", "By tag", "按标签", "タグ別", "태그별"],
+  tagClick: ["只看這個標籤", "Show only this tag", "只看这个标签", "このタグのみ表示", "이 태그만 보기"],
+  clearFilter: ["清除篩選", "Clear filters", "清除筛选", "フィルター解除", "필터 해제"],
   loadError: [
     "讀取失敗",
     "Failed to load",
@@ -218,6 +245,29 @@ interface Output { thread: string; standby?: boolean; tracks?: number; active?: 
 interface AudioSnap { step: number; at: number; pid?: number; players: Player[]; outputs: Output[]; playbackRaw?: string; flingerRaw?: string }
 
 export interface LogLine { t: number; pid: number; tid: number; level: string; tag: string; msg: string; raw: string }
+
+/**
+ * 來源快選:依 logcat tag(必要時含訊息)分類。'tag:<名稱>' = 單一標籤。
+ * 只看 Unity 時,Unity 引擎 / IL2CPP / Unity 外掛常用的 tag 都算進來。
+ */
+type SourcePreset = 'unity' | 'audio' | 'net' | 'crash';
+const SOURCE_PRESETS: Array<{ id: SourcePreset; label: keyof typeof T; test: (l: LogLine) => boolean }> = [
+  { id: 'unity', label: 'srcUnity', test: (l) => /^(unity|unitymain|unityads|unity\w*|il2cpp|mono|crashlytics-unity)$/i.test(l.tag) || /^unity/i.test(l.tag) },
+  { id: 'audio', label: 'srcAudio', test: (l) => /audio|sound|media|aaudio|opensl|fmod|wwise|criware|exoplayer|codec|player/i.test(l.tag) },
+  { id: 'net', label: 'srcNet', test: (l) => /net|http|okhttp|socket|conscrypt|dns|volley|cronet|ssl|tls|websocket|connectivity/i.test(l.tag) },
+  {
+    id: 'crash',
+    label: 'srcCrash',
+    test: (l) => /^(AndroidRuntime|DEBUG|libc|crash_dump\d*|tombstoned|CRASH)$/i.test(l.tag)
+      || /FATAL EXCEPTION|ANR in |Fatal signal|SIGSEGV|SIGABRT|Application Not Responding|has died|Force finishing/i.test(l.msg),
+  },
+];
+/** 篩選來源字串 → 判斷函式('' = 全部)。 */
+export function sourceFilter(source: string): (l: LogLine) => boolean {
+  if (!source) return () => true;
+  if (source.startsWith('tag:')) { const tag = source.slice(4); return (l) => l.tag === tag; }
+  return SOURCE_PRESETS.find((p) => p.id === source)?.test ?? (() => true);
+}
 
 const LINE_RE = /^\s*(\d{9,}\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEFA])\s+(.*?)\s*:\s?(.*)$/;
 const LEVELS = ['V', 'D', 'I', 'W', 'E', 'F', 'A'];
@@ -268,7 +318,20 @@ const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { vlm: 'agentVlmHint', ag
  * 任務詳情頁右欄「日誌檢視」:裝置系統 Log / 音效播放狀態(真機才有)+ 三個 AI Agent 每一步的互動紀錄。
  * device=false(非真機)時只顯示 AI Agent 分頁。lang 保留相容;文案依介面語系(五語)。
  */
-export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [] }: { jobId: string; isLive: boolean; device?: boolean; appId?: string; seats?: MetaSeat[]; lang?: RLang }) {
+export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [], levels, steps, onSeek }: {
+  jobId: string;
+  isLive: boolean;
+  device?: boolean;
+  appId?: string;
+  seats?: MetaSeat[];
+  lang?: RLang;
+  /** 錄影聲音時間軸(音效分頁對照「有沒有真的聽到」)。 */
+  levels?: AudioLevels | null;
+  /** 步驟時間 + 畫面名(音效事件標上是哪一步)。 */
+  steps?: StepRef[];
+  /** 有整場錄影時:跳到錄影某時間(epoch ms)。 */
+  onSeek?: (t: number) => void;
+}) {
   const { locale: loc } = useI18n();
   // 順序:裝置 → 音效 → 視覺 → 決策 → 輔助 → 分析 → 用量(視覺 → 決策 → 輔助 = 每一步的執行順序)。
   // 預設:真機停在裝置;非真機停在視覺。
@@ -305,7 +368,7 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
       {tab === 'logcat' ? (
         <LogcatView jobId={jobId} isLive={isLive} />
       ) : tab === 'audio' ? (
-        <AudioView jobId={jobId} isLive={isLive} />
+        <AudioView jobId={jobId} isLive={isLive} {...(levels !== undefined ? { levels } : {})} {...(steps ? { steps } : {})} {...(onSeek ? { onSeek } : {})} />
       ) : tab === 'analysis' ? (
         <div className="devlogs__agent-wrap">
           <LiveAnalysisView jobId={jobId} isLive={isLive} {...(appId ? { appId } : {})} loc={loc} />
@@ -366,6 +429,7 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
   const [query, setQuery] = useState('');
   const [minLevel, setMinLevel] = useState('V');
   const [appOnly, setAppOnly] = useState(false);
+  const [source, setSource] = useState('');
 
   const { lines, appPids } = useMemo(() => {
     const all: LogLine[] = [];
@@ -377,11 +441,23 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
     }
     return { lines: all, appPids: pids };
   }, [items]);
+  // 每個來源 / 標籤有幾行(下拉選單顯示數量;沒有資料的快選不列)。
+  const { presetCounts, tagCounts } = useMemo(() => {
+    const pc: Record<string, number> = {};
+    const tc = new Map<string, number>();
+    for (const l of lines) {
+      tc.set(l.tag, (tc.get(l.tag) ?? 0) + 1);
+      for (const p of SOURCE_PRESETS) if (p.test(l)) pc[p.id] = (pc[p.id] ?? 0) + 1;
+    }
+    return { presetCounts: pc, tagCounts: [...tc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 60) };
+  }, [lines]);
   const filtered = useMemo(() => {
     const lv = LEVELS.indexOf(minLevel);
     const q = query.trim().toLowerCase();
-    return lines.filter((l) => LEVELS.indexOf(l.level) >= lv && (!appOnly || appPids.has(l.pid)) && (!q || l.raw.toLowerCase().includes(q)));
-  }, [lines, minLevel, appOnly, appPids, query]);
+    const src = sourceFilter(source);
+    return lines.filter((l) => LEVELS.indexOf(l.level) >= lv && (!appOnly || appPids.has(l.pid)) && src(l) && (!q || l.raw.toLowerCase().includes(q)));
+  }, [lines, minLevel, appOnly, appPids, query, source]);
+  const filtering = !!(source || query.trim() || minLevel !== 'V' || appOnly);
   // 最新在上:取最新的 MAX_RENDER 行再反轉。
   const shown = (filtered.length > MAX_RENDER ? filtered.slice(-MAX_RENDER) : filtered).slice().reverse();
 
@@ -409,6 +485,19 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
           aria-label={tx('search', loc)}
         />
         <label className="devlogs__inline">
+          <span>{tx('source', loc)}</span>
+          <select value={source} onChange={(e) => setSource(e.target.value)}>
+            <option value="">{tx('srcAll', loc)}</option>
+            {SOURCE_PRESETS.filter((p) => presetCounts[p.id] || source === p.id).map((p) => (
+              <option key={p.id} value={p.id}>{tx(p.label, loc)} ({presetCounts[p.id] ?? 0})</option>
+            ))}
+            <optgroup label={tx('srcTags', loc)}>
+              {source.startsWith('tag:') && !tagCounts.some(([t]) => `tag:${t}` === source) && <option value={source}>{source.slice(4)}</option>}
+              {tagCounts.map(([t, n]) => <option key={t} value={`tag:${t}`}>{t} ({n})</option>)}
+            </optgroup>
+          </select>
+        </label>
+        <label className="devlogs__inline">
           <span>{tx('show_', loc)}</span>
           <select value={minLevel} onChange={(e) => setMinLevel(e.target.value)}>
             <option value="V">{tx('lvAll', loc)}</option>
@@ -422,6 +511,11 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
           <span>{tx('appOnly', loc)}</span>
         </label>
         <span className="devlogs__spacer" />
+        {filtering && (
+          <button type="button" className="devlogs__link" onClick={() => { setSource(''); setQuery(''); setMinLevel('V'); setAppOnly(false); }}>
+            {tx('clearFilter', loc)}
+          </button>
+        )}
         <span className="devlogs__muted">{tx('lines', loc).replace('{n}', String(filtered.length))}</span>
         <button type="button" className="devlogs__btn" onClick={download}>{tx('download', loc)}</button>
       </div>
@@ -433,7 +527,7 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
             <span className="devlogs__lv" title={l.level}>
               {l.level === 'W' ? tx('lvW', loc) : l.level === 'E' || l.level === 'F' || l.level === 'A' ? tx('lvE', loc) : ''}
             </span>
-            <span className="devlogs__tag">{l.tag}</span>
+            <button type="button" className="devlogs__tag" title={tx('tagClick', loc)} onClick={() => setSource(`tag:${l.tag}`)}>{l.tag}</button>
             <span className="devlogs__msg">{l.msg}</span>
           </div>
         ))}
@@ -450,7 +544,102 @@ function audioSignature(s: AudioSnap): string {
   return `${players}|${active}`;
 }
 
-function AudioView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
+type SoundFilter = 'all' | SoundKind;
+const SOUND_KINDS: Array<{ id: SoundKind; label: keyof typeof T; icon: string }> = [
+  { id: 'game', label: 'sndGame', icon: '♪' },
+  { id: 'fail', label: 'sndFail', icon: '⚠' },
+  { id: 'onset', label: 'sndOnset', icon: '〰' },
+  { id: 'stream', label: 'sndStream', icon: '⏯' },
+];
+
+/** 音效分頁:音效事件時間軸(遊戲 log + 錄影聲音 + 系統聲音串流)+ 收合的播放器狀態快照。 */
+function AudioView({ jobId, isLive, levels, steps, onSeek }: { jobId: string; isLive: boolean; levels?: AudioLevels | null; steps?: StepRef[]; onSeek?: (t: number) => void }) {
+  const { locale: loc } = useI18n();
+  const logs = useDeviceLog<LogChunk>(jobId, 'logcat', isLive);
+  const [filter, setFilter] = useState<SoundFilter>('all');
+  const [open, setOpen] = useState<number | null>(null);
+  const events = useMemo(() => buildSoundEvents({ logChunks: logs.items, levels: levels ?? null, steps: steps ?? [] }), [logs.items, levels, steps]);
+  const counts = useMemo(() => {
+    const c: Record<string, number> = {};
+    for (const e of events) c[e.kind] = (c[e.kind] ?? 0) + 1;
+    return c;
+  }, [events]);
+  const shown = (filter === 'all' ? events : events.filter((e) => e.kind === filter)).slice(0, 1500);
+  const noGameLog = !counts['game'] && !counts['fail'];
+  return (
+    <>
+      <div className="devlogs__bar">
+        <div className="devlogs__chips" role="group" aria-label={tx('source', loc)}>
+          <button type="button" className={`devlogs__chip ${filter === 'all' ? 'is-on' : ''}`} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>
+            {tx('srcAll', loc)} {events.length}
+          </button>
+          {SOUND_KINDS.filter((k) => counts[k.id]).map((k) => (
+            <button key={k.id} type="button" className={`devlogs__chip is-${k.id} ${filter === k.id ? 'is-on' : ''}`} aria-pressed={filter === k.id} onClick={() => setFilter(k.id)}>
+              {k.icon} {tx(k.label, loc)} {counts[k.id]}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="devlogs__muted">{tx(noGameLog ? 'sndHintNoLog' : 'sndHint', loc)}</p>
+      {logs.loading && events.length === 0 ? (
+        <p className="devlogs__muted">{tx('loading', loc)}</p>
+      ) : events.length === 0 ? (
+        <p className="devlogs__muted">{tx('sndEmpty', loc)}</p>
+      ) : (
+        <div className="devlogs__table-wrap">
+          <table className="devlogs__table devlogs__snd">
+            <thead>
+              <tr>
+                <th scope="col">{tx('colTime', loc)}</th>
+                <th scope="col">{tx('colStep', loc)}</th>
+                <th scope="col">{tx('sndCol', loc)}</th>
+                <th scope="col">{tx('sndHeard', loc)}</th>
+                {onSeek && <th scope="col"><span className="visually-hidden">{tx('sndReplay', loc)}</span></th>}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((e, k) => {
+                const kind = SOUND_KINDS.find((x) => x.id === e.kind)!;
+                const title = e.kind === 'onset'
+                  ? tx('sndOnsetTitle', loc).replace('{db}', String(e.peakDb)).replace('{s}', ((e.durMs ?? 0) / 1000).toFixed(1))
+                  : e.title;
+                return (
+                  <tr key={`${e.kind}-${e.t}-${k}`} className={`is-${e.kind}`}>
+                    <td className="devlogs__t">{hms(e.t)}</td>
+                    <td>{e.step !== undefined ? <>#{e.step}{e.screen && <div className="devlogs__muted">{e.screen}</div>}</> : '—'}</td>
+                    <td>
+                      <span className={`devlogs__snd-kind is-${e.kind}`} title={tx(kind.label, loc)}>{kind.icon}</span>{' '}
+                      {e.detail ? (
+                        <button type="button" className="devlogs__snd-title" aria-expanded={open === k} onClick={() => setOpen(open === k ? null : k)}>{title}</button>
+                      ) : <span className="devlogs__snd-title">{title}</span>}
+                      {open === k && e.detail && <pre className="devlogs__raw">{e.detail}</pre>}
+                    </td>
+                    <td>
+                      {e.heard === true && <span className="devlogs__pill is-on" title={tx('sndHeardYes', loc)}>✓ {tx('sndHeardYesShort', loc)}</span>}
+                      {e.heard === false && <span className="devlogs__pill is-bad" title={tx('sndHeardNo', loc)}>✕ {tx('sndHeardNoShort', loc)}</span>}
+                      {e.heard === undefined && (e.kind === 'onset' ? <span className="devlogs__muted">{e.peakDb} dB</span> : <span className="devlogs__muted">—</span>)}
+                    </td>
+                    {onSeek && (
+                      <td>
+                        <button type="button" className="devlogs__btn" onClick={() => onSeek(e.t - 500)} aria-label={tx('sndReplay', loc)} title={tx('sndReplay', loc)}>▶</button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <details className="devlogs__snaps">
+        <summary className="devlogs__muted">{tx('sndSnaps', loc)}</summary>
+        <AudioSnapshots jobId={jobId} isLive={isLive} />
+      </details>
+    </>
+  );
+}
+
+function AudioSnapshots({ jobId, isLive }: { jobId: string; isLive: boolean }) {
   const { locale: loc } = useI18n();
   const { items, loading, error } = useDeviceLog<{ name: string; data?: AudioSnap }>(jobId, 'audio', isLive);
   const snaps = useMemo(() => items.map((i) => i.data).filter((d): d is AudioSnap => !!d).reverse(), [items]);

@@ -93,6 +93,7 @@ export function createDeviceLogs({ client, put, prefix, pkg, log = () => {} }) {
         "echo @@FLINGER; dumpsys media.audio_flinger 2>/dev/null | grep -iE 'Output thread|Standby:|Tracks? of which|Last write' | head -n 80",
         'true',
       ].join('; ');
+      const sentAt = Date.now();
       const s = splitSections(String(await client.shell(cmd, 20000)));
       const now = (s.NOW ?? '').trim();
       const at = Date.now();
@@ -102,7 +103,10 @@ export function createDeviceLogs({ client, put, prefix, pkg, log = () => {} }) {
         .filter((l) => /^\s*\d{9,}\.\d+/.test(l))
         .sort((a, b) => Number(a.trim().split(/\s+/)[0]) - Number(b.trim().split(/\s+/)[0]));
       const pid = Number((s.PID ?? '').trim()) || undefined;
-      if (lines.length) await put(`${prefix}/devlogs/logcat/${name}.txt`, `# step=${step} at=${at}${pid ? ` pid=${pid}` : ''}\n${lines.join('\n')}\n`, 'text/plain; charset=utf-8');
+      // dev/sent:同一時刻的裝置時間與 runner 時間 → 前端把 log 時間對到錄影 / 步驟的時間軸(裝置時鐘常差幾秒)。
+      // NOW 是 shell 指令裡第一個執行的,≈ 送出後單程延遲(約 0.1–0.3 秒),用送出時間對時。
+      const clock = /^\d{9,}\.\d+$/.test(now) ? ` dev=${now} sent=${sentAt}` : '';
+      if (lines.length) await put(`${prefix}/devlogs/logcat/${name}.txt`, `# step=${step} at=${at}${pid ? ` pid=${pid}` : ''}${clock}\n${lines.join('\n')}\n`, 'text/plain; charset=utf-8');
       const audio = {
         step,
         at,
