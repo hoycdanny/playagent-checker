@@ -41,6 +41,29 @@ function Run([string]$File, [string[]]$Arguments, [string]$WorkingDirectory = ''
   }
   if ($code -ne 0) { Fail "$File 執行失敗(exit=$code): $($Arguments -join ' ')" }
 }
+function Native-Succeeds([string]$File, [string[]]$Arguments, [string]$WorkingDirectory = '') {
+  if ($WorkingDirectory) { Push-Location $WorkingDirectory }
+  $oldPreference = $ErrorActionPreference
+  try {
+    # PowerShell 5 + ErrorActionPreference=Stop 會把 native stderr 轉成 terminating error。
+    $ErrorActionPreference = 'Continue'
+    & $File @Arguments *> $null
+    $code = $LASTEXITCODE
+  } catch {
+    $code = 1
+  } finally {
+    $ErrorActionPreference = $oldPreference
+    if ($WorkingDirectory) { Pop-Location }
+  }
+  return $code -eq 0
+}
+function Ensure-EcrRepository([string]$Name) {
+  if (Native-Succeeds 'aws' @('ecr', 'describe-repositories', '--region', $Region, '--repository-names', $Name)) { return }
+  Write-Host "  建立保留的 ECR repository:$Name" -ForegroundColor Yellow
+  Run 'aws' @('ecr', 'create-repository', '--region', $Region, '--repository-name', $Name, '--image-scanning-configuration', 'scanOnPush=true', '--image-tag-mutability', 'MUTABLE')
+  $policy = '{"rules":[{"rulePriority":1,"description":"Keep last 10 images","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":10},"action":{"type":"expire"}}]}'
+  Run 'aws' @('ecr', 'put-lifecycle-policy', '--region', $Region, '--repository-name', $Name, '--lifecycle-policy-text', $policy)
+}
 function Capture([string]$File, [string[]]$Arguments, [string]$WorkingDirectory = '') {
   if ($WorkingDirectory) { Push-Location $WorkingDirectory }
   try {
@@ -207,6 +230,10 @@ try {
     Write-Host 'PLAN OK:將重建兩個 runner、比對 SHA/latest digest、鎖定 ECS SHA、驗證 CloudFront' -ForegroundColor Green
     return
   }
+  $foundationExists = Native-Succeeds 'aws' @('cloudformation', 'describe-stacks', '--region', $Region, '--stack-name', $foundation)
+  if (-not $foundationExists) {
+    Write-Warning '偵測到 Foundation stack 不存在:將建立新的資料桶與 Cognito User Pool。Retain 的舊資料不會被刪除或自動接管。'
+  }
 
   Step '以 lockfile 安裝相依套件'
   Run 'npm' @('ci', '--no-audit', '--no-fund') $SourceRoot
@@ -225,7 +252,29 @@ try {
   }
 
   Step '建立 Foundation、Execution 與 ECR repositories'
+  # Fresh account:repo 不存在 → 由 CDK 建立。
+  # cdk destroy 後:ECR DeletionPolicy=Retain,但 Execution stack 已消失 → 匯入既有名稱,
+  # 不讓 CloudFormation 因 RepositoryAlreadyExists 而失敗。之前已採 import 的 stack 也持續 import。
+  $executionExists = Native-Succeeds 'aws' @('cloudformation', 'describe-stacks', '--region', $Region, '--stack-name', $execution)
+  $exploreRepoExists = Native-Succeeds 'aws' @('ecr', 'describe-repositories', '--region', $Region, '--repository-names', 'playagent-exploration-runner')
+  $webRepoExists = Native-Succeeds 'aws' @('ecr', 'describe-repositories', '--region', $Region, '--repository-names', 'playagent-web-runner')
+  $executionOwnsRepos = $false
+  if ($executionExists) {
+    $owned = Capture 'aws' @('cloudformation', 'list-stack-resources', '--region', $Region, '--stack-name', $execution, '--query', "StackResourceSummaries[?ResourceType=='AWS::ECR::Repository'].PhysicalResourceId", '--output', 'text')
+    $executionOwnsRepos = $owned -and $owned -ne 'None'
+  }
+  $useExistingRepos = (-not $executionOwnsRepos) -and ($executionExists -or $exploreRepoExists -or $webRepoExists)
+  if ($useExistingRepos) {
+    Ensure-EcrRepository 'playagent-exploration-runner'
+    Ensure-EcrRepository 'playagent-web-runner'
+    $ctx = @(($CdkContext -split ';') | Where-Object { $_.Trim() -and $_ -notmatch '^\s*existingRunnerRepos=' })
+    $CdkContext = (@($ctx) + 'existingRunnerRepos=true') -join ';'
+    Write-Host '  偵測到 destroy 後保留的 ECR;Execution 將匯入既有 repositories。' -ForegroundColor Yellow
+  }
   Deploy-Stacks @($foundation, $execution) 'latest'
+  # 若 stack 原本擁有 repo 但實體 repo 被人工刪掉,補建回固定名稱後再 build。
+  Ensure-EcrRepository 'playagent-exploration-runner'
+  Ensure-EcrRepository 'playagent-web-runner'
 
   Step '由同一個 Git SHA 建置並推送 runner images'
   $registry = "$account.dkr.ecr.$Region.amazonaws.com"
@@ -311,8 +360,8 @@ try {
     }
     if ($plainPassword.Length -lt 8) { Fail '管理員密碼至少 8 字' }
     Step "建立/更新管理員 $AdminEmail"
-    & aws cognito-idp admin-get-user --region $Region --user-pool-id $poolId --username $AdminEmail *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $userExists = Native-Succeeds 'aws' @('cognito-idp', 'admin-get-user', '--region', $Region, '--user-pool-id', $poolId, '--username', $AdminEmail)
+    if (-not $userExists) {
       Run 'aws' @('cognito-idp', 'admin-create-user', '--region', $Region, '--user-pool-id', $poolId,
         '--username', $AdminEmail, '--user-attributes', "Name=email,Value=$AdminEmail", 'Name=email_verified,Value=true', "Name=custom:tenantId,Value=$AdminTenant", '--message-action', 'SUPPRESS')
     }

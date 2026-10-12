@@ -209,6 +209,8 @@ npm run deploy:latest
 第一次安裝接近結束時會詢問是否建立第一位管理員。非互動模式可使用 `-AdminEmail`、`-AdminTenant`、`-NonInteractive`,並把密碼放在 `PA_ADMIN_PASSWORD` 環境變數。
 
 > 一鍵路徑使用 Docker Desktop 在本機建出「與指定 Git SHA 完全一致」的映像。下方手動 CodeBuild 路徑仍不需要 Docker。
+>
+> **`cdk destroy` 後重裝:**資料桶、Cognito User Pool 與 runner ECR 都有 `Retain` 保護。安裝器會偵測並沿用已保留的 ECR,避免同名 repository 擋住重裝；但不會偷偷刪除或接管舊資料桶/User Pool。若要真正完全清空,請先備份需要的資料,再明確刪除這些保留資源。
 
 ## 手動安裝(逐步說明)
 

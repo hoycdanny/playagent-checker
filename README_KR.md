@@ -201,6 +201,8 @@ Install-Latest.cmd
 잘못된 AWS 계정에 배포하지 않도록 `./scripts/deploy-latest.ps1 -ExpectedAccountId 123456789012` 사용을 권장합니다. 첫 설치 마지막 단계에서 첫 관리자를 만들 수 있습니다.
 
 > 원클릭 방식에는 Docker Desktop이 필요합니다. 아래의 수동 CodeBuild 방식은 Docker가 필요하지 않습니다.
+>
+> **`cdk destroy` 후 재설치:** 데이터 버킷, Cognito User Pool, 러너 ECR은 `Retain`으로 보호됩니다. 설치 프로그램은 남아 있는 ECR을 감지해 재사용하므로 같은 리포지토리 이름 때문에 재설치가 막히지 않습니다. 기존 데이터 버킷/User Pool은 자동 삭제하거나 자동 인계하지 않습니다. 완전히 초기화하려면 필요한 데이터를 백업한 뒤 보존 리소스를 명시적으로 삭제하십시오.
 
 ## 수동 설치(단계별)
 
