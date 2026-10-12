@@ -18,6 +18,13 @@ export interface CatalogEntry {
   coordSystem: CoordSystem;
   /** 可坐哪些 Seat。 */
   seats: Seat[];
+  /**
+   * 有值 = 這個模型目前**叫不動**,原因寫在這裡(前端把選項反灰並顯示原因)。
+   * 用途是把「選得到但執行時一定失敗」擋在送出之前 —— 這種失敗要等真機開機、裝好 App、
+   * 第一次呼叫模型才會炸,代價是一次完整的執行時間與裝置費用。
+   * 以 converse 實呼驗證後填寫(infra/scripts/check-model-ids.mjs --invoke)。
+   */
+  unavailable?: string;
 }
 
 /**
@@ -39,9 +46,10 @@ const CATALOG_SPECS: CatalogSpec[] = [
   // 注意:modelId 一律寫「基礎 id(無 us. 前綴)」;正確前綴由 applyRegionPrefix 依供應商集中套用。
   { modelId: 'anthropic.claude-sonnet-4-5-20250929-v1:0', displayName: 'Claude Sonnet 4.5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'anthropic.claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
-  { modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', displayName: 'Claude Sonnet 4', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
+  // 實呼回 ResourceNotFoundException:provider 標為 Legacy 且本帳號 30 天內沒用過 → 已拿不到存取。
+  { modelId: 'anthropic.claude-sonnet-4-20250514-v1:0', displayName: 'Claude Sonnet 4', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'], unavailable: 'Legacy model: access revoked for accounts with no usage in the last 30 days' },
   { modelId: 'anthropic.claude-sonnet-5', displayName: 'Claude Sonnet 5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
-  { modelId: 'anthropic.claude-opus-4-1-20250805-v1:0', displayName: 'Claude Opus 4.1', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
+  { modelId: 'anthropic.claude-opus-4-1-20250805-v1:0', displayName: 'Claude Opus 4.1', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'], unavailable: 'Legacy model: access revoked for accounts with no usage in the last 30 days' },
   { modelId: 'anthropic.claude-opus-4-5-20251101-v1:0', displayName: 'Claude Opus 4.5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'anthropic.claude-opus-4-6-v1', displayName: 'Claude Opus 4.6', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'anthropic.claude-opus-4-7', displayName: 'Claude Opus 4.7', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
@@ -49,9 +57,11 @@ const CATALOG_SPECS: CatalogSpec[] = [
   { modelId: 'anthropic.claude-opus-5', displayName: 'Claude Opus 5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'anthropic.claude-opus-5-5', displayName: 'Claude Opus 5.5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'anthropic.claude-haiku-4-5-20251001-v1:0', displayName: 'Claude Haiku 4.5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
-  { modelId: 'anthropic.claude-3-haiku-20240307-v1:0', displayName: 'Claude 3 Haiku', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['subagent'] },
-  { modelId: 'anthropic.claude-fable-5', displayName: 'Claude Fable 5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
-  { modelId: 'anthropic.claude-fable-5-1', displayName: 'Claude Fable 5.1', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
+  { modelId: 'anthropic.claude-3-haiku-20240307-v1:0', displayName: 'Claude 3 Haiku', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['subagent'], unavailable: 'End of life: this model version has been retired by AWS' },
+  // 實呼回 ValidationException:這兩個模型不接受預設的 data retention 模式,
+  // 需要帳號層開啟不保留資料(opt-out)才能呼叫;目前本帳號呼叫會直接失敗。
+  { modelId: 'anthropic.claude-fable-5', displayName: 'Claude Fable 5', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'], unavailable: 'Requires a non-default data retention mode on the account' },
+  { modelId: 'anthropic.claude-fable-5-1', displayName: 'Claude Fable 5.1', regions: ['us-east-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'], unavailable: 'Requires a non-default data retention mode on the account' },
   // --- 視覺模型(可坐 vlm/agent/subagent;座標系未實測,標 norm1000)---
   { modelId: 'amazon.nova-pro-v1:0', displayName: 'Nova Pro', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'amazon.nova-lite-v1:0', displayName: 'Nova Lite', regions: ['us-east-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
@@ -101,19 +111,31 @@ const CATALOG_SPECS: CatalogSpec[] = [
 ];
 
 /**
- * 需要 `us.` 跨區推論設定檔前綴才能呼叫的供應商(其餘用原始 foundation-model id,不可加前綴)。
- * 此清單由 Bedrock us-east-2 實測(bedrock-runtime converse 兩種 id 形式對照)得出:
- * - 需前綴:anthropic / amazon / meta / mistral / writer
- * - 不可加前綴:qwen / google / moonshotai / moonshot / minimax / nvidia / openai / deepseek / zai
- * 加錯前綴會導致 ValidationException: invalid model identifier。
+ * 要不要加 `us.` 前綴,取決於**這個模型**在 Bedrock 上怎麼賣,不是看供應商:
+ *  - `inferenceTypesSupported` 含 ON_DEMAND → 用原始 foundation-model id 直呼,加前綴會被拒。
+ *  - 只有 INFERENCE_PROFILE → 必須用 `us.<id>` 跨區推論設定檔。
+ * 兩種都猜錯都是同一個錯誤訊息:ValidationException: The provided model identifier is invalid.
+ *
+ * 以前這裡用「整個供應商」判斷,把 mistral / writer 全部加前綴。新一代 Mistral 3 / Ministral /
+ * Palmyra Vision 是 ON_DEMAND 上架的,於是整組選了就一定失敗(job-mv4ogljf-t6izg9 就是這樣死的);
+ * 反向的 deepseek.r1 是 profile-only 卻沒加前綴,一樣失敗。
+ *
+ * 下面的分類以 us-east-2 實際 API 回應為準(ListFoundationModels + ListInferenceProfiles,
+ * 再以 converse 逐一實呼驗證,2026-10-12)。新增模型時請跑:
+ *   node infra/scripts/check-model-ids.mjs
+ * 它會比對目錄與 Bedrock 現況,把「加錯前綴/不存在/模態不符」列出來。
  */
-const PREFIXED_PROVIDERS = new Set(['anthropic', 'amazon', 'meta', 'mistral', 'writer']);
+const PREFIXED_PROVIDERS = new Set(['anthropic', 'amazon', 'meta']);
 /**
- * 個別需要 `us.` 前綴的模型(同一 provider 內只有特定 model 需要 inference profile)。
- * moonshotai.kimi-k3 實測:on-demand 直呼被拒(需 inference profile),但同 provider 的
- * kimi-k2.5 無 profile、走 on-demand 直呼 —— 故只對 k3 特例加前綴,不動整個 moonshotai。
+ * 個別需要 `us.` 前綴的模型(同一 provider 內只有特定 model 走 inference profile)。
+ *  - moonshotai.kimi-k3:profile-only,但同 provider 的 kimi-k2.5 是 on-demand。
+ *  - mistral.pixtral-large / deepseek.r1:provider 內唯一 profile-only 的成員。
  */
-const PREFIXED_MODELS = new Set(['moonshotai.kimi-k3']);
+const PREFIXED_MODELS = new Set([
+  'moonshotai.kimi-k3',
+  'mistral.pixtral-large-2502-v1:0',
+  'deepseek.r1-v1:0',
+]);
 const REGION_PREFIX = 'us.';
 
 /** 去掉任何 geo/global 前綴,回傳基礎 id(供推供應商/單價鍵)。 */

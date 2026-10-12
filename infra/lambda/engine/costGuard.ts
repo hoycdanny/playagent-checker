@@ -74,15 +74,18 @@ const PREFERRED_DEFAULTS: Record<Seat, string> = {
 export function defaultSeatSelection(): SeatSelection {
   const pick = (seat: Seat): string => {
     const preferred = PREFERRED_DEFAULTS[seat];
-    // 偏好模型須:存在於 catalog、可坐此 seat、且可定價。任一不符則退回第一個可用。
+    // 偏好模型須:存在於 catalog、可坐此 seat、可定價,且目前叫得動(unavailable 為空)。
+    // 任一不符則退回第一個可用的 —— 預設值絕對不能是一個會在執行時被 Bedrock 拒絕的 id。
+    const usable = (e: { modelId: string; unavailable?: string }) =>
+      isPriceable(e.modelId) && !e.unavailable;
     const preferredEntry = CATALOG.find(
       (e) => e.modelId === preferred && e.seats.includes(seat),
     );
-    if (preferredEntry && isPriceable(preferredEntry.modelId)) {
+    if (preferredEntry && usable(preferredEntry)) {
       return preferredEntry.modelId;
     }
-    const fallback = CATALOG.find((e) => e.seats.includes(seat) && isPriceable(e.modelId));
-    if (!fallback) throw new PricingError(`Catalog 無可坐 ${seat} 且可定價的模型`);
+    const fallback = CATALOG.find((e) => e.seats.includes(seat) && usable(e));
+    if (!fallback) throw new PricingError(`Catalog 無可坐 ${seat} 且可用的模型`);
     return fallback.modelId;
   };
   return { agent: pick('agent'), vlm: pick('vlm'), subagent: pick('subagent') };
@@ -103,6 +106,12 @@ export function resolveExecutionConfig(
     ['subagent', selection.subagent],
   ];
   const seats: SeatSnapshot[] = seatModel.map(([seat, modelId]) => {
+    // 目錄標為無法使用的模型:在這裡就拒絕(與查不到價同樣是 Fail Closed)。
+    // 引擎會把 PricingError 寫成 error 狀態並停止,不會開機、不會呼叫模型。
+    const entry = CATALOG.find((e) => e.modelId === modelId);
+    if (entry?.unavailable) {
+      throw new PricingError(`${seat} 模型目前無法使用:${entry.displayName} —— ${entry.unavailable}`);
+    }
     // resolvePrice 對查不到價的模型會拋 PricingError（Fail Closed）。
     const price = resolvePrice(modelId, now);
     return {

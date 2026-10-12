@@ -15,7 +15,20 @@ Each seat is selected independently per task. Only vision-capable catalog entrie
 `infra/lambda/api/modelCatalog.ts` is the single authority for selectable models. Each entry carries: `modelId`, `displayName`, `regions`, `coordSystem` (`pixel` | `norm1000`), `seats`, and a derived `channel`.
 
 - `channel` (bedrock / bedrock-converse / openai / **sagemaker**) is derived from the modelId — users never pick it.
-- Region prefix (`us.`) is applied per provider automatically.
+- Region prefix (`us.`) is applied **per model, not per provider**: a model sold as `ON_DEMAND` must be
+  called with the plain foundation-model id, while an `INFERENCE_PROFILE`-only model must be called as
+  `us.<id>`. Guessing wrong gives the same message for both mistakes —
+  `ValidationException: The provided model identifier is invalid.` — and it only surfaces on the first
+  model call, i.e. after the device has booted and the app is installed.
+  One provider can contain both kinds (`mistral.pixtral-large` needs the profile, `mistral.mistral-large-3`
+  must not have it), so provider-wide rules break as soon as AWS adds on-demand models to a provider
+  that previously had none. Run `node infra/scripts/check-model-ids.mjs [--invoke]` after editing the
+  catalog; it compares every entry against ListFoundationModels + ListInferenceProfiles (and optionally
+  really calls each id) and fails with a non-zero exit code.
+- `unavailable` marks an entry that is listed but currently **cannot be called** (retired model, legacy
+  model whose access was revoked, or one that needs account settings we do not have). Those options are
+  greyed out in the pickers, rejected by `POST /tasks` with 400, and refused by the engine's config
+  snapshot — so they can never burn device time before failing.
 - **UI-TARS** appears as `uitars`: vlm-only, `pixel` coordinates, `sagemaker` channel.
 
 The `/models?seat=vlm` API drives the frontend dropdown, so it never goes stale.

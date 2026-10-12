@@ -1914,6 +1914,25 @@ async function handleSubmitTask(
   const input = validateSubmit(req.body);
   const s3 = await deps.getTenantS3(tenantId);
 
+  // 模型可用性:在花任何錢之前擋下「選得到但叫不動」的模型。
+  // 不擋的話會走完開機 → 裝 App → 第一次呼叫模型才失敗(job-mv4ogljf-t6izg9 就是這樣,
+  // 花了真機時間與 2 分半,只換到一句 The provided model identifier is invalid)。
+  for (const [seat, modelId] of [
+    ['vlm', input.vlmModel],
+    ['agent', input.agentModel],
+    ['subagent', input.subagentModel],
+  ] as const) {
+    if (!modelId) continue;
+    const entry = CATALOG.find((e) => e.modelId === modelId);
+    if (!entry) return json(400, { error: `${seat} 模型不在目錄中:${modelId}` });
+    if (!entry.seats.includes(seat)) {
+      return json(400, { error: `${entry.displayName} 不能坐 ${seat} 座位` });
+    }
+    if (entry.unavailable) {
+      return json(400, { error: `${entry.displayName} 目前無法使用:${entry.unavailable}` });
+    }
+  }
+
   // 提交前存在性校驗(花費前失敗)
   const appOk = await objectExists(
     s3,
