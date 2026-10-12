@@ -1,7 +1,10 @@
 {
   "commands": [
+    "$env:PA_DATA_BUCKET = '{{PA_DATA_BUCKET}}'",
+    "$Region = @($env:PA_SM_REGION, $env:AWS_REGION, $env:AWS_DEFAULT_REGION, 'us-east-2') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -First 1",
     "shutdown.exe /s /t 10800 /c playagent-poc-auto-terminate 2>$null",
-    "foreach ($f in 'PocHelper.cs','interactive.ps1','run.ps1') { Copy-S3Object -BucketName playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i -Key \"_poc/windows/scripts/$f\" -LocalFile \"C:\\poc\\$f\" -Region us-east-2 | Out-Null }",
+    "foreach ($f in 'PocHelper.cs','interactive.ps1','run.ps1') { Copy-S3Object -BucketName $env:PA_DATA_BUCKET -Key \"_poc/windows/scripts/$f\" -LocalFile \"C:\\poc\\$f\" -Region $Region | Out-Null }",
+    "$env:PA_SM_REGION = $Region",
     "& C:\\poc\\run.ps1 -Width {{W}} -Height {{H}} -Tag {{TAG}}"
   ]
 }

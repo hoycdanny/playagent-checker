@@ -195,8 +195,10 @@ After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**
 ```text
 Windows: double-click Install-Latest.cmd
 macOS:   double-click Install-Latest.command
-Any OS:  npm run deploy:latest
+Linux:   run scripts/deploy-latest.sh
 ```
+
+These three launchers use the same deployment core and default to **`us-east-2` (Ohio)**.
 
 Optional account safety check on any OS:
 
@@ -208,7 +210,26 @@ The legacy Windows PowerShell entry `scripts/deploy-latest.ps1` remains as a com
 
 The installer does not deploy the current folder blindly. It fetches canonical GitHub `main`, resolves one immutable commit SHA, creates an isolated temporary worktree, installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks, builds both runner images locally, pushes both `:<Git SHA>` and `:latest`, pins ECS task definitions to the SHA tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. If `main` changes during deployment, it automatically repeats with the newer commit (up to three rounds). Local uncommitted work is never reset or included.
 
-For the first admin account, the installer asks for email, tenant, and password near the end. In non-interactive use, pass `--admin-email`, `--admin-tenant`, `--non-interactive`, and put the password in `PA_ADMIN_PASSWORD`.
+For the first admin account, the interactive installer asks only for the administrator **Email (username)** and a password entered with hidden input. The tenant defaults to `default`; only advanced setups need `--admin-tenant <tenant>`.
+
+For non-interactive automation, never put the password in command-line arguments. Pipe it from your secret manager to stdin:
+
+```bash
+# bash / zsh (macOS or Linux)
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+```powershell
+# PowerShell
+(aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+```bat
+rem Command Prompt (cmd.exe)
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+```
+
+These examples contain no literal password. Add `--admin-tenant <tenant>` only when overriding the default tenant.
 
 > The one-click path requires Docker Desktop because it builds the exact checked-out source locally. The manual CodeBuild path below still does not require Docker.
 >
@@ -335,7 +356,7 @@ node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
 ```
 
-> The scripts' built-in bucket name belongs to the original developer's account, so always set `PA_SM_BUCKET` to **your** data bucket.
+> `PA_SM_BUCKET` is required. Set it to the DataBucket output from your own Foundation stack; the scripts no longer contain any account-specific bucket fallback.
 
 ## Step 7 — Build the web console
 
@@ -366,33 +387,20 @@ Open the printed `https://xxxx.cloudfront.net` address; you should see the login
 
 ## Step 9 — Create your first (admin) login
 
-Sign-up is disabled on purpose. Pick an email and a password (min 8 chars, upper + lower + number). `tenant` isolates each customer's data; use something short, e.g. a company name.
-
-**Option A — script (recommended):**
+Sign-up is disabled on purpose. The simplest path is the one-click installer above. For a manual setup, run the helper below; it prompts for the password with hidden input, so the password never appears in the command or shell history. Use tenant `default` unless you intentionally need a separate tenant.
 
 ```bash
 cd ../agent/sagemaker
-AWS_REGION=us-east-2 node createUser.mjs \
-  --email you@example.com --tenant acme --password 'ChangeMe123!' --admin
+AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin
 ```
 
-**Option B — at deploy time:** add `-c adminEmail=you@example.com -c adminPassword='ChangeMe123!' -c adminTenant=acme` to the Foundation deploy.
-
-<details>
-<summary>Option C — raw AWS CLI</summary>
+For automation, pipe the password from a secret manager to stdin instead of putting it in argv:
 
 ```bash
-POOL_ID=PASTE_UserPoolId
-aws cognito-idp admin-create-user --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com \
-  --user-attributes Name=email,Value=you@example.com Name=email_verified,Value=true "Name=custom:tenantId,Value=acme" \
-  --message-action SUPPRESS
-aws cognito-idp admin-set-user-password --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com --password 'ChangeMe123!' --permanent
-aws cognito-idp admin-add-user-to-group --region us-east-2 --user-pool-id "$POOL_ID" \
-  --username you@example.com --group-name admins
+aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
 ```
-</details>
+
+The password must be at least 8 characters and include upper-case, lower-case, and numeric characters.
 
 After that, create everyone else from the **Members** page.
 

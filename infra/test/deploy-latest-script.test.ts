@@ -4,6 +4,8 @@ import { join } from 'node:path';
 
 const root = join(__dirname, '..', '..');
 const core = readFileSync(join(root, 'scripts', 'deploy-latest.mjs'), 'utf8');
+const secretInput = readFileSync(join(root, 'scripts', 'secret-input.mjs'), 'utf8');
+const createUser = readFileSync(join(root, 'agent', 'sagemaker', 'createUser.mjs'), 'utf8');
 const ps = readFileSync(join(root, 'scripts', 'deploy-latest.ps1'), 'utf8');
 const sh = readFileSync(join(root, 'scripts', 'deploy-latest.sh'), 'utf8');
 const cmd = readFileSync(join(root, 'Install-Latest.cmd'), 'utf8');
@@ -13,6 +15,7 @@ const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 describe('cross-platform one-click latest deployment contract', () => {
   test('Windows, macOS, shell, PowerShell, and npm all call the same Node core', () => {
     expect(cmd).toContain('scripts\\deploy-latest.mjs');
+    expect(cmd).toContain('%*');
     expect(cmd).toContain('pause');
     expect(mac).toMatch(/^#!\/usr\/bin\/env bash/);
     expect(mac).toContain('scripts/deploy-latest.mjs');
@@ -29,6 +32,10 @@ describe('cross-platform one-click latest deployment contract', () => {
       const text = readFileSync(join(root, file), 'utf8');
       expect(text, file).toContain('Install-Latest.cmd');
       expect(text, file).toContain('Install-Latest.command');
+      expect(text, file).toContain('us-east-2');
+      expect(text, file).toContain('--admin-password-stdin');
+      expect(text, file).not.toContain('adminPassword=');
+      expect(text, file).not.toMatch(/--password\s+['"]/);
     }
   });
 
@@ -60,11 +67,22 @@ describe('cross-platform one-click latest deployment contract', () => {
     expect(core).toContain('ensureRepo');
   });
 
-  test('fresh admin check is non-terminating and creates a missing user', () => {
-    expect(core).toContain("const exists = await succeeds('aws', ['cognito-idp', 'admin-get-user'");
-    expect(core).toContain("'admin-create-user'");
-    expect(core).toContain("'admin-set-user-password'");
-    expect(core).toContain("'admin-add-user-to-group'");
+  test('defaults to us-east-2 and provisions the required admin without secret argv', () => {
+    expect(core).toContain("region: 'us-east-2'");
+    expect(core).toContain("adminTenant: 'default'");
+    expect(ps).toContain("[string]$Region = 'us-east-2'");
+    expect(core).toContain("'--password-stdin'");
+    expect(core).toContain('input: adminPassword');
+    expect(core).not.toContain('adminPasswordEnv');
+    expect(core).toContain("else if (a === '--admin-password-env')");
+    expect(core).not.toMatch(/'--password',\s*adminPassword/);
+    expect(createUser).toContain('AdminGetUserCommand');
+    expect(createUser).toContain('AdminCreateUserCommand');
+    expect(createUser).toContain('AdminSetUserPasswordCommand');
+    expect(createUser).toContain('AdminAddUserToGroupCommand');
+    expect(createUser).toContain("startsWith('--password=')");
+    expect(secretInput).toContain('setRawMode(true)');
+    expect(secretInput).toContain('readSecretFromStdin');
   });
 
   test('fails closed and verifies every deploy surface', () => {

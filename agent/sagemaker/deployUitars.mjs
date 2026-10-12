@@ -12,9 +12,9 @@
  *   - AWS 憑證(us-east-2)
  *
  * 環境變數:
- *   PA_SM_ROLE_ARN    SageMaker 執行角色(預設 ArtSmokerSageMakerRole 的 arn,見下)
- *   PA_SM_BUCKET      staging 權重的 S3 bucket(預設用 foundation data bucket)
- *   PA_SM_REGION      預設 us-east-2
+ *   PA_SM_ROLE_ARN    SageMaker 執行角色 ARN(必填)
+ *   PA_SM_BUCKET      staging 權重的 S3 bucket(必填)
+ *   PA_SM_REGION      依序採 PA_SM_REGION/AWS_REGION/AWS_DEFAULT_REGION,預設 us-east-2
  *   PA_SM_INSTANCE    預設 ml.g6e.xlarge
  *   PA_SM_IMAGE_REPO  預設 playagent-vllm-byoc
  *   PA_SKIP_DOWNLOAD  =1 時跳過 HF 下載(權重已在 S3)
@@ -31,7 +31,7 @@ import {
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REGION = process.env.PA_SM_REGION || 'us-east-2';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-2';
 const INSTANCE = process.env.PA_SM_INSTANCE || 'ml.g6e.xlarge';
 const IMAGE_REPO = process.env.PA_SM_IMAGE_REPO || 'playagent-vllm-byoc';
 const MODEL_ID = 'ByteDance-Seed/UI-TARS-1.5-7B';
@@ -40,8 +40,17 @@ const MAX_MODEL_LEN = '32768';
 const DTYPE = 'bfloat16';
 const MODEL_TYPE = 'multimodal';
 const SERVED_NAME = 'default';
-const ROLE_ARN = process.env.PA_SM_ROLE_ARN || 'arn:aws:iam::137068253259:role/ArtSmokerSageMakerRole';
-const BUCKET = process.env.PA_SM_BUCKET || 'playagentdev-foundation-databuckete6b0faa8-r5hkpnrl2c5i';
+const ROLE_ARN = process.env.PA_SM_ROLE_ARN?.trim();
+const BUCKET = process.env.PA_SM_BUCKET?.trim();
+if (!ROLE_ARN) throw new Error('PA_SM_ROLE_ARN is required');
+if (!BUCKET) throw new Error('PA_SM_BUCKET is required');
+if (!/^arn:[a-z0-9-]+:iam::\d{12}:role\/[\w+=,.@\/-]+$/.test(ROLE_ARN)) {
+  throw new Error('PA_SM_ROLE_ARN must be a valid IAM role ARN');
+}
+if (BUCKET.length < 3 || BUCKET.length > 63 || !/^[a-z0-9][a-z0-9.-]*[a-z0-9]$/.test(BUCKET)
+    || BUCKET.includes('..') || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(BUCKET)) {
+  throw new Error('PA_SM_BUCKET must be a valid S3 bucket name');
+}
 const S3_PREFIX = `sagemaker-models/${PRESET}`;
 const LOCAL_DIR = join(HERE, `.models/${PRESET}`);
 const HF_BIN = existsSync(`${process.env.HOME}/.local/bin/hf`) ? `${process.env.HOME}/.local/bin/hf` : 'hf';

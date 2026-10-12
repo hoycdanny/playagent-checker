@@ -46,6 +46,11 @@ describe('FoundationStack', () => {
     });
   });
 
+  test('不把初始管理員密碼放進 CloudFormation custom resource', () => {
+    const t = synth();
+    t.resourceCountIs('Custom::AWS', 0);
+  });
+
   test('app client 啟用 USER_PASSWORD_AUTH 且無 client secret', () => {
     const t = synth();
     t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
