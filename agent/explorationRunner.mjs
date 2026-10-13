@@ -30,7 +30,7 @@ import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
 import { foldSystemIntoFirstUser, isRoleAlternationError } from './converseShape.mjs';
 import {
   DeviceFarmClient,
@@ -1112,20 +1112,21 @@ async function main() {
     const uitarsInstr = operator.active.length || scoped.length
       ? `${uitarsBase}\n\nTester instructions (highest priority, follow now):\n${[...operator.active.slice(-3).map((c) => c.text), ...scoped.slice(0, 3).map((h) => h.text)].map((t) => `- ${t}`).join('\n')}`
       : uitarsBase;
-    // 測試人員直接在即時畫面上點了位置:不靠 AI 猜座標,這一步就點那個點(最準)。
-    // point 是相對畫面的比例(0–1),換算到本步截圖(cw×ch)空間後走同一條點擊/標記鏈。
+    // 測試人員直接在即時畫面上點了位置 / 拖了一段:不靠 AI 猜座標,這一步就照做(最準)。
+    // point/to 是相對畫面的比例(0–1),換算到本步截圖(cw×ch)空間後走同一條點擊/拖曳/標記鏈。
     const pointCmd = [...newCmds].reverse().find((c) => c.point);
     let decided;
     if (pointCmd) {
-      const px = Math.round(pointCmd.point.x * cw);
-      const py = Math.round(pointCmd.point.y * ch);
-      const note = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? `(${pointCmd.text})` : '';
+      const gesture = operatorGestureCmd(pointCmd, cw, ch);
+      const said = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT && pointCmd.text !== DRAG_ONLY_TEXT ? pointCmd.text : '';
+      const note = said ? `(${said})` : '';
       const opCmd = {
-        action: 'tap', x: px, y: py,
+        ...gesture,
         ...(prevScreen ? { screen: prevScreen } : {}),
-        thinking: `依測試人員在即時畫面上點選的位置直接點擊 (${px}, ${py})${note}。`,
-        target: pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? pointCmd.text : '測試人員指定位置',
-        operatorTap: true,
+        thinking: gesture.operatorDrag
+          ? `依測試人員在即時畫面上拖曳的路徑,從 (${gesture.x}, ${gesture.y}) 按住拖到 (${gesture.x2}, ${gesture.y2}),耗時 ${gesture.durationMs} ms${note}。`
+          : `依測試人員在即時畫面上點選的位置直接點擊 (${gesture.x}, ${gesture.y})${note}。`,
+        target: said || (gesture.operatorDrag ? '測試人員指定拖曳路徑' : '測試人員指定位置'),
       };
       decided = { cmd: opCmd, usage: null, rawText: JSON.stringify(opCmd), trace: { modelId: 'operator', channel: 'operator', ok: true, request: {} } };
     } else {
@@ -1402,7 +1403,8 @@ async function main() {
     // 【操作行為把關】測試腳本指定了操作方式時,不在允許清單的手勢(例:拉霸機卻要 move 搖桿、
     // 沒勾多點觸控卻要 combo/pinch)不送裝置,改為短暫等待並在下一回合明確告知 AI 可用動作,
     // 避免用錯操作方式撞牆空轉。runner 自己的脫困/載入覆寫不受限。
-    if (allowedActions && !escapeOverride && !allowedActions.has(cmd.action)) {
+    // 測試人員親手點/拖的手勢不受限(人看著畫面下的指示,遊戲操作方式沒列 swipe 也照做)。
+    if (allowedActions && !escapeOverride && !cmd.operatorTap && !allowedActions.has(cmd.action)) {
       const bad = cmd.action;
       cmd.action = 'wait'; cmd.duration = 1;
       cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.tx = undefined; cmd.ty = undefined;
@@ -1442,7 +1444,9 @@ async function main() {
     let annotatedKey;
     if (MAGICK && (cmd.action === 'tap' || cmd.action === 'swipe') && cmd.x != null && cmd.y != null) {
       // 落點標記畫在「縮圖」上(座標同縮圖空間),前端顯示 AI 實際點在哪。
-      const annB64 = annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.action, ssDim);
+      // swipe 有終點時畫箭頭(起點 → 終點),一眼看出拖/滑的方向與距離。
+      const swipeTo = cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2) ? { x: Math.round(cmd.x2), y: Math.round(cmd.y2) } : undefined;
+      const annB64 = annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.operatorDrag ? 'drag' : cmd.action, ssDim, swipeTo);
       if (annB64) {
         annotatedKey = `${PREFIX}/annotated/${i}.png`;
         await s3put(annotatedKey, Buffer.from(annB64, 'base64'), 'image/png').catch(() => { annotatedKey = undefined; });
@@ -1465,6 +1469,10 @@ async function main() {
       ...(cmd.action === 'combo' ? { dir: cmd.dir ?? null, holdMs: cmd.holdMs ?? null, tx: cmd.tx ?? null, ty: cmd.ty ?? null, taps: cmd.taps ?? null } : {}),
       ...(cmd.action === 'pinch' ? { scale: cmd.scale ?? null } : {}),
       ...(cmd.action === 'swipe' && Number.isFinite(cmd.durationMs) ? { swipeMs: cmd.durationMs } : {}),
+      // swipe 終點(縮圖空間 + 裝置像素)—— 之前只記起點,看不出 AI/測試人員往哪拖。
+      ...(cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2)
+        ? { x2: cmd.x2, y2: cmd.y2, deviceX2: toDeviceX(cmd.x2), deviceY2: toDeviceY(cmd.y2) } : {}),
+      ...(cmd.operatorTap ? { operatorGesture: cmd.operatorDrag ? 'drag' : 'tap' } : {}),
       ...(snappedFrom ? { snappedFrom } : {}),
       ...(cmd.x != null ? { space: { shot: [cw, ch], device: [origW, origH] } } : {}),
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,

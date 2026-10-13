@@ -3,7 +3,12 @@ import { Link } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { reportLang, type RLang } from '../report/reportText.ts';
+import { formatPick, gestureBody, type PickPoint } from './LivePlayer.tsx';
 import './OperatorChat.css';
+
+/** 只點 / 只拖、沒打字時後端填的預設文字(infra/lambda/api/operatorCommands.ts)。 */
+const POINT_ONLY_TEXT = '點這個位置';
+const DRAG_ONLY_TEXT = '照這條路徑拖曳';
 
 /** 後端 GET /tasks/{id}/commands 的一則(infra/lambda/api/operatorCommands.ts)。 */
 interface CommandView {
@@ -14,6 +19,9 @@ interface CommandView {
   screen?: string;
   hintId?: string;
   point?: { x: number; y: number };
+  /** 拖曳終點(有就代表「從 point 拖到 to」)。 */
+  to?: { x: number; y: number };
+  dragMs?: number;
   ack?: { status: 'received' | 'applied'; step?: number; reply?: string; action?: string; screen?: string; at?: string };
 }
 
@@ -39,8 +47,11 @@ const T = {
   pointChip: ['已選畫面位置 {p} · 送出後 AI 會直接點這裡', 'Screen position {p} selected · the AI taps it when you send'],
   pointPlaceholder: ['說明這個位置(可留空),例如「這是 SPIN,以後都點這」', 'Describe this spot (optional), e.g. “this is SPIN”'],
   pointOnly: ['點這個位置', 'Tap this spot'],
+  dragChip: ['已選拖曳路徑 {p} · 送出後 AI 會照這樣拖', 'Drag path {p} selected · the AI drags it when you send'],
+  dragPlaceholder: ['說明這個拖曳(可留空),例如「把寶石拖到右邊的格子」', 'Describe this drag (optional), e.g. “drag the gem to the right slot”'],
+  dragOnly: ['照這條路徑拖曳', 'Drag along this path'],
   clearPoint: ['取消選取的位置', 'Clear the selected position'],
-  pickTip: ['小技巧:直接點左邊的即時畫面,可以指定精確位置。', 'Tip: click the live screen to pick an exact spot.'],
+  pickTip: ['小技巧:開啟即時畫面的指定模式,點一下可指定位置,按住拖曳可指定拖曳路徑。', 'Tip: turn on pick mode on the live screen — click for an exact spot, press and drag for a drag path.'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 const EXAMPLES: Record<RLang, string[]> = {
@@ -57,8 +68,8 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
   isLive: boolean;
   currentScreen?: string;
   appId?: string;
-  /** 在即時畫面上選的位置:送出時一起帶上,runner 直接點這裡。 */
-  point?: { x: number; y: number } | null;
+  /** 在即時畫面上選的位置(或拖曳路徑):送出時一起帶上,runner 直接照做。 */
+  point?: PickPoint | null;
   onClearPoint?: () => void;
   /** 外部(例:畫面上的「讓 AI 點這裡」)送出指令後遞增,觸發立即重抓。 */
   refreshKey?: number;
@@ -108,7 +119,7 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
         ...(t ? { text: t } : {}),
         remember,
         ...(currentScreen ? { screen: currentScreen } : {}),
-        ...(point ? { point } : {}),
+        ...(point ? gestureBody(point) : {}),
       });
       setItems((prev) => [...prev, cmd]);
       setText('');
@@ -149,8 +160,10 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
                 {c.hintId && <span className="opchat__tag">{tx('remembered', lang)}</span>}
               </div>
               <p>
-                {c.point && <span className="opchat__pin">📍 {Math.round(c.point.x * 100)}%, {Math.round(c.point.y * 100)}% </span>}
-                {c.point && c.text === '點這個位置' ? tx('pointOnly', lang) : c.text}
+                {c.point && <span className="opchat__pin">{c.to ? '↗' : '📍'} {formatPick({ ...c.point, to: c.to })} </span>}
+                {c.point && c.text === POINT_ONLY_TEXT ? tx('pointOnly', lang)
+                  : c.point && c.text === DRAG_ONLY_TEXT ? tx('dragOnly', lang)
+                  : c.text}
               </p>
             </div>
             <div className={`opchat__msg opchat__msg--ai ${c.ack?.status === 'applied' ? 'is-done' : 'is-wait'}`}>
@@ -178,7 +191,7 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
         <form className="opchat__form" onSubmit={send}>
           {point && (
             <div className="opchat__point" role="status">
-              <span>{tx('pointChip', lang).replace('{p}', `${Math.round(point.x * 100)}%, ${Math.round(point.y * 100)}%`)}</span>
+              <span>{tx(point.to ? 'dragChip' : 'pointChip', lang).replace('{p}', formatPick(point))}</span>
               <button type="button" className="opchat__point-x" onClick={onClearPoint} aria-label={tx('clearPoint', lang)}>✕</button>
             </div>
           )}
@@ -189,7 +202,7 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
             rows={2}
             maxLength={500}
             value={text}
-            placeholder={point ? tx('pointPlaceholder', lang) : tx('placeholder', lang)}
+            placeholder={point ? tx(point.to ? 'dragPlaceholder' : 'pointPlaceholder', lang) : tx('placeholder', lang)}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKeyDown}
           />

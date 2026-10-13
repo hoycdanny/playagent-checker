@@ -20,7 +20,7 @@
  */
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, POINT_ONLY_TEXT } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
 import { foldSystemIntoFirstUser } from './converseShape.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
@@ -315,13 +315,17 @@ async function main() {
     messages.push(makeUserTurn([ds.b64], turnText, visionFmt));
 
     const tVlm = Date.now();
-    // 測試人員在即時畫面上點了位置 → 這一步直接點那裡(不靠 AI 猜座標)。
+    // 測試人員在即時畫面上點了位置 / 拖了一段 → 這一步直接照做(不靠 AI 猜座標)。
     const pointCmd = [...newCmds].reverse().find((c) => c.point);
     let decided = pointCmd
       ? (() => {
-          const px = Math.round(pointCmd.point.x * cw), py = Math.round(pointCmd.point.y * ch);
-          const label = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT ? pointCmd.text : '';
-          const op = { action: 'tap', x: px, y: py, ...(prevScreen ? { screen: prevScreen } : {}), thinking: `依測試人員在即時畫面上點選的位置直接點擊 (${px}, ${py})${label ? `(${label})` : ''}。`, operatorTap: true };
+          const g = operatorGestureCmd(pointCmd, cw, ch);
+          const label = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT && pointCmd.text !== DRAG_ONLY_TEXT ? pointCmd.text : '';
+          const how = g.operatorDrag
+            ? `依測試人員在即時畫面上拖曳的路徑,從 (${g.x}, ${g.y}) 按住拖到 (${g.x2}, ${g.y2}),耗時 ${g.durationMs} ms`
+            : `依測試人員在即時畫面上點選的位置直接點擊 (${g.x}, ${g.y})`;
+          // drag:true → PlaywrightClient 一定用滑鼠按住拖曳(不會把垂直拖曳改成捲動)。
+          const op = { ...g, ...(g.operatorDrag ? { drag: true } : {}), ...(prevScreen ? { screen: prevScreen } : {}), thinking: `${how}${label ? `(${label})` : ''}。` };
           return { cmd: op, usage: null, rawText: JSON.stringify(op), trace: { modelId: 'operator', ok: true } };
         })()
       : await decide(system, messages);
@@ -366,13 +370,17 @@ async function main() {
     // 落點標記圖(畫在 smart-resize 圖上,座標同空間)。
     let annotatedKey;
     if (MAGICK && (cmd.action === 'tap' || cmd.action === 'swipe') && cmd.x != null && cmd.y != null) {
-      const annB64 = annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.action, ssDim);
+      const swipeTo = cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2) ? { x: Math.round(cmd.x2), y: Math.round(cmd.y2) } : undefined;
+      const annB64 = annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.operatorDrag ? 'drag' : cmd.action, ssDim, swipeTo);
       if (annB64) { annotatedKey = `${PREFIX}/annotated/${i}.png`; await s3put(annotatedKey, Buffer.from(annB64, 'base64'), 'image/png').catch(() => { annotatedKey = undefined; }); }
     }
 
     const step = {
       index: i, action: cmd.action, screen: screenName, thinking: cmd.thinking,
       ...(cmd.x != null ? { x: cmd.x, y: cmd.y, deviceX: toDevX(cmd.x), deviceY: toDevY(cmd.y) } : {}),
+      ...(cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2)
+        ? { x2: cmd.x2, y2: cmd.y2, deviceX2: toDevX(cmd.x2), deviceY2: toDevY(cmd.y2), ...(Number.isFinite(cmd.durationMs) ? { swipeMs: cmd.durationMs } : {}) } : {}),
+      ...(cmd.operatorTap ? { operatorGesture: cmd.operatorDrag ? 'drag' : 'tap' } : {}),
       ...(cmd.x != null ? { space: { shot: [cw, ch], device: [origW, origH] } } : {}),
       url: client.currentUrl(),
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,

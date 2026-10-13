@@ -180,7 +180,7 @@ export class AppiumClient {
       case 'swipe': {
         const [sx, sy] = this.#toWindow(Math.round(cmd.x), Math.round(cmd.y));
         const [ex, ey] = this.#toWindow(Math.round(cmd.x2 ?? cmd.x), Math.round(cmd.y2 ?? cmd.y));
-        await this.#swipe(sx, sy, ex, ey, cmd.durationMs ?? 500);
+        await this.#swipe(sx, sy, ex, ey, cmd.durationMs ?? 500, { pressMs: cmd.pressMs, endHoldMs: cmd.endHoldMs });
         break;
       }
       // move:虛擬搖桿「持續移動」手勢。割草/動作遊戲
@@ -387,10 +387,18 @@ export class AppiumClient {
     await this.#driver.touchAction([{ action: 'tap', x, y }]);
   }
 
-  async #swipe(x1, y1, x2, y2, durationMs) {
-    await this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
-      .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 })
-      .move({ x: x2, y: y2, duration: durationMs }).up({ button: 0 }).perform();
+  /**
+   * 按住起點 → 移到終點 → 放開。pressMs:按下後先停一下再移動(拖放類遊戲要先「抓起」物件);
+   * endHoldMs:到終點後停一下再放開(讓目標格先偵測到懸停)。AI 的一般滑動兩者都是 0。
+   */
+  async #swipe(x1, y1, x2, y2, durationMs, { pressMs = 0, endHoldMs = 0 } = {}) {
+    const ms = (v) => (Number.isFinite(v) && v > 0 ? Math.min(2000, Math.round(v)) : 0);
+    let chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+      .move({ x: x1, y: y1, duration: 0 }).down({ button: 0 });
+    if (ms(pressMs)) chain = chain.pause(ms(pressMs));
+    chain = chain.move({ x: x2, y: y2, duration: durationMs });
+    if (ms(endHoldMs)) chain = chain.pause(ms(endHoldMs));
+    await chain.up({ button: 0 }).perform();
   }
 
   /**

@@ -52,6 +52,35 @@
   cursor: crosshair;
   outline: 2px solid var(--brand);
   outline-offset: -2px;
+  /* 按住拖曳時不要捲動頁面/選取文字(觸控與滑鼠都一樣) */
+  touch-action: none;
+  user-select: none;
+}
+/* 拖曳路徑:起點(藍圈)→ 終點(箭頭 + 空心圈)。 */
+.liveplayer__drag {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.liveplayer__drag-halo {
+  stroke: rgb(0 0 0 / 0.55);
+  stroke-width: 7;
+  stroke-linecap: round;
+}
+.liveplayer__drag-line {
+  stroke: #fff;
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-dasharray: 10 6;
+}
+.liveplayer__drag-head {
+  fill: #fff;
+}
+.liveplayer__drag-end {
+  fill: color-mix(in srgb, var(--brand) 35%, transparent);
+  stroke: #fff;
+  stroke-width: 3;
 }
 .liveplayer__marker {
   position: absolute;
@@ -69,6 +98,7 @@
   0% { box-shadow: 0 0 0 2px var(--brand), 0 0 0 0 color-mix(in srgb, var(--brand) 60%, transparent); }
   100% { box-shadow: 0 0 0 2px var(--brand), 0 0 0 14px color-mix(in srgb, var(--brand) 0%, transparent); }
 }
+.liveplayer__marker.is-drag { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .liveplayer__marker { animation: none; }
 }

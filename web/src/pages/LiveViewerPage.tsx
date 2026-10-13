@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { apiGet, apiPost } from '../api/client.ts';
-import type { PickPoint } from '../components/tasks/LivePlayer.tsx';
+import { gestureBody, type PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { useJobStream } from '../api/useJobStream.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
@@ -63,7 +63,7 @@ export default function LiveViewerPage() {
         onPoint={setPoint}
         onSendPoint={async (p) => {
           const screen = [...steps].reverse().find((s) => s.screen && !s.parseFailed)?.screen;
-          await apiPost(`/tasks/${jobId}/commands`, { point: p, remember: false, ...(screen ? { screen: String(screen) } : {}) });
+          await apiPost(`/tasks/${jobId}/commands`, { ...gestureBody(p), remember: false, ...(screen ? { screen: String(screen) } : {}) });
         }}
         {...(levels?.state ? { audioState: levels.state } : {})}
       />

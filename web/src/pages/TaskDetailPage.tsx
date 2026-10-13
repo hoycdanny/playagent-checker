@@ -10,7 +10,7 @@ import { TaskInfoStrip } from '../components/tasks/TaskInfoStrip.tsx';
 import { BootTimeline } from '../components/tasks/BootTimeline.tsx';
 import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
-import type { PickPoint } from '../components/tasks/LivePlayer.tsx';
+import { gestureBody, type PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
 import { RecordingPlayer, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
 import { DeviceLogsPanel } from '../components/tasks/DeviceLogsPanel.tsx';
@@ -125,7 +125,7 @@ export default function TaskDetailPage() {
   const [pickPoint, setPickPoint] = useState<PickPoint | null>(null);
   async function sendPoint(p: PickPoint) {
     if (!jobId) return;
-    await apiPost(`/tasks/${jobId}/commands`, { point: p, remember: false, ...(latestScreen ? { screen: latestScreen } : {}) });
+    await apiPost(`/tasks/${jobId}/commands`, { ...gestureBody(p), remember: false, ...(latestScreen ? { screen: latestScreen } : {}) });
     setChatRefresh((n) => n + 1);
   }
   const [chatRefresh, setChatRefresh] = useState(0);

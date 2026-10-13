@@ -123,7 +123,24 @@ export class PlaywrightClient {
         const x1 = Math.round(cmd.x), y1 = Math.round(cmd.y);
         const x2 = Math.round(cmd.x2 ?? cmd.x), y2 = Math.round(cmd.y2 ?? cmd.y);
         const dx = x2 - x1, dy = y2 - y1;
-        if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
+        if (cmd.drag) {
+          // 測試人員指定的拖曳:一定是真的按住拖(不改成 wheel),並照實際拖的時間移動。
+          const dur = Math.max(100, Math.min(5000, Number(cmd.durationMs) || 600));
+          const steps = Math.max(10, Math.min(120, Math.round(dur / 16)));
+          const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+          await this.#page.mouse.move(x1, y1);
+          await this.#page.mouse.down();
+          if (cmd.pressMs > 0) await wait(Math.min(2000, cmd.pressMs));
+          // 依時鐘排程每一小步(固定 sleep 會累積計時誤差,實測 700ms 的拖曳變成 1.1 秒)。
+          const tMove = Date.now();
+          for (let k = 1; k <= steps; k++) {
+            await this.#page.mouse.move(x1 + (dx * k) / steps, y1 + (dy * k) / steps);
+            const lag = tMove + (dur * k) / steps - Date.now();
+            if (lag > 0) await wait(lag);
+          }
+          if (cmd.endHoldMs > 0) await wait(Math.min(2000, cmd.endHoldMs));
+          await this.#page.mouse.up();
+        } else if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 40) {
           // 手指往上滑 = 內容往上 = 頁面往下捲(wheel deltaY 正值)。方向與手指相反。
           await this.#page.mouse.move(x1, y1);
           await this.#page.mouse.wheel(0, -dy);
