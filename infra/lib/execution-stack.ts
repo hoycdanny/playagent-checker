@@ -1,6 +1,6 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CfnOutput, Duration, Stack, type StackProps } from 'aws-cdk-lib';
+import { CfnOutput, Duration, RemovalPolicy, Stack, type StackProps } from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -56,6 +56,10 @@ export class ExecutionStack extends Stack {
 
   constructor(scope: Construct, id: string, props: ExecutionStackProps) {
     super(scope, id, props);
+
+    // 集中式日誌:給兩個 Fargate runner 固定的 log group 名稱(/playagent/<stage>/runner-*),
+    // 讓系統管理頁的日誌檢視能用命名前綴探索到它們(Lambda 群組靠 /aws/lambda/<stage>- 探索)。
+    const logStage = this.stackName.replace(/-Execution$/, '');
 
     // 裝置主機所在 VPC。natGateways:0 —— 純 VPC + subnet 不計費(避免 NAT/EIP 成本);
     // 每任務主機置於帶 S3 Gateway Endpoint 的 isolated 子網,經內網存取 S3。
@@ -484,7 +488,11 @@ export class ExecutionStack extends Stack {
       image: ecs.ContainerImage.fromEcrRepository(runnerRepo, props.runnerImageTag ?? 'latest'),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'exploration',
-        logRetention: logs.RetentionDays.TWO_WEEKS,
+        logGroup: new logs.LogGroup(this, 'ExplorationRunnerLogs', {
+          logGroupName: `/playagent/${logStage}/runner-exploration`,
+          retention: logs.RetentionDays.TWO_WEEKS,
+          removalPolicy: RemovalPolicy.DESTROY,
+        }),
       }),
     });
 
@@ -585,7 +593,11 @@ export class ExecutionStack extends Stack {
       image: ecs.ContainerImage.fromEcrRepository(webRunnerRepo, props.runnerImageTag ?? 'latest'),
       logging: ecs.LogDrivers.awsLogs({
         streamPrefix: 'web-runner',
-        logRetention: logs.RetentionDays.TWO_WEEKS,
+        logGroup: new logs.LogGroup(this, 'WebRunnerLogs', {
+          logGroupName: `/playagent/${logStage}/runner-web`,
+          retention: logs.RetentionDays.TWO_WEEKS,
+          removalPolicy: RemovalPolicy.DESTROY,
+        }),
       }),
     });
 

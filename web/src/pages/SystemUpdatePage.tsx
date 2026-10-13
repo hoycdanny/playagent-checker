@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import './ListPage.css';
 import { UitarsPanel } from '../components/system/UitarsPanel.tsx';
+import { LogsPanel } from '../components/system/LogsPanel.tsx';
 import './SystemUpdatePage.css';
 
 /** 與後端 systemUpdate.ts 的回傳型別對齊。 */
@@ -396,6 +397,9 @@ export default function SystemUpdatePage() {
 
       {/* UI-TARS 定位模型開關(SageMaker GPU,預設關閉) */}
       <UitarsPanel />
+
+      {/* 集中日誌:跨服務查 CloudWatch Logs,方便除錯 */}
+      <LogsPanel />
     </section>
   );
 }

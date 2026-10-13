@@ -97,6 +97,13 @@ import {
   type SystemUpdatePorts,
 } from './systemUpdate.js';
 import {
+  getLogQuery,
+  listLogSources,
+  LogQueryError,
+  startLogQuery,
+  type SystemLogsPorts,
+} from './systemLogs.js';
+import {
   getUitarsStatus,
   setUitars,
   uitarsAvailable,
@@ -234,6 +241,8 @@ export interface ApiDeps {
    * 且 UI-TARS 一律視為關閉(模型清單不列、提交被拒)。
    */
   uitars?: { ports: UitarsPorts; endpointName: string; instanceType: string };
+  /** 集中式日誌(admin 專用,系統管理頁)。選填;未注入時 /system/logs/* 回 501。 */
+  systemLogs?: { ports: SystemLogsPorts };
   /** 任務 AI 問答用的 Bedrock client(測試注入;未注入時 taskAsk 自建)。 */
   askBedrock?: Pick<import('@aws-sdk/client-bedrock-runtime').BedrockRuntimeClient, 'send'>;
 }
@@ -395,6 +404,34 @@ export async function handleRequest(
           return json(200, status);
         } catch (err) {
           if (err instanceof UitarsSwitchError) return json(409, { error: err.message });
+          throw err;
+        }
+      }
+
+      // 集中式日誌(admin 專用):跨服務查 CloudWatch Logs,方便除錯整條鏈路。唯讀。
+      case 'GET /system/logs/sources': {
+        requireAdmin(req.claims);
+        if (!deps.systemLogs) return json(501, { error: '集中式日誌未設定' });
+        const items = await listLogSources(deps.systemLogs.ports);
+        return json(200, { items });
+      }
+
+      case 'POST /system/logs/query': {
+        requireAdmin(req.claims);
+        if (!deps.systemLogs) return json(501, { error: '集中式日誌未設定' });
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        try {
+          const started = await startLogQuery(deps.systemLogs.ports, {
+            ...(Array.isArray(body.sources) ? { sources: body.sources.filter((x): x is string => typeof x === 'string') } : {}),
+            ...(typeof body.minutes === 'number' ? { minutes: body.minutes } : {}),
+            ...(typeof body.start === 'number' ? { start: body.start } : {}),
+            ...(typeof body.end === 'number' ? { end: body.end } : {}),
+            ...(typeof body.pattern === 'string' ? { pattern: body.pattern } : {}),
+            ...(typeof body.limit === 'number' ? { limit: body.limit } : {}),
+          });
+          return json(200, started);
+        } catch (err) {
+          if (err instanceof LogQueryError) throw new BadRequestError(err.message);
           throw err;
         }
       }
@@ -1401,6 +1438,14 @@ export async function handleRequest(
           const next = req.query?.['next'];
           const page = await deps.systemUpdate.ports.readLog(build.logGroup, build.logStream, next);
           return json(200, { ...page, status: build.status });
+        }
+        // 集中式日誌:輪詢某次 Insights 查詢的結果。
+        const logQuery = req.method === 'GET' && /^\/system\/logs\/query\/([^/]+)$/.exec(req.path);
+        if (logQuery) {
+          requireAdmin(req.claims);
+          if (!deps.systemLogs) return json(501, { error: '集中式日誌未設定' });
+          const result = await getLogQuery(deps.systemLogs.ports, decodeURIComponent(logQuery[1]!));
+          return json(200, result);
         }
         const buildStatus = req.method === 'GET' && /^\/system\/update\/([^/]+)$/.exec(req.path);
         if (buildStatus) {
