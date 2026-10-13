@@ -10,6 +10,7 @@ import {
 import { getConfig } from '../config.ts';
 import { setTokenProvider, setUnauthorizedHandler } from '../api/client.ts';
 import {
+  completeNewPassword as cognitoCompleteNewPassword,
   decodeIdToken,
   login as cognitoLogin,
   makeCognitoClient,
@@ -48,6 +49,8 @@ interface AuthContextValue {
   isAdmin: boolean;
   isAuthenticated: boolean;
   login: (username: string, password: string) => Promise<void>;
+  /** 臨時密碼第一次登入:設定新密碼並完成登入(session 來自 NewPasswordRequiredError)。 */
+  completeNewPassword: (username: string, newPassword: string, session: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -61,6 +64,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (username: string, password: string) => {
       const client = makeCognitoClient(cfg.cognitoRegion);
       const t = await cognitoLogin(client, cfg.cognitoClientId, username, password);
+      saveTokens(t);
+      setTokens(t);
+    },
+    [cfg.cognitoRegion, cfg.cognitoClientId],
+  );
+
+  const completeNewPassword = useCallback(
+    async (username: string, newPassword: string, session: string) => {
+      const client = makeCognitoClient(cfg.cognitoRegion);
+      const t = await cognitoCompleteNewPassword(client, cfg.cognitoClientId, username, newPassword, session);
       saveTokens(t);
       setTokens(t);
     },
@@ -136,9 +149,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin,
       isAuthenticated: tokens !== null,
       login,
+      completeNewPassword,
       logout,
     }),
-    [tokens, email, tenantId, isAdmin, login, logout],
+    [tokens, email, tenantId, isAdmin, login, completeNewPassword, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

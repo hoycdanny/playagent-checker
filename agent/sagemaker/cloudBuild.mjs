@@ -9,7 +9,7 @@
  *   3. 建/更新 CodeBuild project(privileged=true 供 docker build;image aws/codebuild/standard:7.0)
  *   4. StartBuild 並輪詢到完成,串流 log
  *
- * 需求:aws CLI、zip。環境變數:PA_SM_BUCKET(必填)、PA_SM_REGION/AWS_REGION/AWS_DEFAULT_REGION(預設 us-east-2)。
+ * 需求:aws CLI、zip。環境變數:PA_SM_BUCKET(必填)、PA_SM_REGION/AWS_REGION/AWS_DEFAULT_REGION(預設 us-west-2)。
  */
 import { execFileSync } from 'node:child_process';
 import { dirname } from 'node:path';
@@ -23,7 +23,7 @@ import {
 } from '@aws-sdk/client-iam';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-2';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
 const BUCKET = process.env.PA_SM_BUCKET?.trim();
 if (!BUCKET) throw new Error('PA_SM_BUCKET is required');
 const IMAGE_REPO = process.env.PA_SM_IMAGE_REPO || 'playagent-vllm-byoc';

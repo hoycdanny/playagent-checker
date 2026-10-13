@@ -8,7 +8,7 @@
 
 ## できること
 
-PlayAgent Checker はすべて **AWS(リージョン `us-east-2`)** 上で動作します。サーバーレスのコントロールプレーンと、タスクごとに起動しタスク終了時に停止する実行ランナーで構成されます。アプリをアップロード(または Web URL を指定)すると、エージェントが自律的に探索し、再現性があり検証可能なテスト実行結果が得られます。
+PlayAgent Checker はすべて **AWS(リージョン `us-west-2`)** 上で動作します。サーバーレスのコントロールプレーンと、タスクごとに起動しタスク終了時に停止する実行ランナーで構成されます。アプリをアップロード(または Web URL を指定)すると、エージェントが自律的に探索し、再現性があり検証可能なテスト実行結果が得られます。
 
 - **エージェントループ:** スクリーンショット → VLM がターゲットを特定 → Agent が判断 → デバイスを操作 → 再度スクリーンショット。目標達成または停止条件の発動まで繰り返します。
 - **UI ツリーではなく画面を見る**ため、検査可能な要素がない Canvas 描画のゲーム(Cocos2d-x、Unity)でも動作します。
@@ -104,7 +104,7 @@ flowchart TB
   update -- "stack を再デプロイ" --> cp
 ```
 
-CDK スタック(すべて `us-east-2`):
+CDK スタック(すべて `us-west-2`):
 
 | スタック | 内容 |
 | --- | --- |
@@ -119,7 +119,7 @@ CDK スタック(すべて `us-east-2`):
 
 ## コスト
 
-本プロジェクト自身のアカウント(`us-east-2`、2026 年 10 月)での実測値です。AWS の価格は変動するため、見積もりとして扱ってください。
+本プロジェクト自身のアカウント(2026 年 10 月)での実測値です。AWS の価格は変動するため、見積もりとして扱ってください。
 
 **何も実行していないとき(アイドル時):** 約 **US$2–5 / 月**。NAT ゲートウェイ、常時稼働サーバー、予約ストリーム容量はありません。残るのは次のとおりです。
 
@@ -188,6 +188,45 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 # 🚀 クリーンな AWS アカウントへのインストール
 
+## いちばん簡単：AWS CloudShell でコマンドを 1 行実行（ダウンロード不要）
+
+必要なのは Web ブラウザだけです。コンピューターには何もインストールしません。
+
+1. 管理者として AWS コンソールにサインインします。
+2. 先に対象リージョンで Bedrock モデルを有効にします。デフォルトは **米国西部（オレゴン）us-west-2** です（[ステップ 3](#ステップ-3--ai-モデルを有効にするamazon-bedrock)）。有効にしないと、すべてのテスト実行が失敗します。
+3. コンソール上部バーの `>_` アイコンで **CloudShell** を開きます。
+4. 次のコマンドを貼り付けます（Email は自分のものに置き換えます）。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
+```
+
+別のリージョンを使う場合は `--region <region>` を追加します。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com --region ap-northeast-1
+```
+
+- `--region` を付けない場合、コンソールに表示中のリージョンに関係なく `us-west-2` にデプロイします。スクリプトは CloudShell 自体のリージョンを意図的に無視します。
+- 選んだリージョンで Bedrock モデルが有効になっている必要があります。デフォルトのモデルは `us.` のクロスリージョン推論プロファイルを使うため、米国以外のリージョンでは別のモデル ID が必要になる場合があります。
+- Device Farm の実機は常に `us-west-2` で動きます。AWS が Device Farm をこのリージョンでしか提供していないためです。
+- `--no-wait` はビルドを開始してすぐ終了します。
+
+`scripts/cloudshell-install.sh` が行うこと：
+
+- このアカウント/リージョンで CDK bootstrap が未実施なら 1 回だけ実行します。管理者権限が必要なのはこのステップだけです。
+- CodeBuild だけを信頼する IAM ロール `playagent-installer` を作成し、最小権限ポリシー [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json) をアタッチします。ビルドに AdministratorAccess は使いません。
+- CodeBuild プロジェクト `playagent-installer` を作成します。公開 GitHub リポジトリを clone し、同じデプロイコア（`scripts/deploy-latest.mjs`）を実行します。EC2 インスタンスは不要です。
+- ビルドログを表示し、完了するとサイトの URL を表示します。
+
+このポリシーで許可されるのは、このアカウントの CDK bootstrap ロールの引き受け、PlayAgent スタックの読み取り、2 つのランナーイメージのプッシュ、Cognito 管理者の作成、`/playagent/*` SSM パラメータの書き込みだけです。CloudFormation の変更は CDK の `cdk-hnb659fds-cfn-exec-role` 経由で実行されます。このロールはデフォルトで管理者権限を持つため、デプロイできる人は CloudFormation 経由でリソースを作成できます。
+
+所要時間は約 30–60 分です。CloudShell を閉じてもインストールは止まりません。ビルドは CodeBuild で続行し、進行状況は CodeBuild コンソールで確認できます。
+
+管理者アカウントは Cognito のメール招待で作成されます。一時パスワードがメールで届き、初回サインイン時に Web ページで新しいパスワードの設定を求められます（8 文字以上で、大文字・小文字・数字を含む）。
+
+最新の `main` に更新するには、同じコマンドをもう一度実行します。
+
 ## Windows / macOS 推奨：最新版をワンクリックでインストール／更新
 
 **Node.js 22、AWS CLI v2、Git、Docker Desktop** をインストールし、AWS にログインして下記の Bedrock モデルを有効にします。その後リポジトリを clone し、次を実行します。
@@ -198,7 +237,7 @@ macOS:   Install-Latest.command をダブルクリック
 Linux:   scripts/deploy-latest.sh を実行
 ```
 
-3 つのランチャーは同じデプロイコアを使用し、デフォルトリージョンは **`us-east-2`(オハイオ)** です。
+3 つのランチャーは同じデプロイコアを使用し、デフォルトリージョンは **`us-west-2`(米国西部、オレゴン)** です(`--region` で変更できます)。
 
 どの OS でも `npm run deploy:latest -- --expected-account-id 123456789012` で AWS アカウントを検証できます。従来の PowerShell スクリプトは互換ラッパーとして残りますが、全 OS が同じ Node.js デプロイコアを使用します。
 
@@ -210,17 +249,17 @@ Linux:   scripts/deploy-latest.sh を実行
 
 ```bash
 # bash / zsh（macOS または Linux）
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 ```powershell
 # PowerShell
-(aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+(aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 ```bat
 rem コマンドプロンプト（cmd.exe）
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 これらの例にリテラルのパスワードはありません。デフォルト tenant を変更する場合だけ `--admin-tenant <tenant>` を追加します。
@@ -229,106 +268,11 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 >
 > **`cdk destroy` 後の再インストール:** データバケット、Cognito User Pool、ランナー ECR は `Retain` で保護されます。インストーラーは残存 ECR を検出して再利用するため、同名リポジトリで再インストールが止まりません。古いデータバケット/User Pool は自動削除・自動移行しません。完全に空にする場合は必要なデータをバックアップし、保留リソースを明示的に削除してください。
 
-## 代替手段:EC2 インスタンスからデプロイする
-
-自分のコンピューターに何もインストールしたくない場合は、この方法を使います。小さな Linux EC2 インスタンスで、同じワンクリックインストーラー(`scripts/deploy-latest.sh`)を実行します。インスタンスが必要なのはデプロイや更新のときだけです。終わったら停止してください。
-
-> EC2 でのエンドツーエンド検証はまだ行っていません。Linux ランチャーは Windows 版と同じデプロイコアを使っています(Windows 版はクリーンな環境への完全インストールで検証済み)。また、構文と引数は Linux コンテナで確認済みです。初回の EC2 デプロイは最後まで見届けてください。
-
-### 1. インスタンス用の最小権限ロールを作成する(AWS 管理者が 1 回だけ)
-
-インスタンスに `AdministratorAccess` は**不要**です。AWS 管理者が **AWS CloudShell**(コンソール上部バーの `>_` アイコン、リージョン **us-east-2**)を開き、次を実行します:
-
-```bash
-git clone https://github.com/hoycdanny/playagent-checker.git
-bash playagent-checker/scripts/setup-deployer-role.sh
-```
-
-このスクリプトは何度実行しても安全です。処理内容:
-
-1. このアカウント/リージョンで CDK bootstrap が未実施なら 1 回だけ実行します。管理者権限が必要なのはこのステップだけです。
-2. [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json) からカスタマー管理ポリシー `PlayAgentDeployer` を作成します。
-3. ロールとインスタンスプロファイル `playagent-deployer` を作成し、`PlayAgentDeployer` + `AmazonSSMManagedInstanceCore`(Session Manager 用)をアタッチします。
-
-このロールでインストーラーができるのは次のことだけです:このアカウント/リージョンの 3 つの CDK bootstrap ロール(deploy、file-publishing、lookup)の引き受け、PlayAgent と `CDKToolkit` スタックの読み取り、2 つの runner ECR リポジトリへのプッシュ、PlayAgent の User Pool だけでの Cognito 管理者作成(CloudFormation スタックタグで照合)、`/playagent/*` SSM パラメータの書き込み。IAM ユーザーやロールの作成、S3 データの読み取り、他のアプリへの操作はできません。`CDKToolkit` が既にあればインストーラーは bootstrap をスキップするので、管理者権限は一切不要です。
-
-インスタンスはこのロールを直接使うため、マシンにアクセスキーを保存しません。Session Manager もこのロール経由で動くので、SSH ポートも不要です。ノート PC や SSO から同じ最小権限でデプロイする場合は、`PlayAgentDeployer` をその IAM ユーザーまたは permission set にアタッチしてください。
-
-> **検証済みの範囲:** IAM Access Analyzer の指摘はゼロです。このポリシーで作った一時ロールで、実際の許可/拒否テスト、インストーラーの `--plan-only`、CDK ロール経由の `cdk diff` を通過しました。このロールだけでの完全インストールはまだ実行していません。
->
-> **残る制限:** リソースを作成するのは CloudFormation が使う CDK 実行ロール(`cdk-hnb659fds-cfn-exec-role-…`)で、デフォルトでは `AdministratorAccess` を持っています。そのため、デプロイできる人は *CloudFormation 経由で* 任意の種類のリソースを作成できます。さらに絞るにはカスタム実行ポリシーと permissions boundary で再 bootstrap する必要があり、アカウント全体で共有される CDK bootstrap を変更するため、デフォルトでは行いません。
-
-### 2. インスタンスを起動する
-
-AWS コンソール → **EC2 → Launch instance**、リージョンは **US East (Ohio) us-east-2**:
-
-| 設定 | 値 | 理由 |
-| --- | --- | --- |
-| AMI | **Amazon Linux 2023**、64 ビット **(x86)** | AWS CLI v2 がプリインストール済み |
-| アーキテクチャ | **x86_64**(Graviton/ARM ではない) | ランナーイメージは `linux/amd64`。ARM でビルドすると低速なエミュレーションが必要 |
-| インスタンスタイプ | `t3.large`(2 vCPU / 8 GB) | Docker ビルド、CDK synth、Web ビルドを同時に実行する |
-| ストレージ | **40 GB** 以上の gp3 | 2 つのランナーイメージとビルドキャッシュで 10 GB を大きく超える |
-| キーペア | 不要 | Session Manager で接続 |
-| ネットワーク | デフォルト VPC、パブリック IP は**有効**、セキュリティグループは**インバウンドルールなし** | 必要なのはアウトバウンド通信だけ(GitHub、npm、コンテナレジストリ、AWS API) |
-| IAM インスタンスプロファイル | `playagent-deployer`(手順 1 で作成) | **Advanced details** の中にある |
-
-コスト:`t3.large` は起動中、約 US$0.08 / 時間です。
-
-### 3. 接続してツールをインストールする
-
-インスタンスを選択 → **Connect → Session Manager → Connect** と進み、次を実行します:
-
-```bash
-sudo su - ec2-user
-
-# Git + Docker
-sudo dnf install -y git docker
-sudo systemctl enable --now docker
-sudo usermod -aG docker ec2-user
-exit                     # docker グループを反映させるため一度ログアウト
-```
-
-再接続し(もう一度 `sudo su - ec2-user`)、次を実行します:
-
-```bash
-# Node.js 22(nvm 経由)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 22
-
-# すべて確認
-git --version
-node --version               # v22.x
-aws --version                # aws-cli/2.x
-docker info                  # "permission denied" と表示されないこと
-aws sts get-caller-identity  # playagent-deployer ロールが表示されるはず
-```
-
-### 4. Bedrock モデルを有効にする
-
-AWS コンソールで、下の「ステップ 3 — AI モデルを有効にする(Amazon Bedrock)」を実施してください。これはインスタンスからは実施できません。これを行わないと、すべてのテスト実行が失敗します。
-
-### 5. インストーラーを実行する
-
-```bash
-git clone https://github.com/hoycdanny/playagent-checker.git
-cd playagent-checker
-./scripts/deploy-latest.sh
-```
-
-インストーラーのデフォルトは **us-east-2** です。AWS アカウントを表示して確認を求めたあと、Cognito 管理者の **Email** と**パスワード**(非表示入力、2 回入力)を尋ねます。所要時間は合計約 20–40 分です。完了すると Web サイトの URL が表示されます。
-
-### 6. その後の更新と後片付け
-
-- **最新版への更新**:インスタンスを起動して接続し、`cd ~/playagent-checker && ./scripts/deploy-latest.sh` を実行します。
-- **コスト節約**:使い終わったらインスタンスを停止します(EC2 → Instance state → Stop)。停止中もストレージに約 US$3 / 月かかります。不要になったら終了(terminate)してください。
-- **セッションのタイムアウト**:Session Manager はアイドル状態のセッションを閉じます。デプロイが中断された場合は、再接続してインストーラーをもう一度実行してください。繰り返し実行しても安全です。
-
 ## 手動インストール（ステップバイステップ）
 
 このセクションは **AWS の経験がないこと**を前提としています。上から順に進めてください。所要時間は合計約 **60–90 分**で、その大半は AWS の待ち時間です。
 
-> すべて **`us-east-2`(オハイオ)** にデプロイします。変更内容を理解していない限り、すべての箇所でこのリージョンを使用してください。
+> すべて **`us-west-2`(米国西部、オレゴン)** にデプロイします。変更内容を理解していない限り、すべての箇所でこのリージョンを使用してください。
 >
 > コマンドは **bash**(macOS、Linux、Git Bash、WSL)向けに書かれています。Windows PowerShell では、`NAME=value command` の代わりに `$env:NAME="value"` で変数を設定してください。
 
@@ -364,7 +308,7 @@ npm install
 aws configure
 # AWS Access Key ID     : <貼り付け>
 # AWS Secret Access Key : <貼り付け>
-# Default region name   : us-east-2
+# Default region name   : us-west-2
 # Default output format : json
 
 aws sts get-caller-identity   # アカウント番号が表示されるはずです
@@ -376,7 +320,7 @@ aws sts get-caller-identity   # アカウント番号が表示されるはずで
 
 新しいアカウントでは Bedrock モデルが**無効**です。一度有効にしないと、すべての実行が失敗します。
 
-1. AWS コンソール → **Bedrock** → リージョン(右上)で **US East (Ohio) us-east-2** を選択。
+1. AWS コンソール → **Bedrock** → リージョン(右上)で **US West (Oregon) us-west-2** を選択。
 2. 左メニュー → **Model access** → **Enable specific models**。
 3. 少なくとも以下を有効にします:
    - **Amazon – Nova Lite**(デフォルトの判断モデル)
@@ -390,7 +334,7 @@ aws sts get-caller-identity   # アカウント番号が表示されるはずで
 
 ```bash
 cd infra
-npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
+npx cdk bootstrap aws://ACCOUNT_ID/us-west-2
 ```
 
 `ACCOUNT_ID` をステップ 2 で表示された番号に置き換えてください。
@@ -400,7 +344,7 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
 `infra/` から:
 
 ```bash
-AWS_REGION=us-east-2 npx cdk deploy \
+AWS_REGION=us-west-2 npx cdk deploy \
   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
   PlayAgentDev-Scheduling PlayAgentDev-Execution \
   --require-approval never
@@ -412,19 +356,19 @@ AWS_REGION=us-east-2 npx cdk deploy \
 約 10–15 分かかります。その後、次のステップで必要な値を表示します:
 
 ```bash
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Foundation \
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-Foundation \
   --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-ControlPlane \
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-ControlPlane \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'||OutputKey=='WsUrl'].[OutputKey,OutputValue]" --output table
 ```
 
 以下を控えておいてください:
 
 - **データバケット** — 出力名に `DataBucket`(Ref)を含み、`playagentdev-foundation-databucket…` のような値
-- **User Pool ID** — `UserPoolId` を含み、`us-east-2_XXXXXXXXX` のような値
+- **User Pool ID** — `UserPoolId` を含み、`us-west-2_XXXXXXXXX` のような値
 - **User Pool Client ID** — `UserPoolClientId` を含む
-- **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
-- **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
+- **ApiUrl** — `https://xxxx.execute-api.us-west-2.amazonaws.com`
+- **WsUrl** — `wss://xxxx.execute-api.us-west-2.amazonaws.com/prod`
 
 ## ステップ 6 — ランナーイメージをビルドする(必須)
 
@@ -433,7 +377,7 @@ Web と Device Farm のランナーは、自分の ECR にあるコンテナイ�
 ```bash
 cd ../agent/sagemaker && npm install
 export PA_SM_BUCKET=PASTE_DataBucket     # ステップ 5 の値 — スクリプトはビルドソースをここにアップロードします
-export AWS_REGION=us-east-2
+export AWS_REGION=us-west-2
 
 # a) 共有 CodeBuild ロールを作成し、UI-TARS の重みとサービングイメージを配置します
 #    (後で UI-TARS をオンにする場合のみ必要)。約 20–40 分、AWS 上で実行されます。
@@ -452,7 +396,7 @@ node cloudBuildWebRunner.mjs
 ```bash
 cd ../../web
 cat > .env.production <<'EOF'
-VITE_COGNITO_REGION=us-east-2
+VITE_COGNITO_REGION=us-west-2
 VITE_COGNITO_USER_POOL_ID=PASTE_UserPoolId
 VITE_COGNITO_CLIENT_ID=PASTE_UserPoolClientId
 VITE_API_URL=PASTE_ApiUrl
@@ -467,8 +411,8 @@ npm run build
 
 ```bash
 cd ../infra
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Frontend \
+AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-Frontend \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
@@ -480,13 +424,13 @@ aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-
 
 ```bash
 cd ../agent/sagemaker
-AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin
+AWS_REGION=us-west-2 node createUser.mjs --email admin@example.com --tenant default --admin
 ```
 
 自動化では、パスワードを argv に置かず、シークレットマネージャーから stdin に pipe します。
 
 ```bash
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-west-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
 ```
 
 パスワードは 8 文字以上で、大文字、小文字、数字を含めてください。
@@ -515,7 +459,7 @@ CloudFront の URL を開いてログインすると、**ガイド**が表示さ
 1. Updater スタックを一度だけデプロイします(このスタック自体は更新されません):
    ```bash
    cd infra
-   AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
+   AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
    ```
    フォークを使用する場合は、このデプロイとすべてのデプロイに `-c githubRepo=owner/name` を追加してください。
 2. このリポジトリ用に、**Contents: Read-only** と **Metadata: Read-only** を持つ GitHub の **fine-grained** トークンを作成します。
@@ -540,7 +484,7 @@ UI-TARS-1.5-7B は、小さなボタンに対してより高精度になり得�
      \"Version\":\"2012-10-17\",\"Statement\":[
      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
      {\"Effect\":\"Allow\",\"Action\":[\"ecr:BatchGetImage\",\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchCheckLayerAvailability\"],
-      \"Resource\":\"arn:aws:ecr:us-east-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
+      \"Resource\":\"arn:aws:ecr:us-west-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
      {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::${BUCKET}\"},
      {\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::${BUCKET}/sagemaker-models/ui-tars/*\"},
      {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\",\"cloudwatch:PutMetricData\"],\"Resource\":\"*\"}]}"
@@ -558,7 +502,7 @@ UI-TARS-1.5-7B は、小さなボタンに対してより高精度になり得�
 ```powershell
 cd worker\windows-host\gamelift
 npm install
-$env:AWS_REGION="us-east-2"; node setup.mjs --capacity 2
+$env:AWS_REGION="us-west-2"; node setup.mjs --capacity 2
 ```
 
 GameLift Streams アプリケーションと、**常時稼働容量なし**(テストを実行していない間は課金なし)・最大 2 同時実行のストリームグループを作成します。その後、タスク送信時に **Windows** ランタイムが表示されます。初回の起動には 10–15 分かかり、各実行は 60 分が上限です。Windows ホストのスクリプトを変更した後は `setup.mjs` を再実行してください。自己更新はこれをカバーしません。
@@ -595,15 +539,15 @@ Cost Explorer は `us-east-1` にのみ存在し(アプリはそこでクエリ�
 
 ```bash
 cd infra
-AWS_REGION=us-east-2 npx cdk destroy --all
+AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
 他にも次のものが残ります:ランナーの ECR リポジトリ `playagent-exploration-runner` / `playagent-web-runner`(CDK がデフォルトで保持)、ECR リポジトリ `playagent-vllm-byoc`、CodeBuild プロジェクト `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`、ロール `PlayAgentCodeBuildUitarsRole`、SageMaker のモデル/設定 `ui-tars-playagent-*`、および(セットアップした場合)GameLift Streams アプリケーションとストリームグループ。
 
 | 症状 | 対処 |
 | --- | --- |
-| デプロイが失敗する:*"not bootstrapped"* | `us-east-2` でステップ 4 を実行してください。 |
-| 実行が *AccessDenied* / モデル利用不可でエラーになる | **us-east-2** でモデルアクセスを有効にしてください(ステップ 3)。 |
+| デプロイが失敗する:*"not bootstrapped"* | `us-west-2` でステップ 4 を実行してください。 |
+| 実行が *AccessDenied* / モデル利用不可でエラーになる | **us-west-2** でモデルアクセスを有効にしてください(ステップ 3)。 |
 | Web / Device Farm の実行が起動しない(イメージが見つからない) | ランナーイメージをビルドしてください(ステップ 6)。 |
 | ログインページは表示されるがサインインに失敗する、またはページが空白 | `web/.env.production` の値が誤っているか、編集後に Web を再ビルド + 再デプロイしていません(ステップ 7–8)。 |
 | Android コンテナでゲームがすぐに自ら終了する | エミュレーター検出があります。Android 実機を使用してください。 |

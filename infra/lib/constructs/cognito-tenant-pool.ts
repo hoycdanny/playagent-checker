@@ -46,6 +46,16 @@ export class CognitoTenantPool extends Construct {
         requireSymbols: false,
       },
       accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
+      // 管理員邀請信(安裝器 --admin-invite / 成員管理):臨時密碼,第一次登入時在登入頁設定新密碼。
+      userInvitation: {
+        emailSubject: 'PlayAgent Checker 帳號邀請 / Your PlayAgent Checker account',
+        emailBody:
+          '您好,<br><br>已為您建立 PlayAgent Checker 帳號。<br>'
+          + '登入帳號:{username}<br>臨時密碼:{####}<br><br>'
+          + '請用這組臨時密碼登入,登入後系統會請您設定自己的密碼。臨時密碼 7 天內有效。<br><br>'
+          + 'Your PlayAgent Checker account is ready.<br>Username: {username}<br>Temporary password: {####}<br>'
+          + 'Sign in with it and you will be asked to set your own password. It expires in 7 days.',
+      },
       removalPolicy: RemovalPolicy.RETAIN,
     });
 

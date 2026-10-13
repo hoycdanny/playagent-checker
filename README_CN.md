@@ -8,7 +8,7 @@
 
 ## 功能概述
 
-PlayAgent Checker 完全运行在 **AWS（区域 `us-east-2`）** 上：一个 Serverless 控制平面，加上按任务启动、任务结束即关闭的执行 Runner。你上传一个应用（或指定一个 Web URL），Agent 会自行探索，你得到可重复、可审阅的测试运行。
+PlayAgent Checker 完全运行在 **AWS（区域 `us-west-2`）** 上：一个 Serverless 控制平面，加上按任务启动、任务结束即关闭的执行 Runner。你上传一个应用（或指定一个 Web URL），Agent 会自行探索，你得到可重复、可审阅的测试运行。
 
 - **Agent 循环：** 截图 → VLM 定位目标 → Agent 决策 → 在设备上操作 → 再次截图，直到达成目标或触发停止条件。
 - **看屏幕，而不是 UI 树**，因此可用于没有可检查元素、基于 Canvas 渲染的游戏（Cocos2d-x、Unity）。
@@ -104,7 +104,7 @@ flowchart TB
   update -- "重新部署 stack" --> cp
 ```
 
-CDK 堆栈（全部位于 `us-east-2`）：
+CDK 堆栈（全部位于 `us-west-2`）：
 
 | 堆栈 | 内容 |
 | --- | --- |
@@ -119,7 +119,7 @@ CDK 堆栈（全部位于 `us-east-2`）：
 
 ## 费用
 
-在本项目自己的账户中实测（`us-east-2`，2026 年 10 月）。AWS 价格会变动，以下数据仅供估算。
+在本项目自己的账户中实测（2026 年 10 月）。AWS 价格会变动，以下数据仅供估算。
 
 **无任务运行时（闲置）：** 约 **US$2–5 / 月**。没有 NAT 网关、没有常驻服务器、也没有预留的串流容量。剩余费用包括：
 
@@ -188,6 +188,45 @@ CDK 堆栈（全部位于 `us-east-2`）：
 
 # 🚀 在全新 AWS 账户上安装
 
+## 最简单：在 AWS CloudShell 运行一行命令（无需下载任何东西）
+
+只需要浏览器，不用在电脑上安装任何东西。
+
+1. 以管理员身份登录 AWS 控制台。
+2. 先在目标区域启用 Bedrock 模型，默认是 **美国西部（俄勒冈）us-west-2**（[第 3 步](#第-3-步开启-ai-模型amazon-bedrock)）。不启用的话，每次测试运行都会失败。
+3. 点击控制台顶部栏的 `>_` 图标打开 **CloudShell**。
+4. 粘贴这行命令（换成你自己的 Email）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
+```
+
+要使用其他区域，在后面加上 `--region <region>`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com --region ap-northeast-1
+```
+
+- 不加 `--region` 时，无论控制台当前显示哪个区域，都会部署到 `us-west-2`。脚本刻意忽略 CloudShell 自身的区域。
+- 所选区域必须已启用 Bedrock 模型。默认模型使用 `us.` 跨区域推理配置文件，非美国区域可能需要改用其他模型 ID。
+- Device Farm 真机始终在 `us-west-2` 运行，因为 AWS 只在该区域提供 Device Farm。
+- `--no-wait` 会启动构建后直接退出，不等待完成。
+
+`scripts/cloudshell-install.sh` 会做这些事：
+
+- 如果这个账户/区域从未做过 CDK bootstrap，就做一次。这是唯一需要管理员权限的步骤。
+- 创建只信任 CodeBuild 的 IAM 角色 `playagent-installer`，附加最小权限策略 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json)。构建过程不使用 AdministratorAccess。
+- 创建 CodeBuild 项目 `playagent-installer`，由它 clone 公开的 GitHub 仓库并运行同一份部署核心（`scripts/deploy-latest.mjs`）。不需要 EC2 实例。
+- 实时显示构建日志，完成后输出网站 URL。
+
+该策略只允许构建代入本账户的 CDK bootstrap 角色、读取 PlayAgent stack、推送两个 Runner 镜像、创建 Cognito 管理员，以及写入 `/playagent/*` SSM 参数。CloudFormation 的变更通过 CDK 的 `cdk-hnb659fds-cfn-exec-role` 执行，它默认有管理员权限，所以能部署的人仍可通过 CloudFormation 创建资源。
+
+安装约需 30–60 分钟。关闭 CloudShell 不会中断安装：构建会在 CodeBuild 中继续运行，进度可在 CodeBuild 控制台查看。
+
+管理员账户通过 Cognito 的 Email 邀请创建。你会收到一封含临时密码的邮件，首次登录时网页会要求你设置新密码（至少 8 个字符，需包含大写字母、小写字母和数字）。
+
+要更新到最新的 `main`，再运行一次同一行命令即可。
+
 ## Windows 和 macOS 推荐：一键安装／更新到最新版
 
 先安装 **Node.js 22、AWS CLI v2、Git、Docker Desktop**，完成 AWS 登录并启用下文列出的 Bedrock 模型。然后 clone 仓库并运行：
@@ -198,7 +237,7 @@ macOS：  双击 Install-Latest.command
 Linux：  运行 scripts/deploy-latest.sh
 ```
 
-这三个启动器共用同一份部署核心，默认区域为 **`us-east-2`（俄亥俄）**。
+这三个启动器共用同一份部署核心，默认区域为 **`us-west-2`（美国西部，俄勒冈）**（可用 `--region` 更改）。
 
 任何系统都可以使用 `npm run deploy:latest -- --expected-account-id 123456789012` 校验 AWS 账户。旧的 Windows PowerShell 脚本仍可使用，但只是兼容包装；三个系统共用同一份 Node.js 部署核心。
 
@@ -210,17 +249,17 @@ Linux：  运行 scripts/deploy-latest.sh
 
 ```bash
 # bash / zsh（macOS 或 Linux）
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 ```powershell
 # PowerShell
-(aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+(aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 ```bat
 rem 命令提示符（cmd.exe）
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 以上示例不含任何明文密码。只有需要覆盖默认 tenant 时才加上 `--admin-tenant <tenant>`。
@@ -229,106 +268,11 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 >
 > **在 `cdk destroy` 后重装：**数据桶、Cognito User Pool 和 Runner ECR 都有 `Retain` 保护。安装器会检测并复用保留的 ECR，避免同名 Repository 阻塞重装；但不会自动删除或接管旧数据桶/User Pool。若要真正完全清空，请先备份，再明确删除这些保留资源。
 
-## 替代方案：用 EC2 部署
-
-如果你不想在自己的电脑上安装任何东西，可以用这种方式。由一台小型 Linux EC2 实例运行同一个一键安装器（`scripts/deploy-latest.sh`）。只有部署或更新时才需要它；用完就停止。
-
-> 尚未在 EC2 上完成端到端验证。Linux 启动器与 Windows 路径共用同一份部署核心（Windows 路径已在一次完整的全新安装中验证），其语法和参数也已在 Linux 容器中检查过。第一次用 EC2 部署时，请全程看到结束。
-
-### 1. 为实例创建最小权限角色（由 AWS 管理员做一次）
-
-实例**不需要** `AdministratorAccess`。请 AWS 管理员打开 **AWS CloudShell**（控制台顶部栏的 `>_` 图标，区域 **us-east-2**），运行：
-
-```bash
-git clone https://github.com/hoycdanny/playagent-checker.git
-bash playagent-checker/scripts/setup-deployer-role.sh
-```
-
-这个脚本可以重复运行。它会：
-
-1. 如果这个账号/区域从未做过 CDK bootstrap，就做一次。这是唯一需要管理员权限的步骤。
-2. 根据 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json) 创建客户托管策略 `PlayAgentDeployer`。
-3. 创建角色和实例配置文件 `playagent-deployer`，附加 `PlayAgentDeployer` + `AmazonSSMManagedInstanceCore`（供 Session Manager 使用）。
-
-使用这个角色，安装器只能：代入本账号/区域的三个 CDK bootstrap 角色（deploy、file-publishing、lookup）；读取 PlayAgent 和 `CDKToolkit` stack；推送到两个 runner ECR 仓库；只在 PlayAgent 的 User Pool 中创建 Cognito 管理员（按 CloudFormation stack 标签匹配）；写入 `/playagent/*` SSM 参数。它不能创建 IAM 用户或角色、不能读取 S3 数据，也碰不到其他应用。`CDKToolkit` 已存在时安装器会跳过 bootstrap，所以永远不需要管理员权限。
-
-实例会直接使用这个角色，所以机器上不会保存任何访问密钥（access key）。Session Manager 也通过这个角色工作，所以不需要开放 SSH 端口。如果要从笔记本或 SSO 以同样的最小权限部署，把 `PlayAgentDeployer` 附加到那个 IAM 用户或 permission set 即可。
-
-> **目前已验证：** IAM Access Analyzer 没有任何发现；用该策略创建的临时角色通过了实际的允许/拒绝测试、安装器的 `--plan-only`，以及通过 CDK 角色的 `cdk diff`。尚未只用这个角色跑过一次完整安装。
->
-> **仍有的限制：** CloudFormation 使用 CDK 执行角色（`cdk-hnb659fds-cfn-exec-role-…`）创建资源，而它默认是 `AdministratorAccess`。因此能部署的人仍然可以*通过 CloudFormation* 创建任何类型的资源。要进一步收窄，必须用自定义执行策略和 permissions boundary 重新 bootstrap，这会改动整个账号共用的 CDK bootstrap，所以默认不做。
-
-### 2. 启动实例
-
-AWS 控制台 → **EC2 → Launch instance**，区域选 **US East (Ohio) us-east-2**：
-
-| 设置 | 值 | 原因 |
-| --- | --- | --- |
-| AMI | **Amazon Linux 2023**，64 位 **(x86)** | 已预装 AWS CLI v2 |
-| 架构 | **x86_64**（不要选 Graviton/ARM） | Runner 镜像是 `linux/amd64`；在 ARM 上构建需要很慢的模拟 |
-| 实例类型 | `t3.large`（2 vCPU / 8 GB） | Docker 构建、CDK synth 和 Web 构建会同时运行 |
-| 存储 | **40 GB** gp3 或以上 | 两个 Runner 镜像加上构建缓存，远超 10 GB |
-| 密钥对（Key pair） | 不需要 | 用 Session Manager 连接 |
-| 网络 | 默认 VPC，公有 IP **启用**；安全组**不设任何入站规则** | 只需要出站访问（GitHub、npm、容器镜像仓库、AWS API） |
-| IAM 实例配置文件 | `playagent-deployer`（第 1 节创建的） | 在 **Advanced details** 下面 |
-
-费用：`t3.large` 运行时约 US$0.08 / 小时。
-
-### 3. 连接并安装工具
-
-选中实例 → **Connect → Session Manager → Connect**，然后运行：
-
-```bash
-sudo su - ec2-user
-
-# Git + Docker
-sudo dnf install -y git docker
-sudo systemctl enable --now docker
-sudo usermod -aG docker ec2-user
-exit                     # 先退出一次，让 docker 组生效
-```
-
-重新连接（再运行一次 `sudo su - ec2-user`），然后：
-
-```bash
-# Node.js 22（通过 nvm）
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 22
-
-# 检查所有工具
-git --version
-node --version               # v22.x
-aws --version                # aws-cli/2.x
-docker info                  # 不能出现 "permission denied"
-aws sts get-caller-identity  # 应显示 playagent-deployer 角色
-```
-
-### 4. 开启 Bedrock 模型
-
-在 AWS 控制台完成下文的“第 3 步：开启 AI 模型（Amazon Bedrock）”。这一步无法在实例上完成；不做的话，每次测试运行都会失败。
-
-### 5. 运行安装器
-
-```bash
-git clone https://github.com/hoycdanny/playagent-checker.git
-cd playagent-checker
-./scripts/deploy-latest.sh
-```
-
-安装器默认使用 **us-east-2**。它会显示 AWS 账户并请你确认，然后询问 Cognito 管理员的 **Email** 和**密码**（隐藏输入，需输入两次）。总耗时约 20–40 分钟。完成后会输出网站 URL。
-
-### 6. 之后的更新与清理
-
-- **更新到最新版**：启动实例并连接，然后运行 `cd ~/playagent-checker && ./scripts/deploy-latest.sh`。
-- **节省费用**：用完就停止实例（EC2 → Instance state → Stop）。存储仍约 US$3 / 月；不再需要时请终止（terminate）实例。
-- **会话超时**：Session Manager 会关闭空闲会话。如果部署被中断，重新连接后再运行一次安装器即可；重复运行是安全的。
-
 ## 手动安装（分步说明）
 
 本节假设你**没有任何 AWS 使用经验**。请从上到下依次操作。总耗时约 **60–90 分钟**，大部分时间在等待 AWS。
 
-> 所有资源都部署到 **`us-east-2`（俄亥俄）**。除非你清楚自己在改什么，否则所有地方都使用该区域。
+> 所有资源都部署到 **`us-west-2`（美国西部，俄勒冈）**。除非你清楚自己在改什么，否则所有地方都使用该区域。
 >
 > 命令以 **bash** 编写（macOS、Linux、Git Bash、WSL）。在 Windows PowerShell 中，请用 `$env:NAME="value"` 设置变量，而不是 `NAME=value command`。
 
@@ -364,7 +308,7 @@ npm install
 aws configure
 # AWS Access Key ID     : <粘贴>
 # AWS Secret Access Key : <粘贴>
-# Default region name   : us-east-2
+# Default region name   : us-west-2
 # Default output format : json
 
 aws sts get-caller-identity   # 应输出你的账户编号
@@ -376,7 +320,7 @@ aws sts get-caller-identity   # 应输出你的账户编号
 
 新账户的 Bedrock 模型默认**关闭**。需要启用一次，否则每次运行都会失败。
 
-1. AWS 控制台 → **Bedrock** → 区域（右上角）选择 **US East (Ohio) us-east-2**。
+1. AWS 控制台 → **Bedrock** → 区域（右上角）选择 **US West (Oregon) us-west-2**。
 2. 左侧菜单 → **Model access** → **Enable specific models**。
 3. 至少启用：
    - **Amazon – Nova Lite**（默认决策模型）
@@ -390,7 +334,7 @@ aws sts get-caller-identity   # 应输出你的账户编号
 
 ```bash
 cd infra
-npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
+npx cdk bootstrap aws://ACCOUNT_ID/us-west-2
 ```
 
 将 `ACCOUNT_ID` 替换为第 2 步输出的账户编号。
@@ -400,7 +344,7 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
 在 `infra/` 目录下执行：
 
 ```bash
-AWS_REGION=us-east-2 npx cdk deploy \
+AWS_REGION=us-west-2 npx cdk deploy \
   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
   PlayAgentDev-Scheduling PlayAgentDev-Execution \
   --require-approval never
@@ -412,19 +356,19 @@ AWS_REGION=us-east-2 npx cdk deploy \
 此过程约需 10–15 分钟。然后输出后续步骤需要的值：
 
 ```bash
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Foundation \
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-Foundation \
   --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-ControlPlane \
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-ControlPlane \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'||OutputKey=='WsUrl'].[OutputKey,OutputValue]" --output table
 ```
 
 记下：
 
 - **Data bucket**：输出名称包含 `DataBucket`（Ref），形如 `playagentdev-foundation-databucket…`
-- **User Pool ID**：包含 `UserPoolId`，形如 `us-east-2_XXXXXXXXX`
+- **User Pool ID**：包含 `UserPoolId`，形如 `us-west-2_XXXXXXXXX`
 - **User Pool Client ID**：包含 `UserPoolClientId`
-- **ApiUrl**：`https://xxxx.execute-api.us-east-2.amazonaws.com`
-- **WsUrl**：`wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
+- **ApiUrl**：`https://xxxx.execute-api.us-west-2.amazonaws.com`
+- **WsUrl**：`wss://xxxx.execute-api.us-west-2.amazonaws.com/prod`
 
 ## 第 6 步：构建 Runner 镜像（必需）
 
@@ -433,7 +377,7 @@ Web 和 Device Farm Runner 使用你 ECR 中的容器镜像运行。镜像通过
 ```bash
 cd ../agent/sagemaker && npm install
 export PA_SM_BUCKET=PASTE_DataBucket     # 来自第 5 步，脚本会把构建源码上传到这里
-export AWS_REGION=us-east-2
+export AWS_REGION=us-west-2
 
 # a) 创建共享的 CodeBuild 角色，并暂存 UI-TARS 权重 + 推理镜像
 #    （仅在之后开启 UI-TARS 时需要）。约 20–40 分钟，在 AWS 中运行。
@@ -452,7 +396,7 @@ node cloudBuildWebRunner.mjs
 ```bash
 cd ../../web
 cat > .env.production <<'EOF'
-VITE_COGNITO_REGION=us-east-2
+VITE_COGNITO_REGION=us-west-2
 VITE_COGNITO_USER_POOL_ID=PASTE_UserPoolId
 VITE_COGNITO_CLIENT_ID=PASTE_UserPoolClientId
 VITE_API_URL=PASTE_ApiUrl
@@ -467,8 +411,8 @@ npm run build
 
 ```bash
 cd ../infra
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Frontend \
+AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-Frontend \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
@@ -480,13 +424,13 @@ aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-
 
 ```bash
 cd ../agent/sagemaker
-AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin
+AWS_REGION=us-west-2 node createUser.mjs --email admin@example.com --tenant default --admin
 ```
 
 自动化时，请从秘密管理器把密码 pipe 到 stdin，不要放进 argv：
 
 ```bash
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-west-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
 ```
 
 密码至少需要 8 位，并包含大写字母、小写字母和数字。
@@ -515,7 +459,7 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 1. 部署一次 Updater 堆栈（它永远不会更新自身）：
    ```bash
    cd infra
-   AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
+   AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
    ```
    使用的是 Fork？在这次以及之后每次部署时都加上 `-c githubRepo=owner/name`。
 2. 为本仓库创建一个 GitHub **fine-grained** Token，权限为 **Contents: Read-only** 和 **Metadata: Read-only**。
@@ -540,7 +484,7 @@ UI-TARS-1.5-7B 是一个 GUI 定位模型，在小按钮上可能更精确。它
      \"Version\":\"2012-10-17\",\"Statement\":[
      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
      {\"Effect\":\"Allow\",\"Action\":[\"ecr:BatchGetImage\",\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchCheckLayerAvailability\"],
-      \"Resource\":\"arn:aws:ecr:us-east-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
+      \"Resource\":\"arn:aws:ecr:us-west-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
      {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::${BUCKET}\"},
      {\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::${BUCKET}/sagemaker-models/ui-tars/*\"},
      {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\",\"cloudwatch:PutMetricData\"],\"Resource\":\"*\"}]}"
@@ -558,7 +502,7 @@ UI-TARS-1.5-7B 是一个 GUI 定位模型，在小按钮上可能更精确。它
 ```powershell
 cd worker\windows-host\gamelift
 npm install
-$env:AWS_REGION="us-east-2"; node setup.mjs --capacity 2
+$env:AWS_REGION="us-west-2"; node setup.mjs --capacity 2
 ```
 
 它会创建 GameLift Streams 应用和一个**没有常驻容量**的串流组（没有测试运行时不计费），最多支持 2 个并发运行。之后提交任务时会出现 **Windows** 运行环境。首次启动需要 10–15 分钟；每次运行上限 60 分钟。修改 Windows 主机脚本后需重新运行 `setup.mjs`；系统自更新不涵盖这部分。
@@ -595,15 +539,15 @@ Cost Explorer 仅位于 `us-east-1`（应用会在该区域查询），每次查
 
 ```bash
 cd infra
-AWS_REGION=us-east-2 npx cdk destroy --all
+AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
 另外还会遗留：Runner ECR 仓库 `playagent-exploration-runner` / `playagent-web-runner`（CDK 默认保留）、ECR 仓库 `playagent-vllm-byoc`、CodeBuild 项目 `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`、角色 `PlayAgentCodeBuildUitarsRole`、SageMaker 模型/配置 `ui-tars-playagent-*`，以及（如已设置）GameLift Streams 应用和串流组。
 
 | 现象 | 解决方法 |
 | --- | --- |
-| 部署失败：*"not bootstrapped"* | 针对 `us-east-2` 执行第 4 步。 |
-| 运行报错 *AccessDenied* / 模型不可用 | 在 **us-east-2** 中启用模型访问（第 3 步）。 |
+| 部署失败：*"not bootstrapped"* | 针对 `us-west-2` 执行第 4 步。 |
+| 运行报错 *AccessDenied* / 模型不可用 | 在 **us-west-2** 中启用模型访问（第 3 步）。 |
 | Web / Device Farm 运行无法启动（找不到镜像） | 构建 Runner 镜像（第 6 步）。 |
 | 登录页能加载但登录失败，或页面空白 | `web/.env.production` 中的值有误，或修改后没有重新构建并重新部署 Web（第 7–8 步）。 |
 | 游戏在 Android 容器上一启动就自行关闭 | 游戏带有反模拟器检测；请使用 Android 真机。 |

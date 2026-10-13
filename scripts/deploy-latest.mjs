@@ -87,7 +87,7 @@ Usage:
 Options:
   --repository-url URL       canonical repository (${DEFAULT_REPO})
   --branch NAME              branch to deploy (main)
-  --region REGION            AWS region (us-east-2)
+  --region REGION            AWS region (us-west-2)
   --stage STAGE              CDK stage (dev)
   --profile PROFILE          AWS CLI profile
   --expected-account-id ID   fail if the active AWS account differs
@@ -95,6 +95,7 @@ Options:
   --admin-email EMAIL        Cognito admin login email (required for install)
   --admin-tenant TENANT      admin tenant (default: default)
   --admin-password-stdin     read the admin password from stdin (automation only)
+  --admin-invite             no password: Cognito emails a temporary password; set your own at first login
   --skip-tests               skip repeated tests
   --skip-bootstrap           skip CDK bootstrap
   --force-bootstrap          re-run CDK bootstrap even if CDKToolkit exists (admin upgrade)
@@ -106,8 +107,8 @@ Options:
 
 function parseArgs(argv) {
   const o = {
-    repositoryUrl: DEFAULT_REPO, branch: 'main', region: 'us-east-2', stage: 'dev', profile: '',
-    expectedAccountId: '', context: [], adminEmail: '', adminTenant: 'default', adminPasswordStdin: false,
+    repositoryUrl: DEFAULT_REPO, branch: 'main', region: 'us-west-2', stage: 'dev', profile: '',
+    expectedAccountId: '', context: [], adminEmail: '', adminTenant: 'default', adminPasswordStdin: false, adminInvite: false,
     skipTests: false, skipBootstrap: false, forceBootstrap: false, planOnly: false, nonInteractive: false,
     internal: false, sourceRoot: '', sourceSha: '',
   };
@@ -125,6 +126,7 @@ function parseArgs(argv) {
     else if (a === '--admin-email') o.adminEmail = value(i++, a);
     else if (a === '--admin-tenant') o.adminTenant = value(i++, a);
     else if (a === '--admin-password-stdin') o.adminPasswordStdin = true;
+    else if (a === '--admin-invite') o.adminInvite = true;
     // Accepted only so an older interactive outer launcher can hand off to this newer core.
     // The environment variable name is deliberately ignored; secrets are never read from env.
     else if (a === '--admin-password-env') { value(i++, a); }
@@ -177,7 +179,9 @@ async function promptConfirmedAdminPassword() {
 async function collectAdminPassword(o) {
   if (o.planOnly || !o.nonInteractive) return null;
   if (!o.adminEmail) fail('非互動安裝必須指定 --admin-email');
-  if (!o.adminPasswordStdin) fail('非互動安裝必須使用 --admin-password-stdin 安全傳入密碼');
+  // 邀請模式(CloudShell / CodeBuild):沒有密碼,Cognito 寄臨時密碼到管理員信箱。
+  if (o.adminInvite) { validateAdminIdentity(o); return null; }
+  if (!o.adminPasswordStdin) fail('非互動安裝必須使用 --admin-password-stdin 安全傳入密碼,或用 --admin-invite 改寄邀請信');
   validateAdminIdentity(o);
   const password = await readSecretFromStdin();
   validateCognitoPassword(password);
@@ -193,7 +197,8 @@ function childArgs(o, root, sha) {
   if (!o.planOnly) {
     if (o.adminEmail) a.push('--admin-email', o.adminEmail);
     a.push('--admin-tenant', o.adminTenant);
-    if (o.nonInteractive) a.push('--admin-password-stdin');
+    if (o.adminInvite) a.push('--admin-invite');
+    else if (o.nonInteractive) a.push('--admin-password-stdin');
   }
   if (o.skipTests) a.push('--skip-tests');
   if (o.skipBootstrap) a.push('--skip-bootstrap');
@@ -306,7 +311,9 @@ async function inner(o) {
   if (actual !== o.sourceSha) fail(`來源 SHA 不一致:${actual} != ${o.sourceSha}`);
 
   let adminPassword = null;
-  if (!o.planOnly && o.nonInteractive) {
+  if (!o.planOnly && o.nonInteractive && o.adminInvite) {
+    validateAdminIdentity(o);
+  } else if (!o.planOnly && o.nonInteractive) {
     if (!o.adminPasswordStdin) fail('Internal 安裝缺少安全密碼 stdin');
     validateAdminIdentity(o);
     adminPassword = await readSecretFromStdin();
@@ -402,14 +409,16 @@ async function inner(o) {
     if (!poolId) fail('Foundation stack 找不到 Cognito User Pool ID');
     step('建立／更新 Cognito 管理員');
     try {
-      await run(process.execPath, [
+      const userArgs = [
         join(o.sourceRoot, 'agent', 'sagemaker', 'createUser.mjs'),
         '--email', o.adminEmail,
         '--tenant', o.adminTenant,
         '--pool-id', poolId,
         '--admin',
-        '--password-stdin',
-      ], { cwd: o.sourceRoot, input: adminPassword });
+      ];
+      // 邀請模式:Cognito 寄臨時密碼到信箱,第一次登入時自己設密碼(密碼完全不經過安裝流程)。
+      if (o.adminInvite && !adminPassword) await run(process.execPath, [...userArgs, '--invite'], { cwd: o.sourceRoot });
+      else await run(process.execPath, [...userArgs, '--password-stdin'], { cwd: o.sourceRoot, input: adminPassword });
     } finally {
       adminPassword?.fill(0);
       adminPassword = null;

@@ -4,7 +4,7 @@
  * Dockerfile.web + web-runner.package.json + buildspec.web.yml)打包上 S3,
  * 用 CodeBuild build + push 到 ECR playagent-web-runner:latest。不佔本機頻寬/磁碟。
  *
- * 用法:AWS_REGION=us-east-2 node cloudBuildWebRunner.mjs
+ * 用法:AWS_REGION=us-west-2 node cloudBuildWebRunner.mjs
  */
 import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
@@ -18,7 +18,7 @@ import { packSource } from './packSource.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = join(HERE, '..');           // agent/
-const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-2';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
 const BUCKET = process.env.PA_SM_BUCKET?.trim();
 if (!BUCKET) throw new Error('PA_SM_BUCKET is required');
 const IMAGE_REPO = 'playagent-web-runner';

@@ -6,6 +6,8 @@
  *   node createUser.mjs --email admin@example.com --tenant default --admin
  * 自動化:
  *   <secret-command> | node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
+ * 邀請(不經手密碼,Cognito 寄臨時密碼):
+ *   node createUser.mjs --email admin@example.com --tenant default --admin --invite
  */
 import { execFileSync } from 'node:child_process';
 import { timingSafeEqual } from 'node:crypto';
@@ -22,7 +24,7 @@ import {
   validateCognitoPassword,
 } from '../../scripts/secret-input.mjs';
 
-const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-2';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
 const ADMIN_GROUP = 'admins';
 
 function arg(name, fallback) {
@@ -86,6 +88,35 @@ async function findUser(cognito, poolId, email) {
   }
 }
 
+/**
+ * 邀請模式(--invite):不經手任何密碼。Cognito 寄一封含臨時密碼的信到 email,
+ * 使用者第一次登入時在登入頁設定自己的密碼(NEW_PASSWORD_REQUIRED)。
+ * 帳號已存在就不動密碼(重跑安裝 = 更新,不會把管理員的密碼重設掉),只確保在管理員群組。
+ */
+async function invite({ poolId, email, tenant, admin }) {
+  const cognito = new CognitoIdentityProviderClient({ region: REGION });
+  const user = await findUser(cognito, poolId, email);
+  if (!user) {
+    await cognito.send(new AdminCreateUserCommand({
+      UserPoolId: poolId,
+      Username: email,
+      DesiredDeliveryMediums: ['EMAIL'],
+      UserAttributes: [
+        { Name: 'email', Value: email },
+        { Name: 'email_verified', Value: 'true' },
+        { Name: 'custom:tenantId', Value: tenant },
+      ],
+    }));
+    console.log(`已建立使用者並寄出邀請信:${maskedEmail(email)}(臨時密碼 7 天內有效,第一次登入時設定新密碼)`);
+  } else {
+    console.log(`使用者已存在:${maskedEmail(email)},保留原本的密碼。`);
+  }
+  if (admin) {
+    await cognito.send(new AdminAddUserToGroupCommand({ UserPoolId: poolId, Username: email, GroupName: ADMIN_GROUP }));
+    console.log(`已加入 ${ADMIN_GROUP} 群組(管理員)。`);
+  }
+}
+
 async function main() {
   const email = arg('email');
   const tenant = arg('tenant', 'default');
@@ -98,6 +129,11 @@ async function main() {
   if (!poolId) {
     poolId = resolvePoolId(stackName);
     console.log(`解析到 User Pool:${poolId}`);
+  }
+
+  if (flag('invite')) {
+    await invite({ poolId, email, tenant, admin });
+    return;
   }
 
   const password = passwordStdin ? await readSecretFromStdin() : await promptConfirmedPassword();

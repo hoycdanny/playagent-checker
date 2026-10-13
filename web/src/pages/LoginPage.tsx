@@ -81,6 +81,41 @@ const INTRO = {
   ] as L5,
 };
 
+/** 第一次用邀請信臨時密碼登入時的「設定新密碼」表單文字。 */
+const NEWPW = {
+  title: ['設定新密碼', 'Set a new password', '设置新密码', '新しいパスワードを設定', '새 비밀번호 설정'] as L5,
+  hint: [
+    '這是第一次登入,請把邀請信裡的臨時密碼換成你自己的密碼(至少 8 碼,需含大寫、小寫與數字)。',
+    'This is your first sign-in. Replace the temporary password from the invite email with your own (8+ characters with upper case, lower case and a digit).',
+    '这是第一次登录,请把邀请邮件里的临时密码换成你自己的密码(至少 8 位,需含大写、小写与数字)。',
+    '初回ログインです。招待メールの仮パスワードを自分のパスワードに変更してください(8 文字以上、大文字・小文字・数字を含む)。',
+    '첫 로그인입니다. 초대 메일의 임시 비밀번호를 본인 비밀번호로 바꿔 주세요(8자 이상, 대문자·소문자·숫자 포함).',
+  ] as L5,
+  newPassword: ['新密碼', 'New password', '新密码', '新しいパスワード', '새 비밀번호'] as L5,
+  confirm: ['再輸入一次', 'Confirm password', '再输入一次', 'もう一度入力', '비밀번호 확인'] as L5,
+  submit: ['設定並登入', 'Set and sign in', '设置并登录', '設定してログイン', '설정 후 로그인'] as L5,
+  mismatch: ['兩次輸入的密碼不一樣', 'The passwords do not match', '两次输入的密码不一样', 'パスワードが一致しません', '비밀번호가 일치하지 않습니다'] as L5,
+  weak: [
+    '密碼不符合規則:至少 8 碼,需含大寫、小寫與數字',
+    'Password does not meet the rules: 8+ characters with upper case, lower case and a digit',
+    '密码不符合规则:至少 8 位,需含大写、小写与数字',
+    'パスワードが条件を満たしていません:8 文字以上、大文字・小文字・数字を含めてください',
+    '비밀번호 규칙에 맞지 않습니다: 8자 이상, 대문자·소문자·숫자 포함',
+  ] as L5,
+  expired: [
+    '這次登入已逾時,請重新用臨時密碼登入',
+    'This sign-in session expired. Sign in again with the temporary password',
+    '这次登录已超时,请重新用临时密码登录',
+    'ログインの有効期限が切れました。仮パスワードでもう一度ログインしてください',
+    '로그인 세션이 만료되었습니다. 임시 비밀번호로 다시 로그인해 주세요',
+  ] as L5,
+};
+
+/** Cognito 預設密碼規則:8 碼以上,含大寫、小寫與數字。 */
+export function meetsPasswordPolicy(pw: string): boolean {
+  return pw.length >= 8 && /[A-Z]/.test(pw) && /[a-z]/.test(pw) && /\d/.test(pw);
+}
+
 function introText(locale: string) {
   const i = LOC_IDX[locale] ?? 1;
   const p = (t: L5) => t[i] ?? t[1];
@@ -99,12 +134,48 @@ function introText(locale: string) {
 export function LoginPage() {
   const { t, locale } = useI18n();
   const L = introText(locale);
-  const { login } = useAuth();
+  const { login, completeNewPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 臨時密碼登入後 Cognito 要求換密碼:存下挑戰 session 與內部帳號。 */
+  const [challenge, setChallenge] = useState<{ session: string; username: string } | null>(null);
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
   const configured = isAuthConfigured();
+  const pick = (v: L5) => v[LOC_IDX[locale] ?? 1] ?? v[1];
+
+  async function onSetNewPassword(e: FormEvent) {
+    e.preventDefault();
+    if (!challenge) return;
+    setError(null);
+    if (newPw !== newPw2) {
+      setError(pick(NEWPW.mismatch));
+      return;
+    }
+    if (!meetsPasswordPolicy(newPw)) {
+      setError(pick(NEWPW.weak));
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await completeNewPassword(challenge.username, newPw, challenge.session);
+    } catch (err) {
+      const name = err instanceof Error ? err.name : '';
+      if (name === 'InvalidPasswordException') {
+        setError(pick(NEWPW.weak));
+      } else if (name === 'NotAuthorizedException' || name === 'CodeMismatchException' || name === 'ExpiredCodeException') {
+        setChallenge(null);
+        setPassword('');
+        setError(pick(NEWPW.expired));
+      } else {
+        setError(t('auth.errorGeneric'));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -114,7 +185,12 @@ export function LoginPage() {
       await login(email, password);
     } catch (err) {
       const name = err instanceof Error ? err.name : '';
-      if (name === 'NotAuthorizedException' || name === 'UserNotFoundException') {
+      if (name === 'NewPasswordRequiredError') {
+        const c = err as Error & { session: string; username: string };
+        setChallenge({ session: c.session, username: c.username });
+        setNewPw('');
+        setNewPw2('');
+      } else if (name === 'NotAuthorizedException' || name === 'UserNotFoundException') {
         setError(t('auth.errorInvalid'));
       } else {
         setError(t('auth.errorGeneric'));
@@ -191,6 +267,57 @@ export function LoginPage() {
           <LanguageSelect className="login__lang" />
         </div>
 
+        {challenge ? (
+          <form
+            className="login__card"
+            onSubmit={onSetNewPassword}
+            aria-labelledby="newpw-title"
+          >
+            <div className="login__card-brand">
+              <span className="login__logo">▸</span>
+              <span className="login__brand-name">{t('app.name')}</span>
+            </div>
+            <h1 id="newpw-title" className="login__title">
+              {pick(NEWPW.title)}
+            </h1>
+            <p className="login__notice" id="newpw-hint">{pick(NEWPW.hint)}</p>
+
+            <label className="login__field">
+              <span className="login__label">{pick(NEWPW.newPassword)}</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                required
+                aria-describedby="newpw-hint"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                disabled={submitting}
+              />
+            </label>
+
+            <label className="login__field">
+              <span className="login__label">{pick(NEWPW.confirm)}</span>
+              <input
+                type="password"
+                autoComplete="new-password"
+                required
+                value={newPw2}
+                onChange={(e) => setNewPw2(e.target.value)}
+                disabled={submitting}
+              />
+            </label>
+
+            {error && (
+              <p className="login__error" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button type="submit" className="login__submit" disabled={submitting}>
+              {submitting ? t('auth.signingIn') : pick(NEWPW.submit)}
+            </button>
+          </form>
+        ) : (
         <form
           className="login__card"
           onSubmit={onSubmit}
@@ -273,6 +400,7 @@ export function LoginPage() {
             {submitting ? t('auth.signingIn') : t('auth.submit')}
           </button>
         </form>
+        )}
       </main>
     </div>
   );
