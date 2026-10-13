@@ -29,6 +29,7 @@ import { getRealCost, jobIdFromSessionName, makeCostExplorerClient, type DeviceS
 import { makeUserAdmin, makeCognitoAdminClient } from './users.js';
 import { makeSecretWriter } from './secretValueStore.js';
 import { makeSystemUpdatePorts, systemUpdateConfigFromEnv } from './systemUpdatePorts.js';
+import { makeSystemLogsPorts, systemLogsConfigFromEnv } from './systemLogsPorts.js';
 import { makeUitarsPorts, uitarsConfigFromEnv } from './uitarsSwitch.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-west-2';
@@ -71,6 +72,9 @@ const uitarsCfg = uitarsConfigFromEnv(process.env, REGION, BUCKET);
 const uitars = uitarsCfg
   ? { ports: makeUitarsPorts(uitarsCfg, sharedS3), endpointName: uitarsCfg.endpointName, instanceType: uitarsCfg.instanceType }
   : undefined;
+// 集中式日誌(admin 專用):CDK 注入 LOG_STAGE_PREFIX 才啟用;未設定時 /system/logs/* 回 501。
+const logsCfg = systemLogsConfigFromEnv(process.env, REGION);
+const systemLogs = logsCfg ? { ports: makeSystemLogsPorts(logsCfg) } : undefined;
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
 let cloudDeviceCache: { at: number; items: CloudDevice[] } | null = null;
@@ -328,6 +332,7 @@ const deps: ApiDeps = {
   ...(userAdmin ? { userAdmin } : {}),
   ...(systemUpdate ? { systemUpdate } : {}),
   ...(uitars ? { uitars } : {}),
+  ...(systemLogs ? { systemLogs } : {}),
   secretWriter,
 };
 

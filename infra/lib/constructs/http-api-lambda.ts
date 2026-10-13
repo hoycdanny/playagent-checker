@@ -58,6 +58,11 @@ export interface HttpApiLambdaProps {
   };
   /** UI-TARS 開關(系統管理頁)。省略則 /system/uitars 回 501。 */
   uitars?: UitarsSwitchProps;
+  /**
+   * 集中式日誌(系統管理頁,admin 專用):本次部署的 stage 前綴(= stack 前綴,如 "PlayAgentDev"),
+   * API 用它探索 /aws/lambda/<stage>-* 等 log group。省略則 /system/logs/* 回 501。
+   */
+  logStagePrefix?: string;
 }
 
 /**
@@ -109,6 +114,8 @@ export class HttpApiLambda extends Construct {
           : {}),
         KB_VECTOR_BUCKET_PREFIX: props.kbVectorBucketPrefix,
         KB_EMBEDDING_MODEL_ID: props.kbEmbeddingModelId,
+        // 集中式日誌(admin 專用);未帶時 /system/logs/* 回 501。
+        ...(props.logStagePrefix ? { LOG_STAGE_PREFIX: props.logStagePrefix } : {}),
         // UI-TARS 開關(admin 專用);未帶時 /system/uitars 回 501,UI-TARS 一律視為關閉。
         ...(props.uitars
           ? {
@@ -353,6 +360,30 @@ export class HttpApiLambda extends Construct {
       );
       // 更新前警告「還有任務在跑」用的 ecs/ec2 唯讀權限已移到上面常駐授權
       // (裝置管理頁也要用),這裡不再重複。
+    }
+
+    // ── 集中式日誌(admin 專用,系統管理頁)──────────────────────────────
+    // 跨服務查 CloudWatch Logs(唯讀)。StartQuery 需對每個 log group 授權,故 scope 到
+    // 本平台的三個命名前綴;DescribeLogGroups / GetQueryResults / StopQuery 無資源層級支援,用 *。
+    if (props.logStagePrefix) {
+      const stage = props.logStagePrefix;
+      const lg = (pattern: string) => `arn:aws:logs:${props.region}:${acct}:log-group:${pattern}`;
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['logs:StartQuery', 'logs:FilterLogEvents', 'logs:GetLogEvents', 'logs:DescribeLogStreams'],
+          resources: [
+            lg(`/aws/lambda/${stage}-*`),
+            lg(`/playagent/${stage}*`),
+            lg('/aws/codebuild/playagent-*'),
+          ],
+        }),
+      );
+      this.apiFn.addToRolePolicy(
+        new iam.PolicyStatement({
+          actions: ['logs:DescribeLogGroups', 'logs:GetQueryResults', 'logs:StopQuery'],
+          resources: ['*'],
+        }),
+      );
     }
 
     // UI-TARS 開關:只能動「固定名稱」的那一組 SageMaker 資源(endpoint / config / model),

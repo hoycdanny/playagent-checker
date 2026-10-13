@@ -56,6 +56,8 @@ export class ControlPlaneStack extends Stack {
       kbEmbeddingModelId: props.kbEmbeddingModelId,
       ...(props.updater ? { updater: props.updater } : {}),
       ...(props.uitars ? { uitars: props.uitars } : {}),
+      // 集中式日誌:stage 前綴(如 PlayAgentDev)讓 API 探索本平台的 log group。
+      logStagePrefix: this.stackName.replace(/-ControlPlane$/, ''),
     });
 
     // 即時串流(WebSocket + S3 事件推送)。

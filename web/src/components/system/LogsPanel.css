@@ -1,0 +1,174 @@
+/* 集中日誌面板(系統管理頁,admin):來源挑選 + 時間/關鍵字查詢 + 結果主控台。 */
+
+.syslog__field {
+  margin: 4px 0 12px;
+}
+
+.syslog__field-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.syslog__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted, #6b7280);
+}
+
+.syslog__link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--accent, #2563eb);
+}
+
+.syslog__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.syslog__chip {
+  font-size: 0.8rem;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface, #fff);
+  color: var(--text-muted, #6b7280);
+  cursor: pointer;
+}
+
+.syslog__chip.is-on {
+  border-color: var(--accent, #2563eb);
+  color: var(--accent, #2563eb);
+  background: color-mix(in srgb, var(--accent, #2563eb) 8%, transparent);
+}
+
+/* 來源種類的小色點(左緣)。 */
+.syslog__chip::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  margin-right: 6px;
+  vertical-align: middle;
+  background: var(--text-muted, #9ca3af);
+}
+.syslog__chip[data-kind='lambda']::before { background: #2563eb; }
+.syslog__chip[data-kind='ecs']::before { background: #15803d; }
+.syslog__chip[data-kind='codebuild']::before { background: #d97706; }
+
+.syslog__controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.syslog__inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.syslog__inline select {
+  padding: 5px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface, #fff);
+  color: inherit;
+}
+
+.syslog__search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface, #fff);
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.syslog__spacer { flex: 1 1 auto; }
+
+.syslog__btn {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.syslog__btn:disabled { opacity: 0.5; cursor: default; }
+
+.syslog__count {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  color: var(--text-muted, #6b7280);
+}
+
+/* 結果主控台:等寬、深底、可捲動,最新在上。 */
+.syslog__log {
+  max-height: 460px;
+  overflow: auto;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  background: var(--code-bg, #0b1021);
+  color: var(--code-fg, #d1d5db);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  padding: 8px 10px;
+}
+
+.syslog__line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 2px 4px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.syslog__line.is-ERROR { background: color-mix(in srgb, #ef4444 16%, transparent); }
+.syslog__line.is-WARN { background: color-mix(in srgb, #f59e0b 14%, transparent); }
+
+.syslog__t {
+  flex: 0 0 auto;
+  color: var(--text-muted, #9ca3af);
+  opacity: 0.85;
+}
+
+.syslog__src {
+  flex: 0 0 auto;
+  color: #93c5fd;
+  min-width: 72px;
+}
+
+.syslog__lv {
+  flex: 0 0 auto;
+  font-weight: 700;
+  font-size: 0.72rem;
+}
+.syslog__lv.is-ERROR { color: #fca5a5; }
+.syslog__lv.is-WARN { color: #fcd34d; }
+.syslog__lv.is-INFO { color: #86efac; }
+.syslog__lv.is-DEBUG { color: #9ca3af; }
+
+.syslog__msg {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 720px) {
+  .syslog__controls { flex-direction: column; align-items: stretch; }
+  .syslog__spacer { display: none; }
+  .syslog__src { min-width: 0; }
+}
