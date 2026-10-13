@@ -50,6 +50,16 @@ describe('ExecutionStack — 裝置主機生命週期(Req 4.3/4.5/4.6)', () => {
     });
   });
 
+  test('Device Farm runner 有足夠資源在容器內合併數百 MB 的 XAPK(2 vCPU / 8 GB / 40 GiB)', () => {
+    const t = synthExecution();
+    t.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      Cpu: '2048',
+      Memory: '8192',
+      EphemeralStorage: { SizeInGiB: 40 },
+      ContainerDefinitions: Match.arrayWith([Match.objectLike({ Name: 'exploration-runner' })]),
+    });
+  });
+
   test('指定 Git SHA 時,兩個 Fargate task definition 都鎖定不可變 tag', () => {
     const body = JSON.stringify(synthExecution('0123456789abcdef').toJSON());
     expect(body.match(/:0123456789abcdef/g)).toHaveLength(2);

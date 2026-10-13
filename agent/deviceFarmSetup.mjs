@@ -331,6 +331,8 @@ export async function setupDeviceFarmSession(deps, params) {
         uploadArtifact = { path: mergedPath, sha256: hash.digest('hex'), size };
         console.log(`XAPK 合併完成:${Math.round(size / 1024 / 1024)}MB signed universal APK(aapt/zipalign/apksigner 已驗證)`);
       } catch (mergeErr) {
+        // 失敗原因一定要進 CloudWatch(否則日誌停在「合併中…」,看不出是記憶體、磁碟還是 APK 本身的問題)。
+        console.error(`XAPK 合併失敗:${String(mergeErr?.message || mergeErr).slice(0, 1500)}`);
         // 保底:若合併失敗但原檔本就是合法單一 APK(誤判成 XAPK),直接沿用原檔上傳,不阻斷任務。
         if (isStandaloneApk(artifact.path)) {
           console.log(`合併失敗但原檔為合法單一 APK,改用原始 APK 上傳(略過合併):${String(mergeErr?.message || mergeErr).slice(0, 200)}`);

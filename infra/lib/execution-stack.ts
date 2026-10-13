@@ -38,6 +38,11 @@ export interface ExecutionStackProps extends StackProps {
 export const HOST_LIFECYCLE_TAG = 'hostLifecycle';
 export const HOST_LIFECYCLE_PER_JOB = 'per-job';
 
+/** Device Farm / 容器 runner 的 Fargate 資源(含 XAPK 合併所需的 JVM 記憶體與暫存空間)。 */
+export const EXPLORATION_RUNNER_CPU = 2048;
+export const EXPLORATION_RUNNER_MEMORY_MIB = 8192;
+export const EXPLORATION_RUNNER_STORAGE_GIB = 40;
+
 /**
  * ExecutionStack —— 執行引擎(階段 5:Web 後端以 Lambda 承載)。
  * 引擎 Lambda 由分派器直接 Invoke(非 SQS ESM),扮演租戶角色讀寫該租戶前綴,
@@ -463,9 +468,14 @@ export class ExecutionStack extends Stack {
       }),
     );
 
+    // 2 vCPU / 8 GB / 40 GiB 暫存:XAPK(數百 MB)要在容器內合併成 universal APK。
+    // APKEditor(JVM)合併時會把 APK 結構整個載入記憶體;舊的 1 vCPU / 2 GB 下 JVM 預設 heap 只有 ~512 MB,
+    // 合併 ~434 MB 的 APK 會 OutOfMemoryError(容器 exit 1)。磁碟同時放原檔 + unsigned + aligned + signed 四份。
+    // 成本:Fargate 2 vCPU/8 GB 約 US$0.12/小時,遠低於同時計費的 Device Farm 真機(US$10.2/小時)。
     const taskDef = new ecs.FargateTaskDefinition(this, 'ExplorationTaskDef', {
-      cpu: 1024,
-      memoryLimitMiB: 2048,
+      cpu: EXPLORATION_RUNNER_CPU,
+      memoryLimitMiB: EXPLORATION_RUNNER_MEMORY_MIB,
+      ephemeralStorageGiB: EXPLORATION_RUNNER_STORAGE_GIB,
       taskRole,
     });
     const DF_CONTAINER_NAME = 'exploration-runner';
