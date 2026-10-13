@@ -238,7 +238,7 @@ export interface AskDeps {
   bedrock?: Pick<BedrockRuntimeClient, 'send'>;
 }
 let client: BedrockRuntimeClient | null = null;
-const bedrock = () => (client ??= new BedrockRuntimeClient({ region: process.env['AWS_REGION'] ?? 'us-east-2' }));
+const bedrock = () => (client ??= new BedrockRuntimeClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' }));
 
 export function cleanQuestion(v: unknown): string {
   if (typeof v !== 'string') throw new AskValidationError('question 必填');

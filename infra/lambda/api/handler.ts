@@ -31,7 +31,7 @@ import { makeSecretWriter } from './secretValueStore.js';
 import { makeSystemUpdatePorts, systemUpdateConfigFromEnv } from './systemUpdatePorts.js';
 import { makeUitarsPorts, uitarsConfigFromEnv } from './uitarsSwitch.js';
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
 const TENANT_ROLE_ARN = process.env.TENANT_ROLE_ARN ?? '';
 const DISPATCH_QUEUE_URL = process.env.DISPATCH_QUEUE_URL ?? '';
@@ -56,7 +56,7 @@ const USER_POOL_ID = process.env.USER_POOL_ID ?? '';
 const userAdmin = USER_POOL_ID
   ? makeUserAdmin(makeCognitoAdminClient(REGION), USER_POOL_ID)
   : undefined;
-// 測試憑證值寫入(Secrets Manager,與資料同區 us-east-2);runner 執行時才讀值替換 PA_TASK。
+// 測試憑證值寫入(Secrets Manager,與資料同區,跟著部署區);runner 執行時才讀值替換 PA_TASK。
 const secretWriter = makeSecretWriter(REGION);
 // 系統更新(admin 專用):CDK 注入專案名/參數名才啟用;未設定時 /system/* 回 501。
 const updateCfg = systemUpdateConfigFromEnv(process.env, REGION, BUCKET);

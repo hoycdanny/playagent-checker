@@ -16,7 +16,7 @@ import { SageMakerRuntimeClient, InvokeEndpointCommand } from '@aws-sdk/client-s
 import * as OpenCC from 'opencc-js';
 
 const ENDPOINT = process.env.PA_UITARS_ENDPOINT || '';
-const REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-east-2';
+const REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-west-2';
 // 語言:預設繁體中文(Traditional Chinese);設 PA_UITARS_LANG=en 才用英文。
 // 講明「Traditional Chinese(繁體中文)」而非只寫 Chinese,先在 prompt 引導。
 const LANG = (process.env.PA_UITARS_LANG === 'en') ? 'English' : 'Traditional Chinese (繁體中文)';

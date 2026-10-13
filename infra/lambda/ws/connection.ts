@@ -6,7 +6,7 @@ import {
 } from '@aws-sdk/client-s3';
 import type { APIGatewayProxyWebsocketEventV2 } from 'aws-lambda';
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
 
 const s3 = new S3Client({ region: REGION });

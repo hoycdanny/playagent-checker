@@ -20,7 +20,7 @@ import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm';
  *   ${WINDOWS_GLS_PARAM_PREFIX}/applicationId、${WINDOWS_GLS_PARAM_PREFIX}/streamGroupId
  */
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const PARAM_PREFIX = process.env.WINDOWS_GLS_PARAM_PREFIX ?? '/playagent/windows-gls';
 const ROLE_ARN = process.env.WINDOWS_GLS_ROLE_ARN ?? '';
 

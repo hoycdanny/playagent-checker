@@ -9,7 +9,7 @@ import { costTagsAsEcs } from './costTags.js';
  * 故與 Device Farm 真機同架構:engine 只 RunTask 起 task,把 S3 位置/起始網址/VLM/目標以
  * 環境變數注入,立即返回(不 block);終態由 task 內的 webExplorationRunner 寫回 S3。
  */
-const DATA_REGION = process.env.AWS_REGION ?? 'us-east-2';
+const DATA_REGION = process.env.AWS_REGION ?? 'us-west-2';
 
 // CDK 注入:Fargate 執行所需(與 Device Farm 共用 cluster,但各自的 task def / container)。
 const ECS_CLUSTER = process.env.WEB_ECS_CLUSTER ?? '';

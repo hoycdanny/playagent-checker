@@ -35,7 +35,7 @@ const JOB = process.env.PA_JOB;
 const BUCKET = process.env.PA_BUCKET;
 const PREFIX = process.env.PA_PREFIX;
 const APP_ID = process.env.PA_APP || '';
-const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
+const DATA_REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-west-2';
 // Web runner 無 UI-TARS 路徑(UI-TARS 為行動 GUI 微調,且 web task role 無 SageMaker 權限)。
 // 'uitars' 為 SageMaker 定位哨兵 id,非 Bedrock 可呼叫模型;web 一律回退到真實 Bedrock 通用 VLM。
 const BEDROCK_VLM_FALLBACK = 'qwen.qwen3-vl-235b-a22b';

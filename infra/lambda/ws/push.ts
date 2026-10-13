@@ -6,7 +6,7 @@ import {
 import type { EventBridgeEvent } from 'aws-lambda';
 import { listConnections, removeConnection } from './connection.js';
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
 const WS_ENDPOINT = process.env.WS_ENDPOINT ?? ''; // https://<id>.execute-api...
 

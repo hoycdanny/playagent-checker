@@ -27,7 +27,7 @@ import {
   type ExecutionConfigSnapshot,
 } from './costGuard.js';
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
 const TENANT_ROLE_ARN = process.env.TENANT_ROLE_ARN ?? '';
 
@@ -542,7 +542,7 @@ export async function handler(event: EngineEvent): Promise<void> {
             ...(meta.display ? { display: meta.display } : {}),
             maxMinutes: (meta.maxHours ?? 1) * 60,
           },
-          process.env.AWS_REGION ?? 'us-east-2',
+          process.env.AWS_REGION ?? 'us-west-2',
         );
         await writeStatus(s3, BUCKET, event.tenantId, {
           jobId: event.jobId,

@@ -1,7 +1,7 @@
 import { LambdaClient, InvokeCommand } from '@aws-sdk/client-lambda';
 import type { SQSEvent } from 'aws-lambda';
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const ENGINE_FN_ARN = process.env.ENGINE_FN_ARN ?? '';
 
 const lambda = new LambdaClient({ region: REGION });

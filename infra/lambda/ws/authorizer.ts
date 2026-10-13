@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 
 const USER_POOL_ID = process.env.USER_POOL_ID ?? '';
 const CLIENT_ID = process.env.USER_POOL_CLIENT_ID ?? '';
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
 
 const verifier = CognitoJwtVerifier.create({

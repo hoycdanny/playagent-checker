@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 部署 UI-TARS-1.5-7B 到 SageMaker real-time endpoint(us-east-2, ml.g6e.xlarge)。
+ * 部署 UI-TARS-1.5-7B 到 SageMaker real-time endpoint(?身 us-west-2, ml.g6e.xlarge)。
  * 移植自 game-ai-qa 的 vllm 部署流程,精簡成單一自足腳本(不背 CLI 框架)。
  *
  * 流程:HF 下載模型 → S3 上傳(未壓縮字首)→ 確認 ECR vLLM 映像 → CreateModel/EndpointConfig/Endpoint
@@ -9,12 +9,12 @@
  * 前置:
  *   - hf CLI(~/.local/bin/hf 或 PATH 內的 huggingface-cli)
  *   - docker(build vLLM 映像;或先手動跑 build_vllm.sh)
- *   - AWS 憑證(us-east-2)
+ *   - AWS 憑證(預設 us-west-2)
  *
  * 環境變數:
  *   PA_SM_ROLE_ARN    SageMaker 執行角色 ARN(必填)
  *   PA_SM_BUCKET      staging 權重的 S3 bucket(必填)
- *   PA_SM_REGION      依序採 PA_SM_REGION/AWS_REGION/AWS_DEFAULT_REGION,預設 us-east-2
+ *   PA_SM_REGION      依序採 PA_SM_REGION/AWS_REGION/AWS_DEFAULT_REGION,預設 us-west-2
  *   PA_SM_INSTANCE    預設 ml.g6e.xlarge
  *   PA_SM_IMAGE_REPO  預設 playagent-vllm-byoc
  *   PA_SKIP_DOWNLOAD  =1 時跳過 HF 下載(權重已在 S3)
@@ -31,7 +31,7 @@ import {
 import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-2';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
 const INSTANCE = process.env.PA_SM_INSTANCE || 'ml.g6e.xlarge';
 const IMAGE_REPO = process.env.PA_SM_IMAGE_REPO || 'playagent-vllm-byoc';
 const MODEL_ID = 'ByteDance-Seed/UI-TARS-1.5-7B';

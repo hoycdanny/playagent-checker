@@ -17,7 +17,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
  * 文件放共用資料桶的 shared/knowledge-docs/<kbId>/ 前綴(與知識庫 registry 同租戶外命名空間)。
  */
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const KB_SERVICE_ROLE_ARN = process.env.KB_SERVICE_ROLE_ARN ?? '';
 const KB_VECTOR_BUCKET_PREFIX = process.env.KB_VECTOR_BUCKET_PREFIX ?? 'playagent-kb-';
 const KB_EMBEDDING_MODEL_ID = process.env.KB_EMBEDDING_MODEL_ID ?? 'amazon.titan-embed-text-v2:0';
