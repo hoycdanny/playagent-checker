@@ -14,7 +14,7 @@
  */
 import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 
-const REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-east-2';
+const REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-west-2';
 const TENANT = process.env.PA_TENANT || '';
 const APP_ID = process.env.PA_APP || '';
 

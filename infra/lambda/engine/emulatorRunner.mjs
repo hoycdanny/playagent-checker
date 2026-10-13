@@ -26,7 +26,7 @@ const PREFIX = process.env.PLAYAGENT_PREFIX;
 // 'uitars' 是 SageMaker 定位哨兵 id,非 Bedrock 可呼叫模型;emulator 無 UI-TARS 路徑,回退通用 VLM。
 const _vlmRaw = process.env.PLAYAGENT_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const VLM = _vlmRaw === 'uitars' ? 'qwen.qwen3-vl-235b-a22b' : _vlmRaw;
-const REGION = process.env.AWS_DEFAULT_REGION || 'us-east-2';
+const REGION = process.env.AWS_DEFAULT_REGION || process.env.AWS_REGION || 'us-west-2';
 const ADB = ['-s', '127.0.0.1:5555'];
 const MAX_STEPS = Number(process.env.PLAYAGENT_MAXSTEPS || 30);
 const CONSEC_FAIL_LIMIT = 3;

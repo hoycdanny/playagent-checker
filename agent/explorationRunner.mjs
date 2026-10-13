@@ -15,7 +15,7 @@
  *   PA_APPIUM_URL       (選)已建好的 Device Farm remoteDriverEndpoint;有則跳過前置
  *   PA_SESSION_ARN      (選)已建好的 Device Farm session ARN(供 endpoint 刷新)
  *   PA_PLATFORM         android | ios | windows
- *   PA_JOB / PA_TENANT / PA_BUCKET / PA_PREFIX   S3 位置(us-east-2 資料桶)
+ *   PA_JOB / PA_TENANT / PA_BUCKET / PA_PREFIX   S3 位置(資料桶,區域跟著部署區)
  *   PA_VLM              VLM modelId
  *   PA_PKG              app 包名(啟動用)
  *   PA_TASK             探索目標文字
@@ -75,7 +75,7 @@ const ADB_SERIAL = process.env.PA_ADB_SERIAL || '127.0.0.1:5555';
 const JOB = process.env.PA_JOB;
 const BUCKET = process.env.PA_BUCKET;
 const PREFIX = process.env.PA_PREFIX;
-const DATA_REGION = process.env.PA_DATA_REGION || 'us-east-2';
+const DATA_REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-west-2';
 const DF_REGION = process.env.PA_DF_REGION || 'us-west-2';
 // 'uitars' 是 SageMaker 定位模型的哨兵 id,不是 Bedrock 可呼叫的 modelId。走 Bedrock 通用 VLM 路徑時
 // (UI-TARS endpoint 缺席而回退)必須換成真實 Bedrock VLM,否則 InvokeModel 會因無此模型而失敗。

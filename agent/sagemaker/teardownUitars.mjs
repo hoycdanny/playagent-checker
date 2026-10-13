@@ -10,7 +10,7 @@ import {
   DeleteEndpointCommand, DeleteEndpointConfigCommand, DeleteModelCommand,
 } from '@aws-sdk/client-sagemaker';
 
-const REGION = process.env.PA_SM_REGION || 'us-east-2';
+const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
 const sm = new SageMakerClient({ region: REGION });
 const log = (...a) => console.log(...a);
 

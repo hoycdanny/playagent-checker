@@ -16,7 +16,7 @@ import { costTagsAsEcs } from './costTags.js';
  * 對模擬器環境的檢查(解決 Redroid 的 50019999)。
  */
 
-const DATA_REGION = process.env.AWS_REGION ?? 'us-east-2';
+const DATA_REGION = process.env.AWS_REGION ?? 'us-west-2';
 const DF_PROJECT_NAME = 'playagent-checker';
 
 // CDK 注入:Fargate 執行所需。

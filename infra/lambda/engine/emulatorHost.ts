@@ -24,7 +24,7 @@ import { costTagsAsEc2 } from './costTags.js';
  * 環境參數由 CDK 經 env 注入(execution-stack)。
  */
 
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
 const TENANT_ROLE_ARN = process.env.TENANT_ROLE_ARN ?? '';
 const HOST_PROFILE_ARN = process.env.EMULATOR_HOST_PROFILE_ARN ?? '';

@@ -1,13 +1,13 @@
 #!/bin/bash
 # 建 + 推 UI-TARS 用的 vLLM BYOC 容器到 ECR。移植自 game-ai-qa/vendor/sagemaker-deploy/docker/build_vllm.sh。
-# 用法:AWS_REGION=us-east-2 ./build_vllm.sh
+# 用法:AWS_REGION=us-west-2 ./build_vllm.sh
 set -e
 
 # 從本腳本所在目錄執行,COPY 路徑(vllm_server.py / serve.sh)才對。
 cd "$(dirname "$0")"
 
 REPO_NAME="${IMAGE_REPO:-playagent-vllm-byoc}"
-REGION="${AWS_REGION:-us-east-2}"
+REGION="${AWS_REGION:-us-west-2}"
 
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com/${REPO_NAME}:latest"
