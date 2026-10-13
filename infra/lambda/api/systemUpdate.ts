@@ -4,8 +4,8 @@
  * 分工:
  * - 本模組只做「驗證 + 觸發 + 查詢」,實際部署由 CodeBuild 專案執行(見 lib/updater-stack.ts)。
  * - 版本來源是 GitHub Release tag(沒有 release 時退回最新 tag,再退回預設分支最新 commit)。
- * - GitHub token 放 Secrets Manager,由管理員從介面匯入;沒有 token 時所有查詢回
- *   tokenConfigured:false,介面顯示引導而不是錯誤。
+ * - 倉庫已公開:查版本與下載程式都不需要 GitHub token。token 變成選用(只用來提高 GitHub API
+ *   的速率限制);有存就帶、沒存就以未驗證方式呼叫,tokenConfigured 僅供介面顯示。
  *
  * 安全不變式:
  * - token 明文只在本模組記憶體內用於呼叫 GitHub,永不回傳前端、不寫 log。
@@ -188,8 +188,8 @@ export async function fetchBehind(
 
 function githubErrorMessage(status: number): string {
   if (status === 401) return 'GitHub token 無效或已過期';
-  if (status === 403) return 'GitHub API 拒絕存取(權限不足或超過速率限制)';
-  if (status === 404) return '找不到倉庫(token 需要該私有倉庫的 contents:read 權限)';
+  if (status === 403) return 'GitHub API 暫時拒絕(多半是未驗證的速率限制;可選擇性設定 token 提高限制)';
+  if (status === 404) return '找不到倉庫或版本';
   return `GitHub API 回應 ${status}`;
 }
 
@@ -226,10 +226,10 @@ export async function buildVersionReport(ports: SystemUpdatePorts, repo: string)
     activeRuns,
     running,
   };
-  if (!token) return base;
+  // 倉庫已公開:沒有 token 也查得到 GitHub(未驗證)。token 只是用來提高速率限制。
   try {
-    const latest = await fetchRemoteVersion(ports, token, repo);
-    const behind = deployed?.sha ? await fetchBehind(ports, token, repo, deployed.sha, latest.sha || latest.ref) : { count: 0, commits: [] };
+    const latest = await fetchRemoteVersion(ports, token ?? '', repo);
+    const behind = deployed?.sha ? await fetchBehind(ports, token ?? '', repo, deployed.sha, latest.sha || latest.ref) : { count: 0, commits: [] };
     return {
       ...base,
       latest,
@@ -273,8 +273,8 @@ export async function startUpdate(
   repo: string,
   input: StartUpdateInput,
 ): Promise<{ buildId: string; ref: string; sha: string }> {
+  // 倉庫已公開:更新不再需要 GitHub token。token 仍可選(僅提高 GitHub API 速率限制)。
   const token = await ports.readToken();
-  if (!token) throw new UpdateError('尚未設定 GitHub token,請先在本頁匯入');
   if (!isValidRef(input.ref)) throw new UpdateError('版本字串格式不正確(只接受 tag / 分支 / commit sha)');
 
   const running = await findRunningBuild(ports);
@@ -286,7 +286,7 @@ export async function startUpdate(
   }
 
   // 存在性檢查:避免把不存在的字串傳進 CodeBuild(那會在 build 中段才失敗)。
-  const sha = await resolveSha(ports, token, repo, input.ref);
+  const sha = await resolveSha(ports, token ?? '', repo, input.ref);
   if (!sha) throw new UpdateError(`GitHub 上找不到版本 ${input.ref}`);
 
   const buildId = await ports.startBuild({ ref: input.ref, by: input.by, runTests: input.runTests !== false });

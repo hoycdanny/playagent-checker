@@ -6,7 +6,6 @@ import {
   isValidRef,
   looksLikeToken,
   startUpdate,
-  UpdateError,
   type BuildProgress,
   type SystemUpdatePorts,
   type UpdateHistoryEntry,
@@ -125,18 +124,21 @@ describe('系統更新 — 落後的 commit', () => {
 });
 
 describe('系統更新 — 版本狀態報告', () => {
-  test('沒有 token 時不打 GitHub,只回已部署版本與 tokenConfigured:false', async () => {
-    let calls = 0;
+  test('沒有 token 也會查 GitHub(未驗證),回最新版本與 tokenConfigured:false', async () => {
     const { ports } = makePorts({
       readToken: async () => null,
       readDeployed: async () => ({ ref: 'v1', sha: 'aaa' }),
-      github: async () => { calls++; return { status: 200, body: {} }; },
+      routes: {
+        [`/repos/${REPO}/releases/latest`]: { status: 200, body: { tag_name: 'v2' } },
+        [`/repos/${REPO}/commits/v2`]: { status: 200, body: { sha: 'bbb' } },
+        [`/repos/${REPO}/compare/aaa...bbb`]: { status: 200, body: { ahead_by: 1, commits: [] } },
+      },
     });
     const r = await buildVersionReport(ports, REPO);
     expect(r.tokenConfigured).toBe(false);
     expect(r.deployed).toMatchObject({ ref: 'v1' });
-    expect(r.latest).toBeNull();
-    expect(calls).toBe(0);
+    expect(r.latest).toMatchObject({ ref: 'v2' });
+    expect(r.updateAvailable).toBe(true);
   });
 
   test('GitHub 讀取失敗時仍回得出頁面內容,錯誤放在 error', async () => {
@@ -145,7 +147,7 @@ describe('系統更新 — 版本狀態報告', () => {
       routes: { [`/repos/${REPO}`]: { status: 403, body: null } },
     });
     const r = await buildVersionReport(ports, REPO);
-    expect(r.error).toContain('拒絕存取');
+    expect(r.error).toContain('拒絕');
     expect(r.deployed).not.toBeNull();
   });
 
@@ -185,9 +187,11 @@ describe('系統更新 — 觸發更新的四道檢查', () => {
     expect(history[0]).toMatchObject({ ref: 'v1', result: 'started', by: 'admin@example.com' });
   });
 
-  test('沒有 token 就擋下', async () => {
-    const { ports } = makePorts({ readToken: async () => null });
-    await expect(startUpdate(ports, REPO, { ref: 'v1', by: 'a' })).rejects.toThrow(UpdateError);
+  test('沒有 token 也能觸發更新(倉庫已公開)', async () => {
+    const { ports, started } = makePorts({ readToken: async () => null, routes: okRoutes });
+    const r = await startUpdate(ports, REPO, { ref: 'v1', by: 'a' });
+    expect(r).toMatchObject({ buildId: 'build-1', ref: 'v1', sha: 'sha1' });
+    expect(started).toHaveLength(1);
   });
 
   test('版本字串不合法就擋下,且不呼叫 GitHub', async () => {

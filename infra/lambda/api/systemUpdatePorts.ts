@@ -81,9 +81,10 @@ export function makeSystemUpdatePorts(cfg: SystemUpdateConfig, secretWriter: Sec
     },
 
     async github(path: string, token: string) {
+      // 倉庫已公開:沒有 token 也能呼叫(未驗證有較低速率限制);有 token 才帶 Authorization。
       const res = await fetch(`https://api.github.com${path}`, {
         headers: {
-          authorization: `Bearer ${token}`,
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
           accept: 'application/vnd.github+json',
           'x-github-api-version': GITHUB_API_VERSION,
           'user-agent': 'playagent-checker-updater',

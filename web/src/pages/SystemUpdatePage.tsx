@@ -179,7 +179,8 @@ export default function SystemUpdatePage() {
 
   const latest = report?.latest ?? null;
   const running = build && !TERMINAL.includes(build.status) ? build : null;
-  const canUpdate = Boolean(report?.tokenConfigured) && !running && !busy;
+  // 倉庫已公開:更新不再需要 GitHub token。
+  const canUpdate = !running && !busy;
 
   return (
     <section className="listpage listpage--wide">
@@ -195,29 +196,6 @@ export default function SystemUpdatePage() {
 
       {error && <p className="sysupd__error" role="alert">{error}</p>}
       {notice && <p className="sysupd__ok" role="status">{notice}</p>}
-
-      {/* 沒有 token:顯示引導,其餘功能照常呈現已部署版本 */}
-      {report && !report.tokenConfigured && (
-        <div className="sysupd__card sysupd__card--warn">
-          <h2 className="sysupd__card-title">{T.tokenTitle}</h2>
-          <p className="sysupd__hint">{T.tokenHint}</p>
-          <form className="sysupd__token-form" onSubmit={onSaveToken}>
-            <input
-              type="password"
-              className="sysupd__token-input"
-              value={token}
-              placeholder="github_pat_…"
-              autoComplete="off"
-              onChange={(e) => setToken(e.target.value)}
-              aria-label={T.tokenTitle}
-            />
-            <button type="submit" className="sysupd__primary" disabled={tokenBusy || token.trim().length < 20}>
-              {tokenBusy ? T.saving : T.tokenSave}
-            </button>
-          </form>
-          <p className="sysupd__muted">{T.tokenNote}</p>
-        </div>
-      )}
 
       {/* 版本比對 */}
       <div className="sysupd__grid">
@@ -247,7 +225,7 @@ export default function SystemUpdatePage() {
               <p className="sysupd__muted">{when(latest.publishedAt)}</p>
             </>
           ) : (
-            <p className="sysupd__hint">{report?.tokenConfigured ? T.latestUnknown : T.needToken}</p>
+            <p className="sysupd__hint">{T.latestUnknown}</p>
           )}
         </div>
       </div>
@@ -373,27 +351,29 @@ export default function SystemUpdatePage() {
         )}
       </div>
 
-      {/* 已設定 token 時,也允許更換 */}
-      {report?.tokenConfigured && (
-        <details className="sysupd__card">
-          <summary className="sysupd__card-title">{T.tokenReplace}</summary>
-          <form className="sysupd__token-form" onSubmit={onSaveToken}>
-            <input
-              type="password"
-              className="sysupd__token-input"
-              value={token}
-              placeholder="github_pat_…"
-              autoComplete="off"
-              onChange={(e) => setToken(e.target.value)}
-              aria-label={T.tokenReplace}
-            />
-            <button type="submit" className="sysupd__primary" disabled={tokenBusy || token.trim().length < 20}>
-              {tokenBusy ? T.saving : T.tokenSave}
-            </button>
-          </form>
-          <p className="sysupd__muted">{T.tokenNote}</p>
-        </details>
-      )}
+      {/* GitHub token(選用):倉庫已公開,更新不需要;設定只為提高 GitHub API 速率限制 */}
+      <details className="sysupd__card">
+        <summary className="sysupd__card-title">
+          {T.tokenReplace}
+          {report?.tokenConfigured ? <span className="sysupd__muted"> · {T.tokenSet}</span> : null}
+        </summary>
+        <p className="sysupd__hint">{T.tokenHint}</p>
+        <form className="sysupd__token-form" onSubmit={onSaveToken}>
+          <input
+            type="password"
+            className="sysupd__token-input"
+            value={token}
+            placeholder="github_pat_…"
+            autoComplete="off"
+            onChange={(e) => setToken(e.target.value)}
+            aria-label={T.tokenReplace}
+          />
+          <button type="submit" className="sysupd__primary" disabled={tokenBusy || token.trim().length < 20}>
+            {tokenBusy ? T.saving : T.tokenSave}
+          </button>
+        </form>
+        <p className="sysupd__muted">{T.tokenNote}</p>
+      </details>
 
       {/* UI-TARS 定位模型開關(SageMaker GPU,預設關閉) */}
       <UitarsPanel />
@@ -474,21 +454,22 @@ function text(locale: string) {
     },
     tokenTitle: ['尚未設定 GitHub token', 'GitHub token not set', '尚未设定 GitHub token', 'GitHub トークン未設定', 'GitHub 토큰 미설정'] as L5,
     tokenHint: [
-      '倉庫是私有的,檢查版本與下載程式都需要 token。請建立一組 fine-grained personal access token,只勾選該倉庫的 Contents: Read-only 與 Metadata: Read-only。',
-      'The repository is private, so checking versions and cloning both need a token. Create a fine-grained personal access token with only Contents: Read-only and Metadata: Read-only on this repository.',
-      '仓库是私有的,检查版本与下载程序都需要 token。请建立一组 fine-grained personal access token,只勾选该仓库的 Contents: Read-only 与 Metadata: Read-only。',
-      'リポジトリが非公開のため、バージョン確認とクローンにトークンが必要です。該当リポジトリの Contents: Read-only と Metadata: Read-only のみを付与した fine-grained personal access token を作成してください。',
-      '저장소가 비공개이므로 버전 확인과 클론에 토큰이 필요합니다. 해당 저장소에 Contents: Read-only와 Metadata: Read-only만 부여한 fine-grained personal access token을 만드세요.',
+      '倉庫已公開,更新不需要 token。設定一組唯讀 token 只是為了提高 GitHub API 的速率限制(未驗證約每小時 60 次),避免頻繁檢查版本時被暫時擋下。可建 fine-grained PAT,只勾選 Metadata: Read-only 即可(公開倉庫不需 Contents 權限)。',
+      'The repository is public, so updates need no token. Setting a read-only token only raises the GitHub API rate limit (unauthenticated is ~60/hour), avoiding temporary blocks when checking versions often. A fine-grained PAT with just Metadata: Read-only is enough (public repos need no Contents scope).',
+      '仓库已公开,更新不需要 token。设定一组只读 token 只是为了提高 GitHub API 的速率限制(未验证约每小时 60 次),避免频繁检查版本时被暂时挡下。可建 fine-grained PAT,只勾选 Metadata: Read-only 即可(公开仓库不需 Contents 权限)。',
+      'リポジトリは公開のため、更新にトークンは不要です。読み取り専用トークンの設定は GitHub API のレート制限(未認証は約 60 回/時)を上げ、頻繁な確認時の一時ブロックを避けるためだけです。Metadata: Read-only のみの fine-grained PAT で十分です(公開リポジトリに Contents 権限は不要)。',
+      '저장소가 공개이므로 업데이트에 토큰이 필요 없습니다. 읽기 전용 토큰 설정은 GitHub API 속도 제한(미인증 시 시간당 약 60회)을 높여 자주 확인할 때 일시 차단을 피하기 위한 것일 뿐입니다. Metadata: Read-only만 있는 fine-grained PAT면 충분합니다(공개 저장소는 Contents 권한 불필요).',
     ] as L5,
     tokenSave: ['儲存 token', 'Save token', '保存 token', 'トークンを保存', '토큰 저장'] as L5,
     tokenSaved: ['token 已儲存。', 'Token saved.', 'token 已保存。', 'トークンを保存しました。', '토큰을 저장했습니다.'] as L5,
-    tokenReplace: ['更換 GitHub token', 'Replace GitHub token', '更换 GitHub token', 'GitHub トークンを変更', 'GitHub 토큰 교체'] as L5,
+    tokenReplace: ['GitHub token(選用)', 'GitHub token (optional)', 'GitHub token(可选)', 'GitHub トークン(任意)', 'GitHub 토큰(선택)'] as L5,
+    tokenSet: ['已設定', 'configured', '已设定', '設定済み', '설정됨'] as L5,
     tokenNote: [
-      'token 存進 AWS Secrets Manager,不會回傳到瀏覽器也不會寫進 log。',
-      'The token is stored in AWS Secrets Manager; it is never returned to the browser or written to logs.',
-      'token 存进 AWS Secrets Manager,不会回传到浏览器也不会写进 log。',
-      'トークンは AWS Secrets Manager に保存され、ブラウザへ返されることもログに出力されることもありません。',
-      '토큰은 AWS Secrets Manager에 저장되며 브라우저로 반환되거나 로그에 기록되지 않습니다.',
+      'token 存進 AWS Secrets Manager,不會回傳到瀏覽器也不會寫進 log。留空不設定也完全可以更新。',
+      'The token is stored in AWS Secrets Manager; it is never returned to the browser or written to logs. Leaving it unset is perfectly fine.',
+      'token 存进 AWS Secrets Manager,不会回传到浏览器也不会写进 log。留空不设定也完全可以更新。',
+      'トークンは AWS Secrets Manager に保存され、ブラウザへ返されることもログに出力されることもありません。未設定のままでも更新できます。',
+      '토큰은 AWS Secrets Manager에 저장되며 브라우저로 반환되거나 로그에 기록되지 않습니다. 설정하지 않아도 업데이트할 수 있습니다.',
     ] as L5,
     saving: ['儲存中…', 'Saving…', '保存中…', '保存中…', '저장 중…'] as L5,
   };
@@ -540,6 +521,7 @@ function text(locale: string) {
     tokenSave: pick(S.tokenSave, i),
     tokenSaved: pick(S.tokenSaved, i),
     tokenReplace: pick(S.tokenReplace, i),
+    tokenSet: pick(S.tokenSet, i),
     tokenNote: pick(S.tokenNote, i),
     saving: pick(S.saving, i),
   };
