@@ -6,10 +6,10 @@
 #   1. CDK-bootstraps the account/region if CDKToolkit is missing (the only step that needs admin);
 #   2. creates/updates the customer-managed policy PlayAgentDeployer from infra/iam/playagent-deployer-policy.json;
 #   3. creates the EC2 role + instance profile playagent-deployer (PlayAgentDeployer + AmazonSSMManagedInstanceCore).
-# Env overrides: AWS_REGION (us-east-2), PLAYAGENT_ROLE_NAME (playagent-deployer), PLAYAGENT_POLICY_NAME (PlayAgentDeployer).
+# Env overrides: AWS_REGION (us-west-2), PLAYAGENT_ROLE_NAME (playagent-deployer), PLAYAGENT_POLICY_NAME (PlayAgentDeployer).
 set -euo pipefail
 
-REGION="${AWS_REGION:-us-east-2}"
+REGION="${AWS_REGION:-us-west-2}"
 ROLE="${PLAYAGENT_ROLE_NAME:-playagent-deployer}"
 POLICY="${PLAYAGENT_POLICY_NAME:-PlayAgentDeployer}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -35,7 +35,7 @@ else
 fi
 
 # 2. Customer-managed policy (account and region substituted into the template)
-DOC="$(sed -e "s/<ACCOUNT_ID>/$ACCOUNT/g" -e "s/us-east-2/$REGION/g" "$POLICY_FILE")"
+DOC="$(sed -e "s/<ACCOUNT_ID>/$ACCOUNT/g" -e "s/<REGION>/$REGION/g" "$POLICY_FILE")"
 POLICY_ARN="arn:aws:iam::$ACCOUNT:policy/$POLICY"
 if aws iam get-policy --policy-arn "$POLICY_ARN" >/dev/null 2>&1; then
   OLD="$(aws iam list-policy-versions --policy-arn "$POLICY_ARN" --query 'Versions[?IsDefaultVersion==`false`].VersionId' --output text)"

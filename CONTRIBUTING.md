@@ -45,7 +45,7 @@ macOS:   double-click Install-Latest.command
 Linux:   run scripts/deploy-latest.sh
 ```
 
-All three launchers use the shared deployment core and default to **`us-east-2` (Ohio)**.
+All three launchers use the shared deployment core and default to **`us-west-2` (Oregon)** (change it with `--region`). For a browser-only install, see the AWS CloudShell one-liner in the README.
 
 It deploys from an isolated Git SHA, builds and pushes both runner images, pins ECS task definitions to that SHA, builds the frontend from stack outputs, and verifies CloudFormation/ECR/ECS/CloudFront. It never deploys uncommitted local files. Use `npm run deploy:latest -- --expected-account-id 123456789012` for account safety. Windows, macOS and Linux share `scripts/deploy-latest.mjs`; the `.cmd`, `.command`, `.sh`, and `.ps1` files are launchers only.
 
@@ -54,7 +54,7 @@ It deploys from an isolated Git SHA, builds and pushes both runner images, pins 
 - Never pass a password in argv, including deploy, CDK, AWS CLI, or helper-script command-line options.
 - Never put a password in CDK context, generated CloudFormation templates, or logs.
 - Interactive tools must use hidden password input. Automation must read the password from stdin, for example by piping a secret manager to `npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin`.
-- Use `us-east-2` by default unless a documented service-specific exception requires another region.
+- Use `us-west-2` by default unless a documented service-specific exception requires another region.
 
 For targeted development deployments, deploy only the affected stack explicitly from `infra/`. Do **not** use `cdk deploy --all` as a substitute for the installer: that neither guarantees runner images were rebuilt nor that `web/dist` matches the deployed API.
 

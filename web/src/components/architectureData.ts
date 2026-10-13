@@ -11,6 +11,7 @@
  * 誠實原則:status 'ok' = 已端到端驗證;'todo' = 有程式骨架但未端到端驗證。
  */
 import type { Locale } from '../i18n/messages.ts';
+import { getConfig } from '../config.ts';
 
 export type ArchStatus = 'ok' | 'todo';
 export type ArchKind = 'edge' | 'api' | 'compute' | 'msg' | 'device' | 'ai' | 'data' | 'external';
@@ -163,6 +164,7 @@ export function architectureDiagram(locale: Locale): ArchDiagram {
       t === 'en'
         ? { ok: 'Verified end-to-end', todo: 'Scaffolded (not verified)', flow: 'Sync flow', async: 'Async / push', model: 'Model call / retrieve' }
         : { ok: '已端到端驗證', todo: '骨架(未驗證)', flow: '同步資料流', async: '非同步 / 回推', model: '呼叫模型 / 檢索' },
-    caption: t === 'en' ? 'Region us-east-2' : 'Region us-east-2',
+    // 部署區域可自訂(預設 us-west-2):顯示實際部署的區域,不寫死。
+    caption: `Region ${getConfig().cognitoRegion || 'us-west-2'}`,
   };
 }

@@ -8,7 +8,7 @@
 
 ## What it does
 
-PlayAgent Checker runs entirely on **AWS (region `us-east-2`)**: a serverless control plane plus execution runners that start per task and shut down when the task ends. You upload an app (or point at a web URL), the agent explores it on its own, and you get repeatable, reviewable test runs.
+PlayAgent Checker runs entirely on **AWS (region `us-west-2`)**: a serverless control plane plus execution runners that start per task and shut down when the task ends. You upload an app (or point at a web URL), the agent explores it on its own, and you get repeatable, reviewable test runs.
 
 - **The agent loop:** screenshot → VLM locates the target → Agent decides → act on the device → screenshot again, until the goal is met or a stop condition fires.
 - **Looks at the screen, not the UI tree**, so it works on canvas-rendered games (Cocos2d-x, Unity) with no inspectable elements.
@@ -104,7 +104,7 @@ flowchart TB
   update -- "redeploy stacks" --> cp
 ```
 
-CDK stacks (all in `us-east-2`):
+CDK stacks (all in `us-west-2`):
 
 | Stack | Contents |
 | --- | --- |
@@ -119,7 +119,7 @@ Details: [docs/architecture.md](docs/architecture.md).
 
 ## What it costs
 
-Measured on this project's own account (`us-east-2`, October 2026). AWS prices change, so treat these as estimates.
+Measured on this project's own account (October 2026). AWS prices change, so treat these as estimates.
 
 **When nothing is running (idle):** roughly **US$2–5 / month**. There is no NAT gateway, no always-on server, and no reserved stream capacity. What remains:
 
@@ -188,6 +188,45 @@ Every task can have a step limit and a budget. Before running, the engine **lock
 
 # 🚀 Install on a clean AWS account
 
+## Easiest: one command in AWS CloudShell (nothing to download)
+
+You only need a web browser. Nothing is installed on your computer.
+
+1. Sign in to the AWS Console as an admin.
+2. Enable the Bedrock models first in the target region, by default **US West (Oregon) us-west-2** ([Step 3](#step-3--turn-on-the-ai-models-amazon-bedrock)). Every test run fails without them.
+3. Open **CloudShell** with the `>_` icon in the Console top bar.
+4. Paste this command with your own email:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
+```
+
+To use another region, append `--region <region>`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com --region ap-northeast-1
+```
+
+- Without `--region`, it deploys to `us-west-2` no matter which region the Console shows. The script ignores CloudShell's own region on purpose.
+- The chosen region must have the Bedrock models enabled. The default models use `us.` cross-region inference profiles, so non-US regions may need different model IDs.
+- Device Farm real devices always run in `us-west-2`, because AWS only offers Device Farm there.
+- `--no-wait` starts the build and exits without waiting.
+
+What `scripts/cloudshell-install.sh` does:
+
+- Bootstraps CDK if this account/region was never bootstrapped. This is the only step that needs admin rights.
+- Creates the IAM role `playagent-installer`, trusted only by CodeBuild, with the least-privilege policy [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json). The build gets no AdministratorAccess.
+- Creates the CodeBuild project `playagent-installer`, which clones the public GitHub repo and runs the same deploy core (`scripts/deploy-latest.mjs`). No EC2 instance is needed.
+- Streams the build log and prints the site URL when done.
+
+The policy only lets the build assume this account's CDK bootstrap roles, read the PlayAgent stacks, push the two runner images, create the Cognito admin, and write `/playagent/*` SSM parameters. CloudFormation changes run through CDK's `cdk-hnb659fds-cfn-exec-role`, which by default has admin rights, so anyone who can deploy can still create resources through CloudFormation.
+
+The install takes about 30–60 minutes. Closing CloudShell does not stop it: the build keeps running in CodeBuild, and you can follow it in the CodeBuild console.
+
+The admin account is created by a Cognito email invite. You get an email with a temporary password. At first sign-in the web page asks you to set a new password (at least 8 characters with upper-case, lower-case, and a digit).
+
+To update to the latest `main`, run the same command again.
+
 ## Recommended on Windows and macOS: one-click latest installer
 
 After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**, configure your AWS credentials and enable the Bedrock models in Step 3. Then clone the repository and launch:
@@ -198,7 +237,7 @@ macOS:   double-click Install-Latest.command
 Linux:   run scripts/deploy-latest.sh
 ```
 
-These three launchers use the same deployment core and default to **`us-east-2` (Ohio)**.
+These three launchers use the same deployment core and default to **`us-west-2` (Oregon)** (change it with `--region`).
 
 Optional account safety check on any OS:
 
@@ -216,17 +255,17 @@ For non-interactive automation, never put the password in command-line arguments
 
 ```bash
 # bash / zsh (macOS or Linux)
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 ```powershell
 # PowerShell
-(aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+(aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text) | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 ```bat
 rem Command Prompt (cmd.exe)
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | npm run deploy:latest -- --non-interactive --admin-email admin@example.com --admin-password-stdin
 ```
 
 These examples contain no literal password. Add `--admin-tenant <tenant>` only when overriding the default tenant.
@@ -235,106 +274,11 @@ These examples contain no literal password. Add `--admin-tenant <tenant>` only w
 >
 > **About reinstalling after `cdk destroy`:** the data bucket, Cognito User Pool, and runner ECR repositories have `Retain` protection. The installer detects orphaned retained ECR repositories and safely reuses them, so fixed repository names do not block reinstall. It intentionally does not delete or silently adopt an old data bucket/User Pool; a true empty reset requires explicitly deleting those retained resources after backing up anything needed.
 
-## Alternative: deploy from an EC2 instance
-
-Use this when you do not want to install anything on your own computer. A small Linux EC2 instance runs the same one-click installer (`scripts/deploy-latest.sh`). You only need it while deploying or updating; stop it afterwards.
-
-> Not yet verified end to end on EC2. The Linux launcher shares the same deployment core as the Windows path (verified on a full clean install), and its syntax and arguments were checked in a Linux container. Watch your first EC2 deployment through to the end.
-
-### 1. Create a least-privilege role for the instance (once, by an AWS admin)
-
-The instance does **not** need `AdministratorAccess`. An AWS admin opens **AWS CloudShell** (the `>_` icon in the Console top bar, region **us-east-2**) and runs:
-
-```bash
-git clone https://github.com/hoycdanny/playagent-checker.git
-bash playagent-checker/scripts/setup-deployer-role.sh
-```
-
-The script is safe to re-run. It:
-
-1. Runs CDK bootstrap once if this account/region was never bootstrapped. This is the only step that needs admin rights.
-2. Creates the customer-managed policy `PlayAgentDeployer` from [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json).
-3. Creates the role and instance profile `playagent-deployer` with `PlayAgentDeployer` + `AmazonSSMManagedInstanceCore` (for Session Manager).
-
-With this role the installer can only: assume this account/region's three CDK bootstrap roles (deploy, file-publishing, lookup); read the PlayAgent and `CDKToolkit` stacks; push to the two runner ECR repositories; create the Cognito admin in the PlayAgent User Pool only (matched by its CloudFormation stack tag); and write `/playagent/*` SSM parameters. It cannot create IAM users or roles, read S3 data, or touch other apps. When `CDKToolkit` already exists the installer skips bootstrap, so it never needs admin rights.
-
-The instance uses this role directly, so no access keys are stored on the machine. Session Manager also works through this role, so no SSH port is needed. To deploy from a laptop or SSO with the same minimal rights, attach `PlayAgentDeployer` to that IAM user or permission set.
-
-> **Verified so far:** IAM Access Analyzer reports no findings, and a temporary copy of the role passed live allow/deny checks, the installer's `--plan-only`, and `cdk diff` through the CDK roles. A full install using only this role has not been run yet.
->
-> **Remaining limit:** CloudFormation creates the resources with the CDK execution role (`cdk-hnb659fds-cfn-exec-role-…`), which by default has `AdministratorAccess`. Anyone who can deploy can therefore still create any resource type *through CloudFormation*. Narrowing that requires re-bootstrapping with a custom execution policy and permissions boundary, which changes the account-wide CDK bootstrap; it is not done by default.
-
-### 2. Launch the instance
-
-AWS Console → **EC2 → Launch instance**, region **US East (Ohio) us-east-2**:
-
-| Setting | Value | Why |
-| --- | --- | --- |
-| AMI | **Amazon Linux 2023**, 64-bit **(x86)** | AWS CLI v2 is preinstalled |
-| Architecture | **x86_64** (not Graviton/ARM) | Runner images are `linux/amd64`; building them on ARM needs slow emulation |
-| Instance type | `t3.large` (2 vCPU / 8 GB) | Docker builds, CDK synth and the web build run together |
-| Storage | **40 GB** gp3 or more | Two runner images plus build cache take well over 10 GB |
-| Key pair | Not needed | Connect with Session Manager |
-| Network | Default VPC, public IP **enabled**; security group with **no inbound rules** | Only outbound access is needed (GitHub, npm, container registries, AWS APIs) |
-| IAM instance profile | `playagent-deployer` (from step 1) | Under **Advanced details** |
-
-Cost: a `t3.large` is about US$0.08 / hour while running.
-
-### 3. Connect and install the tools
-
-Select the instance → **Connect → Session Manager → Connect**, then run:
-
-```bash
-sudo su - ec2-user
-
-# Git + Docker
-sudo dnf install -y git docker
-sudo systemctl enable --now docker
-sudo usermod -aG docker ec2-user
-exit                     # log out once so the docker group applies
-```
-
-Reconnect (`sudo su - ec2-user` again), then:
-
-```bash
-# Node.js 22 (via nvm)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-source ~/.bashrc
-nvm install 22
-
-# Check everything
-git --version
-node --version               # v22.x
-aws --version                # aws-cli/2.x
-docker info                  # must not say "permission denied"
-aws sts get-caller-identity  # should show the playagent-deployer role
-```
-
-### 4. Turn on the Bedrock models
-
-Do Step 3 below (**Turn on the AI models**) in the AWS Console. This cannot be done from the instance, and every test run fails without it.
-
-### 5. Run the installer
-
-```bash
-git clone https://github.com/hoycdanny/playagent-checker.git
-cd playagent-checker
-./scripts/deploy-latest.sh
-```
-
-The installer defaults to **us-east-2**. It shows the AWS account and asks you to confirm, then asks for the Cognito admin **Email** and a **password** (hidden input, typed twice). Total time is about 20–40 minutes. When it finishes it prints the website URL.
-
-### 6. Later updates and cleanup
-
-- **Update to the latest version:** start the instance, connect, then `cd ~/playagent-checker && ./scripts/deploy-latest.sh`.
-- **Save cost:** stop the instance when you are done (EC2 → Instance state → Stop). Storage still costs about US$3 / month; terminate it if you no longer need it.
-- **Session timed out:** Session Manager closes idle sessions. If the deployment was interrupted, reconnect and run the installer again; it is safe to repeat.
-
 ## Manual installation (step by step)
 
 This section assumes **no prior AWS experience**. Follow it top to bottom. Total time: about **60–90 minutes**, most of it waiting for AWS.
 
-> Everything deploys to **`us-east-2` (Ohio)**. Use that region everywhere unless you know what you are changing.
+> Everything deploys to **`us-west-2` (Oregon)**. Use that region everywhere unless you know what you are changing.
 >
 > Commands are written for **bash** (macOS, Linux, Git Bash, WSL). On Windows PowerShell, set variables with `$env:NAME="value"` instead of `NAME=value command`.
 
@@ -370,7 +314,7 @@ Ask the account owner for an **Access Key ID** and **Secret Access Key** (AWS Co
 aws configure
 # AWS Access Key ID     : <paste>
 # AWS Secret Access Key : <paste>
-# Default region name   : us-east-2
+# Default region name   : us-west-2
 # Default output format : json
 
 aws sts get-caller-identity   # should print your account number
@@ -382,7 +326,7 @@ aws sts get-caller-identity   # should print your account number
 
 A new account has Bedrock models **off**. Enable them once, or every run fails.
 
-1. AWS Console → **Bedrock** → region (top-right) **US East (Ohio) us-east-2**.
+1. AWS Console → **Bedrock** → region (top-right) **US West (Oregon) us-west-2**.
 2. Left menu → **Model access** → **Enable specific models**.
 3. Enable at least:
    - **Amazon – Nova Lite** (default decision model)
@@ -396,7 +340,7 @@ A new account has Bedrock models **off**. Enable them once, or every run fails.
 
 ```bash
 cd infra
-npx cdk bootstrap aws://ACCOUNT_ID/us-east-2
+npx cdk bootstrap aws://ACCOUNT_ID/us-west-2
 ```
 
 Replace `ACCOUNT_ID` with the number from Step 2.
@@ -406,7 +350,7 @@ Replace `ACCOUNT_ID` with the number from Step 2.
 From `infra/`:
 
 ```bash
-AWS_REGION=us-east-2 npx cdk deploy \
+AWS_REGION=us-west-2 npx cdk deploy \
   PlayAgentDev-Foundation PlayAgentDev-ControlPlane \
   PlayAgentDev-Scheduling PlayAgentDev-Execution \
   --require-approval never
@@ -418,19 +362,19 @@ AWS_REGION=us-east-2 npx cdk deploy \
 This takes ~10–15 minutes. Then print the values you need in the next steps:
 
 ```bash
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Foundation \
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-Foundation \
   --query "Stacks[0].Outputs[].[OutputKey,OutputValue]" --output table
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-ControlPlane \
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-ControlPlane \
   --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'||OutputKey=='WsUrl'].[OutputKey,OutputValue]" --output table
 ```
 
 Write down:
 
 - **Data bucket** — output name contains `DataBucket` (Ref), looks like `playagentdev-foundation-databucket…`
-- **User Pool ID** — contains `UserPoolId`, like `us-east-2_XXXXXXXXX`
+- **User Pool ID** — contains `UserPoolId`, like `us-west-2_XXXXXXXXX`
 - **User Pool Client ID** — contains `UserPoolClientId`
-- **ApiUrl** — `https://xxxx.execute-api.us-east-2.amazonaws.com`
-- **WsUrl** — `wss://xxxx.execute-api.us-east-2.amazonaws.com/prod`
+- **ApiUrl** — `https://xxxx.execute-api.us-west-2.amazonaws.com`
+- **WsUrl** — `wss://xxxx.execute-api.us-west-2.amazonaws.com/prod`
 
 ## Step 6 — Build the runner images (required)
 
@@ -439,7 +383,7 @@ The Web and Device Farm runners run from container images in your ECR. They are 
 ```bash
 cd ../agent/sagemaker && npm install
 export PA_SM_BUCKET=PASTE_DataBucket     # from Step 5 — the scripts upload build sources here
-export AWS_REGION=us-east-2
+export AWS_REGION=us-west-2
 
 # a) Creates the shared CodeBuild role and stages the UI-TARS weights + serving image
 #    (needed later only if you turn UI-TARS on). ~20–40 min, runs in AWS.
@@ -458,7 +402,7 @@ node cloudBuildWebRunner.mjs
 ```bash
 cd ../../web
 cat > .env.production <<'EOF'
-VITE_COGNITO_REGION=us-east-2
+VITE_COGNITO_REGION=us-west-2
 VITE_COGNITO_USER_POOL_ID=PASTE_UserPoolId
 VITE_COGNITO_CLIENT_ID=PASTE_UserPoolClientId
 VITE_API_URL=PASTE_ApiUrl
@@ -473,8 +417,8 @@ Replace each `PASTE_...` with the value from Step 5 before building.
 
 ```bash
 cd ../infra
-AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
-aws cloudformation describe-stacks --region us-east-2 --stack-name PlayAgentDev-Frontend \
+AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Frontend --require-approval never
+aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-Frontend \
   --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue" --output text
 ```
 
@@ -486,13 +430,13 @@ Sign-up is disabled on purpose. The simplest path is the one-click installer abo
 
 ```bash
 cd ../agent/sagemaker
-AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin
+AWS_REGION=us-west-2 node createUser.mjs --email admin@example.com --tenant default --admin
 ```
 
 For automation, pipe the password from a secret manager to stdin instead of putting it in argv:
 
 ```bash
-aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-east-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
+aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/admin-password --query SecretString --output text | AWS_REGION=us-west-2 node createUser.mjs --email admin@example.com --tenant default --admin --password-stdin
 ```
 
 The password must be at least 8 characters and include upper-case, lower-case, and numeric characters.
@@ -521,7 +465,7 @@ Lets admins update the whole platform to a GitHub version from **System admin �
 1. Deploy the Updater stack once (it is never updated by itself):
    ```bash
    cd infra
-   AWS_REGION=us-east-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
+   AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
    ```
    Using a fork? Add `-c githubRepo=owner/name` to this and every deploy.
 2. Create a GitHub **fine-grained** token for this repository with **Contents: Read-only** and **Metadata: Read-only**.
@@ -546,7 +490,7 @@ Before the switch works, the account needs:
      \"Version\":\"2012-10-17\",\"Statement\":[
      {\"Effect\":\"Allow\",\"Action\":\"ecr:GetAuthorizationToken\",\"Resource\":\"*\"},
      {\"Effect\":\"Allow\",\"Action\":[\"ecr:BatchGetImage\",\"ecr:GetDownloadUrlForLayer\",\"ecr:BatchCheckLayerAvailability\"],
-      \"Resource\":\"arn:aws:ecr:us-east-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
+      \"Resource\":\"arn:aws:ecr:us-west-2:${ACCOUNT}:repository/playagent-vllm-byoc\"},
      {\"Effect\":\"Allow\",\"Action\":\"s3:ListBucket\",\"Resource\":\"arn:aws:s3:::${BUCKET}\"},
      {\"Effect\":\"Allow\",\"Action\":\"s3:GetObject\",\"Resource\":\"arn:aws:s3:::${BUCKET}/sagemaker-models/ui-tars/*\"},
      {\"Effect\":\"Allow\",\"Action\":[\"logs:CreateLogGroup\",\"logs:CreateLogStream\",\"logs:PutLogEvents\",\"logs:DescribeLogStreams\",\"cloudwatch:PutMetricData\"],\"Resource\":\"*\"}]}"
@@ -564,7 +508,7 @@ Run this once **from a Windows machine** (it packages Windows tools for the GPU 
 ```powershell
 cd worker\windows-host\gamelift
 npm install
-$env:AWS_REGION="us-east-2"; node setup.mjs --capacity 2
+$env:AWS_REGION="us-west-2"; node setup.mjs --capacity 2
 ```
 
 It creates the GameLift Streams application and a stream group with **no always-on capacity** (nothing is billed while no test runs) and up to 2 concurrent runs. Then the **Windows** runtime appears when submitting a task. A first start takes 10–15 minutes; each run is capped at 60 minutes. Re-run `setup.mjs` after changing the Windows host scripts; self-update does not cover it.
@@ -601,15 +545,15 @@ Values live only in **AWS Secrets Manager** (`playagent/tenant/<tenant>/app/<app
 
 ```bash
 cd infra
-AWS_REGION=us-east-2 npx cdk destroy --all
+AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
 Also left behind: the runner ECR repos `playagent-exploration-runner` / `playagent-web-runner` (CDK retains them by default), the ECR repo `playagent-vllm-byoc`, the CodeBuild projects `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`, the role `PlayAgentCodeBuildUitarsRole`, the SageMaker model/config `ui-tars-playagent-*`, and (if set up) the GameLift Streams application and stream group.
 
 | Symptom | Fix |
 | --- | --- |
-| Deploy fails: *"not bootstrapped"* | Run Step 4 for `us-east-2`. |
-| Runs error with *AccessDenied* / model not available | Enable model access in **us-east-2** (Step 3). |
+| Deploy fails: *"not bootstrapped"* | Run Step 4 for `us-west-2`. |
+| Runs error with *AccessDenied* / model not available | Enable model access in **us-west-2** (Step 3). |
 | Web / Device Farm runs fail to start (image not found) | Build the runner images (Step 6). |
 | Login page loads but sign-in fails, or the page is blank | Wrong values in `web/.env.production`, or the web was not rebuilt + redeployed after editing (Steps 7–8). |
 | A game closes itself right away on the Android container | It has an anti-emulator check; use an Android real device. |

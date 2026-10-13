@@ -5,7 +5,7 @@
       "Sid": "AssumeCdkBootstrapRolesOnly",
       "Effect": "Allow",
       "Action": "sts:AssumeRole",
-      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-*-<ACCOUNT_ID>-us-east-2",
+      "Resource": "arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-*-<ACCOUNT_ID>-<REGION>",
       "Condition": {
         "StringEquals": {
           "iam:ResourceTag/aws-cdk:bootstrap-role": ["deploy", "file-publishing", "lookup"]
@@ -17,22 +17,22 @@
       "Effect": "Allow",
       "Action": ["cloudformation:DescribeStacks", "cloudformation:ListStackResources"],
       "Resource": [
-        "arn:aws:cloudformation:us-east-2:<ACCOUNT_ID>:stack/PlayAgentDev-*/*",
-        "arn:aws:cloudformation:us-east-2:<ACCOUNT_ID>:stack/PlayAgent-*/*",
-        "arn:aws:cloudformation:us-east-2:<ACCOUNT_ID>:stack/CDKToolkit/*"
+        "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/PlayAgentDev-*/*",
+        "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/PlayAgent-*/*",
+        "arn:aws:cloudformation:<REGION>:<ACCOUNT_ID>:stack/CDKToolkit/*"
       ]
     },
     {
       "Sid": "ReadCdkBootstrapVersion",
       "Effect": "Allow",
       "Action": ["ssm:GetParameter", "ssm:GetParameters"],
-      "Resource": "arn:aws:ssm:us-east-2:<ACCOUNT_ID>:parameter/cdk-bootstrap/hnb659fds/version"
+      "Resource": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/cdk-bootstrap/hnb659fds/version"
     },
     {
       "Sid": "RecordDeployedVersion",
       "Effect": "Allow",
       "Action": ["ssm:GetParameter", "ssm:PutParameter"],
-      "Resource": "arn:aws:ssm:us-east-2:<ACCOUNT_ID>:parameter/playagent/*"
+      "Resource": "arn:aws:ssm:<REGION>:<ACCOUNT_ID>:parameter/playagent/*"
     },
     {
       "Sid": "EcrLoginHasNoResourceLevelSupport",
@@ -57,8 +57,8 @@
         "ecr:GetDownloadUrlForLayer"
       ],
       "Resource": [
-        "arn:aws:ecr:us-east-2:<ACCOUNT_ID>:repository/playagent-exploration-runner",
-        "arn:aws:ecr:us-east-2:<ACCOUNT_ID>:repository/playagent-web-runner"
+        "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/playagent-exploration-runner",
+        "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/playagent-web-runner"
       ]
     },
     {
@@ -76,7 +76,7 @@
         "cognito-idp:AdminSetUserPassword",
         "cognito-idp:AdminAddUserToGroup"
       ],
-      "Resource": "arn:aws:cognito-idp:us-east-2:<ACCOUNT_ID>:userpool/*",
+      "Resource": "arn:aws:cognito-idp:<REGION>:<ACCOUNT_ID>:userpool/*",
       "Condition": {
         "StringLike": {
           "aws:ResourceTag/aws:cloudformation:stack-name": ["PlayAgentDev-Foundation", "PlayAgent-*-Foundation"]

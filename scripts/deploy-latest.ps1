@@ -2,7 +2,7 @@
 param(
   [string]$RepositoryUrl = 'https://github.com/hoycdanny/playagent-checker.git',
   [string]$Branch = 'main',
-  [string]$Region = 'us-east-2',
+  [string]$Region = 'us-west-2',
   [string]$Stage = 'dev',
   [string]$Profile = '',
   [string]$ExpectedAccountId = '',

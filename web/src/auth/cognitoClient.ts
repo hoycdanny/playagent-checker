@@ -1,8 +1,51 @@
 import {
   CognitoIdentityProviderClient,
   InitiateAuthCommand,
+  RespondToAuthChallengeCommand,
+  type AuthenticationResultType,
 } from '@aws-sdk/client-cognito-identity-provider';
 import type { AuthTokens } from './tokenStore.ts';
+
+/**
+ * 管理員用臨時密碼(邀請信)第一次登入:Cognito 要求先設定新密碼。
+ * 帶著 session 交給登入頁,讓使用者輸入新密碼後呼叫 completeNewPassword。
+ */
+export class NewPasswordRequiredError extends Error {
+  constructor(readonly session: string, readonly username: string) {
+    super('需要設定新密碼');
+    this.name = 'NewPasswordRequiredError';
+  }
+}
+
+function toTokens(r: AuthenticationResultType | undefined): AuthTokens {
+  if (!r?.IdToken || !r.AccessToken) throw new Error('Cognito 登入成功但未回傳 token');
+  return {
+    idToken: r.IdToken,
+    accessToken: r.AccessToken,
+    refreshToken: r.RefreshToken ?? '',
+    expiresAt: Date.now() + (r.ExpiresIn ?? 3600) * 1000,
+    signedInAt: Date.now(),
+  };
+}
+
+/** 用臨時密碼登入後設定新密碼(NEW_PASSWORD_REQUIRED),成功即完成登入。 */
+export async function completeNewPassword(
+  client: CognitoIdentityProviderClient,
+  clientId: string,
+  username: string,
+  newPassword: string,
+  session: string,
+): Promise<AuthTokens> {
+  const res = await client.send(
+    new RespondToAuthChallengeCommand({
+      ClientId: clientId,
+      ChallengeName: 'NEW_PASSWORD_REQUIRED',
+      Session: session,
+      ChallengeResponses: { USERNAME: username, NEW_PASSWORD: newPassword },
+    }),
+  );
+  return toTokens(res.AuthenticationResult);
+}
 
 /**
  * Cognito 登入 —— 用 USER_PASSWORD_AUTH:SPA 以帳密直接登入,無需 client secret。
@@ -20,17 +63,11 @@ export async function login(
       AuthParameters: { USERNAME: username, PASSWORD: password },
     }),
   );
-  const r = res.AuthenticationResult;
-  if (!r?.IdToken || !r.AccessToken) {
-    throw new Error('Cognito 登入成功但未回傳 token');
+  if (res.ChallengeName === 'NEW_PASSWORD_REQUIRED' && res.Session) {
+    // 以 email 當帳號的使用者池,回應挑戰要用 Cognito 內部帳號(USER_ID_FOR_SRP)
+    throw new NewPasswordRequiredError(res.Session, res.ChallengeParameters?.USER_ID_FOR_SRP ?? username);
   }
-  return {
-    idToken: r.IdToken,
-    accessToken: r.AccessToken,
-    refreshToken: r.RefreshToken ?? '',
-    expiresAt: Date.now() + (r.ExpiresIn ?? 3600) * 1000,
-    signedInAt: Date.now(),
-  };
+  return toTokens(res.AuthenticationResult);
 }
 
 /**

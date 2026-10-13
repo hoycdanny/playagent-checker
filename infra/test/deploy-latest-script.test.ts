@@ -32,7 +32,8 @@ describe('cross-platform one-click latest deployment contract', () => {
       const text = readFileSync(join(root, file), 'utf8');
       expect(text, file).toContain('Install-Latest.cmd');
       expect(text, file).toContain('Install-Latest.command');
-      expect(text, file).toContain('us-east-2');
+      expect(text, file).toContain('us-west-2');
+      expect(text, file).not.toContain('us-east-2');
       expect(text, file).toContain('--admin-password-stdin');
       expect(text, file).not.toContain('adminPassword=');
       expect(text, file).not.toMatch(/--password\s+['"]/);
@@ -67,10 +68,10 @@ describe('cross-platform one-click latest deployment contract', () => {
     expect(core).toContain('ensureRepo');
   });
 
-  test('defaults to us-east-2 and provisions the required admin without secret argv', () => {
-    expect(core).toContain("region: 'us-east-2'");
+  test('defaults to us-west-2 and provisions the required admin without secret argv', () => {
+    expect(core).toContain("region: 'us-west-2'");
     expect(core).toContain("adminTenant: 'default'");
-    expect(ps).toContain("[string]$Region = 'us-east-2'");
+    expect(ps).toContain("[string]$Region = 'us-west-2'");
     expect(core).toContain("'--password-stdin'");
     expect(core).toContain('input: adminPassword');
     expect(core).not.toContain('adminPasswordEnv');
@@ -125,7 +126,8 @@ describe('least-privilege deployer (no AdministratorAccess)', () => {
       }
     }
     const assume = policy.Statement.find((s) => list(s.Action).includes('sts:AssumeRole'))!;
-    expect(list(assume.Resource)).toEqual(['arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-*-<ACCOUNT_ID>-us-east-2']);
+    expect(list(assume.Resource)).toEqual(['arn:aws:iam::<ACCOUNT_ID>:role/cdk-hnb659fds-*-<ACCOUNT_ID>-<REGION>']);
+    expect(policyText).not.toMatch(/us-(east|west)-\d/);
     expect(assume.Condition?.StringEquals?.['iam:ResourceTag/aws-cdk:bootstrap-role']).toEqual(['deploy', 'file-publishing', 'lookup']);
     const cognito = policy.Statement.find((s) => list(s.Action).some((a) => a.startsWith('cognito-idp:')))!;
     expect(cognito.Condition?.StringLike?.['aws:ResourceTag/aws:cloudformation:stack-name']).toBeDefined();
@@ -144,15 +146,63 @@ describe('least-privilege deployer (no AdministratorAccess)', () => {
     expect(setup).toContain('set -euo pipefail');
     expect(setup).toContain('infra/iam/playagent-deployer-policy.json');
     expect(setup).toContain('s/<ACCOUNT_ID>/$ACCOUNT/g');
+    expect(setup).toContain('s/<REGION>/$REGION/g');
     expect(setup).toContain('"Service":"ec2.amazonaws.com"');
     expect(setup).toContain('policy/AmazonSSMManagedInstanceCore');
     expect(setup).not.toContain('AdministratorAccess');
     for (const file of ['README.md', 'README_ZH.md', 'README_CN.md', 'README_JP.md', 'README_KR.md']) {
       const text = readFileSync(join(root, file), 'utf8');
-      expect(text, file).toContain('scripts/setup-deployer-role.sh');
+      expect(text, file).toContain('scripts/cloudshell-install.sh');
       expect(text, file).toContain('infra/iam/playagent-deployer-policy.json');
       expect(text, file).toContain('cdk-hnb659fds-cfn-exec-role');
       expect(text, file).not.toContain('**AdministratorAccess**');
     }
+  });
+});
+
+describe('CloudShell → CodeBuild one-line installer', () => {
+  const cs = readFileSync(join(root, 'scripts', 'cloudshell-install.sh'), 'utf8');
+
+  test('is a strict bash script with LF line endings', () => {
+    expect(cs).toMatch(/^#!\/usr\/bin\/env bash/);
+    expect(cs).toContain('set -euo pipefail');
+    expect(cs).not.toContain('\r');
+  });
+
+  test('defaults to us-west-2, region is customizable, and ignores CloudShell AWS_REGION', () => {
+    expect(cs).toContain('REGION="${PLAYAGENT_REGION:-us-west-2}"');
+    expect(cs).toContain('--region) REGION=');
+    expect(cs).not.toMatch(/REGION="\$\{AWS_REGION/);
+    expect(cs).toContain('--region \\"$PA_REGION\\"');
+    expect(cs).toContain('name=PA_REGION,value=$REGION');
+  });
+
+  test('CodeBuild gets only the least-privilege policy, never AdministratorAccess', () => {
+    expect(cs).toContain('"Service":"codebuild.amazonaws.com"');
+    expect(cs).not.toContain('ec2.amazonaws.com');
+    expect(cs).not.toContain('policy/AdministratorAccess');
+    expect(cs).not.toContain('attach-role-policy');
+    expect(cs).toContain('infra/iam/playagent-deployer-policy.json');
+    expect(cs).toContain('s/<ACCOUNT_ID>/$ACCOUNT/g');
+    expect(cs).toContain('s/<REGION>/$REGION/g');
+    expect(cs).toContain('npx -y aws-cdk@2 bootstrap');
+  });
+
+  test('builds from the public repo with no source/token and invites the admin by email', () => {
+    expect(cs).toContain('"NO_SOURCE"');
+    expect(cs).toContain('git clone --depth 1');
+    expect(cs).toContain('https://github.com/hoycdanny/playagent-checker.git');
+    expect(cs).toContain('privilegedMode: true');
+    expect(cs).toContain('--admin-invite');
+    expect(cs).not.toMatch(/--admin-password|--password|PASSWORD/);
+    expect(cs).not.toMatch(/secretsmanager|GITHUB_TOKEN/);
+  });
+
+  test('installer and createUser support invite mode end to end', () => {
+    expect(core).toContain("else if (a === '--admin-invite') o.adminInvite = true;");
+    expect(core).toContain("if (o.adminInvite) a.push('--admin-invite');");
+    expect(core).toContain("[...userArgs, '--invite']");
+    expect(createUser).toContain("DesiredDeliveryMediums: ['EMAIL']");
+    expect(createUser).toContain("if (flag('invite'))");
   });
 });
