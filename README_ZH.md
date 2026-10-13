@@ -235,6 +235,88 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 >
 > **`cdk destroy` 後重裝:**資料桶、Cognito User Pool 與 runner ECR 都有 `Retain` 保護。安裝器會偵測並沿用已保留的 ECR,避免同名 repository 擋住重裝；但不會偷偷刪除或接管舊資料桶/User Pool。若要真正完全清空,請先備份需要的資料,再明確刪除這些保留資源。
 
+## 替代方案:用 EC2 部署
+
+如果你不想在自己的電腦上安裝任何東西,可以用這個方式。由一台小型 Linux EC2 執行個體執行同一個一鍵安裝器(`scripts/deploy-latest.sh`)。只有部署或更新時才需要它;用完就停止。
+
+> 尚未在 EC2 上完成端到端驗證。Linux 啟動器與 Windows 路徑共用同一份部署核心(Windows 路徑已在一次完整的全新安裝中驗證),其語法與參數也已在 Linux 容器中檢查過。第一次用 EC2 部署時,請全程看到結束。
+
+### 1. 為執行個體建立 IAM 角色
+
+AWS Console → **IAM → Roles → Create role**:
+
+1. 受信任實體(Trusted entity):**AWS service → EC2**。
+2. 權限(Permissions):**AdministratorAccess**(安裝器會建立 IAM、Lambda、ECS、Cognito、CloudFront 等資源)。
+3. 取個名稱,例如 `playagent-deployer`。
+
+執行個體會直接使用這個角色,所以機器上不會存放任何存取金鑰(access key)。Session Manager 也是透過這個角色運作,所以不需要開 SSH 連接埠。
+
+### 2. 啟動執行個體
+
+AWS Console → **EC2 → Launch instance**,區域選 **US East (Ohio) us-east-2**:
+
+| 設定 | 值 | 原因 |
+| --- | --- | --- |
+| AMI | **Amazon Linux 2023**,64 位元 **(x86)** | 已預裝 AWS CLI v2 |
+| 架構 | **x86_64**(不要選 Graviton/ARM) | Runner 映像是 `linux/amd64`;在 ARM 上建置需要很慢的模擬 |
+| 執行個體類型 | `t3.large`(2 vCPU / 8 GB) | Docker 建置、CDK synth 與網頁建置會同時執行 |
+| 儲存空間 | **40 GB** gp3 或以上 | 兩個 runner 映像加上建置快取,遠超過 10 GB |
+| 金鑰對(Key pair) | 不需要 | 用 Session Manager 連線 |
+| 網路 | 預設 VPC,公有 IP **啟用**;安全群組**不設任何傳入規則** | 只需要對外連線(GitHub、npm、容器登錄檔、AWS API) |
+| IAM 執行個體設定檔 | `playagent-deployer`(第 1 節建立的) | 在 **Advanced details** 底下 |
+
+費用:`t3.large` 執行中約 US$0.08 / 小時。
+
+### 3. 連線並安裝工具
+
+選取執行個體 → **Connect → Session Manager → Connect**,然後執行:
+
+```bash
+sudo su - ec2-user
+
+# Git + Docker
+sudo dnf install -y git docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+exit                     # 先登出一次,讓 docker 群組生效
+```
+
+重新連線(再執行一次 `sudo su - ec2-user`),然後:
+
+```bash
+# Node.js 22(透過 nvm)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 22
+
+# 檢查所有工具
+git --version
+node --version               # v22.x
+aws --version                # aws-cli/2.x
+docker info                  # 不可以出現 "permission denied"
+aws sts get-caller-identity  # 應該顯示 playagent-deployer 角色
+```
+
+### 4. 開啟 Bedrock 模型
+
+在 AWS Console 完成下方的「步驟 3:開啟 AI 模型(Amazon Bedrock)」。這一步無法在執行個體上完成;沒做的話,每次測試執行都會失敗。
+
+### 5. 執行安裝器
+
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+cd playagent-checker
+./scripts/deploy-latest.sh
+```
+
+安裝器預設使用 **us-east-2**。它會顯示 AWS 帳號並請你確認,接著詢問 Cognito 管理員的 **Email** 與**密碼**(隱藏輸入,需輸入兩次)。總時間約 20–40 分鐘。完成後會印出網站網址。
+
+### 6. 之後的更新與清理
+
+- **更新到最新版**:啟動執行個體並連線,然後執行 `cd ~/playagent-checker && ./scripts/deploy-latest.sh`。
+- **節省費用**:用完就停止執行個體(EC2 → Instance state → Stop)。儲存空間仍約 US$3 / 月;不再需要時請終止(terminate)它。
+- **工作階段逾時**:Session Manager 會關閉閒置的工作階段。如果部署被中斷,重新連線再執行一次安裝器即可;重複執行是安全的。
+
 ## 手動安裝(逐步說明)
 
 本節假設你**沒有任何 AWS 經驗**。請從上到下依序操作。總時間約 **60–90 分鐘**,大部分是在等 AWS。
