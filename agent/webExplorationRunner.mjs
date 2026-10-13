@@ -27,6 +27,7 @@ import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, compactStructure } from './memoryGraph.mjs';
+import { createMemoryTrace } from './memoryTrace.mjs';
 
 const START_URL = process.env.PA_URL || 'https://example.com';
 const JOB = process.env.PA_JOB;
@@ -242,6 +243,9 @@ async function main() {
   // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
   const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
+  // 記憶命中追蹤(以本次開始前的記憶為基準;見 memoryTrace.mjs)。
+  const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 4000 });
+  console.log(memTrace.startupLog());
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
   let prevScreen = '';
   let pendingCmds = []; // 尚未得到有效回應的測試人員指令
@@ -393,6 +397,14 @@ async function main() {
     // 記憶地圖:建/更新畫面節點 + 轉移邊。
     const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
     if (isNew) await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    // 記憶命中(在 recordTransition 之前判斷,才分得出是不是舊記憶)。
+    const memHit = memTrace.onStep({
+      pageId: pid, screenName, prevPageId, navAction, prevTarget, screenChanged,
+      injectedHints: scoped, action: cmd.action, target: typeof cmd.target === 'string' ? cmd.target : '',
+    });
+    step.memory = memHit;
+    console.log(memTrace.formatLog(i, memHit));
+    await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     if (prevPageId && pid) {
       if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget });
       else if (!screenChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
@@ -472,6 +484,8 @@ async function main() {
   clearInterval(liveTimer);
   await stopScreencast().catch(() => {});
 
+  console.log(memTrace.summaryLog());
+  await s3put(`${PREFIX}/memory-usage.json`, JSON.stringify(memTrace.summary()), 'application/json').catch(() => {});
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, runnerVersion: RUNNER_VERSION, ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}), stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});

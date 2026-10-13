@@ -18,6 +18,7 @@ import { TaskAskPanel } from '../components/tasks/TaskAskPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
 import { outcomeKey, outcomeOf, outcomeTip } from '../components/outcome.ts';
+import { MemoryUsagePanel, StepMemoryChips } from '../components/tasks/MemoryUsagePanel.tsx';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -395,6 +396,8 @@ export default function TaskDetailPage() {
           ) : steps.length === 0 ? (
             <p className="detail__no-steps">{t('detail.noSteps')}</p>
           ) : (
+            <>
+            <MemoryUsagePanel steps={steps} lang={lang} />
             <ol className="detail__steps" reversed>
               {[...steps].reverse().map((s, k) => {
                 const thumb = asText(s.annotatedUrl) ?? asText(s.screenshotUrl);
@@ -485,6 +488,7 @@ export default function TaskDetailPage() {
                           </div>
                         );
                       })()}
+                      <StepMemoryChips memory={s.memory} lang={lang} />
                       {opCmds.map((txt, j) => (
                         <div key={j} className="detail__step-opcmd">
                           <span aria-hidden="true">💬</span> {txt}
@@ -499,6 +503,7 @@ export default function TaskDetailPage() {
                 );
               })}
             </ol>
+            </>
           )}
           {/* AI 問答:放在執行軌跡下方(同一欄,軌跡區縮小讓出空間,整頁維持一屏) */}
           {jobId && <TaskAskPanel jobId={jobId} lang={lang} />}

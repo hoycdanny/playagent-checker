@@ -236,8 +236,13 @@ export function upsertPage(struct, frame) {
   return { pageId: newId, isNew: true };
 }
 
-function normTarget(t) {
+export function normTarget(t) {
   return String(t ?? '').trim().replace(/\s+/g, ' ').slice(0, 40);
+}
+
+/** 動作 → 導覽圖邊的觸發種類(互動動作照原樣,其餘如 wait 視為自動轉場 auto)。 */
+export function edgeKind(action) {
+  return INTERACTIVE.has(action) ? action : 'auto';
 }
 
 /**
