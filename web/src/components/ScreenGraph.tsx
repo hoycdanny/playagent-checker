@@ -3,6 +3,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   Background,
+  BaseEdge,
   Controls,
   MiniMap,
   Handle,
@@ -14,6 +15,7 @@ import {
   type Node,
   type Edge,
   type NodeProps,
+  type EdgeProps,
   type Connection,
   type OnBeforeDelete,
 } from '@xyflow/react';
@@ -23,6 +25,15 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import { reportLang, type RLang } from './report/reportText.ts';
 import { deleteEdgeOp, mt } from './memory/MemoryEditor.tsx';
 import { RoutesPanel, addBranch, addStep, rt, type MemoryRoute, type RoutePick } from './memory/RoutesPanel.tsx';
+import {
+  discoveryOrder,
+  distinctAliases,
+  edgeCaption,
+  hideLoadingScreens,
+  isAutoEdge,
+  moduleLabel,
+  screenLabels,
+} from './memory/graphView.ts';
 import './ScreenGraph.css';
 
 const ACCENT = '#ff2d95';
@@ -44,6 +55,8 @@ interface MemPage {
   aliases?: Record<string, number>;
   module?: string;
   transient?: boolean;
+  renamed?: boolean;
+  firstSeenAt?: string;
 }
 interface MemEdge {
   fromPageId: string;
@@ -54,6 +67,7 @@ interface MemEdge {
   manual?: boolean;
   /** 隱藏載入節點時接起來的虛擬邊(不能刪)。 */
   synthetic?: boolean;
+  via?: string[];
 }
 
 /** 記憶關係圖的編修指令(送 POST /memory/edit)。 */
@@ -62,11 +76,16 @@ export type Positions = Record<string, { x: number; y: number }>;
 
 interface ScreenNodeData extends Record<string, unknown> {
   name: string;
+  /** 用來區分同名畫面的描述(空字串 = 不需要)。 */
+  subtitle: string;
+  /** 依第一次發現排的順序(1 起算)。 */
+  order: number;
   visitCount: number;
   heat: number;
   screenshotUrl?: string;
   aliases: string[];
   module?: string;
+  moduleLabel: string;
   isRoot: boolean;
   transient: boolean;
   loadingLabel: string;
@@ -99,7 +118,8 @@ function ScreenFlowNode({ data }: NodeProps) {
   const drop = (d.dropTarget ? ' sg-node--drop' : '') + (d.picking ? ' sg-node--picking' : '') + (d.routeBadges?.length ? ' sg-node--onroute' : '');
   // 載入/過場畫面也是獨立節點(各自載入不同東西),一樣顯示截圖,只用虛線框 + 「載入」標籤區分。
   const transientCls = d.transient ? ' sg-node--loading' : '';
-  const title = [d.name, ...(d.aliases.length ? [`${d.aliasesLabel}: ${d.aliases.join('、')}`] : []), d.module ? `module: ${d.module}` : '']
+  const fullName = d.subtitle ? `${d.name} · ${d.subtitle}` : d.name;
+  const title = [fullName, ...(d.aliases.length ? [`${d.aliasesLabel}: ${d.aliases.join('、')}`] : []), d.module ? `${d.moduleLabel} (${d.module})` : '']
     .filter(Boolean)
     .join('\n');
   return (
@@ -107,17 +127,19 @@ function ScreenFlowNode({ data }: NodeProps) {
       <Handle type="target" position={Position.Left} />
       <div className="sg-node__heat" style={{ width: `${Math.max(8, d.heat * 100)}%` }} />
       <div className="sg-node__thumb">
-        {d.screenshotUrl ? <img src={d.screenshotUrl} alt={d.name} loading="lazy" draggable={false} /> : <div className="sg-node__noimg" />}
+        {d.screenshotUrl ? <img src={d.screenshotUrl} alt={fullName} loading="lazy" draggable={false} /> : <div className="sg-node__noimg" />}
+        <span className="sg-node__order" aria-hidden="true">{d.order}</span>
         {d.isRoot && <span className="sg-node__root">{d.rootLabel}</span>}
         {d.transient && <span className="sg-node__loading">{d.loadingLabel}</span>}
         <RouteBadges list={d.routeBadges} />
         {d.dropTarget && <span className="sg-node__droplabel">{d.dropLabel}</span>}
       </div>
       <div className="sg-node__name">{d.name}</div>
+      {d.subtitle && <div className="sg-node__sub">{d.subtitle}</div>}
       <div className="sg-node__meta">
         <span>{d.visitsLabel.replace('{n}', String(d.visitCount))}</span>
+        {d.module && <span className="sg-node__module">{d.moduleLabel}</span>}
         {d.aliases.length > 0 && <span className="sg-node__alias">+{d.aliases.length} {d.aliasesLabel}</span>}
-        {d.module && <span className="sg-node__module">{d.module}</span>}
       </div>
       <Handle type="source" position={Position.Right} />
     </div>
@@ -126,11 +148,95 @@ function ScreenFlowNode({ data }: NodeProps) {
 
 const nodeTypes = { screen: ScreenFlowNode };
 
-interface LayoutLabels { visits: string; aliases: string; root: string; auto: string; manual: string; loading: string }
+interface BackEdgeData extends FlowEdgeData { lane: number; laneY: number }
+
+/** 折線 → 圓角路徑。 */
+function roundedPath(points: Array<[number, number]>, r = 10): string {
+  let d = `M ${points[0]![0]} ${points[0]![1]}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const [px, py] = points[i - 1]!;
+    const [cx, cy] = points[i]!;
+    const [nx, ny] = points[i + 1]!;
+    const k1 = Math.min(r, Math.hypot(cx - px, cy - py) / 2);
+    const k2 = Math.min(r, Math.hypot(nx - cx, ny - cy) / 2);
+    const a = [cx - Math.sign(cx - px) * k1, cy - Math.sign(cy - py) * k1];
+    const b = [cx + Math.sign(nx - cx) * k2, cy + Math.sign(ny - cy) * k2];
+    d += ` L ${a[0]} ${a[1]} Q ${cx} ${cy} ${b[0]} ${b[1]}`;
+  }
+  const last = points[points.length - 1]!;
+  return `${d} L ${last[0]} ${last[1]}`;
+}
 
 /**
- * dagre 分層佈局(LR);有手動位置的節點用手動位置。
- * 同一對節點間的多條邊合併成一條(標籤列出各觸發;刪除時刪掉底下全部)。
+ * 往回走的線:從來源右側出來 → 沿欄與欄之間的空隙往下 → 走整張圖最下方的「返回車道」→
+ * 從目標左側進入。垂直段只走在欄間空隙、水平段在所有卡片下方,不會穿過任何畫面。
+ */
+function BackEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, data }: EdgeProps) {
+  const d = data as BackEdgeData;
+  const gap = 18 + d.lane * 10;
+  const outX = sourceX + gap;
+  const inX = targetX - gap;
+  const path = roundedPath([[sourceX, sourceY], [outX, sourceY], [outX, d.laneY], [inX, d.laneY], [inX, targetY], [targetX, targetY]]);
+  return (
+    <BaseEdge
+      id={id}
+      path={path}
+      markerEnd={markerEnd}
+      style={style}
+      label={label}
+      labelX={(outX + inX) / 2}
+      labelY={d.laneY}
+      labelStyle={labelStyle}
+      labelShowBg
+      labelBgStyle={labelBgStyle}
+      labelBgPadding={labelBgPadding}
+      labelBgBorderRadius={labelBgBorderRadius}
+    />
+  );
+}
+
+interface RoutedEdgeData extends FlowEdgeData { points: Array<{ x: number; y: number }> }
+
+/** 跨好幾欄的往前線:照排版引擎算好的避讓點走(繞過中間的卡片),轉折處平滑。 */
+function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, markerEnd, style, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, data }: EdgeProps) {
+  const inner = (data as RoutedEdgeData).points.slice(1, -1);
+  const pts = [{ x: sourceX, y: sourceY }, ...inner, { x: targetX, y: targetY }];
+  const mid = (a: { x: number; y: number }, b: { x: number; y: number }) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  let d = `M ${pts[0]!.x} ${pts[0]!.y}`;
+  const first = mid(pts[0]!, pts[1]!);
+  d += ` L ${first.x} ${first.y}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const m = mid(pts[i]!, pts[i + 1]!);
+    d += ` Q ${pts[i]!.x} ${pts[i]!.y} ${m.x} ${m.y}`;
+  }
+  d += ` L ${targetX} ${targetY}`;
+  const at = inner[Math.floor(inner.length / 2)] ?? mid(pts[0]!, pts[pts.length - 1]!);
+  return (
+    <BaseEdge
+      id={id}
+      path={d}
+      markerEnd={markerEnd}
+      style={style}
+      label={label}
+      labelX={at.x}
+      labelY={at.y}
+      labelStyle={labelStyle}
+      labelShowBg
+      labelBgStyle={labelBgStyle}
+      labelBgPadding={labelBgPadding}
+      labelBgBorderRadius={labelBgBorderRadius}
+    />
+  );
+}
+
+const edgeTypes = { back: BackEdge, routed: RoutedEdge };
+
+interface LayoutLabels { visits: string; aliases: string; root: string; manual: string; loading: string }
+
+/**
+ * 排版:依「第一次發現」的順序由左到右(只有往前走的線參與 dagre 分層,主流程排成一條線);
+ * 有手動位置的節點用手動位置。往回走的線(目標在來源左邊)從兩張卡片下方繞回,不再看起來像自己連自己。
+ * 同一對節點、同一方向的多條邊合併成一條(標籤列出各動作;刪除時刪掉底下全部)。
  */
 function layout(
   pages: MemPage[],
@@ -138,14 +244,18 @@ function layout(
   rootId: string | null,
   labels: LayoutLabels,
   positions: Positions,
+  lang: RLang,
 ): { nodes: Node[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'LR', nodesep: 36, ranksep: 120 });
+  g.setGraph({ rankdir: 'LR', nodesep: 48, ranksep: 140 });
   g.setDefaultEdgeLabel(() => ({}));
 
   const ids = new Set(pages.map((p) => p.id));
   const maxVisits = Math.max(1, ...pages.map((p) => p.visitCount));
-  for (const p of pages) g.setNode(p.id, { width: NODE_W, height: NODE_H });
+  // dagre 依加入順序排同一層的上下位置:照發現順序加入,圖才穩定、好對照。
+  const order = discoveryOrder(pages, mapEdges, rootId);
+  const sortedPages = [...pages].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
+  for (const p of sortedPages) g.setNode(p.id, { width: NODE_W, height: NODE_H });
 
   // 合併同方向平行邊。
   const grouped = new Map<string, MemEdge[]>();
@@ -154,30 +264,38 @@ function layout(
     const k = `${e.fromPageId}>${e.toPageId}`;
     grouped.set(k, [...(grouped.get(k) ?? []), e]);
   }
-  // 依可靠度(hit 多者)權重排位,讓主要流程成為主幹。
+  // 只有「往前走」(來源比目標先被發現)的線參與分層;權重 = 成功次數,讓主要流程成為主幹。
   for (const list of grouped.values()) {
     const e = list[0]!;
+    if ((order.get(e.fromPageId) ?? 0) >= (order.get(e.toPageId) ?? 0)) continue;
     g.setEdge(e.fromPageId, e.toPageId, { weight: list.reduce((a, x) => a + x.hitCount, 0) + (list.some((x) => x.manual) ? 1 : 0) });
   }
   dagre.layout(g);
 
-  const nodes: Node[] = pages.map((p) => {
+  const names = screenLabels(pages, (m) => moduleLabel(m, lang));
+  const posOf = new Map<string, { x: number; y: number }>();
+  const nodes: Node[] = sortedPages.map((p) => {
     const pos = g.node(p.id);
-    const w = NODE_W;
-    const h = NODE_H;
-    const aliases = Object.keys(p.aliases ?? {}).filter((n) => n !== p.name);
     const saved = positions[p.id];
+    const position = saved
+      ? { x: saved.x, y: saved.y }
+      : { x: Math.round((pos?.x ?? 0) - NODE_W / 2), y: Math.round((pos?.y ?? 0) - NODE_H / 2) };
+    posOf.set(p.id, position);
+    const label = names.get(p.id) ?? { title: p.name, subtitle: '' };
     return {
       id: p.id,
       type: 'screen',
-      position: saved ? { x: saved.x, y: saved.y } : { x: Math.round((pos?.x ?? 0) - w / 2), y: Math.round((pos?.y ?? 0) - h / 2) },
+      position,
       data: {
-        name: p.name,
+        name: label.title,
+        subtitle: label.subtitle,
+        order: (order.get(p.id) ?? 0) + 1,
         visitCount: p.visitCount,
         heat: p.visitCount / maxVisits,
         screenshotUrl: p.screenshotUrl,
-        aliases,
+        aliases: distinctAliases(p),
         module: p.module,
+        moduleLabel: p.module ? moduleLabel(p.module, lang) : '',
         isRoot: p.id === rootId,
         transient: Boolean(p.transient),
         loadingLabel: labels.loading,
@@ -189,31 +307,51 @@ function layout(
   });
 
   const maxHit = Math.max(1, ...mapEdges.map((e) => e.hitCount));
+  // 返回車道:所有卡片最下緣再往下;每條回頭線一條車道,不互相重疊。
+  const bottom = Math.max(0, ...[...posOf.values()].map((p) => p.y + NODE_H));
+  let backIndex = 0;
   const edges: Edge[] = [...grouped.entries()].map(([k, list]) => {
     const hit = list.reduce((a, x) => a + x.hitCount, 0);
     const miss = list.reduce((a, x) => a + x.missCount, 0);
     const manual = list.some((x) => x.manual);
-    const allAuto = list.every((x) => (x.trigger?.kind ?? x.trigger?.label) === 'auto');
+    const allAuto = list.every(isAutoEdge);
     const unreliable = !manual && miss > hit;
     const color = manual ? MANUAL : unreliable ? WARN : allAuto ? AUTO : ACCENT;
-    const label = list
-      .map((x) => (x.trigger?.kind === 'auto' || x.trigger?.label === 'auto' ? labels.auto : x.trigger?.label || x.trigger?.kind || ''))
-      .filter(Boolean)
-      .slice(0, 3)
-      .join(' / ');
-    const counts = hit || miss ? ` ×${hit}${miss ? ` (✗${miss})` : ''}` : '';
-    return {
+    const from = list[0]!.fromPageId;
+    const to = list[0]!.toPageId;
+    // 往回走:目標畫在來源左邊(或幾乎同一欄)。
+    const back = (posOf.get(to)?.x ?? 0) < (posOf.get(from)?.x ?? 0) + NODE_W / 2;
+    const caption = `${back ? '↩ ' : ''}${manual ? `${labels.manual} · ` : ''}${edgeCaption(list, lang)}`;
+    const width = manual ? 2.5 : 1 + (hit / maxHit) * 3;
+    const edge: Edge = {
       id: `e:${k}`,
-      source: list[0]!.fromPageId,
-      target: list[0]!.toPageId,
-      label: `${manual ? `${labels.manual} · ` : ''}${label}${counts}`,
+      source: from,
+      target: to,
+      label: caption,
       data: { list } satisfies FlowEdgeData,
       deletable: !list.every((x) => x.synthetic),
       markerEnd: { type: MarkerType.ArrowClosed, color },
-      style: { stroke: color, strokeWidth: manual ? 2.5 : 1 + (hit / maxHit) * 3, ...(allAuto && !manual ? { strokeDasharray: '5 4' } : {}) },
+      style: {
+        stroke: color,
+        strokeWidth: back ? Math.max(1, width - 1) : width,
+        ...(allAuto && !manual ? { strokeDasharray: '5 4' } : {}),
+        ...(back ? { opacity: 0.7 } : {}),
+      },
       labelStyle: { fill: manual ? MANUAL : 'var(--text-secondary)', fontSize: 11, fontWeight: manual ? 600 : 400 },
       labelBgStyle: { fill: 'var(--surface)' },
+      labelBgPadding: [4, 2],
+      labelBgBorderRadius: 4,
     };
+    if (!back) {
+      // 跨欄的線(排版引擎有中繼點)且兩端都是自動排的位置:照避讓點走,不穿過中間的卡片。
+      const points = (g.edge(from, to) as { points?: Array<{ x: number; y: number }> } | undefined)?.points;
+      if (points && points.length > 3 && !positions[from] && !positions[to]) {
+        return { ...edge, type: 'routed', data: { list, points } satisfies RoutedEdgeData };
+      }
+      return edge;
+    }
+    const lane = backIndex++;
+    return { ...edge, type: 'back', data: { list, lane, laneY: bottom + 44 + lane * 26 } satisfies BackEdgeData };
   });
 
   return { nodes, edges };
@@ -310,39 +448,28 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
   const [connect, setConnect] = useState<{ from: string; to: string } | null>(null);
   const { getNodes } = useReactFlow();
 
-  const { visiblePages, visibleEdges } = useMemo(() => {
+  const { visiblePages, visibleEdges, keptLoading } = useMemo(() => {
     // 人工標註的路徑一律顯示(不受最少次數 / 不可靠篩選影響)。
     let es = edges.filter((e) => e.manual || e.hitCount >= minHits);
     if (hideUnreliable) es = es.filter((e) => e.manual || e.missCount <= e.hitCount);
-    let ps = pages;
-    if (hideTransient) {
-      // 隱藏載入節點時,把「A → 載入中 → B」接成「A → B」,流程不斷線。
-      const tr = new Set(pages.filter((p) => p.transient).map((p) => p.id));
-      const bridged: MemEdge[] = [];
-      for (const inE of es.filter((e) => tr.has(e.toPageId) && !tr.has(e.fromPageId))) {
-        for (const outE of es.filter((e) => e.fromPageId === inE.toPageId && !tr.has(e.toPageId))) {
-          bridged.push({ fromPageId: inE.fromPageId, toPageId: outE.toPageId, trigger: inE.trigger, hitCount: Math.min(inE.hitCount, outE.hitCount), missCount: inE.missCount, synthetic: true });
-        }
-      }
-      es = [...es.filter((e) => !tr.has(e.fromPageId) && !tr.has(e.toPageId)), ...bridged];
-      ps = pages.filter((p) => !p.transient);
-    }
-    return { visiblePages: ps, visibleEdges: es };
+    if (!hideTransient) return { visiblePages: pages, visibleEdges: es, keptLoading: 0 };
+    // 隱藏載入畫面:只在能確定前後關係時才把「A → 載入 → B」接成「A → B」,不產生假路徑。
+    const r = hideLoadingScreens(pages, es);
+    return { visiblePages: r.pages, visibleEdges: r.edges, keptLoading: r.keptLoading };
   }, [pages, edges, hideTransient, hideUnreliable, minHits]);
 
   const labels: LayoutLabels = {
     visits: t('memory.graphVisits'),
     aliases: t('memory.graphAliases'),
     root: t('memory.graphRoot'),
-    auto: t('memory.graphAuto'),
     manual: mt('manualEdge', lang),
     loading: mt('loadingTag', lang),
   };
   const laid = useMemo(
-    () => layout(visiblePages, visibleEdges, rootPageId, labels, positions),
+    () => layout(visiblePages, visibleEdges, rootPageId, labels, positions, lang),
     // labels 由 t / lang 衍生,語系切換時 t 會變
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [visiblePages, visibleEdges, rootPageId, t, positions],
+    [visiblePages, visibleEdges, rootPageId, t, positions, lang],
   );
 
   // ── 操作路線:編輯中的草稿 / 在圖上顯示的路線 ──
@@ -506,14 +633,17 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
           </button>
         )}
         {busy && <span className="sg-busy" role="status">{mt('saving', lang)}</span>}
-        <span className="sg-legend">
-          <span className="sg-legend__line" style={{ background: ACCENT }} /> {t('memory.graphLegendAction')}
-          <span className="sg-legend__line sg-legend__line--dash" /> {t('memory.graphAuto')}
-          <span className="sg-legend__line" style={{ background: WARN }} /> {t('memory.graphLegendUnreliable')}
-          {editable && <><span className="sg-legend__line" style={{ background: MANUAL }} /> {mt('manualEdge', lang)}</>}
-          {shownRoute && <><span className="sg-legend__line" style={{ background: ROUTE }} /> {rt('title', lang)}<span className="sg-legend__line sg-legend__line--branch" /> {rt('addBranch', lang).replace('+ ', '')}</>}
-        </span>
+        {shownRoute && (
+          <span className="sg-legend">
+            <span className="sg-legend__line" style={{ background: ROUTE }} /> {rt('title', lang)}
+            <span className="sg-legend__line sg-legend__line--branch" /> {rt('addBranch', lang).replace('+ ', '')}
+          </span>
+        )}
       </div>
+      {hideTransient && keptLoading > 0 && (
+        <p className="sg-note" role="status">{gt('keptLoading', lang).replace('{n}', String(keptLoading))}</p>
+      )}
+      <GraphGuide lang={lang} />
       {editable && (
         <RoutesPanel
           lang={lang}
@@ -539,6 +669,7 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
           nodes={nodes}
           edges={flowEdges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onNodeDragStart={onNodeDragStart}
@@ -574,6 +705,82 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
         )}
       </div>
     </>
+  );
+}
+
+/** 「怎麼看這張圖」的文字(zh / en)。 */
+const GUIDE: Record<string, [string, string]> = {
+  title: ['怎麼看這張圖', 'How to read this map'],
+  intro: [
+    '每張卡片是 AI 在測試中看過的一個畫面;線代表「在這個畫面做了什麼之後,到了哪個畫面」。所有線都來自實際測試記錄。',
+    'Each card is a screen the AI saw during testing; a line means "after doing this here, the game went there". Every line comes from real test runs.',
+  ],
+  cardsTitle: ['畫面卡片', 'Screen cards'],
+  order: ['截圖右下角數字 = 第一次發現的順序,畫面大致由左到右照這個順序排', 'Number at the bottom-right of the screenshot = order in which the screen was first found; cards run left to right in that order'],
+  root: ['「起點」= 遊戲開啟後的第一個畫面', '"Start" = the first screen after the game opens'],
+  heat: ['上方粉紅條越長 = 到過這個畫面的次數越多', 'Longer pink bar on top = visited more often'],
+  loading: ['虛線框 +「載入」= 載入/過場畫面', 'Dashed border + "Loading" = loading or transition screen'],
+  sub: ['名稱下的灰字 = 用來區分同名畫面的描述(例如「轉軸畫面 · EXTRA BET 彈窗」)', 'Grey text under a name tells same-named screens apart (e.g. "Reels · EXTRA BET popup")'],
+  module: ['小標籤 = 遊戲模組(轉軸、彈窗、登入…)', 'Small tag = game module (reels, popup, login…)'],
+  alias: ['「+N 別名」= AI 對同一畫面用過的其他說法,滑鼠移到卡片上可看全部', '"+N aliases" = other names the AI used for the same screen; hover the card to see them'],
+  linesTitle: ['連線', 'Lines'],
+  action: ['粉紅實線 = AI 做了操作(點擊、滑動、重新啟動…)後畫面切換', 'Solid pink = the AI did something (tap, swipe, relaunch…) and the screen changed'],
+  auto: ['灰色虛線 = 畫面自己切換(載入完成、動畫結束),不是 AI 點出來的', 'Dashed grey = the screen changed by itself (loading finished, animation ended)'],
+  unreliable: ['黃線 = 常失敗:做了這個操作但畫面沒反應的次數比成功多', 'Yellow = unreliable: the action had no effect more often than it worked'],
+  manual: ['藍線 = 測試人員手動標註的路徑', 'Blue = path marked by a tester'],
+  back: ['↩ 沿整張圖最下方走回去的淡色線 = 往回走(返回、重新啟動、回到先前的畫面)', '↩ Faded line along the bottom of the map = going back (back key, relaunch, return to an earlier screen)'],
+  counts: ['線越粗 = 走過越多次;「N 次」= 成功次數,「無效 N 次」= 做了但畫面沒變', 'Thicker = used more; ×N = successes, ✗N = attempts with no effect'],
+  via: ['「經載入」= 隱藏了中間的載入畫面', '"via loading" = loading screens in between are hidden'],
+  keptLoading: [
+    '有 {n} 個載入畫面同時接到好幾條流程,隱藏後無法確定誰接誰,為避免畫出錯誤路線仍保留顯示。',
+    '{n} loading screen(s) connect several flows and stay visible, because hiding them would draw paths that never happened.',
+  ],
+};
+function gt(key: keyof typeof GUIDE, lang: RLang): string {
+  return GUIDE[key]![lang === 'zh' ? 0 : 1];
+}
+
+/** 圖例 + 看圖說明(預設展開;收合狀態記在本機)。 */
+function GraphGuide({ lang }: { lang: RLang }) {
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem('pa.memoryGuide') !== 'closed'; } catch { return true; }
+  });
+  const toggle = (next: boolean) => {
+    setOpen(next);
+    try { localStorage.setItem('pa.memoryGuide', next ? 'open' : 'closed'); } catch { /* 無痕模式 */ }
+  };
+  const line = (cls: string, color?: string) => <span className={`sg-guide__line ${cls}`} style={color ? { background: color } : undefined} aria-hidden="true" />;
+  return (
+    <details className="sg-guide" open={open} onToggle={(e) => toggle((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>{gt('title', lang)}</summary>
+      <p className="sg-guide__intro">{gt('intro', lang)}</p>
+      <div className="sg-guide__cols">
+        <section>
+          <h4>{gt('cardsTitle', lang)}</h4>
+          <ul>
+            <li><span className="sg-guide__badge sg-guide__badge--order" aria-hidden="true">1</span>{gt('order', lang)}</li>
+            <li><span className="sg-guide__badge sg-guide__badge--root" aria-hidden="true">{lang === 'zh' ? '起點' : 'Start'}</span>{gt('root', lang)}</li>
+            <li>{line('sg-guide__line--heat')}{gt('heat', lang)}</li>
+            <li><span className="sg-guide__box" aria-hidden="true" />{gt('loading', lang)}</li>
+            <li>{gt('sub', lang)}</li>
+            <li>{gt('module', lang)}</li>
+            <li>{gt('alias', lang)}</li>
+          </ul>
+        </section>
+        <section>
+          <h4>{gt('linesTitle', lang)}</h4>
+          <ul>
+            <li>{line('', ACCENT)}{gt('action', lang)}</li>
+            <li>{line('sg-guide__line--dash')}{gt('auto', lang)}</li>
+            <li>{line('', WARN)}{gt('unreliable', lang)}</li>
+            <li>{line('', MANUAL)}{gt('manual', lang)}</li>
+            <li>{line('sg-guide__line--back', ACCENT)}{gt('back', lang)}</li>
+            <li>{gt('counts', lang)}</li>
+            <li>{gt('via', lang)}</li>
+          </ul>
+        </section>
+      </div>
+    </details>
   );
 }
 

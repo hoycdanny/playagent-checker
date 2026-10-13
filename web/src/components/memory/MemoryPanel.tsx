@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import type { GraphEditOp, Positions } from '../ScreenGraph.tsx';
 import type { MemoryRoute } from './RoutesPanel.tsx';
+import { distinctAliases } from './graphView.ts';
 import { useNavigate } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
@@ -31,6 +32,8 @@ export interface MemPage {
   /** 使用者在記憶地圖改過名(autoName = AI 原始命名)。 */
   renamed?: boolean;
   autoName?: string;
+  /** 第一次在測試中出現的時間(記憶地圖依此由左到右排)。 */
+  firstSeenAt?: string;
 }
 export interface MemEdge {
   fromPageId: string;
@@ -269,7 +272,7 @@ export default function MemoryPanel({
               <div className="memory__grid">
                 {pagesWithShots.map((p) => {
                   const nHints = hintCount(p);
-                  const aliasNames = Object.keys(p.aliases ?? {}).filter((n) => n !== p.name);
+                  const aliasNames = distinctAliases(p);
                   return (
                     <figure key={p.id} className="memory__card">
                       <button
