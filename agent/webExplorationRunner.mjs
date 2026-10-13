@@ -22,6 +22,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } fr
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
 import { foldSystemIntoFirstUser } from './converseShape.mjs';
+import { accumulate, addUsage, createUsageLedger, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -65,7 +66,18 @@ function pngSize(buf) {
   if (!w || !h) return null;
   return { w, h };
 }
+// 取消:測試人員按「停止」→ API 寫 cancel.json。看到之後就不再把狀態寫回 running。
+let cancelSeen = false;
+let cancelCheckedAt = 0;
+async function cancelRequested(maxAgeMs = 0) {
+  if (cancelSeen) return true;
+  if (maxAgeMs && Date.now() - cancelCheckedAt < maxAgeMs) return false;
+  cancelCheckedAt = Date.now();
+  try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); cancelSeen = true; } catch { /* 沒有取消 */ }
+  return cancelSeen;
+}
 async function writeStatus(state, message, steps) {
+  if (state === 'running' && await cancelRequested(3000)) return;
   await s3put(`${PREFIX}/status.json`,
     JSON.stringify({ jobId: JOB, state, message, steps: steps ?? 0, updatedAt: new Date().toISOString() }),
     'application/json').catch(() => {});
@@ -157,6 +169,8 @@ function totalImageBytes(messages) {
 // Web runner 解析失敗備援:先用同模型精簡歷史重問,再改用穩定模型。
 const VLM_RETRY_FALLBACK = process.env.PA_VLM_FALLBACK
   || (VLM.includes('anthropic') ? 'us.amazon.nova-pro-v1:0' : 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+// 每次呼叫依「實際模型」記帳(含重問、備援模型、快取 token)→ report.tokensByModel。
+const vlmLedger = createUsageLedger();
 
 async function decide(system, messages, modelId = VLM) {
   pruneImages(messages, 2);
@@ -170,7 +184,8 @@ async function decide(system, messages, modelId = VLM) {
       const res = await bedrock.send(new InvokeModelCommand({ modelId, contentType: 'application/json', accept: 'application/json', body: JSON.stringify(body) }));
       const parsed = JSON.parse(new TextDecoder().decode(res.body));
       const out = parsed.content?.find((c) => c.type === 'text')?.text ?? '{}';
-      const usage = parsed.usage ? { input: parsed.usage.input_tokens, output: parsed.usage.output_tokens } : null;
+      const usage = usageFromAnthropic(parsed.usage);
+      vlmLedger.add(modelId, usage);
       return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
     }
     // 有些模型不吃 Converse 的獨立 system 欄位(服務端併成 user 回合 → user→user →
@@ -190,7 +205,9 @@ async function decide(system, messages, modelId = VLM) {
       res = await send(false);
     }
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';
-    const usage = res.usage ? { input: res.usage.inputTokens, output: res.usage.outputTokens } : null;
+    // 含快取 token(見 tokenUsage.mjs)。
+    const usage = usageFromConverse(res.usage);
+    vlmLedger.add(modelId, usage);
     return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
   } catch (err) {
     const name = err?.name ? String(err.name) : 'Error';
@@ -280,7 +297,7 @@ async function main() {
   const stopScreencast = await client.startScreencast((b64) => { liveLatest = b64; }, { quality: 55, maxWidth: 1280, maxHeight: 800 }).catch(() => async () => {});
 
   for (let i = 0; i < MAX_STEPS; i++) {
-    try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); finalState = 'cancelled'; finalMsg = '使用者取消'; break; } catch { /* 無取消 */ }
+    if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
     const t0 = Date.now();
     let shot;
     try { shot = await client.takeScreenshot(); } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
@@ -334,7 +351,7 @@ async function main() {
       for (const model of [VLM, VLM_RETRY_FALLBACK]) {
         const retry = await decide(system, [messages[messages.length - 1]], model);
         if (retry.trace?.ok === false) continue;
-        if (retry.usage && decided.usage) retry.usage = { input: retry.usage.input + decided.usage.input, output: retry.usage.output + decided.usage.output };
+        if (retry.usage && decided.usage) retry.usage = addUsage(retry.usage, decided.usage);
         decided = { ...retry, trace: { ...retry.trace, retries: (decided.trace?.retries ?? 0) + 1, ...(model !== VLM ? { fallbackModel: model } : {}) } };
         if (!retry.cmd.parseFailed) break;
       }
@@ -342,7 +359,7 @@ async function main() {
     const { cmd, usage, rawText, trace } = decided;
     const vlmMs = Date.now() - tVlm;
     messages.push(makeAssistantTurn(rawText));
-    if (usage) { tok.input += usage.input; tok.output += usage.output; }
+    if (usage) accumulate(tok, usage);
 
     const traceRecord = {
       index: i, seat: 'vlm', modelId: trace?.modelId ?? VLM, channel: trace?.channel, ok: trace?.ok !== false,
@@ -451,6 +468,8 @@ async function main() {
     // 模型呼叫失敗時 decide() 回 done:這是 AI 測試代理失敗,不可判 pass。
     if (cmd.action === 'done' && trace && trace.ok === false) { finalState = 'error'; finalMsg = String(cmd.thinking || '模型呼叫失敗'); break; }
     if (cmd.action === 'done') { finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break; }
+    // AI 思考期間按了停止:不要再把動作送到頁面。
+    if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
     // 實際操作用視埠像素座標。
     const deviceCmd = { ...cmd };
     if (cmd.x != null && Number.isFinite(cmd.x)) deviceCmd.x = toDevX(cmd.x);
@@ -495,7 +514,9 @@ async function main() {
   console.log(memTrace.summaryLog());
   await s3put(`${PREFIX}/memory-usage.json`, JSON.stringify(memTrace.summary()), 'application/json').catch(() => {});
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
-  const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, runnerVersion: RUNNER_VERSION, ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}), stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, generatedAt: new Date().toISOString() };
+  // 結束前才按停止:以使用者的「停止」為準;真的完成(pass)則保留。
+  if (finalState !== 'pass' && finalState !== 'cancelled' && await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; }
+  const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, runnerVersion: RUNNER_VERSION, ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}), stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, tokensByModel: vlmLedger.byModel(), generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);
   await client.quit().catch(() => {});

@@ -61,7 +61,8 @@ describe('decision agent (decideAction)', () => {
     const prompt = calls[0]!.input.messages[0]!.content[0]!.text;
     for (const s of ['[2] 關閉 ✕(close)', '可用動作只有:tap / move', '先關公告', 'tap → START']) expect(prompt).toContain(s);
     expect(JSON.parse(puts.get('p/traces/5-agent.json')!)).toMatchObject({ index: 5, seat: 'agent', ok: true });
-    expect(team.tokens.agent).toEqual({ input: 100, output: 20 });
+    expect(team.tokens.agent).toEqual({ input: 100, output: 20, cacheRead: 0, cacheWrite: 0 });
+    expect(team.tokensByModel()).toEqual({ 'us.amazon.nova-lite-v1:0': { input: 100, output: 20, cacheRead: 0, cacheWrite: 0 } });
   });
 
   test('"vision", unknown element, or an action outside the allowed list → cmd null (use the vision suggestion)', async () => {

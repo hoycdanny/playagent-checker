@@ -18,7 +18,8 @@ export interface TraceLog {
     messageTurns?: number;
   };
   rawResponse?: string;
-  tokens?: { input?: number; output?: number };
+  /** cacheRead/cacheWrite:prompt 快取 token(runner cost-v2 起才有;另計價)。 */
+  tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
   error?: { name?: string; message?: string };
   at?: string;
   /** 呼叫耗時(決策 / 輔助 Agent 有記)。 */

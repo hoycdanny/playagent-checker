@@ -4,7 +4,7 @@ import type { RLang } from '../report/reportText.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { AgentLogView, useTraces, type AgentSeat } from './AgentLogView.tsx';
 import { LiveAnalysisView } from './LiveAnalysisView.tsx';
-import { UsageView } from './UsageView.tsx';
+import { UsageView, type PriceMap } from './UsageView.tsx';
 import type { MetaSeat } from '../../api/useJobStream.ts';
 import type { AudioLevels } from './audioLevels.ts';
 import { buildSoundEvents, type SoundKind, type StepRef } from './soundEvents.ts';
@@ -318,12 +318,14 @@ const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { vlm: 'agentVlmHint', ag
  * 任務詳情頁右欄「日誌檢視」:裝置系統 Log / 音效播放狀態(真機才有)+ 三個 AI Agent 每一步的互動紀錄。
  * device=false(非真機)時只顯示 AI Agent 分頁。lang 保留相容;文案依介面語系(五語)。
  */
-export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [], levels, steps, onSeek }: {
+export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [], prices, levels, steps, onSeek }: {
   jobId: string;
   isLive: boolean;
   device?: boolean;
   appId?: string;
   seats?: MetaSeat[];
+  /** 這次可能用到的各模型目前單價(含快取);用量分頁依每筆實際模型計價。 */
+  prices?: PriceMap;
   lang?: RLang;
   /** 錄影聲音時間軸(音效分頁對照「有沒有真的聽到」)。 */
   levels?: AudioLevels | null;
@@ -375,7 +377,7 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
         </div>
       ) : tab === 'usage' ? (
         <div className="devlogs__agent-wrap">
-          <UsageView traces={usageTraces} seats={seats} loc={loc} />
+          <UsageView traces={usageTraces} seats={seats} {...(prices ? { prices } : {})} loc={loc} />
         </div>
       ) : (
         <div className="devlogs__agent-wrap">

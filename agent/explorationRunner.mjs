@@ -32,6 +32,7 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } fr
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
 import { foldSystemIntoFirstUser, isRoleAlternationError } from './converseShape.mjs';
+import { accumulate, addUsage, createUsageLedger, mergeByModel, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
 import {
   DeviceFarmClient,
   StopRemoteAccessSessionCommand,
@@ -156,11 +157,37 @@ function bootPhase(phase, info = {}) {
 }
 // 最後一次回報的步數(SIGTERM 時寫終態用)。
 let lastStepCount = 0;
+// 測試腳本進度(決策 Agent 追蹤):{ items, current, done }。寫進 status.json,前端即時打勾。
+let scriptProgress = null;
+
+// 取消:測試人員按「停止」→ API 寫 cancel.json。開機前後、每步開始、送出動作前都檢查。
+// 看到之後就不再把狀態寫回 running,畫面不會在「已取消」和「執行中」之間跳。
+let cancelSeen = false;
+let cancelCheckedAt = 0;
+async function cancelRequested(maxAgeMs = 0) {
+  if (cancelSeen) return true;
+  if (maxAgeMs && Date.now() - cancelCheckedAt < maxAgeMs) return false;
+  cancelCheckedAt = Date.now();
+  try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); cancelSeen = true; } catch { /* 沒有取消 */ }
+  return cancelSeen;
+}
+
 async function writeStatus(state, message, steps) {
   if (typeof steps === 'number' && steps > lastStepCount) lastStepCount = steps;
+  // 已被取消:只允許寫 cancelled(或其他終態),不要用 running 蓋掉 API 寫的「已取消」。
+  if (state === 'running' && await cancelRequested(3000)) return;
   await s3put(`${PREFIX}/status.json`,
-    JSON.stringify({ jobId: JOB, state, message, steps: steps ?? 0, boot, updatedAt: new Date().toISOString() }),
+    JSON.stringify({ jobId: JOB, state, message, steps: steps ?? 0, boot, ...(scriptProgress ? { script: scriptProgress } : {}), updatedAt: new Date().toISOString() }),
     'application/json').catch(() => {});
+}
+
+/** 依決策 Agent 的腳本進度更新 scriptProgress(done 只增不減:模型偶爾把步驟號往回報)。 */
+function updateScriptProgress(team, { allDone = false } = {}) {
+  const items = team?.scriptItems ?? [];
+  if (items.length < 2) return; // 沒有分步驟的腳本:不顯示打勾清單
+  const current = Math.max(1, Math.min(items.length, Number(team.scriptStep) || 1));
+  const done = allDone ? items.length : Math.max(scriptProgress?.done ?? 0, current - 1);
+  scriptProgress = { items: items.slice(0, 40).map((t) => String(t).slice(0, 300)), current, done };
 }
 const BOOT_MSG = {
   download: 'Device Farm:準備 APK',
@@ -392,6 +419,8 @@ const systemUnsupportedModels = new Set();
 // 頻繁吐出 1000 token 亂碼/空字串,連同重問都失敗,測試人員下的指令也因此被吞掉)。
 const VLM_FALLBACK = process.env.PA_VLM_FALLBACK
   || (VLM.includes('anthropic') ? 'us.amazon.nova-pro-v1:0' : 'us.anthropic.claude-sonnet-4-5-20250929-v1:0');
+// 視覺 Agent 每次呼叫依「實際模型」記帳(含解析失敗重問、備援模型、快取 token)→ report.tokensByModel。
+const vlmLedger = createUsageLedger();
 
 async function decide(system, messages, modelId = VLM) {
   // 預設保留最近 2 張圖;但再加一道保險:若總圖量仍逼近模型 body 上限(~2MB),就降到只留最新 1 張,
@@ -419,7 +448,8 @@ async function decide(system, messages, modelId = VLM) {
       }));
       const parsed = JSON.parse(new TextDecoder().decode(res.body));
       const out = parsed.content?.find((c) => c.type === 'text')?.text ?? '{}';
-      const usage = parsed.usage ? { input: parsed.usage.input_tokens, output: parsed.usage.output_tokens } : null;
+      const usage = usageFromAnthropic(parsed.usage);
+      vlmLedger.add(modelId, usage);
       return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
     }
     // Nova / Llama / Qwen / DeepSeek 等:Bedrock Converse API(統一格式,含視覺)。
@@ -454,7 +484,9 @@ async function decide(system, messages, modelId = VLM) {
       }
     }
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';
-    const usage = res.usage ? { input: res.usage.inputTokens, output: res.usage.outputTokens } : null;
+    // 含快取 token(Kimi K3 等會自動快取,inputTokens 只剩一小部分;見 tokenUsage.mjs)。
+    const usage = usageFromConverse(res.usage);
+    vlmLedger.add(modelId, usage);
     return { cmd: parseCmd(out), usage, rawText: out, trace: { ...baseTrace, ok: true, rawResponse: out, tokens: usage } };
   } catch (err) {
     // 模型呼叫失敗(如「請求 body 太大」「ValidationException」)—— 完整落地,不再只留一句 status。
@@ -571,6 +603,8 @@ async function main() {
   let segStartedAt = 0; // 這一段 Device Farm 連線開始建立的時間
   let sessionInfo = null; // { projectArn, appArn, deviceArn, prefer32bit }:長時模式換新連線用
   console.log('執行時長', maxSegments === 1 ? `單段(${WRAP_MIN} 分鐘收尾)` : `長時:最多 ${maxSegments || '不限'} 段,每段 ${WRAP_MIN} 分鐘`);
+  // 排隊中就被停止:不要再上傳 APK、開真機。
+  if (await cancelRequested()) { await writeStatus('cancelled', '使用者取消', 0); return; }
   if (DRIVER === 'windows') {
     // 遊戲已由 GameLift 主機腳本(host.ps1)解開;runner 用 PA_PKG(exe 完整路徑)啟動。
     bootPhase('connect', { deviceModel: 'Windows' });
@@ -620,6 +654,13 @@ async function main() {
   } else {
     bootPhase('connect');
     await writeStatus('running', 'Appium 連線中', 0);
+  }
+
+  // 開機期間(上傳 APK、配置真機要幾分鐘)被停止:真機一就緒就立刻釋放,不再連 Appium、開遊戲。
+  if (await cancelRequested()) {
+    await stopSelfOwnedSession();
+    await writeStatus('cancelled', '使用者取消', 0);
+    return;
   }
 
   if (!segStartedAt) segStartedAt = Date.now();
@@ -812,6 +853,8 @@ async function main() {
     })
     : null;
   console.log('Agent 協作', team ? `決策=${AGENT_MODEL || '停用'} 輔助=${SUBAGENT_MODEL || '停用'}` : '停用(只用視覺 Agent)');
+  // 腳本清單一開始就給前端(全部未完成);決策 Agent 每步更新進度。
+  if (team?.enabled.agent) updateScriptProgress(team);
   let teamPending = null; // 進行中的輔助 Agent 核對(在動作後等待畫面穩定時跑)
   let teamDoneRejects = 0;
   let agentDoneOverrides = 0; // 決策 Agent 下 done、但視覺 Agent 判斷要繼續 → 被駁回的次數
@@ -967,7 +1010,7 @@ async function main() {
 
   for (let i = 0; i < MAX_STEPS; i++) {
     // 取消旗標檢查。
-    try { await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/cancel.json` })); finalState = 'cancelled'; finalMsg = '使用者取消'; break; } catch { /* 無取消 */ }
+    if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
 
     // 執行時間:這段連線到第 WRAP_MIN 分鐘 → 長時模式換新連線;否則這一步當最後一步收尾。
     if (!wrapUpAsked && SESSION_ARN && Date.now() - segStartedAt >= WRAP_MIN * 60_000) {
@@ -1142,7 +1185,7 @@ async function main() {
       const model = r === 0 ? VLM : VLM_FALLBACK;
       const retry = await decide(system, [messages[messages.length - 1]], model);
       if (retry.trace?.ok === false) { console.warn(`[decide] 重問(${model})呼叫失敗:${retry.trace?.error?.message ?? ''}`); continue; }
-      if (retry.usage && decided.usage) retry.usage = { input: retry.usage.input + decided.usage.input, output: retry.usage.output + decided.usage.output };
+      if (retry.usage && decided.usage) retry.usage = addUsage(retry.usage, decided.usage);
       decided = { ...retry, trace: { ...retry.trace, retries: r + 1, ...(model !== VLM ? { fallbackModel: model } : {}) } };
       if (!retry.cmd.parseFailed && model !== VLM) console.log(`[decide] 第 ${i} 步改由備援模型 ${model} 決策`);
     }
@@ -1177,6 +1220,7 @@ async function main() {
       decisionMs = Date.now() - tDec;
       if (res) {
         stepPlans.set(i, res.decision);
+        updateScriptProgress(team);
         if (res.cmd) {
           // 用決策的動作取代視覺的建議(保留視覺的畫面名 / 描述 / 證據欄位)。
           for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'dir', 'direction', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'scale', 'target']) delete cmd[k];
@@ -1194,7 +1238,7 @@ async function main() {
     // AI 原始動作(runner 若覆寫,原始 expect 不再代表實際動作,報告不據以判定 assertion)。
     const aiAction = cmd.action;
     messages.push(makeAssistantTurn(rawText));
-    if (usage) { tok.input += usage.input; tok.output += usage.output; }
+    if (usage) accumulate(tok, usage);
     // 完整互動 log:每步落一份 traces/<i>.json(模型/channel/請求摘要/原始回應/token/錯誤)。
     // 供任務詳情頁「Log」呈現;失敗步(如請求 body 太大)也會完整記錄錯誤,便於除錯。
     const traceRecord = {
@@ -1724,6 +1768,8 @@ async function main() {
     if (controls?.joystick && (cmd.action === 'move' || (cmd.action === 'combo' && cmd.dir)) && !Number.isFinite(cmd.x)) {
       cmd.x = Math.round(cw * controls.joystick.x); cmd.y = Math.round(ch * controls.joystick.y);
     }
+    // AI 思考一步要十幾秒:這段時間內按了停止,就不要再把動作送到裝置。
+    if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
     const deviceCmd = { ...cmd };
     let spinWatched = null; // 這一步有跑 AutoSpin 看守 → 結束後不再額外等 3 秒(看守本身就是等待)
     if (cmd.tx != null && Number.isFinite(cmd.tx)) deviceCmd.tx = toDeviceX(cmd.tx);
@@ -1895,6 +1941,9 @@ async function main() {
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
   // RTP 統計:只有案例任務要求算 RTP、且確實從 thinking 抓到可用資料時才附上 rtp 欄位,
   // 前端據此判斷要不要顯示 RTP 圖表(見 computeRtpStats 註解)。
+  // 結束前才按停止(例如最後一步正好卡住/出錯):以使用者的「停止」為準;真的完成(pass)則保留。
+  if (finalState !== 'pass' && finalState !== 'cancelled' && await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; }
+  if (finalState === 'pass') updateScriptProgress(team, { allDone: true });
   const rtp = isRtpTask(TASK) ? computeRtpStats(steps) : null;
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w, h }, vlmModel: VLM,
     runnerVersion: RUNNER_VERSION,
@@ -1910,9 +1959,9 @@ async function main() {
       seatModels: { vlm: VLM, ...(AGENT_MODEL ? { agent: AGENT_MODEL } : {}), ...(SUBAGENT_MODEL ? { subagent: SUBAGENT_MODEL } : {}) },
     } : {}),
     stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges },
-    tokens: team
-      ? { input: tok.input + team.tokens.agent.input + team.tokens.subagent.input, output: tok.output + team.tokens.agent.output + team.tokens.subagent.output }
-      : tok,
+    tokens: team ? addUsage(addUsage(tok, team.tokens.agent), team.tokens.subagent) : { ...tok },
+    // 依「實際呼叫的模型」記的 token(含快取、含解析失敗改用的備援模型)—— 費用以它為準。
+    tokensByModel: mergeByModel(vlmLedger.byModel(), team?.tokensByModel?.() ?? {}),
     generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);

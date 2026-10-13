@@ -26,6 +26,8 @@ interface RealCost {
   byUsageType?: Array<{ service: string; usageType: string; quantity: number; unit: string; amountUsd: number }>;
   projectFilter?: { key: string; value: string };
   includedServices?: string[];
+  /** Amazon Bedrock 帳單(部署區域、整個帳號;不算進 totalUsd,只供對照)。 */
+  bedrock?: { region: string; totalUsd: number; byUsageType: Array<{ usageType: string; quantity: number; unit: string; amountUsd: number }> };
   note?: string;
 }
 interface EstimatedCost {
@@ -140,6 +142,11 @@ const T = {
   realNote: [
     '來自 AWS Cost Explorer 的實際帳單:本專案標籤(project)的資源,加上無法貼標的 {svc}。資料約有 24 小時延遲;Amazon Bedrock 為帳號共用服務無法區分專案,模型費用請看「測試費用」分頁。',
     'Actual AWS bill from Cost Explorer: resources tagged with the project tag, plus untaggable {svc}. Data lags ~24h. Amazon Bedrock is account-wide and cannot be split by project; see the Testing cost tab for model spend.',
+  ],
+  bedrockTitle: ['Amazon Bedrock 實際帳單({region},整個帳號)', 'Amazon Bedrock actual bill ({region}, whole account)'],
+  bedrockNote: [
+    '用來核對模型費用:這是 AWS 對模型呼叫的實收金額,同一區域其他應用的用量也會算在裡面,所以不加進上面的帳單總額。「cache-write / cache-read」是模型自動做的 prompt 快取,寫入按 1.25 倍輸入單價收費 —— 測試費用從 2026-10 起也會算進去。',
+    'Use this to check model spend: it is what AWS actually charged for model calls. Other apps in the same region are included, so it is not added to the billed total above. "cache-write / cache-read" is automatic prompt caching; writes are billed at 1.25× the input price. Testing cost includes them from 2026-10.',
   ],
   byMonth: ['每月', 'Monthly'],
   byService: ['依服務', 'By service'],
@@ -475,6 +482,37 @@ export default function CostPage() {
                 ariaLabel={tx('realDaily', lang)}
                 emptyText={tx('noData', lang)}
               />
+            </div>
+          )}
+          {/* 模型帳單對照:Bedrock 帳號共用、分不出專案,所以單獨列出、不加總。 */}
+          {real.bedrock && real.bedrock.byUsageType.length > 0 && (
+            <div className="cost__card">
+              <h2 className="cost__section-title">
+                {tx('bedrockTitle', lang).replace('{region}', real.bedrock.region)} · {usd(real.bedrock.totalUsd)}
+              </h2>
+              <p className="cost__muted">{tx('bedrockNote', lang)}</p>
+              <div className="cost__table-wrap">
+                <table className="cost__table">
+                  <thead>
+                    <tr>
+                      <th scope="col">{tx('colUsageType', lang)}</th>
+                      <th scope="col" className="num">{tx('colQty', lang)}</th>
+                      <th scope="col">{tx('colUnit', lang)}</th>
+                      <th scope="col" className="num">{tx('colTotal', lang)}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {real.bedrock.byUsageType.slice(0, 15).map((u) => (
+                      <tr key={u.usageType}>
+                        <th scope="row" className="cost__mono">{u.usageType}</th>
+                        <td className="num" title={u.quantity.toLocaleString()}>{qty(u.quantity, u.unit)}</td>
+                        <td className="cost__muted">{u.unit}</td>
+                        <td className="num"><strong>{usd(u.amountUsd)}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
           {/* 用量明細:API 呼叫次數、S3 請求數、token 數…都在這裡(AWS 自己的計量值)。 */}

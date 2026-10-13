@@ -320,7 +320,8 @@ const deps: ApiDeps = {
   getRealCost: async (opts) => {
     const key = JSON.stringify(opts);
     if (realCostCache && realCostCache.key === key && Date.now() - realCostCache.at < 10 * 60 * 1000) return realCostCache.value;
-    const value = await getRealCost(costExplorer, opts);
+    // Bedrock 帳單對照:部署區域(runner 與 API 同區呼叫 Bedrock)。
+    const value = await getRealCost(costExplorer, { ...opts, ...(process.env['AWS_REGION'] ? { bedrockRegion: process.env['AWS_REGION'] } : {}) });
     realCostCache = { key, at: Date.now(), value };
     return value;
   },

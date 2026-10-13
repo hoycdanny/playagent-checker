@@ -2147,10 +2147,13 @@ async function handleCancelTask(
   if (!existing) return json(404, { error: '找不到任務' });
 
   await writeCancelFlag(s3, deps.bucket, tenantId, jobId);
-  // 只有在仍 running 時落 cancelled;若已有真實終態,終態吸收會保留它(Req 3.4)
+  // 只有在仍 running 時落 cancelled;若已有真實終態,終態吸收會保留它(Req 3.4)。
+  // 保留 runner 寫的其他欄位(步數、開機進度、腳本打勾進度),停止後畫面上的進度不會消失。
   const finalState = await writeStatus(s3, deps.bucket, tenantId, {
+    ...existing.status,
     jobId,
     state: 'cancelled',
+    message: '使用者已停止測試',
     updatedAt: new Date().toISOString(),
   });
   return json(200, { jobId, state: finalState });
