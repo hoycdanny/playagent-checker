@@ -54,6 +54,7 @@ import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, compactStructure } from './memoryGraph.mjs';
+import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
 
 let APPIUM_URL = process.env.PA_APPIUM_URL;
@@ -740,6 +741,9 @@ async function main() {
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
+  // 記憶命中追蹤:以「本次開始前的記憶」為基準,每步記錄 AI 有沒有用到記憶、記憶的預測有沒有應驗。
+  const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 9000 });
+  console.log(memTrace.startupLog());
   console.log('ImageMagick 座標校正', MAGICK ? '啟用' : '不可用(裸座標)');
   console.log('定位模型', USE_UITARS ? `UI-TARS(SageMaker endpoint=${process.env.PA_UITARS_ENDPOINT})` : `Bedrock VLM(${VLM})`);
   const messages = [];
@@ -1515,6 +1519,14 @@ async function main() {
     // 畫面身分用「視覺指紋 + 正規化名稱 + 模組」判斷(見 memoryGraph.mjs),AI 換說法不會長出重複節點。
     const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
     if (isNew) await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    // 記憶命中(必須在 recordTransition 之前:那之後本步的轉場已算進次數,分不出是不是舊記憶)。
+    const memHit = memTrace.onStep({
+      pageId: pid, screenName, prevPageId, navAction, prevTarget, screenChanged,
+      injectedHints: scoped, action: cmd.action, target: typeof cmd.target === 'string' ? cmd.target : '', override: cmd.override,
+    });
+    step.memory = memHit;
+    console.log(memTrace.formatLog(i, memHit));
+    await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     if (prevPageId && pid) {
       // 畫面真的換了才建邊(觸發 = 上一步實際執行的動作 + 目標元件);同畫面且無變化 = 該操作失效一次。
       if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget });
@@ -1870,6 +1882,8 @@ async function main() {
   if (perfShell) await perfMon.stop().catch(() => {});
 
   // 報告 + 終態。
+  console.log(memTrace.summaryLog());
+  await s3put(`${PREFIX}/memory-usage.json`, JSON.stringify(memTrace.summary()), 'application/json').catch(() => {});
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
   // RTP 統計:只有案例任務要求算 RTP、且確實從 thinking 抓到可用資料時才附上 rtp 欄位,
   // 前端據此判斷要不要顯示 RTP 圖表(見 computeRtpStats 註解)。
