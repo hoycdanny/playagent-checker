@@ -15,7 +15,7 @@ COPY web-runner.package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
 # 複製 runner 與其模組(共用 imageTools.mjs)。
-COPY webExplorationRunner.mjs playwrightClient.mjs imageTools.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs memoryTrace.mjs converseShape.mjs ./
+COPY webExplorationRunner.mjs playwrightClient.mjs imageTools.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs memoryTrace.mjs converseShape.mjs tokenUsage.mjs ./
 
 # 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_URL / PA_JOB / ...)。
 CMD ["node", "webExplorationRunner.mjs"]

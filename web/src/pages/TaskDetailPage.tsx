@@ -71,6 +71,11 @@ const PT = {
   betChanged: ['⚠ 投注額變更 {f} → {t}(第 {s} 步起)', '⚠ Bet changed {f} → {t} (since step {s})'],
   segment: ['第 {n} 段連線', 'Session {n}'],
   replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
+  stop: ['停止測試', 'Stop test'],
+  stopping: ['停止中…', 'Stopping…'],
+  stopConfirm: ['確定要停止這次測試嗎?AI 會在目前這一步結束後停下並釋放裝置,已完成的步驟和截圖都會保留。', 'Stop this test? The AI stops after the current step and releases the device. Completed steps and screenshots are kept.'],
+  stopFailed: ['停止失敗:', 'Could not stop: '],
+  stopSent: ['已送出停止,AI 會在這一步結束後停下。', 'Stop requested. The AI stops after the current step.'],
 } as const;
 const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
 
@@ -106,7 +111,22 @@ export default function TaskDetailPage() {
   const { t, locale } = useI18n();
   const lang = reportLang(locale);
   const { jobId } = useParams<{ jobId: string }>();
-  const { state, verdict, message, steps, meta, appId, backend, createdAt, boot, updatedAt, connected, loading } = useJobStream(jobId ?? null);
+  const { state, verdict, message, steps, meta, appId, backend, createdAt, boot, updatedAt, script, connected, loading } = useJobStream(jobId ?? null);
+  // 停止測試:POST /tasks/{id}/cancel(runner 在目前這一步結束後停下並釋放裝置)。
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  async function stopTest() {
+    if (!jobId || stopping) return;
+    if (!window.confirm(pt('stopConfirm', lang))) return;
+    setStopping(true);
+    setStopError(null);
+    try {
+      await apiPost(`/tasks/${encodeURIComponent(jobId)}/cancel`, {});
+    } catch (err) {
+      setStopError(`${pt('stopFailed', lang)}${err instanceof Error ? err.message : String(err)}`);
+      setStopping(false);
+    }
+  }
 
   // 知識庫 id → 名稱對照(供資訊列以人類可讀名稱呈現)。
   const [kbNames, setKbNames] = useState<Map<string, string>>(new Map());
@@ -247,6 +267,13 @@ export default function TaskDetailPage() {
           </span>
           <TaskInfoStrip meta={meta} kbNames={kbNames} />
           <span className="detail__head-end">
+            {/* 執行中 / 排隊中可停止。 */}
+            {jobId && !TERMINAL_STATES.has(state) && (
+              <button type="button" className="detail__stop" onClick={() => void stopTest()} disabled={stopping} aria-busy={stopping}>
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><rect x="1.5" y="1.5" width="9" height="9" rx="1.5" fill="currentColor" /></svg>
+                {stopping ? pt('stopping', lang) : pt('stop', lang)}
+              </button>
+            )}
             {/* 任務結束後直接進結構化測試報告(判定明細、截圖、修正建議)。 */}
             {jobId && TERMINAL_STATES.has(state) && state !== 'cancelled' && (
               <Link to={`/reports/${jobId}`} className="detail__report-link">
@@ -270,6 +297,8 @@ export default function TaskDetailPage() {
             </span>
           </span>
         </div>
+        {stopError && <p className="detail__triage detail__triage--error" role="alert">{stopError}</p>}
+        {stopping && !TERMINAL_STATES.has(state) && <p className="detail__stop-note" role="status">{pt('stopSent', lang)}</p>}
         {/* 測試結論的理由(驗收標準;細節在報告的「驗收結論與標準」)。 */}
         {verdict && verdict.status !== 'PASS' && (
           <p className={`detail__triage detail__triage--${verdict.status === 'FAIL' ? 'fail' : 'error'}`}>
@@ -372,6 +401,8 @@ export default function TaskDetailPage() {
             )}
             <ScriptPanel
               lang={lang}
+              live={isLive}
+              {...(script ? { progress: script } : {})}
               {...(meta?.script ?? meta?.task ? { script: meta?.script ?? meta?.task } : {})}
               {...(meta?.caseName ? { caseName: meta.caseName } : {})}
               {...(meta?.caseVersion ? { caseVersion: meta.caseVersion } : {})}
@@ -519,6 +550,7 @@ export default function TaskDetailPage() {
               device={backend === 'devicefarm' || backend === 'emulator'}
               {...(appId ? { appId } : {})}
               seats={meta?.seats ?? []}
+              {...(meta?.prices ? { prices: meta.prices } : {})}
               levels={audioLevels}
               steps={soundStepRefs}
               {...(hasRecording ? { onSeek: (t: number) => setSeek((p) => ({ t, n: (p?.n ?? 0) + 1 })) } : {})}

@@ -64,6 +64,11 @@ export interface RealCost {
   projectFilter?: { key: string; value: string };
   /** 無法貼標、以服務名稱另外納入的服務(如 AWS Device Farm)。 */
   includedServices?: string[];
+  /**
+   * Amazon Bedrock 帳單(部署區域、整個帳號,同一區間)—— 不算進 totalUsd(帳號共用、分不出專案),
+   * 只供和「測試費用」的模型估算對照。依用量類型列出(輸入 / 輸出 / 快取寫入 / 快取讀取)。
+   */
+  bedrock?: { region: string; totalUsd: number; byUsageType: UsageTypeRow[] };
   /** 取數時的說明/警告(前端顯示)。 */
   note?: string;
 }
@@ -340,7 +345,44 @@ export interface RealCostOptions {
   includeServices?: string[];
   /** 每日明細天數(預設 30)。 */
   dailyDays?: number;
+  /** 另外查這個區域的 Amazon Bedrock 帳單(整個帳號)供對照;不給就不查。 */
+  bedrockRegion?: string;
   now?: Date;
+}
+
+/** 某區域 Amazon Bedrock 的帳單(依用量類型)。 */
+async function getBedrockCost(
+  client: CostExplorerClient,
+  region: string,
+  TimePeriod: { Start: string; End: string },
+): Promise<NonNullable<RealCost['bedrock']>> {
+  const resp = await client.send(new GetCostAndUsageCommand({
+    TimePeriod,
+    Granularity: 'MONTHLY',
+    Metrics: ['UnblendedCost', 'UsageQuantity'],
+    Filter: { And: [
+      { Dimensions: { Key: 'SERVICE', Values: ['Amazon Bedrock'] } },
+      { Dimensions: { Key: 'REGION', Values: [region] } },
+    ] },
+    GroupBy: [{ Type: 'DIMENSION', Key: 'USAGE_TYPE' }],
+  }));
+  const map = new Map<string, UsageTypeRow>();
+  for (const r of resp.ResultsByTime ?? []) {
+    for (const g of r.Groups ?? []) {
+      const usageType = g.Keys?.[0] ?? '(未知)';
+      const cost = Number(g.Metrics?.['UnblendedCost']?.Amount ?? '0');
+      const qty = Number(g.Metrics?.['UsageQuantity']?.Amount ?? '0');
+      if (!(cost > 0) && !(qty > 0)) continue;
+      const cur = map.get(usageType) ?? { service: 'Amazon Bedrock', usageType, quantity: 0, unit: g.Metrics?.['UsageQuantity']?.Unit ?? '', amountUsd: 0 };
+      cur.quantity += qty;
+      cur.amountUsd += cost;
+      map.set(usageType, cur);
+    }
+  }
+  const byUsageType = [...map.values()]
+    .map((u) => ({ ...u, quantity: round4(u.quantity), amountUsd: round4(u.amountUsd) }))
+    .sort((a, b) => b.amountUsd - a.amountUsd);
+  return { region, totalUsd: round2(byUsageType.reduce((s, u) => s + u.amountUsd, 0)), byUsageType };
 }
 
 /**
@@ -427,6 +469,10 @@ export async function getRealCost(
       }),
     ),
   ]);
+  // Bedrock 對照(失敗不影響其他數字)。
+  const bedrock = opts.bedrockRegion
+    ? await getBedrockCost(client, opts.bedrockRegion, TimePeriod).catch(() => undefined)
+    : undefined;
   // 同一個(服務, 用量類型)可能跨多個月份區段,累加數量與金額。
   const usageMap = new Map<string, UsageTypeRow>();
   for (const r of byUsageResp.ResultsByTime ?? []) {
@@ -504,6 +550,7 @@ export async function getRealCost(
     byUsageType,
     projectFilter: { key: projectKey, value: projectValue },
     ...(includedServices.length ? { includedServices } : {}),
+    ...(bedrock ? { bedrock } : {}),
   };
 }
 

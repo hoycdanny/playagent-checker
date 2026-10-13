@@ -48,6 +48,8 @@ export interface TaskMeta {
   caseName?: string;
   caseVersion?: string;
   maxSteps?: number;
+  /** 這次可能用到的各模型目前單價(含快取寫入/讀取)。 */
+  prices?: Record<string, { inputPerM: number; outputPerM: number; cacheWritePerM: number; cacheReadPerM: number }>;
 }
 
 /** Device Farm 啟動進度(runner 寫進 status.json)。 */
@@ -63,12 +65,30 @@ export interface BootProgress {
   session?: { segment: number; maxSegments: number; startedAt: string; wrapAt: string; wrapMin: number };
 }
 
+/** 測試腳本進度(runner 的決策 Agent 追蹤,寫在 status.json):前 done 項已完成,current 是目前這一項。 */
+export interface ScriptProgress {
+  items: string[];
+  current: number;
+  done: number;
+}
+
+/** status.json 的 script 欄位 → ScriptProgress(格式不對回 undefined)。 */
+export function toScriptProgress(v: unknown): ScriptProgress | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const items = Array.isArray(o['items']) ? o['items'].filter((x): x is string => typeof x === 'string') : [];
+  if (items.length < 2) return undefined;
+  const clamp = (n: unknown, lo: number) => Math.max(lo, Math.min(items.length, Math.round(Number(n) || 0)));
+  return { items, current: clamp(o['current'], 1), done: clamp(o['done'], 0) };
+}
+
 export interface JobDetail {
   job: { jobId: string; backend: string; locality: string; appId: string; caseId: string; createdAt?: string } | null;
   state: string;
   message?: string;
   boot?: BootProgress;
   updatedAt?: string;
+  script?: ScriptProgress;
   steps: Step[];
   meta?: TaskMeta;
   /** 測試結論(驗收標準;終局且有報告才有)。 */
@@ -90,6 +110,8 @@ export interface JobStream {
   /** 啟動進度 + 狀態最後更新時間(終局時間用)。 */
   boot?: BootProgress;
   updatedAt?: string;
+  /** 測試腳本即時進度(有分步驟、且決策 Agent 有啟用的任務才有)。 */
+  script?: ScriptProgress;
   connected: boolean;
   loading: boolean;
 }
@@ -113,6 +135,7 @@ export function useJobStream(jobId: string | null): JobStream {
   const [createdAt, setCreatedAt] = useState<string | undefined>();
   const [boot, setBoot] = useState<BootProgress | undefined>();
   const [updatedAt, setUpdatedAt] = useState<string | undefined>();
+  const [script, setScript] = useState<ScriptProgress | undefined>();
   const [verdict, setVerdict] = useState<VerdictInfo | undefined>();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -145,6 +168,7 @@ export function useJobStream(jobId: string | null): JobStream {
         if (detail.job?.createdAt) setCreatedAt(detail.job.createdAt);
         if (detail.boot) setBoot(detail.boot);
         if (detail.updatedAt) setUpdatedAt(detail.updatedAt);
+        { const sp = toScriptProgress(detail.script); if (sp) setScript(sp); }
         setSteps((prev) => {
           const byIndex = new Map(prev.map((s) => [s.index, s]));
           for (const s of detail.steps) byIndex.set(s.index, s);
@@ -193,7 +217,8 @@ export function useJobStream(jobId: string | null): JobStream {
             if (!st.screenshotUrl && !st.annotatedUrl) scheduleEnrich();
           }
           if (msg.type === 'status') {
-            const d = msg.data as { state: string; message?: string; boot?: BootProgress; updatedAt?: string };
+            const d = msg.data as { state: string; message?: string; boot?: BootProgress; updatedAt?: string; script?: unknown };
+            { const sp = toScriptProgress(d.script); if (sp) setScript(sp); }
             setState(d.state);
             setMessage(d.message);
             if (d.boot) setBoot(d.boot);
@@ -240,5 +265,5 @@ export function useJobStream(jobId: string | null): JobStream {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  return { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, ...(verdict ? { verdict } : {}), connected, loading };
+  return { state, message, steps, meta, appId, backend, createdAt, boot, updatedAt, ...(script ? { script } : {}), ...(verdict ? { verdict } : {}), connected, loading };
 }

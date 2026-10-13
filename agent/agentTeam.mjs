@@ -21,6 +21,8 @@
  *   - 判定失敗、提早結束的權限仍在 runner 的規則;決策 Agent 只能「建議失敗」(記在步驟裡)。
  */
 
+import { accumulate, createUsageLedger, usageFromConverse } from './tokenUsage.mjs';
+
 const DECIDE_MAX_TOKENS = 500;
 const REVIEW_MAX_TOKENS = 500;
 const DONE_MAX_TOKENS = 250;
@@ -282,6 +284,7 @@ export function createAgentTeam({
 }) {
   const steps = scriptSteps(task);
   const tokens = { agent: { input: 0, output: 0 }, subagent: { input: 0, output: 0 } };
+  const ledger = createUsageLedger();
   const noSampling = new Set();
   // 拒收獨立 system 回合的模型(首次被拒後記住)。
   const noSystem = new Set();
@@ -333,9 +336,10 @@ export function createAgentTeam({
       }
       rawText = res?.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '';
       if (res?.usage) {
-        usage = { input: res.usage.inputTokens ?? 0, output: res.usage.outputTokens ?? 0 };
-        tokens[seat].input += usage.input;
-        tokens[seat].output += usage.output;
+        // 含快取 token(見 tokenUsage.mjs);依實際模型記帳。
+        usage = usageFromConverse(res.usage);
+        accumulate(tokens[seat], usage);
+        ledger.add(modelId, usage);
       }
       failStreak[seat] = 0;
     } catch (e) {
@@ -373,7 +377,11 @@ export function createAgentTeam({
     get facts() { return facts; },
     get scriptStep() { return scriptStep; },
     get scriptTotal() { return steps.length; },
+    /** 腳本步驟原文(runner 寫進 status.json,前端即時打勾用同一份編號)。 */
+    get scriptItems() { return steps.slice(); },
     tokens,
+    /** 依實際模型的 token(含快取)→ report.tokensByModel。 */
+    tokensByModel: () => ledger.byModel(),
 
     /**
      * 決策 Agent:看視覺 Agent 這一步的畫面描述與元件清單,決定這一步的動作。

@@ -7,7 +7,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
 import { effectiveState, isTerminal, type TaskState } from './status.js';
-import { computeSpend, PricingError } from './pricing.js';
+import { computeUsageSpend, PricingError, resolvePrice, type TokenUsage } from './pricing.js';
 
 export const BACKENDS = ['web', 'emulator', 'windows', 'devicefarm', 'attached'] as const;
 export type Backend = (typeof BACKENDS)[number];
@@ -412,9 +412,9 @@ export interface TaskListItem {
   /** Device Farm 段數(未帶 = 單段;0 = 不限段數;>1 = 長時)。 */
   maxSegments?: number;
   /** token 用量(三個 seat 合計);費用分析頁的明細用。舊報告可能缺欄位。 */
-  tokens?: { input?: number; output?: number };
+  tokens?: TokenUsage;
   /** 各 seat 的 token 用量(agent=控制遊戲、vlm=分析畫面、subagent=子代理)。 */
-  tokensBySeat?: Partial<Record<'agent' | 'vlm' | 'subagent', { input?: number; output?: number }>>;
+  tokensBySeat?: Partial<Record<'agent' | 'vlm' | 'subagent', TokenUsage>>;
   /**
    * 測試結論(驗收標準判定,與報告封面同一個值)。只有終局且有報告的任務才有;
    * state 是「執行結果」(AI 有沒有走完),verdict 才是「通過 / 失敗 / 受阻」。
@@ -538,7 +538,7 @@ export async function listJobs(
       }
       if (typeof report?.billableSpendUsd === 'number') {
         billableSpendUsd = report.billableSpendUsd;
-      } else if (report?.tokensBySeat) {
+      } else if (report?.tokensByModel || report?.tokensBySeat) {
         if (bySeat !== undefined) { billableSpendUsd = bySeat; spendEstimated = true; }
       } else if (
         vlmModel &&
@@ -546,7 +546,7 @@ export async function listJobs(
         typeof report.tokens.output === 'number'
       ) {
         try {
-          billableSpendUsd = computeSpend(vlmModel, report.tokens.input, report.tokens.output);
+          billableSpendUsd = computeUsageSpend(vlmModel, report.tokens);
           spendEstimated = true;
         } catch (err) {
           if (!(err instanceof PricingError)) throw err;
@@ -746,31 +746,45 @@ interface ConfigSnapshot {
  * 回 undefined = 沒有分 seat 的資料(呼叫端退回舊算法);任一 seat 查不到價 → 拋 PricingError(Fail Closed)。
  */
 export function spendBySeat(
-  report: Pick<ReportShape, 'tokensBySeat' | 'seatModels'> | null | undefined,
+  report: Pick<ReportShape, 'tokensBySeat' | 'seatModels' | 'tokensByModel'> | null | undefined,
   modelFor: (seat: 'vlm' | 'agent' | 'subagent') => string | undefined,
 ): number | undefined {
+  // runner cost-v2 起:依「實際呼叫的模型」記 token(含解析失敗改用的備援模型、快取 token),最準。
+  const byModel = report?.tokensByModel;
+  if (byModel && Object.keys(byModel).length > 0) {
+    let total = 0;
+    for (const [modelId, u] of Object.entries(byModel)) {
+      if (!hasTokens(u)) continue;
+      total += computeUsageSpend(modelId, u);
+    }
+    return total;
+  }
   const by = report?.tokensBySeat;
   if (!by) return undefined;
   let total = 0;
   for (const seat of ['vlm', 'agent', 'subagent'] as const) {
     const t = by[seat];
-    const input = t?.input ?? 0;
-    const output = t?.output ?? 0;
-    if (input === 0 && output === 0) continue;
+    if (!hasTokens(t)) continue;
     const modelId = report?.seatModels?.[seat] ?? modelFor(seat);
     if (!modelId) throw new PricingError(`無法判斷 ${seat} 的模型`);
-    total += computeSpend(modelId, input, output);
+    total += computeUsageSpend(modelId, t!);
   }
   return total;
+}
+
+function hasTokens(u: TokenUsage | undefined): boolean {
+  return !!u && ((u.input ?? 0) > 0 || (u.output ?? 0) > 0 || (u.cacheRead ?? 0) > 0 || (u.cacheWrite ?? 0) > 0);
 }
 
 /** 報告產出物(report.json)—— 只取本頁需要的欄位(task 描述、token 用量)。 */
 interface ReportShape {
   task?: string;
   stepCount?: number;
-  tokens?: { input?: number; output?: number };
+  tokens?: TokenUsage;
   /** 三個 Agent 各自的 token(runner agent-team-v1 起);有則花費依各自模型單價分開計。 */
-  tokensBySeat?: Partial<Record<'vlm' | 'agent' | 'subagent', { input?: number; output?: number }>>;
+  tokensBySeat?: Partial<Record<'vlm' | 'agent' | 'subagent', TokenUsage>>;
+  /** 依實際呼叫的模型記的 token(runner cost-v2 起,含快取與備援模型);有就優先用它計價。 */
+  tokensByModel?: Record<string, TokenUsage>;
   /** runner 實際使用的各 Agent 模型。 */
   seatModels?: Partial<Record<'vlm' | 'agent' | 'subagent', string>>;
   billableSpendUsd?: number;
@@ -826,6 +840,29 @@ export interface TaskMeta {
   caseVersion?: string;
   /** 步數上限(未設 = 無上限)。 */
   maxSteps?: number;
+  /**
+   * 目前單價表對這次可能用到的模型(各 seat + 已記錄的實際模型 + runner 的解析失敗備援模型)。
+   * 用量分頁依每筆紀錄的實際模型計價(含快取 token),不再一律套 seat 模型、也不用提交當下的舊價。
+   */
+  prices?: Record<string, { inputPerM: number; outputPerM: number; cacheWritePerM: number; cacheReadPerM: number }>;
+}
+
+/** runner 的 VLM 解析失敗備援模型(agent/explorationRunner.mjs、webExplorationRunner.mjs 的 VLM_FALLBACK)。 */
+const RUNNER_FALLBACK_MODELS = ['us.amazon.nova-pro-v1:0', 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', 'qwen.qwen3-vl-235b-a22b'];
+
+/** 這些模型的目前單價(查不到價的略過)。 */
+export function priceMap(modelIds: Iterable<string>): NonNullable<TaskMeta['prices']> {
+  const out: NonNullable<TaskMeta['prices']> = {};
+  for (const id of modelIds) {
+    if (!id || out[id]) continue;
+    try {
+      const p = resolvePrice(id);
+      out[id] = { inputPerM: p.inputPerM, outputPerM: p.outputPerM, cacheWritePerM: p.cacheWritePerM, cacheReadPerM: p.cacheReadPerM };
+    } catch (err) {
+      if (!(err instanceof PricingError)) throw err;
+    }
+  }
+  return out;
 }
 
 /**
@@ -863,8 +900,8 @@ async function buildTaskMeta(
   let spendEstimated = false;
   if (typeof report?.billableSpendUsd === 'number') {
     billableSpendUsd = report.billableSpendUsd;
-  } else if (report?.tokensBySeat) {
-    // 三個 Agent 分開計價(各自模型單價)。
+  } else if (report?.tokensByModel || report?.tokensBySeat) {
+    // 依實際呼叫的模型(或三個 Agent 各自模型)分開計價。
     try {
       const v = spendBySeat(report, (seat) => seats.find((s) => s.seat === seat)?.modelId);
       if (v !== undefined) { billableSpendUsd = v; spendEstimated = true; }
@@ -876,7 +913,7 @@ async function buildTaskMeta(
     const priceSeat = seats.find((s) => s.seat === 'vlm') ?? seats[0];
     if (priceSeat) {
       try {
-        billableSpendUsd = computeSpend(priceSeat.modelId, tokens.input, tokens.output);
+        billableSpendUsd = computeUsageSpend(priceSeat.modelId, report?.tokens ?? tokens);
         spendEstimated = true;
       } catch (err) {
         // 查無單價(Fail Closed):不給錯誤數字,留空由前端顯示「無法計算」。
@@ -902,6 +939,13 @@ async function buildTaskMeta(
     ...(job.caseName ? { caseName: job.caseName } : {}),
     ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
     ...(typeof job.maxSteps === 'number' && job.maxSteps > 0 ? { maxSteps: job.maxSteps } : {}),
+    prices: priceMap([
+      ...seats.map((s) => s.modelId),
+      ...Object.values(report?.seatModels ?? {}),
+      ...Object.keys(report?.tokensByModel ?? {}),
+      ...(job.vlmModel ? [job.vlmModel] : []),
+      ...RUNNER_FALLBACK_MODELS,
+    ].filter((x): x is string => typeof x === 'string')),
   };
 }
 
@@ -918,6 +962,7 @@ export async function readJobDetail(
   message?: string;
   boot?: BootProgress;
   updatedAt?: string;
+  script?: ScriptProgress;
   steps: StepRecord[];
   meta: TaskMeta;
   verdict?: TaskListItem['verdict'];
@@ -929,7 +974,7 @@ export async function readJobDetail(
   );
   if (!job) return null;
   const [status, steps, meta, saved] = await Promise.all([
-    readJson<{ state: string; message?: string; boot?: BootProgress; updatedAt?: string }>(s3, bucket, statusKeyFor(tenantId, jobId)),
+    readJson<{ state: string; message?: string; boot?: BootProgress; updatedAt?: string; script?: unknown }>(s3, bucket, statusKeyFor(tenantId, jobId)),
     readSteps(s3, bucket, tenantId, jobId),
     buildTaskMeta(s3, bucket, tenantId, jobId, job),
     readJson<VerdictRecord>(s3, bucket, verdictKey(tenantId, jobId)).catch(() => null),
@@ -948,9 +993,30 @@ export async function readJobDetail(
     ...(eff.message ? { message: eff.message } : {}),
     ...(status?.boot && typeof status.boot === 'object' ? { boot: status.boot } : {}),
     ...(status?.updatedAt ? { updatedAt: status.updatedAt } : {}),
+    ...(parseScriptProgress(status?.script) ? { script: parseScriptProgress(status?.script)! } : {}),
     steps,
     meta,
   };
+}
+
+/** runner 寫在 status.json 的測試腳本進度(決策 Agent 追蹤;前端即時打勾)。 */
+export interface ScriptProgress {
+  /** 腳本步驟原文(與 runner/決策 Agent 的編號一致)。 */
+  items: string[];
+  /** 目前在第幾步(1 起)。 */
+  current: number;
+  /** 已完成幾步(前 done 項打勾;只增不減)。 */
+  done: number;
+}
+
+/** 驗證/正規化 status.script;格式不對回 undefined。 */
+export function parseScriptProgress(v: unknown): ScriptProgress | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const items = Array.isArray(o['items']) ? o['items'].filter((x): x is string => typeof x === 'string').slice(0, 40) : [];
+  if (items.length < 2) return undefined;
+  const clamp = (n: unknown, lo: number) => Math.max(lo, Math.min(items.length, Math.round(Number(n) || 0)));
+  return { items: items.map((t) => t.slice(0, 300)), current: clamp(o['current'], 1), done: clamp(o['done'], 0) };
 }
 
 /** 讀某任務的報告產出物(report.json)。不存在回 null。 */
