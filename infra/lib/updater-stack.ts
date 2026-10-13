@@ -83,7 +83,6 @@ export class UpdaterStack extends Stack {
         PA_DATA_BUCKET: { value: props.dataBucket.bucketName },
         PA_HISTORY_KEY: { value: UPDATE_HISTORY_KEY },
         PA_STATE_PARAM: { value: props.stateParamName },
-        PA_SECRET_NAME: { value: props.githubSecretName },
         PA_NODE_VERSION: { value: NODE_VERSION },
         PA_FOUNDATION_STACK: { value: props.frontendConfigStacks.foundation },
         PA_CONTROLPLANE_STACK: { value: props.frontendConfigStacks.controlPlane },
@@ -114,11 +113,7 @@ export class UpdaterStack extends Stack {
       actions: ['ssm:GetParameter', 'ssm:PutParameter'],
       resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter${props.stateParamName}`],
     }));
-    // GitHub token(唯讀)。值永不寫進 log:buildspec 用 git credential store 檔案,不帶在指令裡。
-    role.addToPrincipalPolicy(new iam.PolicyStatement({
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:${this.region}:${this.account}:secret:${props.githubSecretName}-??????`],
-    }));
+    // 倉庫已公開:clone 不需要 GitHub token,故不再授予 Secrets Manager 讀取。
     // 更新歷史 + runner 映像建置時上傳原始碼 zip。
     role.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['s3:GetObject', 's3:PutObject', 's3:ListBucket'],
@@ -172,14 +167,9 @@ function buildSpec(): Record<string, unknown> {
       pre_build: {
         commands: [
           'set -euo pipefail',
-          // token 經 git credential store 交給 git;不放在指令列,也不 echo。
-          'aws secretsmanager get-secret-value --secret-id "$PA_SECRET_NAME" --query SecretString --output text > /tmp/gh.json',
-          'node -e \'const fs=require("fs");const raw=fs.readFileSync("/tmp/gh.json","utf8").trim();let t=raw;try{const o=JSON.parse(raw);t=o.token||o.GITHUB_TOKEN||"";}catch{};if(!t){console.error("GitHub token 尚未設定");process.exit(1);}fs.writeFileSync(process.env.HOME+"/.git-credentials","https://x-access-token:"+t+"@github.com\\n",{mode:0o600});\'',
-          'rm -f /tmp/gh.json',
-          'git config --global credential.helper store',
+          // 倉庫已公開:直接 clone,不需要 GitHub token / credential store。
           'git config --global advice.detachedHead false',
           'git clone --quiet "https://github.com/$PA_REPO.git" /tmp/src',
-          'rm -f "$HOME/.git-credentials"',
           'cd /tmp/src',
           // 版本字串已在 API 端驗證格式與存在性;這裡再確認它真的指向一個 commit。
           'git rev-parse --verify "$PA_REF^{commit}" > /tmp/sha',
