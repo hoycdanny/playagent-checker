@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'vitest';
-// @ts-expect-error agent mjs 沒有型別宣告(runner 端 ESM)
 const graph = await import('../../agent/memoryGraph.mjs');
-// @ts-expect-error agent mjs 沒有型別宣告(runner 端 ESM)
+// @ts-expect-error memoryTrace.mjs 沒有型別宣告(runner 端 ESM)
 const trace = await import('../../agent/memoryTrace.mjs');
 
 /**
