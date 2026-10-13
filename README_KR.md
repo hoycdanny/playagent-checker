@@ -235,15 +235,28 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 
 > EC2에서의 엔드투엔드 검증은 아직 완료되지 않았습니다. Linux 런처는 Windows 경로와 같은 배포 코어를 사용하며(Windows 경로는 전체 클린 설치로 검증됨), 구문과 인수는 Linux 컨테이너에서 확인했습니다. 첫 EC2 배포는 끝까지 지켜보십시오.
 
-### 1. 인스턴스용 IAM 역할 만들기
+### 1. 인스턴스용 최소 권한 역할 만들기(AWS 관리자가 한 번만)
 
-AWS Console → **IAM → Roles → Create role**:
+인스턴스에는 `AdministratorAccess`가 **필요 없습니다**. AWS 관리자가 **AWS CloudShell**(콘솔 상단 바의 `>_` 아이콘, 리전 **us-east-2**)을 열고 다음을 실행합니다:
 
-1. 신뢰할 수 있는 엔터티(Trusted entity): **AWS service → EC2**.
-2. 권한(Permissions): **AdministratorAccess**(설치 프로그램이 IAM, Lambda, ECS, Cognito, CloudFront 등을 생성합니다).
-3. 이름을 지정합니다. 예: `playagent-deployer`.
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+bash playagent-checker/scripts/setup-deployer-role.sh
+```
 
-인스턴스가 이 역할을 직접 사용하므로 머신에 액세스 키를 저장하지 않습니다. Session Manager도 이 역할을 통해 작동하므로 SSH 포트가 필요 없습니다.
+이 스크립트는 여러 번 실행해도 안전합니다. 하는 일:
+
+1. 이 계정/리전에서 CDK bootstrap을 한 번도 하지 않았다면 한 번 실행합니다. 관리자 권한이 필요한 단계는 이것뿐입니다.
+2. [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json)으로 고객 관리형 정책 `PlayAgentDeployer`를 만듭니다.
+3. 역할과 인스턴스 프로파일 `playagent-deployer`를 만들고 `PlayAgentDeployer` + `AmazonSSMManagedInstanceCore`(Session Manager용)를 연결합니다.
+
+이 역할로 설치 프로그램이 할 수 있는 일은 다음뿐입니다: 이 계정/리전의 CDK bootstrap 역할 세 개(deploy, file-publishing, lookup) 수임, PlayAgent 및 `CDKToolkit` 스택 읽기, runner ECR 리포지토리 두 개에 푸시, PlayAgent User Pool에서만 Cognito 관리자 생성(CloudFormation 스택 태그로 일치 확인), `/playagent/*` SSM 파라미터 쓰기. IAM 사용자나 역할 생성, S3 데이터 읽기, 다른 앱 조작은 할 수 없습니다. `CDKToolkit`이 이미 있으면 설치 프로그램이 bootstrap을 건너뛰므로 관리자 권한이 전혀 필요 없습니다.
+
+인스턴스가 이 역할을 직접 사용하므로 머신에 액세스 키를 저장하지 않습니다. Session Manager도 이 역할을 통해 작동하므로 SSH 포트가 필요 없습니다. 노트북이나 SSO에서 같은 최소 권한으로 배포하려면 `PlayAgentDeployer`를 해당 IAM 사용자나 permission set에 연결하십시오.
+
+> **지금까지 검증한 것:** IAM Access Analyzer 지적 사항이 없습니다. 이 정책으로 만든 임시 역할이 실제 허용/거부 테스트, 설치 프로그램의 `--plan-only`, CDK 역할을 통한 `cdk diff`를 통과했습니다. 이 역할만으로 전체 설치를 실행해 본 적은 아직 없습니다.
+>
+> **남은 한계:** 리소스는 CloudFormation이 CDK 실행 역할(`cdk-hnb659fds-cfn-exec-role-…`)로 만들며, 이 역할은 기본적으로 `AdministratorAccess`를 가집니다. 따라서 배포할 수 있는 사람은 *CloudFormation을 통해* 어떤 종류의 리소스든 만들 수 있습니다. 더 좁히려면 사용자 지정 실행 정책과 permissions boundary로 다시 bootstrap해야 하는데, 이는 계정 전체가 공유하는 CDK bootstrap을 바꾸므로 기본으로는 하지 않습니다.
 
 ### 2. 인스턴스 시작
 

@@ -241,15 +241,28 @@ Use this when you do not want to install anything on your own computer. A small 
 
 > Not yet verified end to end on EC2. The Linux launcher shares the same deployment core as the Windows path (verified on a full clean install), and its syntax and arguments were checked in a Linux container. Watch your first EC2 deployment through to the end.
 
-### 1. Create an IAM role for the instance
+### 1. Create a least-privilege role for the instance (once, by an AWS admin)
 
-AWS Console → **IAM → Roles → Create role**:
+The instance does **not** need `AdministratorAccess`. An AWS admin opens **AWS CloudShell** (the `>_` icon in the Console top bar, region **us-east-2**) and runs:
 
-1. Trusted entity: **AWS service → EC2**.
-2. Permissions: **AdministratorAccess** (the installer creates IAM, Lambda, ECS, Cognito, CloudFront and more).
-3. Name it, for example, `playagent-deployer`.
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+bash playagent-checker/scripts/setup-deployer-role.sh
+```
 
-The instance uses this role directly, so no access keys are stored on the machine. Session Manager also works through this role, so no SSH port is needed.
+The script is safe to re-run. It:
+
+1. Runs CDK bootstrap once if this account/region was never bootstrapped. This is the only step that needs admin rights.
+2. Creates the customer-managed policy `PlayAgentDeployer` from [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json).
+3. Creates the role and instance profile `playagent-deployer` with `PlayAgentDeployer` + `AmazonSSMManagedInstanceCore` (for Session Manager).
+
+With this role the installer can only: assume this account/region's three CDK bootstrap roles (deploy, file-publishing, lookup); read the PlayAgent and `CDKToolkit` stacks; push to the two runner ECR repositories; create the Cognito admin in the PlayAgent User Pool only (matched by its CloudFormation stack tag); and write `/playagent/*` SSM parameters. It cannot create IAM users or roles, read S3 data, or touch other apps. When `CDKToolkit` already exists the installer skips bootstrap, so it never needs admin rights.
+
+The instance uses this role directly, so no access keys are stored on the machine. Session Manager also works through this role, so no SSH port is needed. To deploy from a laptop or SSO with the same minimal rights, attach `PlayAgentDeployer` to that IAM user or permission set.
+
+> **Verified so far:** IAM Access Analyzer reports no findings, and a temporary copy of the role passed live allow/deny checks, the installer's `--plan-only`, and `cdk diff` through the CDK roles. A full install using only this role has not been run yet.
+>
+> **Remaining limit:** CloudFormation creates the resources with the CDK execution role (`cdk-hnb659fds-cfn-exec-role-…`), which by default has `AdministratorAccess`. Anyone who can deploy can therefore still create any resource type *through CloudFormation*. Narrowing that requires re-bootstrapping with a custom execution policy and permissions boundary, which changes the account-wide CDK bootstrap; it is not done by default.
 
 ### 2. Launch the instance
 

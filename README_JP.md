@@ -235,15 +235,28 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 
 > EC2 でのエンドツーエンド検証はまだ行っていません。Linux ランチャーは Windows 版と同じデプロイコアを使っています(Windows 版はクリーンな環境への完全インストールで検証済み)。また、構文と引数は Linux コンテナで確認済みです。初回の EC2 デプロイは最後まで見届けてください。
 
-### 1. インスタンス用の IAM ロールを作成する
+### 1. インスタンス用の最小権限ロールを作成する(AWS 管理者が 1 回だけ)
 
-AWS コンソール → **IAM → Roles → Create role**:
+インスタンスに `AdministratorAccess` は**不要**です。AWS 管理者が **AWS CloudShell**(コンソール上部バーの `>_` アイコン、リージョン **us-east-2**)を開き、次を実行します:
 
-1. 信頼されたエンティティ(Trusted entity):**AWS service → EC2**。
-2. 許可(Permissions):**AdministratorAccess**(インストーラーは IAM、Lambda、ECS、Cognito、CloudFront などを作成します)。
-3. 名前を付けます。例:`playagent-deployer`。
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+bash playagent-checker/scripts/setup-deployer-role.sh
+```
 
-インスタンスはこのロールを直接使うため、マシンにアクセスキーを保存しません。Session Manager もこのロール経由で動くので、SSH ポートも不要です。
+このスクリプトは何度実行しても安全です。処理内容:
+
+1. このアカウント/リージョンで CDK bootstrap が未実施なら 1 回だけ実行します。管理者権限が必要なのはこのステップだけです。
+2. [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json) からカスタマー管理ポリシー `PlayAgentDeployer` を作成します。
+3. ロールとインスタンスプロファイル `playagent-deployer` を作成し、`PlayAgentDeployer` + `AmazonSSMManagedInstanceCore`(Session Manager 用)をアタッチします。
+
+このロールでインストーラーができるのは次のことだけです:このアカウント/リージョンの 3 つの CDK bootstrap ロール(deploy、file-publishing、lookup)の引き受け、PlayAgent と `CDKToolkit` スタックの読み取り、2 つの runner ECR リポジトリへのプッシュ、PlayAgent の User Pool だけでの Cognito 管理者作成(CloudFormation スタックタグで照合)、`/playagent/*` SSM パラメータの書き込み。IAM ユーザーやロールの作成、S3 データの読み取り、他のアプリへの操作はできません。`CDKToolkit` が既にあればインストーラーは bootstrap をスキップするので、管理者権限は一切不要です。
+
+インスタンスはこのロールを直接使うため、マシンにアクセスキーを保存しません。Session Manager もこのロール経由で動くので、SSH ポートも不要です。ノート PC や SSO から同じ最小権限でデプロイする場合は、`PlayAgentDeployer` をその IAM ユーザーまたは permission set にアタッチしてください。
+
+> **検証済みの範囲:** IAM Access Analyzer の指摘はゼロです。このポリシーで作った一時ロールで、実際の許可/拒否テスト、インストーラーの `--plan-only`、CDK ロール経由の `cdk diff` を通過しました。このロールだけでの完全インストールはまだ実行していません。
+>
+> **残る制限:** リソースを作成するのは CloudFormation が使う CDK 実行ロール(`cdk-hnb659fds-cfn-exec-role-…`)で、デフォルトでは `AdministratorAccess` を持っています。そのため、デプロイできる人は *CloudFormation 経由で* 任意の種類のリソースを作成できます。さらに絞るにはカスタム実行ポリシーと permissions boundary で再 bootstrap する必要があり、アカウント全体で共有される CDK bootstrap を変更するため、デフォルトでは行いません。
 
 ### 2. インスタンスを起動する
 

@@ -241,15 +241,28 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 
 > 尚未在 EC2 上完成端到端驗證。Linux 啟動器與 Windows 路徑共用同一份部署核心(Windows 路徑已在一次完整的全新安裝中驗證),其語法與參數也已在 Linux 容器中檢查過。第一次用 EC2 部署時,請全程看到結束。
 
-### 1. 為執行個體建立 IAM 角色
+### 1. 為執行個體建立最小權限角色(由 AWS 管理員做一次)
 
-AWS Console → **IAM → Roles → Create role**:
+執行個體**不需要** `AdministratorAccess`。請 AWS 管理員開啟 **AWS CloudShell**(Console 上方列的 `>_` 圖示,區域 **us-east-2**),執行:
 
-1. 受信任實體(Trusted entity):**AWS service → EC2**。
-2. 權限(Permissions):**AdministratorAccess**(安裝器會建立 IAM、Lambda、ECS、Cognito、CloudFront 等資源)。
-3. 取個名稱,例如 `playagent-deployer`。
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+bash playagent-checker/scripts/setup-deployer-role.sh
+```
 
-執行個體會直接使用這個角色,所以機器上不會存放任何存取金鑰(access key)。Session Manager 也是透過這個角色運作,所以不需要開 SSH 連接埠。
+這支腳本可以重複執行。它會:
+
+1. 如果這個帳號/區域從沒做過 CDK bootstrap,就做一次。這是唯一需要管理員權限的步驟。
+2. 依 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json) 建立客戶管理政策 `PlayAgentDeployer`。
+3. 建立角色與執行個體設定檔 `playagent-deployer`,掛上 `PlayAgentDeployer` + `AmazonSSMManagedInstanceCore`(給 Session Manager 用)。
+
+用這個角色,安裝器只能:承接本帳號/區域的三個 CDK bootstrap 角色(deploy、file-publishing、lookup);讀取 PlayAgent 與 `CDKToolkit` stack;推送到兩個 runner ECR repository;只在 PlayAgent 的 User Pool 建立 Cognito 管理員(以 CloudFormation stack 標籤比對);寫入 `/playagent/*` SSM 參數。它不能建立 IAM 使用者或角色、不能讀 S3 資料,也碰不到其他應用程式。`CDKToolkit` 已存在時安裝器會略過 bootstrap,所以永遠不需要管理員權限。
+
+執行個體會直接使用這個角色,所以機器上不會存放任何存取金鑰(access key)。Session Manager 也是透過這個角色運作,所以不需要開 SSH 連接埠。如果要從筆電或 SSO 用同樣的最小權限部署,把 `PlayAgentDeployer` 掛到那個 IAM 使用者或 permission set 即可。
+
+> **目前已驗證:** IAM Access Analyzer 沒有任何發現;用這個政策建立的暫時角色通過了實際的允許/拒絕測試、安裝器的 `--plan-only`,以及透過 CDK 角色的 `cdk diff`。尚未只用這個角色跑過一次完整安裝。
+>
+> **仍有的限制:** CloudFormation 是用 CDK 執行角色(`cdk-hnb659fds-cfn-exec-role-…`)建立資源,而它預設是 `AdministratorAccess`。因此能部署的人仍然可以*透過 CloudFormation* 建立任何類型的資源。要再收窄,必須用自訂執行政策和 permissions boundary 重新 bootstrap,這會改動整個帳號共用的 CDK bootstrap,所以預設不做。
 
 ### 2. 啟動執行個體
 
