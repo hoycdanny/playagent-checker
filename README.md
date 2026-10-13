@@ -235,6 +235,88 @@ These examples contain no literal password. Add `--admin-tenant <tenant>` only w
 >
 > **About reinstalling after `cdk destroy`:** the data bucket, Cognito User Pool, and runner ECR repositories have `Retain` protection. The installer detects orphaned retained ECR repositories and safely reuses them, so fixed repository names do not block reinstall. It intentionally does not delete or silently adopt an old data bucket/User Pool; a true empty reset requires explicitly deleting those retained resources after backing up anything needed.
 
+## Alternative: deploy from an EC2 instance
+
+Use this when you do not want to install anything on your own computer. A small Linux EC2 instance runs the same one-click installer (`scripts/deploy-latest.sh`). You only need it while deploying or updating; stop it afterwards.
+
+> Not yet verified end to end on EC2. The Linux launcher shares the same deployment core as the Windows path (verified on a full clean install), and its syntax and arguments were checked in a Linux container. Watch your first EC2 deployment through to the end.
+
+### 1. Create an IAM role for the instance
+
+AWS Console → **IAM → Roles → Create role**:
+
+1. Trusted entity: **AWS service → EC2**.
+2. Permissions: **AdministratorAccess** (the installer creates IAM, Lambda, ECS, Cognito, CloudFront and more).
+3. Name it, for example, `playagent-deployer`.
+
+The instance uses this role directly, so no access keys are stored on the machine. Session Manager also works through this role, so no SSH port is needed.
+
+### 2. Launch the instance
+
+AWS Console → **EC2 → Launch instance**, region **US East (Ohio) us-east-2**:
+
+| Setting | Value | Why |
+| --- | --- | --- |
+| AMI | **Amazon Linux 2023**, 64-bit **(x86)** | AWS CLI v2 is preinstalled |
+| Architecture | **x86_64** (not Graviton/ARM) | Runner images are `linux/amd64`; building them on ARM needs slow emulation |
+| Instance type | `t3.large` (2 vCPU / 8 GB) | Docker builds, CDK synth and the web build run together |
+| Storage | **40 GB** gp3 or more | Two runner images plus build cache take well over 10 GB |
+| Key pair | Not needed | Connect with Session Manager |
+| Network | Default VPC, public IP **enabled**; security group with **no inbound rules** | Only outbound access is needed (GitHub, npm, container registries, AWS APIs) |
+| IAM instance profile | `playagent-deployer` (from step 1) | Under **Advanced details** |
+
+Cost: a `t3.large` is about US$0.08 / hour while running.
+
+### 3. Connect and install the tools
+
+Select the instance → **Connect → Session Manager → Connect**, then run:
+
+```bash
+sudo su - ec2-user
+
+# Git + Docker
+sudo dnf install -y git docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+exit                     # log out once so the docker group applies
+```
+
+Reconnect (`sudo su - ec2-user` again), then:
+
+```bash
+# Node.js 22 (via nvm)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 22
+
+# Check everything
+git --version
+node --version               # v22.x
+aws --version                # aws-cli/2.x
+docker info                  # must not say "permission denied"
+aws sts get-caller-identity  # should show the playagent-deployer role
+```
+
+### 4. Turn on the Bedrock models
+
+Do Step 3 below (**Turn on the AI models**) in the AWS Console. This cannot be done from the instance, and every test run fails without it.
+
+### 5. Run the installer
+
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+cd playagent-checker
+./scripts/deploy-latest.sh
+```
+
+The installer defaults to **us-east-2**. It shows the AWS account and asks you to confirm, then asks for the Cognito admin **Email** and a **password** (hidden input, typed twice). Total time is about 20–40 minutes. When it finishes it prints the website URL.
+
+### 6. Later updates and cleanup
+
+- **Update to the latest version:** start the instance, connect, then `cd ~/playagent-checker && ./scripts/deploy-latest.sh`.
+- **Save cost:** stop the instance when you are done (EC2 → Instance state → Stop). Storage still costs about US$3 / month; terminate it if you no longer need it.
+- **Session timed out:** Session Manager closes idle sessions. If the deployment was interrupted, reconnect and run the installer again; it is safe to repeat.
+
 ## Manual installation (step by step)
 
 This section assumes **no prior AWS experience**. Follow it top to bottom. Total time: about **60–90 minutes**, most of it waiting for AWS.

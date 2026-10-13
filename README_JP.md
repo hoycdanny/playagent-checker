@@ -229,6 +229,88 @@ aws secretsmanager get-secret-value --region us-east-2 --secret-id playagent/adm
 >
 > **`cdk destroy` 後の再インストール:** データバケット、Cognito User Pool、ランナー ECR は `Retain` で保護されます。インストーラーは残存 ECR を検出して再利用するため、同名リポジトリで再インストールが止まりません。古いデータバケット/User Pool は自動削除・自動移行しません。完全に空にする場合は必要なデータをバックアップし、保留リソースを明示的に削除してください。
 
+## 代替手段:EC2 インスタンスからデプロイする
+
+自分のコンピューターに何もインストールしたくない場合は、この方法を使います。小さな Linux EC2 インスタンスで、同じワンクリックインストーラー(`scripts/deploy-latest.sh`)を実行します。インスタンスが必要なのはデプロイや更新のときだけです。終わったら停止してください。
+
+> EC2 でのエンドツーエンド検証はまだ行っていません。Linux ランチャーは Windows 版と同じデプロイコアを使っています(Windows 版はクリーンな環境への完全インストールで検証済み)。また、構文と引数は Linux コンテナで確認済みです。初回の EC2 デプロイは最後まで見届けてください。
+
+### 1. インスタンス用の IAM ロールを作成する
+
+AWS コンソール → **IAM → Roles → Create role**:
+
+1. 信頼されたエンティティ(Trusted entity):**AWS service → EC2**。
+2. 許可(Permissions):**AdministratorAccess**(インストーラーは IAM、Lambda、ECS、Cognito、CloudFront などを作成します)。
+3. 名前を付けます。例:`playagent-deployer`。
+
+インスタンスはこのロールを直接使うため、マシンにアクセスキーを保存しません。Session Manager もこのロール経由で動くので、SSH ポートも不要です。
+
+### 2. インスタンスを起動する
+
+AWS コンソール → **EC2 → Launch instance**、リージョンは **US East (Ohio) us-east-2**:
+
+| 設定 | 値 | 理由 |
+| --- | --- | --- |
+| AMI | **Amazon Linux 2023**、64 ビット **(x86)** | AWS CLI v2 がプリインストール済み |
+| アーキテクチャ | **x86_64**(Graviton/ARM ではない) | ランナーイメージは `linux/amd64`。ARM でビルドすると低速なエミュレーションが必要 |
+| インスタンスタイプ | `t3.large`(2 vCPU / 8 GB) | Docker ビルド、CDK synth、Web ビルドを同時に実行する |
+| ストレージ | **40 GB** 以上の gp3 | 2 つのランナーイメージとビルドキャッシュで 10 GB を大きく超える |
+| キーペア | 不要 | Session Manager で接続 |
+| ネットワーク | デフォルト VPC、パブリック IP は**有効**、セキュリティグループは**インバウンドルールなし** | 必要なのはアウトバウンド通信だけ(GitHub、npm、コンテナレジストリ、AWS API) |
+| IAM インスタンスプロファイル | `playagent-deployer`(手順 1 で作成) | **Advanced details** の中にある |
+
+コスト:`t3.large` は起動中、約 US$0.08 / 時間です。
+
+### 3. 接続してツールをインストールする
+
+インスタンスを選択 → **Connect → Session Manager → Connect** と進み、次を実行します:
+
+```bash
+sudo su - ec2-user
+
+# Git + Docker
+sudo dnf install -y git docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker ec2-user
+exit                     # docker グループを反映させるため一度ログアウト
+```
+
+再接続し(もう一度 `sudo su - ec2-user`)、次を実行します:
+
+```bash
+# Node.js 22(nvm 経由)
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+source ~/.bashrc
+nvm install 22
+
+# すべて確認
+git --version
+node --version               # v22.x
+aws --version                # aws-cli/2.x
+docker info                  # "permission denied" と表示されないこと
+aws sts get-caller-identity  # playagent-deployer ロールが表示されるはず
+```
+
+### 4. Bedrock モデルを有効にする
+
+AWS コンソールで、下の「ステップ 3 — AI モデルを有効にする(Amazon Bedrock)」を実施してください。これはインスタンスからは実施できません。これを行わないと、すべてのテスト実行が失敗します。
+
+### 5. インストーラーを実行する
+
+```bash
+git clone https://github.com/hoycdanny/playagent-checker.git
+cd playagent-checker
+./scripts/deploy-latest.sh
+```
+
+インストーラーのデフォルトは **us-east-2** です。AWS アカウントを表示して確認を求めたあと、Cognito 管理者の **Email** と**パスワード**(非表示入力、2 回入力)を尋ねます。所要時間は合計約 20–40 分です。完了すると Web サイトの URL が表示されます。
+
+### 6. その後の更新と後片付け
+
+- **最新版への更新**:インスタンスを起動して接続し、`cd ~/playagent-checker && ./scripts/deploy-latest.sh` を実行します。
+- **コスト節約**:使い終わったらインスタンスを停止します(EC2 → Instance state → Stop)。停止中もストレージに約 US$3 / 月かかります。不要になったら終了(terminate)してください。
+- **セッションのタイムアウト**:Session Manager はアイドル状態のセッションを閉じます。デプロイが中断された場合は、再接続してインストーラーをもう一度実行してください。繰り返し実行しても安全です。
+
 ## 手動インストール（ステップバイステップ）
 
 このセクションは **AWS の経験がないこと**を前提としています。上から順に進めてください。所要時間は合計約 **60–90 分**で、その大半は AWS の待ち時間です。
