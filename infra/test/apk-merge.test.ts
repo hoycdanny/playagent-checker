@@ -86,6 +86,92 @@ describe('merged APK validation and signing', () => {
   });
 });
 
+describe('XAPK merge memory (APKEditor JVM)', () => {
+  const MB = 1024 * 1024;
+
+  test('JVM heap follows the container size instead of the 25% default', () => {
+    const opts = mod.javaOptions({});
+    expect(opts).toContain('-XX:MaxRAMPercentage=60');
+    expect(opts).toContain('-XX:+ExitOnOutOfMemoryError');
+    // 舊配置 2 GB 容器:預設 heap 只有 ~512 MB;新配置 8 GB:~4.9 GB。
+    expect(mod.javaHeapMB(2048, ['-XX:MaxRAMPercentage=25'])).toBe(512);
+    expect(mod.javaHeapMB(8192, opts)).toBe(4915);
+  });
+
+  test('PA_JAVA_OPTS overrides the heap settings', () => {
+    const opts = mod.javaOptions({ PA_JAVA_OPTS: '-Xmx6g -XX:+ExitOnOutOfMemoryError' });
+    expect(opts).toEqual(['-Xmx6g', '-XX:+ExitOnOutOfMemoryError']);
+    expect(mod.javaHeapMB(8192, opts)).toBe(6144);
+  });
+
+  test('reads the cgroup memory limit and ignores "unlimited"', () => {
+    const v2 = (f: string) => { if (f === '/sys/fs/cgroup/memory.max') return `${8192 * MB}\n`; throw new Error('missing'); };
+    expect(mod.containerMemoryMB(v2)).toBe(8192);
+    const v1 = (f: string) => {
+      if (f === '/sys/fs/cgroup/memory.max') return 'max\n';
+      if (f === '/sys/fs/cgroup/memory/memory.limit_in_bytes') return `${2048 * MB}`;
+      throw new Error('missing');
+    };
+    expect(mod.containerMemoryMB(v1)).toBe(2048);
+  });
+
+  test('APKEditor gets the heap options before -jar', () => {
+    const xapk = temp('game.xapk');
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const run = (command: string, args: string[]) => {
+      calls.push({ command, args: [...args] });
+      if (command === 'java') writeFileSync(args[args.indexOf('-o') + 1]!, 'merged-apk');
+      return signingRunner([])(command, args);
+    };
+    const out = mod.mergeXapkToApk(xapk, {
+      run,
+      log: () => {},
+      validate: () => ({ packageName: 'com.acme.slot', badging: 'ok' }),
+      preflight: { memMB: 8192, diskMB: 100_000, sizeBytes: 434 * MB, javaOptions: mod.javaOptions({}) },
+    });
+    made.push(out);
+    const java = calls.find((c) => c.command === 'java')!;
+    expect(java.args.slice(0, 3)).toEqual(['-XX:MaxRAMPercentage=60', '-XX:+ExitOnOutOfMemoryError', '-jar']);
+    expect(java.args).toContain('m');
+  });
+
+  test('Java OutOfMemoryError becomes a clear, actionable error (not a silent exit 1)', () => {
+    const xapk = temp('big.xapk');
+    const run = (command: string) => {
+      if (command !== 'java') return Buffer.from('ok');
+      throw Object.assign(new Error('Command failed'), {
+        status: 3,
+        stderr: Buffer.from('Terminating due to java.lang.OutOfMemoryError: Java heap space'),
+      });
+    };
+    const opts = ['-XX:MaxRAMPercentage=25'];
+    expect(() => mod.mergeXapkToApk(xapk, {
+      run, log: () => {},
+      preflight: { memMB: 2048, diskMB: 100_000, sizeBytes: 434 * MB, javaOptions: opts },
+    })).toThrow(/記憶體不足.*容器 2048MB.*heap 上限約 512MB.*434MB.*EXPLORATION_RUNNER_MEMORY_MIB/);
+  });
+
+  test('container kill (SIGKILL) is also reported as out of memory', () => {
+    const xapk = temp('killed.xapk');
+    const run = () => { throw Object.assign(new Error('killed'), { signal: 'SIGKILL' }); };
+    expect(() => mod.mergeXapkToApk(xapk, {
+      run, log: () => {},
+      preflight: { memMB: 2048, diskMB: 100_000, sizeBytes: 434 * MB, javaOptions: ['-XX:MaxRAMPercentage=25'] },
+    })).toThrow(/記憶體不足/);
+  });
+
+  test('not enough temp disk fails before merging', () => {
+    const xapk = temp('huge.xapk');
+    const calls: string[] = [];
+    const run = (command: string) => { calls.push(command); return Buffer.from('ok'); };
+    expect(() => mod.mergeXapkToApk(xapk, {
+      run, log: () => {},
+      preflight: { memMB: 8192, diskMB: 1000, sizeBytes: 434 * MB, javaOptions: mod.javaOptions({}) },
+    })).toThrow(/暫存空間只剩 1000MB.*需要約 2170MB/);
+    expect(calls).not.toContain('java');
+  });
+});
+
 describe('runner image has pinned XAPK toolchain', () => {
   test('pins APKEditor checksum and Android validation/signing tools', () => {
     const docker = readFileSync(join(__dirname, '..', '..', 'agent', 'Dockerfile.exploration'), 'utf8');
