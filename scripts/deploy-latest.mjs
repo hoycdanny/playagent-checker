@@ -97,6 +97,7 @@ Options:
   --admin-password-stdin     read the admin password from stdin (automation only)
   --skip-tests               skip repeated tests
   --skip-bootstrap           skip CDK bootstrap
+  --force-bootstrap          re-run CDK bootstrap even if CDKToolkit exists (admin upgrade)
   --plan-only                latest-source + preflight check, no changes
   --non-interactive          do not prompt
   -h, --help                 show this help
@@ -107,7 +108,7 @@ function parseArgs(argv) {
   const o = {
     repositoryUrl: DEFAULT_REPO, branch: 'main', region: 'us-east-2', stage: 'dev', profile: '',
     expectedAccountId: '', context: [], adminEmail: '', adminTenant: 'default', adminPasswordStdin: false,
-    skipTests: false, skipBootstrap: false, planOnly: false, nonInteractive: false,
+    skipTests: false, skipBootstrap: false, forceBootstrap: false, planOnly: false, nonInteractive: false,
     internal: false, sourceRoot: '', sourceSha: '',
   };
   const value = (i, name) => { if (!argv[i + 1]) fail(`${name} 缺少值`); return argv[i + 1]; };
@@ -129,6 +130,7 @@ function parseArgs(argv) {
     else if (a === '--admin-password-env') { value(i++, a); }
     else if (a === '--skip-tests') o.skipTests = true;
     else if (a === '--skip-bootstrap') o.skipBootstrap = true;
+    else if (a === '--force-bootstrap') o.forceBootstrap = true;
     else if (a === '--plan-only') o.planOnly = true;
     else if (a === '--non-interactive') o.nonInteractive = true;
     else if (a === '--internal') o.internal = true;
@@ -195,6 +197,7 @@ function childArgs(o, root, sha) {
   }
   if (o.skipTests) a.push('--skip-tests');
   if (o.skipBootstrap) a.push('--skip-bootstrap');
+  if (o.forceBootstrap) a.push('--force-bootstrap');
   if (o.planOnly) a.push('--plan-only');
   if (o.nonInteractive) a.push('--non-interactive');
   return a;
@@ -273,6 +276,16 @@ async function ensureRepo(name, region) {
   const policy = JSON.stringify({ rules: [{ rulePriority: 1, description: 'Keep last 10 images', selection: { tagStatus: 'any', countType: 'imageCountMoreThan', countNumber: 10 }, action: { type: 'expire' } }] });
   await run('aws', ['ecr', 'put-lifecycle-policy', '--region', region, '--repository-name', name, '--lifecycle-policy-text', policy]);
 }
+/** CDKToolkit status, or 'MISSING'. A least-privilege deployer can read it but cannot create/update it. */
+async function toolkitStatus(region) {
+  const r = await run('aws', ['cloudformation', 'describe-stacks', '--region', region, '--stack-name', 'CDKToolkit', '--query', 'Stacks[0].StackStatus', '--output', 'text'], { capture: true, allowFailure: true });
+  if (r.code === 0 && r.stdout) return r.stdout;
+  if (/does not exist/i.test(r.stderr)) return 'MISSING';
+  return `UNKNOWN (${r.stderr.split('\n').pop() || `exit=${r.code}`})`;
+}
+const TOOLKIT_READY = /^(CREATE|UPDATE|UPDATE_ROLLBACK)_COMPLETE$/;
+const bootstrapHint = (account, region) =>
+  `請 AWS 管理員在 CloudShell 執行一次:bash scripts/setup-deployer-role.sh(或 npx -y aws-cdk@2 bootstrap aws://${account}/${region}),之後最小權限的部署身分就能安裝。`;
 async function verifyStack(name, region) {
   const status = await capture('aws', ['cloudformation', 'describe-stacks', '--region', region, '--stack-name', name, '--query', 'Stacks[0].StackStatus', '--output', 'text']);
   if (!/^(CREATE|UPDATE)_COMPLETE$/.test(status)) fail(`Stack ${name} 狀態不是完成:${status}`);
@@ -326,6 +339,9 @@ async function inner(o) {
     const prefix = o.stage === 'dev' ? 'PlayAgentDev' : `PlayAgent-${o.stage}`;
     const names = { foundation: `${prefix}-Foundation`, execution: `${prefix}-Execution`, scheduling: `${prefix}-Scheduling`, control: `${prefix}-ControlPlane`, frontend: `${prefix}-Frontend` };
     if (o.planOnly) {
+      const toolkit = await toolkitStatus(o.region);
+      if (TOOLKIT_READY.test(toolkit)) info(color(C.green, `  CDK bootstrap: ${toolkit}`));
+      else warn(`CDK bootstrap: ${toolkit}。${bootstrapHint(account, o.region)}`);
       info(color(C.green, `PLAN OK:${process.platform} 將從乾淨 SHA ${o.sourceSha} 部署 ${Object.values(names).join(', ')}`));
       return;
     }
@@ -348,8 +364,20 @@ async function inner(o) {
       await run('npx', ['vitest', 'run', 'test/deploy-latest-script.test.ts', 'test/foundation-stack.test.ts', 'test/runner-dockerfiles.test.ts', 'test/apk-merge.test.ts', 'test/secretsResolver.test.ts'], { cwd: join(o.sourceRoot, 'infra') });
     }
     if (!o.skipBootstrap) {
-      step('CDK bootstrap（可重複執行）');
-      await run('npx', ['cdk', 'bootstrap', `aws://${account}/${o.region}`], { cwd: join(o.sourceRoot, 'infra') });
+      // Bootstrap runs with the caller's own credentials and needs IAM/CloudFormation admin rights.
+      // When CDKToolkit already exists, skip it so a least-privilege deployer only assumes cdk-* roles;
+      // cdk deploy still enforces the minimum bootstrap version itself.
+      const toolkit = await toolkitStatus(o.region);
+      if (TOOLKIT_READY.test(toolkit) && !o.forceBootstrap) {
+        step(`CDK bootstrap 已存在(${toolkit}),略過`);
+      } else {
+        step('CDK bootstrap');
+        try {
+          await run('npx', ['cdk', 'bootstrap', `aws://${account}/${o.region}`], { cwd: join(o.sourceRoot, 'infra') });
+        } catch (e) {
+          fail(`CDK bootstrap 失敗(CDKToolkit: ${toolkit})。${bootstrapHint(account, o.region)}\n${e.message}`);
+        }
+      }
     }
 
     step('建立 Foundation、Execution 與 ECR repositories');
