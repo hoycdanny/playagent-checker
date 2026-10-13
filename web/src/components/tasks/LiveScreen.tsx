@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { RLang } from '../report/reportText.ts';
-import { LivePlayer, type LivePlayerState, type PickPoint } from './LivePlayer.tsx';
+import { formatPick, LivePlayer, type LivePlayerState, type PickPoint } from './LivePlayer.tsx';
 import './LiveScreen.css';
 
 const T = {
@@ -10,13 +10,17 @@ const T = {
   noAudio: ['此裝置無法錄製聲音', 'Sound recording unavailable on this device'],
   recording: ['錄影中(含聲音)· 測試結束後可回放', 'Recording with sound · replay after the test'],
   recordingHint: ['為了不打斷遊戲,測試中不播放聲音;整場錄影(含聲音)會在結束後出現在這裡。', 'To avoid pausing the game, sound is not played live; the full recording with sound appears here after the test.'],
-  pickMode: ['指定點擊位置', 'Pick a tap position'],
-  pickHint: ['點畫面可指定位置讓 AI 點', 'Click the screen to tell the AI where to tap'],
+  pickMode: ['指定點擊或拖曳', 'Pick a tap or drag'],
+  pickHint: ['點一下 = 指定點擊位置;按住拖曳 = 指定拖曳路徑', 'Click to set a tap · press and drag to set a drag path'],
   pickTitle: ['指定點擊位置', 'Tap position'],
+  dragTitle: ['指定拖曳路徑', 'Drag path'],
   tapHere: ['讓 AI 點這裡', 'Tap here'],
+  dragHere: ['讓 AI 照這樣拖', 'Drag like this'],
   sending: ['送出中…', 'Sending…'],
   cancel: ['取消', 'Cancel'],
   pointSent: ['已送出,AI 下一步會點這裡', 'Sent — the AI taps it next step'],
+  dragSent: ['已送出,AI 下一步會照這條路徑拖曳', 'Sent — the AI drags this path next step'],
+  dragTime: ['拖曳 {s} 秒', '{s}s drag'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 
@@ -91,6 +95,7 @@ export function LiveScreen({
   const [aspect, setAspect] = useState(9 / 20);
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState(0);
+  const [sentDrag, setSentDrag] = useState(false);
   const [pickMode, setPickMode] = useState(false);
   const handleAspect = (a: number) => { setAspect(a); onAspect?.(a); };
   const open = () => openLivePopout(jobId, aspect);
@@ -103,6 +108,7 @@ export function LiveScreen({
     setSending(true);
     try {
       await onSendPoint(point);
+      setSentDrag(!!point.to);
       onPoint?.(null);
       setPickMode(false);
       setSentAt(Date.now());
@@ -151,13 +157,16 @@ export function LiveScreen({
           </button>
         )}
         {pickable && !point && !sentAt && <span className="livescreen__hint">{tx('pickHint', lang)}</span>}
-        {sentAt > 0 && <span className="livescreen__note is-ok" role="status">{tx('pointSent', lang)}</span>}
+        {sentAt > 0 && <span className="livescreen__note is-ok" role="status">{tx(sentDrag ? 'dragSent' : 'pointSent', lang)}</span>}
         {pickable && point && (
-          <div className="livescreen__pick" role="group" aria-label={tx('pickTitle', lang)}>
-            <span className="livescreen__pick-pos">📍 {Math.round(point.x * 100)}%, {Math.round(point.y * 100)}%</span>
+          <div className="livescreen__pick" role="group" aria-label={tx(point.to ? 'dragTitle' : 'pickTitle', lang)}>
+            <span className="livescreen__pick-pos">
+              {point.to ? '↗' : '📍'} {formatPick(point)}
+              {point.to && point.ms ? ` · ${tx('dragTime', lang).replace('{s}', (point.ms / 1000).toFixed(1))}` : ''}
+            </span>
             {onSendPoint && (
               <button type="button" className="livescreen__pick-go" onClick={() => void sendPoint()} disabled={sending}>
-                {sending ? tx('sending', lang) : tx('tapHere', lang)}
+                {sending ? tx('sending', lang) : tx(point.to ? 'dragHere' : 'tapHere', lang)}
               </button>
             )}
             <button type="button" className="livescreen__pick-x" onClick={() => onPoint?.(null)} aria-label={tx('cancel', lang)}>✕</button>

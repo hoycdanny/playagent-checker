@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { apiGet } from '../../api/client.ts';
 
 /**
@@ -20,8 +20,41 @@ export interface LivePlayerState {
 /** 畫面寬高比(寬/高);> 1 = 橫向。 */
 const DEFAULT_ASPECT = 9 / 20;
 
-/** 畫面上的點選位置:相對畫面內容的比例(0–1)。 */
-export interface PickPoint { x: number; y: number }
+/**
+ * 畫面上的點選位置:相對畫面內容的比例(0–1)。
+ * 有 to = 拖曳手勢:從 (x,y) 按住拖到 to 放開,ms 是實際拖的時間(遊戲的拖放、瞄準、滑動等)。
+ */
+export interface PickPoint { x: number; y: number; to?: { x: number; y: number }; ms?: number }
+
+/** 按下到放開移動不到這麼多 px 就算「點一下」(手會微微抖動)。 */
+export const DRAG_MIN_PX = 10;
+/** 拖曳耗時範圍(毫秒),與 API 的 dragMs 範圍一致。 */
+export const DRAG_MS_MIN = 100;
+export const DRAG_MS_MAX = 5000;
+
+const round4 = (v: number) => Math.round(v * 10000) / 10000;
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/** 指標手勢 → 點一下或拖曳。movedPx = 按下到放開的螢幕位移;ms = 拖的時間。 */
+export function gestureFrom(start: { x: number; y: number }, end: { x: number; y: number }, movedPx: number, ms: number): PickPoint {
+  if (movedPx < DRAG_MIN_PX || (start.x === end.x && start.y === end.y)) return { x: start.x, y: start.y };
+  return {
+    x: start.x, y: start.y,
+    to: { x: end.x, y: end.y },
+    ms: Math.max(DRAG_MS_MIN, Math.min(DRAG_MS_MAX, Math.round(ms))),
+  };
+}
+
+/** 送給 POST /tasks/{id}/commands 的手勢欄位(point;拖曳再加 to + dragMs)。 */
+export function gestureBody(p: PickPoint): { point: { x: number; y: number }; to?: { x: number; y: number }; dragMs?: number } {
+  return { point: { x: p.x, y: p.y }, ...(p.to ? { to: { x: p.to.x, y: p.to.y }, ...(p.ms ? { dragMs: p.ms } : {}) } : {}) };
+}
+
+/** 顯示用:「12%, 34%」或「12%, 34% → 56%, 78%」。 */
+export function formatPick(p: { x: number; y: number; to?: { x: number; y: number } | undefined }): string {
+  const f = (q: { x: number; y: number }) => `${Math.round(q.x * 100)}%, ${Math.round(q.y * 100)}%`;
+  return p.to ? `${f(p)} → ${f(p.to)}` : f(p);
+}
 
 /**
  * object-fit: contain 下,媒體內容在元素裡實際佔的矩形(扣掉上下或左右黑邊)。
@@ -41,7 +74,13 @@ export function toContentPoint(px: number, py: number, boxW: number, boxH: numbe
   const x = (px - r.left) / r.width;
   const y = (py - r.top) / r.height;
   if (x < 0 || x > 1 || y < 0 || y > 1) return null;
-  return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
+  return { x: round4(x), y: round4(y) };
+}
+
+/** 同 toContentPoint,但拖到黑邊或框外時夾回畫面邊緣(拖曳終點用)。 */
+export function toContentPointClamped(px: number, py: number, boxW: number, boxH: number, mediaW: number, mediaH: number): PickPoint {
+  const r = containRect(boxW, boxH, mediaW, mediaH);
+  return { x: round4(clamp01((px - r.left) / r.width)), y: round4(clamp01((py - r.top) / r.height)) };
 }
 
 export function LivePlayer({
@@ -69,9 +108,9 @@ export function LivePlayer({
   onState?: (s: LivePlayerState) => void;
   /** 畫面方向/比例改變(橫豎切換)時通知(彈出視窗據此決定形狀)。 */
   onAspect?: (aspect: number) => void;
-  /** 指點模式:點畫面回報相對位置(0–1,以實際畫面內容為準,不含黑邊)。 */
+  /** 指點模式:點畫面回報相對位置;按住拖曳回報起點 + 終點(0–1,以實際畫面內容為準,不含黑邊)。 */
   onPick?: (p: PickPoint) => void;
-  /** 已選位置的標記。 */
+  /** 已選位置(或拖曳路徑)的標記。 */
   marker?: PickPoint | null;
 }) {
   const [aspect, setAspect] = useState(DEFAULT_ASPECT);
@@ -221,14 +260,49 @@ export function LivePlayer({
     if (img && img.naturalWidth > 0) return [img.naturalWidth, img.naturalHeight];
     return [aspect * 1000, 1000];
   };
-  function handleClick(e: ReactMouseEvent<HTMLDivElement>) {
-    if (!onPick || !boxRef.current) return;
-    e.preventDefault();
-    e.stopPropagation();
+  // 指點手勢:按下 → (拖) → 放開。移動很少 = 點一下;否則 = 從按下處拖到放開處。
+  // 用 pointer events + pointer capture:滑鼠、觸控板、觸控螢幕都一樣,拖出框外也追得到。
+  const drag = useRef<{ id: number; start: PickPoint; cx: number; cy: number; t: number } | null>(null);
+  const [preview, setPreview] = useState<PickPoint | null>(null);
+  const locate = (clientX: number, clientY: number, clamp: boolean): PickPoint | null => {
+    if (!boxRef.current) return null;
     const r = boxRef.current.getBoundingClientRect();
     const [mw, mh] = mediaSize();
-    const p = toContentPoint(e.clientX - r.left, e.clientY - r.top, r.width, r.height, mw, mh);
-    if (p) onPick(p);
+    return clamp
+      ? toContentPointClamped(clientX - r.left, clientY - r.top, r.width, r.height, mw, mh)
+      : toContentPoint(clientX - r.left, clientY - r.top, r.width, r.height, mw, mh);
+  };
+  function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!onPick || e.button !== 0) return;
+    const p = locate(e.clientX, e.clientY, false); // 起點必須在畫面內容上(不是黑邊)
+    if (!p) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { id: e.pointerId, start: p, cx: e.clientX, cy: e.clientY, t: performance.now() };
+    setPreview(p);
+  }
+  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.id) return;
+    const end = locate(e.clientX, e.clientY, true);
+    if (end) setPreview(gestureFrom(d.start, end, Math.hypot(e.clientX - d.cx, e.clientY - d.cy), 0));
+  }
+  function handlePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const d = drag.current;
+    if (!d || e.pointerId !== d.id) return;
+    drag.current = null;
+    setPreview(null);
+    const end = locate(e.clientX, e.clientY, true) ?? d.start;
+    onPick?.(gestureFrom(d.start, end, Math.hypot(e.clientX - d.cx, e.clientY - d.cy), performance.now() - d.t));
+  }
+  function handlePointerCancel() {
+    drag.current = null;
+    setPreview(null);
+  }
+  // 指點模式下吃掉 click,不要冒泡到外層(例如「開新視窗」按鈕)。
+  function swallowClick(e: ReactMouseEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
   }
   // 標記位置:畫面內容矩形內的比例 → 外框 px(重新渲染時依當下尺寸重算,縮放視窗也準)。
   const [, force] = useState(0);
@@ -238,18 +312,32 @@ export function LivePlayer({
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, [marker]);
+  const arrowId = `lp-arrow-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const shown = preview ?? marker ?? null;
   let markerStyle: CSSProperties | undefined;
-  if (marker && boxRef.current) {
+  let path: { x1: number; y1: number; x2: number; y2: number; w: number; h: number } | undefined;
+  if (shown && boxRef.current) {
     const r = boxRef.current.getBoundingClientRect();
     const [mw, mh] = mediaSize();
     const c = containRect(r.width, r.height, mw, mh);
-    markerStyle = { left: c.left + marker.x * c.width, top: c.top + marker.y * c.height };
+    const x1 = c.left + shown.x * c.width;
+    const y1 = c.top + shown.y * c.height;
+    markerStyle = { left: x1, top: y1 };
+    if (shown.to) path = { x1, y1, x2: c.left + shown.to.x * c.width, y2: c.top + shown.to.y * c.height, w: r.width, h: r.height };
   }
   return (
     <div
       ref={boxRef}
       className={`liveplayer ${onPick ? 'is-picking' : ''} ${className ?? ''}`}
-      onClick={onPick ? handleClick : undefined}
+      {...(onPick
+        ? {
+            onPointerDown: handlePointerDown,
+            onPointerMove: handlePointerMove,
+            onPointerUp: handlePointerUp,
+            onPointerCancel: handlePointerCancel,
+            onClick: swallowClick,
+          }
+        : {})}
     >
       {vids.map((r, i) => (
         <video
@@ -277,7 +365,19 @@ export function LivePlayer({
         />
       )}
       {playing && <span className="visually-hidden">{alt}</span>}
-      {markerStyle && <span className="liveplayer__marker" style={markerStyle} aria-hidden="true" />}
+      {path && (
+        <svg className="liveplayer__drag" width={path.w} height={path.h} viewBox={`0 0 ${path.w} ${path.h}`} aria-hidden="true" focusable="false">
+          <defs>
+            <marker id={arrowId} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M0 0 L10 5 L0 10 z" className="liveplayer__drag-head" />
+            </marker>
+          </defs>
+          <line x1={path.x1} y1={path.y1} x2={path.x2} y2={path.y2} className="liveplayer__drag-halo" />
+          <line x1={path.x1} y1={path.y1} x2={path.x2} y2={path.y2} className="liveplayer__drag-line" markerEnd={`url(#${arrowId})`} />
+          <circle cx={path.x2} cy={path.y2} r="9" className="liveplayer__drag-end" />
+        </svg>
+      )}
+      {markerStyle && <span className={`liveplayer__marker ${path ? 'is-drag' : ''}`} style={markerStyle} aria-hidden="true" />}
     </div>
   );
 }

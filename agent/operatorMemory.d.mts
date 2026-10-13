@@ -40,10 +40,33 @@ export function screenHintsFor<T extends HintLike>(hints: T[], ctx?: { screen?: 
 export function operatorTurnNote(newCmds: Array<{ id: string; text: string }>, activeCmds: Array<{ id: string; text: string }>): string;
 export function commandIdsFromKeys(keys: string[], prefix: string): string[];
 export const POINT_ONLY_TEXT: string;
+export const DRAG_ONLY_TEXT: string;
+export const DRAG_MS_MIN: number;
+export const DRAG_MS_MAX: number;
+export const DRAG_MS_DEFAULT: number;
+export const DRAG_PRESS_MS: number;
 export function validPoint(p: unknown): { x: number; y: number } | null;
+export function validDragMs(v: unknown): number;
+/** 手勢 → 截圖空間動作:有 to → swipe(拖曳);只有 point → tap;沒有手勢 → null。 */
+export function operatorGestureCmd(
+  c: { point?: { x: number; y: number }; to?: { x: number; y: number }; dragMs?: number } | null | undefined,
+  cw: number,
+  ch: number,
+):
+  | { action: 'tap'; x: number; y: number; operatorTap: true }
+  | { action: 'swipe'; x: number; y: number; x2: number; y2: number; durationMs: number; pressMs: number; endHoldMs: number; operatorTap: true; operatorDrag: true }
+  | null;
 
 /** runner 端:S3 指令通道(cmds = AWS SDK Command 建構子)。 */
-export interface OperatorCmd { id: string; text: string; hintId?: string; point?: { x: number; y: number } }
+export interface OperatorCmd {
+  id: string;
+  text: string;
+  hintId?: string;
+  point?: { x: number; y: number };
+  /** 拖曳終點(有就代表「從 point 拖到 to」)。 */
+  to?: { x: number; y: number };
+  dragMs?: number;
+}
 export interface S3CommandCtors {
   ListObjectsV2Command?: new (input: any) => any;
   GetObjectCommand: new (input: any) => any;

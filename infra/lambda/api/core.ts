@@ -1274,7 +1274,10 @@ export async function handleRequest(
             // 載入/過場畫面不當記憶範圍(指令通常是針對「接下來那個畫面」),改存成全應用通用。
             const memScreen = input.screen && !isTransientScreenName(input.screen) ? input.screen : undefined;
             // 有點畫面位置:把大約位置一起記下,下次 AI 知道那個按鈕在哪。
-            const pos = input.point ? `(位置約在畫面左起 ${Math.round(input.point.x * 100)}%、上起 ${Math.round(input.point.y * 100)}%)` : '';
+            const pct = (v: number) => Math.round(v * 100);
+            const pos = input.point && input.to
+              ? `(做法:從畫面左起 ${pct(input.point.x)}%、上起 ${pct(input.point.y)}% 按住,拖到左起 ${pct(input.to.x)}%、上起 ${pct(input.to.y)}% 放開)`
+              : input.point ? `(位置約在畫面左起 ${pct(input.point.x)}%、上起 ${pct(input.point.y)}%)` : '';
             const hint = await addHint(s3, deps.bucket, tenant.tenantId, jobRec.appId, {
               text: `${input.text}${pos}`,
               ...(memScreen ? { screen: memScreen } : {}),
@@ -1293,6 +1296,7 @@ export async function handleRequest(
             ...(input.screen ? { screen: input.screen } : {}),
             ...(hintId ? { hintId } : {}),
             ...(input.point ? { point: input.point } : {}),
+            ...(input.to ? { to: input.to, ...(input.dragMs ? { dragMs: input.dragMs } : {}) } : {}),
           };
           await writeCommand(s3, deps.bucket, tenant.tenantId, jobId, cmd);
           return json(201, cmd);

@@ -226,10 +226,19 @@ export function screenHintsFor(hints, { screen, pageId } = {}) {
  *   「仍有效」,模型無從判斷該照哪個)。
  */
 /** 指令顯示文字:畫面點選的指令附上大約位置,讓之後的步驟知道那個東西在哪。 */
+const pct = (v) => Math.round(v * 100);
 function cmdLabel(c) {
   if (!c.point) return c.text;
-  const pos = `畫面位置約左起 ${Math.round(c.point.x * 100)}%、上起 ${Math.round(c.point.y * 100)}%`;
-  return c.text === POINT_ONLY_TEXT ? `點${pos}` : `${c.text}(${pos})`;
+  if (c.to) {
+    const path = `從畫面左起 ${pct(c.point.x)}%、上起 ${pct(c.point.y)}% 按住,拖到左起 ${pct(c.to.x)}%、上起 ${pct(c.to.y)}% 放開`;
+    return gestureOnly(c) ? path : `${c.text}(做法:${path})`;
+  }
+  const pos = `畫面位置約左起 ${pct(c.point.x)}%、上起 ${pct(c.point.y)}%`;
+  return gestureOnly(c) ? `點${pos}` : `${c.text}(${pos})`;
+}
+/** 只有畫面手勢(點一下 / 拖一下)、沒有打字說明 —— runner 已直接執行,不當持續指令提醒。 */
+function gestureOnly(c) {
+  return !!c.point && (c.text === POINT_ONLY_TEXT || c.text === DRAG_ONLY_TEXT);
 }
 
 export function operatorTurnNote(newCmds, activeCmds) {
@@ -237,7 +246,7 @@ export function operatorTurnNote(newCmds, activeCmds) {
   const ids = new Set(newCmds.map((c) => c.id));
   // 只是「點一下這裡」的畫面點選已由 runner 直接執行,不再當成持續有效的指令提醒。
   const older = activeCmds
-    .filter((c) => !ids.has(c.id) && !(c.point && c.text === POINT_ONLY_TEXT))
+    .filter((c) => !ids.has(c.id) && !gestureOnly(c))
     .slice(-4).reverse() // 新 → 舊
     .map((c) => ({ ...c, text: cmdLabel(c) }));
   newCmds = newCmds.map((c) => ({ ...c, text: cmdLabel(c) }));
@@ -262,6 +271,14 @@ export function operatorTurnNote(newCmds, activeCmds) {
 
 /** 測試人員只點了畫面、沒打字時的預設指令文字(runner 直接點擊,不另加說明)。 */
 export const POINT_ONLY_TEXT = '點這個位置';
+/** 測試人員只拖了畫面、沒打字時的預設指令文字(與 infra/lambda/api/operatorCommands.ts 一致)。 */
+export const DRAG_ONLY_TEXT = '照這條路徑拖曳';
+/** 拖曳耗時範圍(毫秒),與 API 端一致。 */
+export const DRAG_MS_MIN = 100;
+export const DRAG_MS_MAX = 5000;
+export const DRAG_MS_DEFAULT = 600;
+/** 測試人員拖曳:按下後與放開前各停留的毫秒數。 */
+export const DRAG_PRESS_MS = 100;
 
 /** 畫面點選位置(相對比例 0–1);格式不對回 null。 */
 export function validPoint(p) {
@@ -269,6 +286,30 @@ export function validPoint(p) {
   const x = Number(p.x), y = Number(p.y);
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || x > 1 || y < 0 || y > 1) return null;
   return { x: Math.round(x * 10000) / 10000, y: Math.round(y * 10000) / 10000 };
+}
+
+/** 拖曳耗時(毫秒):非數字 → 預設值;超出範圍 → 夾到範圍內。 */
+export function validDragMs(v) {
+  const n = Number(v);
+  if (v === undefined || v === null || !Number.isFinite(n)) return DRAG_MS_DEFAULT;
+  return Math.max(DRAG_MS_MIN, Math.min(DRAG_MS_MAX, Math.round(n)));
+}
+
+/**
+ * 測試人員在畫面上做的手勢 → runner 要執行的動作(座標換到本步截圖 cw×ch 空間)。
+ * 有終點 to → swipe(按住起點拖到終點,依實際拖的時間);只有 point → tap。沒有手勢回 null。
+ */
+export function operatorGestureCmd(c, cw, ch) {
+  if (!c?.point) return null;
+  const x = Math.round(c.point.x * cw), y = Math.round(c.point.y * ch);
+  if (c.to) {
+    // pressMs/endHoldMs:按下先停一下(把物件「抓起來」)、到終點停一下再放(讓落點偵測到),拖放類遊戲才認得。
+    return {
+      action: 'swipe', x, y, x2: Math.round(c.to.x * cw), y2: Math.round(c.to.y * ch),
+      durationMs: validDragMs(c.dragMs), pressMs: DRAG_PRESS_MS, endHoldMs: DRAG_PRESS_MS, operatorTap: true, operatorDrag: true,
+    };
+  }
+  return { action: 'tap', x, y, operatorTap: true };
 }
 
 /** 從 S3 key 清單過濾出指令 id(按時間排序)。 */
@@ -304,7 +345,9 @@ export function createOperatorChannel({ s3, bucket, jobPrefix, cmds }) {
           const c = JSON.parse(await r.Body.transformToString());
           if (c && typeof c.text === 'string' && c.text.trim()) {
             const point = validPoint(c.point);
-            const cmd = { id, text: c.text.trim().slice(0, 500), ...(c.hintId ? { hintId: c.hintId } : {}), ...(point ? { point } : {}) };
+            const to = point ? validPoint(c.to) : null;
+            const drag = to && (to.x !== point.x || to.y !== point.y) ? { to, dragMs: validDragMs(c.dragMs) } : {};
+            const cmd = { id, text: c.text.trim().slice(0, 500), ...(c.hintId ? { hintId: c.hintId } : {}), ...(point ? { point } : {}), ...drag };
             fresh.push(cmd);
             active.push(cmd);
           }

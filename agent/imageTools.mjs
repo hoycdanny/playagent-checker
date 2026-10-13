@@ -417,7 +417,19 @@ export function findButtonBands(srcB64, ss) {
  * 在截圖畫紅十字 + 圓圈 + 座標標籤(標記 AI 這一步點在哪),回 annotated 圖 base64;失敗回 null。
  * 標記大小依截圖尺寸自適應(小圖用小標記)。
  */
-export function annotateTapB64(srcB64, x, y, label, ss) {
+/** 拖曳箭頭的 ImageMagick -draw 參數:起點 → 終點的線 + 終點箭頭(三角形)+ 終點小圈。純函式,可測。 */
+export function dragArrowDraws(x, y, x2, y2, base) {
+  const head = Math.max(16, Math.round(base * 0.022));
+  const ang = Math.atan2(y2 - y, x2 - x);
+  const wing = (a) => `${Math.round(x2 - head * Math.cos(a))},${Math.round(y2 - head * Math.sin(a))}`;
+  return [
+    `line ${x},${y} ${x2},${y2}`,
+    `polygon ${x2},${y2} ${wing(ang - Math.PI / 7)} ${wing(ang + Math.PI / 7)}`,
+    `circle ${x2},${y2} ${x2},${y2 - Math.max(6, Math.round(head * 0.45))}`,
+  ];
+}
+
+export function annotateTapB64(srcB64, x, y, label, ss, to) {
   let src;
   try {
     src = b64ToTmp(srcB64, 'ann-src');
@@ -440,12 +452,25 @@ export function annotateTapB64(srcB64, x, y, label, ss) {
       '-draw', `circle ${x},${y} ${x},${y - r}`,
       '-fill', 'red', '-stroke', 'none', '-draw', `circle ${x},${y} ${x},${y - Math.max(4, Math.round(r * 0.16))}`,
     ];
+    const hasTo = to && Number.isFinite(to.x) && Number.isFinite(to.y) && (to.x !== x || to.y !== y);
+    if (hasTo) {
+      // 拖曳/滑動:起點 → 終點畫黃色粗箭頭(紅色是起點,黃色箭頭指向放開的位置)。
+      const [line, arrow, end] = dragArrowDraws(x, y, to.x, to.y, base);
+      markArgs.push(
+        '-stroke', 'rgb(255,214,0)', '-strokewidth', String(sw * 2), '-fill', 'none', '-draw', line,
+        '-stroke', 'rgb(255,214,0)', '-strokewidth', String(sw), '-fill', 'rgb(255,214,0)', '-draw', arrow,
+        '-fill', 'rgba(255,214,0,0.35)', '-draw', end,
+      );
+    }
     if (FONT_PATH) {
+      const text = hasTo ? `${label} (${x},${y}) -> (${to.x},${to.y})` : `${label} (${x},${y})`;
+      const w = hasTo ? Math.max(boxW, Math.round(text.length * ps * 0.6) + 20) : boxW;
+      const left = hasTo ? Math.max(0, Math.min(ss.w - w, labelLeft)) : labelLeft;
       markArgs.push(
         '-fill', 'rgba(255,0,0,0.85)', '-stroke', 'none',
-        '-draw', `roundrectangle ${labelLeft},${y - 26} ${labelLeft + boxW},${y + 26} 6,6`,
+        '-draw', `roundrectangle ${left},${y - 26} ${left + w},${y + 26} 6,6`,
         ...fontArgs(), '-fill', 'white', '-pointsize', String(ps),
-        '-annotate', `+${labelLeft + 10}+${y + 6}`, `${label} (${x},${y})`,
+        '-annotate', `+${left + 10}+${y + 6}`, text,
       );
     }
     markArgs.push(out);
