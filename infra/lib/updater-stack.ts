@@ -81,6 +81,9 @@ export class UpdaterStack extends Stack {
         PA_REPO: { value: props.repo },
         PA_TARGET_STACKS: { value: props.targetStacks.join(' ') },
         PA_DATA_BUCKET: { value: props.dataBucket.bucketName },
+        // runner 映像重建(cloudBuildRunner/cloudBuildWebRunner)上傳來源 zip 用的暫存桶。
+        // 不設的話腳本會退回 PA_DATA_BUCKET,但明確帶上較清楚,避免未來誰改了退回邏輯又踩雷。
+        PA_SM_BUCKET: { value: props.dataBucket.bucketName },
         PA_HISTORY_KEY: { value: UPDATE_HISTORY_KEY },
         PA_STATE_PARAM: { value: props.stateParamName },
         PA_NODE_VERSION: { value: NODE_VERSION },
