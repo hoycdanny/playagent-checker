@@ -588,7 +588,13 @@ echo
 if [[ "$STATE" != SUCCEEDED ]]; then
   sayf dep_fail "$STATE" "$BUILD_ID" >&2
   echo "---- log tail ----" >&2
-  tail -n 25 "$LOGF" >&2
+  # 優先用 follow 到的檔案;若為空(例如 log stream 尚未出現時才啟動 tail),直接向 CloudWatch 取。
+  if [[ -s "$LOGF" ]]; then
+    tail -n 30 "$LOGF" >&2
+  else
+    aws logs get-log-events --region "$REGION" --log-group-name "$LOG_GROUP" --log-stream-name "${BUILD_ID#*:}" \
+      --limit 40 --no-start-from-head --query 'events[*].message' --output text >&2 2>/dev/null || true
+  fi
   exit 1
 fi
 
