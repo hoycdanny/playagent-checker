@@ -83,6 +83,8 @@ export interface AcceptanceInput {
   quality: DataQuality;
   values: Record<string, number>;
   thresholds: Record<string, number>;
+  /** 案例帶結構化測項(items:):以測項為主,知識庫衍生的建議項目/風險僅供參考,不下修結論。 */
+  scripted?: boolean;
 }
 
 /** 參考標準(報告附錄逐條列出;每個驗收項目以 id 引用)。 */
@@ -367,6 +369,17 @@ export function buildAcceptance(input: AcceptanceInput): Acceptance {
     verdict = 'BLOCKED';
     decidedBy = mustOpen.map((c) => c.id);
     verdictReason = L(`本次測試無法作為驗收依據 —— ${titles(mustOpen, 'zh')} 未通過或無法判定(原因不是遊戲缺陷),需修正後重測`, `This run cannot be used for acceptance — ${titles(mustOpen, 'en')} failed or could not be evaluated for a non-game reason; fix and re-run`);
+  } else if ((shouldFails.length || highRisks.length) && input.scripted) {
+    // 以測項為主:使用者有明確測項且「必要項目」全部通過 → 判定通過。
+    // 建議項目(如待判讀異常、AI 可靠度)與類型/知識庫衍生的風險僅供參考,逐條仍列在報告中,但不把結論下修為「通過・有風險」。
+    verdict = 'PASS';
+    decidedBy = [];
+    const advisory = [shouldFails.length ? `建議項目 ${titles(shouldFails, 'zh')}` : '', highRisks.length ? `高風險 ${highRisks.length} 項` : ''].filter(Boolean).join(';');
+    const advisoryEn = [shouldFails.length ? `SHOULD items ${titles(shouldFails, 'en')}` : '', highRisks.length ? `${highRisks.length} high risk(s)` : ''].filter(Boolean).join('; ');
+    verdictReason = L(
+      `必要項目全部通過(測項為主);另有供參考事項${advisory ? `:${advisory}` : ''},不影響結論`,
+      `All MUST criteria pass (test items are authoritative); advisory items noted${advisoryEn ? `: ${advisoryEn}` : ''}, not affecting the verdict`,
+    );
   } else if (shouldFails.length || highRisks.length) {
     verdict = 'PASS_WITH_RISK';
     decidedBy = shouldFails.map((c) => c.id);
