@@ -6,15 +6,59 @@
 
 ---
 
-## 기능 개요
+## 개요
 
-PlayAgent Checker는 전부 **AWS(리전 `us-west-2`)**에서 실행됩니다. 서버리스 컨트롤 플레인과, 작업마다 시작되고 작업이 끝나면 종료되는 실행 러너로 구성됩니다. 앱을 업로드하거나(또는 웹 URL을 지정하면) 에이전트가 스스로 탐색하며, 반복 가능하고 검토 가능한 테스트 실행 결과를 얻을 수 있습니다.
+PlayAgent Checker는 게임과 앱을 위한 AI 기반 자동 QA이며, 전부 사용자 본인의 AWS 계정에서 실행됩니다.
 
-- **에이전트 루프:** 스크린샷 → VLM이 대상 위치 파악 → Agent가 결정 → 장치에서 동작 수행 → 다시 스크린샷. 목표를 달성하거나 중지 조건이 발생할 때까지 반복합니다.
-- **UI 트리가 아니라 화면을 봅니다.** 따라서 검사 가능한 요소가 없는 캔버스 렌더링 게임(Cocos2d-x, Unity)에서도 동작합니다.
-- **지식 베이스, 비용 가드레일, 5개 언어 UI**(zh-Hant, en, zh-Hans, ja, ko), GitHub에서의 원클릭 자체 업데이트를 제공합니다.
+- 테스트 케이스를 자연어로 작성하면 AI 에이전트가 화면을 보고 실제 사용자처럼 조작(탭, 스와이프, 입력)하여 케이스를 실행합니다.
+- 검사 가능한 UI 트리가 없는 캔버스 렌더링 게임(Unity, Cocos2d-x)에서도 동작합니다.
+- 사용자의 AWS 계정에서 서버리스·사용량 과금: 리소스가 작업마다 시작되고 끝나면 종료되므로 유휴 비용이 거의 없습니다.
+- 스크린샷, 단계별 추적, 내비게이션 맵, 실행별 비용이 포함된 다국어 보고서.
+- 웹, Android/iOS 실기기, Android 컨테이너, Windows PC 게임 런타임을 사용할 수 있습니다.
 
-## 런타임
+## 빠른 시작
+
+웹 브라우저만 있으면 되고, 컴퓨터에는 아무것도 설치하지 않습니다.
+
+**시작하기 전에:** 관리자로 AWS Console에 로그인하고, 먼저 대상 리전에서 Bedrock 모델을 활성화한 뒤([AI 모델 활성화](#3단계--ai-모델-활성화amazon-bedrock) — 활성화하지 않으면 모든 실행이 실패합니다), Console 상단 바의 `>_` 아이콘으로 **CloudShell**을 엽니다.
+
+명령 한 줄을 붙여 넣습니다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash
+```
+
+- 먼저 **언어 메뉴**가 표시되고(기본값은 영어, 플래그 불필요. `--lang en|zh-Hant|zh-Hans|ja|ko`도 사용 가능), 원시 로그 대신 **단계별 진행 상황**을 보여 주며, 실패하면 오류 로그를 출력합니다.
+- 기본 리전은 `us-west-2`입니다. 다른 리전을 쓰려면 `--region <region>`을 붙입니다. 선택한 리전에서 Bedrock 모델이 활성화되어 있어야 하며, 기본 모델은 `us.` 교차 리전 추론 프로필을 사용하므로 미국 외 리전에서는 다른 모델 ID가 필요할 수 있습니다. Device Farm 실제 기기는 항상 `us-west-2`에서 실행됩니다.
+- 관리자 계정은 **Cognito 이메일 초대**로 만들어집니다. 임시 비밀번호가 마지막에 화면에 표시되며 동시에 이메일로도 전송됩니다. 처음 로그인할 때 웹 페이지에서 새 비밀번호를 설정하라고 요청합니다.
+- **같은 명령을 다시 실행하면 최신 버전으로 업데이트됩니다.**
+
+`scripts/cloudshell-install.sh`가 하는 일:
+
+- 이 계정/리전에서 CDK bootstrap을 한 번도 하지 않았다면 한 번 실행합니다. 관리자 권한이 필요한 단계는 이것뿐입니다.
+- CodeBuild만 신뢰하는 IAM 역할 `playagent-installer`를 만들고 최소 권한 정책 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json)을 연결합니다. 빌드는 AdministratorAccess를 사용하지 않습니다.
+- CodeBuild 프로젝트 `playagent-installer`를 만듭니다. 이 프로젝트가 공개 GitHub 리포지토리를 clone하고 같은 배포 코어(`scripts/deploy-latest.mjs`)를 실행합니다. EC2 인스턴스는 필요 없습니다.
+- 진행 상황을 보여 주고, 끝나면 사이트 URL을 출력합니다.
+
+이 정책이 허용하는 것은 이 계정의 CDK bootstrap 역할 수임, PlayAgent 스택 읽기, 러너 이미지 두 개 푸시, Cognito 관리자 생성, `/playagent/*` SSM 파라미터 쓰기뿐입니다. CloudFormation 변경은 CDK의 `cdk-hnb659fds-cfn-exec-role`을 통해 실행됩니다. 이 역할은 기본적으로 관리자 권한을 가지므로, 배포할 수 있는 사람은 CloudFormation을 통해 리소스를 만들 수 있습니다.
+
+## 빠른 삭제
+
+PlayAgent를 제거하려면 CloudShell에서 명령 한 줄을 실행합니다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-uninstall.sh | bash
+```
+
+- 같은 **언어 메뉴**가 표시되고, 환경을 스캔하여 삭제될 항목과 유지될 항목을 나열합니다. 확인하기 전에는 아무것도 삭제되지 않으며, 계속하려면 **12자리 계정 id를 입력**해야 합니다. `--yes`는 확인 프롬프트를 건너뜁니다(수동 사용은 권장하지 않음). `--region` 기본값은 `us-west-2`입니다.
+- PlayAgent 자체 리소스를 제거합니다: 6개의 `PlayAgentDev-*` 스택, 보존된 데이터 버킷 / Cognito 사용자 풀 / 러너 ECR 리포지토리, 설치 프로그램의 CodeBuild 프로젝트와 IAM 역할, 그리고 PlayAgent의 SSM 파라미터와 로그 그룹.
+- CDK bootstrap(`CDKToolkit`)과 공유 `cdk-hnb659fds-*` 자산(다른 앱이 공유할 수 있음)은 유지하므로, 이후 재설치 시 bootstrap을 건너뜁니다.
+
+수동 전체 삭제(및 문제 해결)는 [정리 및 문제 해결](#정리-및-문제-해결)을 참고하십시오.
+
+## 기술 세부 정보
+
+### 런타임
 
 | 런타임 | 실행 환경 | 설치 후 사용 가능 | 제한 |
 | --- | --- | --- | --- |
@@ -27,7 +71,7 @@ PlayAgent Checker는 전부 **AWS(리전 `us-west-2`)**에서 실행됩니다. �
 
 게임별로 어떤 런타임을 선택할지: [docs/design/multi-platform-workers.md](docs/design/multi-platform-workers.md).
 
-## 기본 제공 항목
+### 기본 제공 항목
 
 아래 설치를 마치면 다음과 같이 켜진 항목, 꺼진 항목, 추가 단계가 필요한 항목이 있습니다.
 
@@ -48,7 +92,7 @@ PlayAgent Checker는 전부 **AWS(리전 `us-west-2`)**에서 실행됩니다. �
 | 시스템 관리 페이지 → **UI-TARS 그라운딩 모델** | ⛔ **꺼짐** | GPU 그라운딩 모델입니다. 관리자가 페이지에서 켜고 끄며, 켜져 있는 동안에만 과금됩니다([아래](#선택-ui-tars-그라운딩-모델)). |
 | Windows 런타임 | ⚙️ 선택 | Windows 머신에서 GameLift Streams를 1회 설정합니다. |
 
-## 아키텍처
+### 아키텍처
 
 ```mermaid
 flowchart TB
@@ -118,7 +162,7 @@ CDK 스택(모두 `us-west-2`):
 
 자세한 내용: [docs/architecture.md](docs/architecture.md).
 
-## 비용
+### 비용
 
 이 프로젝트 자체 계정에서 측정한 값입니다(2026년 10월). AWS 가격은 변동되므로 추정치로 참고하십시오.
 
@@ -145,7 +189,7 @@ CDK 스택(모두 `us-west-2`):
 
 실제로 저희 계정 지출의 대부분은 Bedrock 토큰과 Device Farm 분이었습니다. 둘 다 테스트하지 않을 때는 비용이 발생하지 않습니다.
 
-## 기능(페이지별 용도)
+### 기능(페이지별 용도)
 
 | 페이지 | 용도 |
 | --- | --- |
@@ -161,7 +205,7 @@ CDK 스택(모두 `us-west-2`):
 | **멤버 관리**(관리자) | 사용자 추가, 비밀번호 재설정, 비활성화/활성화, 테넌트 이동, 관리자 권한 부여 또는 해제. |
 | **시스템 관리**(관리자) | GitHub에서의 **시스템 업데이트**(원클릭, 토큰 불필요; 버전 비교, 진행 상황, 이력), **UI-TARS 그라운딩 모델** 켜기/끄기 스위치, 그리고 **중앙 집중식 로그**(모든 서비스의 CloudWatch 로그 검색). |
 
-## AI: 3개의 모델 "seat"
+### AI: 3개의 모델 "seat"
 
 모델은 공급업체가 아니라 **역할(seat)**별로 구성됩니다. 각 seat는 작업마다 선택합니다.
 
@@ -171,11 +215,21 @@ CDK 스택(모두 `us-west-2`):
 
 SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모델 ID로부터 도출합니다.
 
-## 비용 가드레일
+### 비용 가드레일
 
 모든 작업에 단계 제한과 예산을 설정할 수 있습니다. 실행 전에 엔진은 각 seat 모델의 **가격 스냅샷을 고정**합니다(fail-closed: 가격을 알 수 없으면 실행을 거부합니다). 지출이 예산에 도달하면 실행이 중지되며, 보고서에 실제 지출과 토큰이 표시됩니다.
 
-## 용어집
+### 시스템 관리
+
+**시스템 관리** 페이지(관리자 전용)에는 세 가지 도구가 있습니다.
+
+**원클릭 자체 업데이트.** Updater 스택은 설치 프로그램이 자동으로 배포하므로, 설치 직후 바로 사용할 수 있습니다. **시스템 관리 → 시스템 업데이트**를 열고 버전을 선택한 뒤 확인합니다. 먼저 테스트를 실행한 다음 CodeBuild에서 `cdk deploy`를 실행합니다. GitHub 토큰은 필요 없습니다. 리포지토리가 공개되어 있어 업데이트가 직접 clone합니다. 토큰은 선택 사항이며 GitHub API 속도 제한을 높이는 용도로만 사용합니다. **시스템 관리**에서 설정하면 Secrets Manager(`playagent/github`)에 저장되며 다시 표시되지 않습니다. 포크를 사용합니까? `-c githubRepo=owner/name`으로 배포하십시오. 업데이트 버튼은 높은 권한으로 IAM과 리소스를 재배포하므로 관리자에게만 표시되며 모든 실행이 기록됩니다. 설계 문서: [docs/design/self-update.md](docs/design/self-update.md).
+
+**중앙 집중식 로그.** 디버깅을 위한 서비스 횡단 로그 뷰어입니다. CloudWatch Logs Insights를 사용해 모든 서비스의 CloudWatch 로그(컨트롤 플레인 API, engine, dispatcher, WebSocket, 두 개의 Fargate 러너, 자체 업데이트 및 이미지 빌드 CodeBuild)를 한 번에 검색합니다. 서비스 필터, 기간(최근 15분 / 1시간 / 3시간 / 24시간), 키워드를 지정할 수 있으며, 결과는 최신 순으로 정렬되고 다운로드할 수 있습니다. 관리자 전용입니다. 설계 문서: [docs/design/centralized-logs.md](docs/design/centralized-logs.md).
+
+**UI-TARS 켜기/끄기.** 관리자는 여기에서 선택적 GPU 그라운딩 모델을 켜거나 끌 수 있으며, 켜져 있는 동안에만 과금됩니다. 설정과 자세한 내용은 [수동 설치](#수동-설치)의 "선택: UI-TARS 그라운딩 모델"을 참고하십시오.
+
+### 용어집
 
 - **Seat** — 모델 역할(Agent / VLM / Subagent)이며, 공급업체가 아닙니다.
 - **VLM** — Vision-Language Model. 스크린샷을 읽고 좌표를 찾습니다.
@@ -187,48 +241,11 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 ---
 
-# 🚀 새 AWS 계정에 설치하기
+## 수동 설치
 
-## 가장 쉬운 방법: AWS CloudShell에서 명령 한 줄 실행(다운로드 불필요)
+본인 컴퓨터에서 배포하고 싶거나 일회성 선택 설정이 필요하면 아래 방법을 사용하십시오. [빠른 시작](#빠른-시작)의 CloudShell 한 줄 명령이 가장 쉬운 방법이며, 이 섹션은 그 외의 모든 경우를 다룹니다.
 
-웹 브라우저만 있으면 됩니다. 컴퓨터에는 아무것도 설치하지 않습니다.
-
-1. 관리자로 AWS Console에 로그인합니다.
-2. 먼저 대상 리전에서 Bedrock 모델을 활성화합니다. 기본값은 **미국 서부(오레곤) us-west-2**입니다([3단계](#3단계--ai-모델-활성화amazon-bedrock)). 활성화하지 않으면 모든 테스트 실행이 실패합니다.
-3. Console 상단 바의 `>_` 아이콘으로 **CloudShell**을 엽니다.
-4. 다음 명령을 붙여 넣습니다(Email은 본인 주소로 바꿉니다).
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
-```
-
-다른 리전을 쓰려면 `--region <region>`을 덧붙입니다.
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com --region ap-northeast-1
-```
-
-- `--region`이 없으면 Console에 표시된 리전과 상관없이 `us-west-2`에 배포합니다. 스크립트는 CloudShell 자체 리전을 일부러 무시합니다.
-- 선택한 리전에서 Bedrock 모델이 활성화되어 있어야 합니다. 기본 모델은 `us.` 교차 리전 추론 프로필을 사용하므로, 미국 외 리전에서는 다른 모델 ID가 필요할 수 있습니다.
-- Device Farm 실제 기기는 항상 `us-west-2`에서 실행됩니다. AWS가 Device Farm을 이 리전에서만 제공하기 때문입니다.
-- `--no-wait`는 빌드를 시작한 뒤 기다리지 않고 바로 종료합니다.
-
-`scripts/cloudshell-install.sh`가 하는 일:
-
-- 이 계정/리전에서 CDK bootstrap을 한 번도 하지 않았다면 한 번 실행합니다. 관리자 권한이 필요한 단계는 이것뿐입니다.
-- CodeBuild만 신뢰하는 IAM 역할 `playagent-installer`를 만들고 최소 권한 정책 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json)을 연결합니다. 빌드는 AdministratorAccess를 사용하지 않습니다.
-- CodeBuild 프로젝트 `playagent-installer`를 만듭니다. 이 프로젝트가 공개 GitHub 리포지토리를 clone하고 같은 배포 코어(`scripts/deploy-latest.mjs`)를 실행합니다. EC2 인스턴스는 필요 없습니다.
-- 빌드 로그를 실시간으로 보여 주고, 끝나면 사이트 URL을 출력합니다.
-
-이 정책이 허용하는 것은 이 계정의 CDK bootstrap 역할 수임, PlayAgent 스택 읽기, 러너 이미지 두 개 푸시, Cognito 관리자 생성, `/playagent/*` SSM 파라미터 쓰기뿐입니다. CloudFormation 변경은 CDK의 `cdk-hnb659fds-cfn-exec-role`을 통해 실행됩니다. 이 역할은 기본적으로 관리자 권한을 가지므로, 배포할 수 있는 사람은 CloudFormation을 통해 리소스를 만들 수 있습니다.
-
-설치에는 약 30–60분이 걸립니다. CloudShell을 닫아도 설치는 멈추지 않습니다. 빌드는 CodeBuild에서 계속 실행되며 진행 상황은 CodeBuild 콘솔에서 볼 수 있습니다.
-
-관리자 계정은 Cognito 이메일 초대로 만들어집니다. 임시 비밀번호가 담긴 이메일이 오고, 처음 로그인할 때 웹 페이지에서 새 비밀번호를 설정하라고 요청합니다(8자 이상, 대문자·소문자·숫자 포함).
-
-최신 `main`으로 업데이트하려면 같은 명령을 다시 실행하면 됩니다.
-
-## Windows / macOS 권장: 최신 버전 원클릭 설치／업데이트
+### Windows / macOS 권장: 최신 버전 원클릭 설치／업데이트
 
 먼저 **Node.js 22, AWS CLI v2, Git, Docker Desktop**을 설치하고 AWS에 로그인한 뒤 아래의 Bedrock 모델을 활성화합니다. 리포지토리를 clone한 다음 다음 중 하나를 실행합니다.
 
@@ -269,7 +286,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 >
 > **`cdk destroy` 후 재설치:** 데이터 버킷, Cognito User Pool, 러너 ECR은 `Retain`으로 보호됩니다. 설치 프로그램은 남아 있는 ECR을 감지해 재사용하므로 같은 리포지토리 이름 때문에 재설치가 막히지 않습니다. 기존 데이터 버킷/User Pool은 자동 삭제하거나 자동 인계하지 않습니다. 완전히 초기화하려면 필요한 데이터를 백업한 뒤 보존 리소스를 명시적으로 삭제하십시오.
 
-## 수동 설치(단계별)
+### 수동 설치(단계별)
 
 이 섹션은 **AWS 사용 경험이 없다고 가정**합니다. 위에서 아래로 따라 하십시오. 총 소요 시간은 약 **60–90분**이며, 대부분은 AWS 대기 시간입니다.
 
@@ -277,7 +294,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 >
 > 명령은 **bash**(macOS, Linux, Git Bash, WSL) 기준으로 작성되어 있습니다. Windows PowerShell에서는 `NAME=value command` 대신 `$env:NAME="value"`로 변수를 설정하십시오.
 
-## 0단계 — 컴퓨터에 도구 설치
+#### 0단계 — 컴퓨터에 도구 설치
 
 | 도구 | 용도 | 설치 |
 | --- | --- | --- |
@@ -293,7 +310,7 @@ git --version
 
 Docker는 **필요하지 않습니다**. 컨테이너 이미지는 클라우드(AWS CodeBuild)에서 빌드됩니다.
 
-## 1단계 — 코드 가져오기
+#### 1단계 — 코드 가져오기
 
 ```bash
 git clone https://github.com/hoycdanny/playagent-checker.git
@@ -301,7 +318,7 @@ cd playagent-checker
 npm install
 ```
 
-## 2단계 — AWS CLI를 계정에 연결
+#### 2단계 — AWS CLI를 계정에 연결
 
 계정 소유자에게 **Access Key ID**와 **Secret Access Key**를 요청합니다(AWS Console → IAM → Users → Security credentials → Create access key). 그런 다음:
 
@@ -317,7 +334,7 @@ aws sts get-caller-identity   # 계정 번호가 출력되어야 합니다
 
 > 자격 증명은 Lambda, S3, Cognito, API Gateway, IAM, ECS, EC2, ECR, CodeBuild, SageMaker, Bedrock, CloudFront 리소스를 생성할 수 있어야 합니다. 첫 설정에는 관리자 사용자(`AdministratorAccess`)가 가장 간단합니다.
 
-## 3단계 — AI 모델 활성화(Amazon Bedrock)
+#### 3단계 — AI 모델 활성화(Amazon Bedrock)
 
 새 계정은 Bedrock 모델이 **꺼져** 있습니다. 한 번 활성화하지 않으면 모든 실행이 실패합니다.
 
@@ -331,7 +348,7 @@ aws sts get-caller-identity   # 계정 번호가 출력되어야 합니다
    - **Amazon – Titan Text Embeddings V2**(지식 베이스 검색)
 4. **Access granted**가 될 때까지 기다립니다. 평가 목적이라면 리전의 모든 모델을 활성화해도 됩니다. 앱은 각 seat에서 사용 가능한 모델을 모두 나열합니다.
 
-## 4단계 — CDK 준비(계정당 1회)
+#### 4단계 — CDK 준비(계정당 1회)
 
 ```bash
 cd infra
@@ -340,7 +357,7 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-west-2
 
 `ACCOUNT_ID`를 2단계에서 확인한 번호로 바꾸십시오.
 
-## 5단계 — 백엔드 배포
+#### 5단계 — 백엔드 배포
 
 `infra/`에서:
 
@@ -371,7 +388,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 - **ApiUrl** — `https://xxxx.execute-api.us-west-2.amazonaws.com`
 - **WsUrl** — `wss://xxxx.execute-api.us-west-2.amazonaws.com/prod`
 
-## 6단계 — 러너 이미지 빌드(필수)
+#### 6단계 — 러너 이미지 빌드(필수)
 
 웹 및 Device Farm 러너는 사용자 ECR의 컨테이너 이미지에서 실행됩니다. 이미지는 CodeBuild를 통해 클라우드에서 빌드되므로 대용량 파일이 컴퓨터로 다운로드되지 않습니다.
 
@@ -392,7 +409,7 @@ node cloudBuildWebRunner.mjs
 
 > `PA_SM_BUCKET`은 필수입니다. 본인의 Foundation 스택이 출력한 DataBucket으로 설정하십시오. 스크립트에는 계정별 버킷 기본값이 더 이상 없습니다.
 
-## 7단계 — 웹 콘솔 빌드
+#### 7단계 — 웹 콘솔 빌드
 
 ```bash
 cd ../../web
@@ -408,7 +425,7 @@ npm run build
 
 빌드 전에 각 `PASTE_...`를 5단계의 값으로 바꾸십시오.
 
-## 8단계 — 웹 콘솔 배포
+#### 8단계 — 웹 콘솔 배포
 
 ```bash
 cd ../infra
@@ -419,7 +436,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 
 출력된 `https://xxxx.cloudfront.net` 주소를 열면 로그인 페이지가 표시됩니다.
 
-## 9단계 — 첫 번째(관리자) 로그인 생성
+#### 9단계 — 첫 번째(관리자) 로그인 생성
 
 자체 가입은 의도적으로 비활성화되어 있습니다. 가장 간단한 방법은 위의 원클릭 설치 프로그램입니다. 수동 설정에서는 아래 도구를 실행합니다. 비밀번호는 화면에 표시되지 않게 입력하므로 명령이나 shell history에 남지 않습니다. tenant를 별도로 격리할 명확한 이유가 없다면 기본값 `default`를 사용하십시오.
 
@@ -438,7 +455,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 
 이후 다른 사용자는 모두 **멤버 관리** 페이지에서 생성합니다.
 
-## 10단계 — 로그인하고 첫 테스트 실행
+#### 10단계 — 로그인하고 첫 테스트 실행
 
 CloudFront URL을 열고 로그인합니다. **가이드** 페이지가 표시됩니다. 그런 다음:
 
@@ -453,19 +470,7 @@ CloudFront URL을 열고 로그인합니다. **가이드** 페이지가 표시�
 
 ---
 
-## 선택: 원클릭 시스템 업데이트
-
-Updater 스택은 설치 프로그램이 자동으로 배포하므로, 설치 직후 바로 사용할 수 있습니다. 업데이트하려면 **시스템 관리 → 시스템 업데이트**를 열고 버전을 선택한 뒤 확인합니다. 먼저 테스트를 실행한 다음 CodeBuild에서 `cdk deploy`를 실행합니다.
-
-GitHub 토큰은 필요 없습니다. 리포지토리가 공개되어 있어 업데이트가 직접 clone합니다. 토큰은 선택 사항이며 GitHub API 속도 제한을 높이는 용도로만 사용합니다. **시스템 관리**에서 설정하면 Secrets Manager(`playagent/github`)에 저장되며 다시 표시되지 않습니다. 포크를 사용합니까? `-c githubRepo=owner/name`으로 배포하십시오.
-
-업데이트 버튼은 높은 권한으로 IAM과 리소스를 재배포하므로 관리자에게만 표시되며 모든 실행이 기록됩니다. 설계 문서: [docs/design/self-update.md](docs/design/self-update.md).
-
-## 중앙 집중식 로그
-
-**시스템 관리 → 중앙 집중식 로그**는 디버깅을 위한 서비스 횡단 로그 뷰어입니다. CloudWatch Logs Insights를 사용해 모든 서비스의 CloudWatch 로그(컨트롤 플레인 API, engine, dispatcher, WebSocket, 두 개의 Fargate 러너, 자체 업데이트 및 이미지 빌드 CodeBuild)를 한 번에 검색합니다. 서비스 필터, 기간(최근 15분 / 1시간 / 3시간 / 24시간), 키워드를 지정할 수 있으며, 결과는 최신 순으로 정렬되고 다운로드할 수 있습니다. 관리자 전용입니다. 설계 문서: [docs/design/centralized-logs.md](docs/design/centralized-logs.md).
-
-## 선택: UI-TARS 그라운딩 모델
+### 선택: UI-TARS 그라운딩 모델
 
 UI-TARS-1.5-7B는 작은 버튼에서 더 정밀할 수 있는 GUI 그라운딩 모델입니다. GPU 비용이 **켜져 있는 동안 하루 약 US$62.5**이므로 **기본값은 꺼짐**입니다. 현재는 Device Farm 실기기 런타임만 이를 사용하며, 다른 런타임은 Bedrock 비전 모델로 대체됩니다.
 
@@ -493,7 +498,7 @@ UI-TARS-1.5-7B는 작은 버튼에서 더 정밀할 수 있는 GUI 그라운딩 
 
 자세한 내용: [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md).
 
-## 선택: Windows PC 게임 (GameLift Streams)
+### 선택: Windows PC 게임 (GameLift Streams)
 
 **Windows 머신에서** 한 번 실행합니다(GPU 호스트용 Windows 도구를 패키징합니다).
 
@@ -505,7 +510,7 @@ $env:AWS_REGION="us-west-2"; node setup.mjs --capacity 2
 
 GameLift Streams 애플리케이션과 **상시 가동 용량이 없는** 스트림 그룹(테스트가 실행되지 않는 동안 과금 없음)을 생성하며, 최대 2개의 동시 실행을 지원합니다. 이후 작업 제출 시 **Windows** 런타임이 표시됩니다. 첫 시작은 10–15분이 걸리며, 각 실행은 60분으로 제한됩니다. Windows 호스트 스크립트를 변경한 후에는 `setup.mjs`를 다시 실행하십시오. 자체 업데이트에는 포함되지 않습니다.
 
-## 비용 분석 페이지 활성화
+### 비용 분석 페이지 활성화
 
 **비용 분석** 페이지는 실제 AWS 청구액(Cost Explorer 기반)을 작업 추정 비용(토큰 × 가격)과 함께 표시합니다. 추정 비용은 바로 작동합니다. 실제 청구액을 보려면 계정당 한 번:
 

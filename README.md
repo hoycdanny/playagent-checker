@@ -6,15 +6,59 @@
 
 ---
 
-## What it does
+## What it is
 
-PlayAgent Checker runs entirely on **AWS (region `us-west-2`)**: a serverless control plane plus execution runners that start per task and shut down when the task ends. You upload an app (or point at a web URL), the agent explores it on its own, and you get repeatable, reviewable test runs.
+PlayAgent Checker is AI-driven automated QA for games and apps that runs entirely in your own AWS account.
 
-- **The agent loop:** screenshot → VLM locates the target → Agent decides → act on the device → screenshot again, until the goal is met or a stop condition fires.
-- **Looks at the screen, not the UI tree**, so it works on canvas-rendered games (Cocos2d-x, Unity) with no inspectable elements.
-- **Knowledge bases, cost guardrails, a 5-language UI** (zh-Hant, en, zh-Hans, ja, ko), and one-click self-update from GitHub.
+- Write test cases in plain language; an AI agent runs them by watching the screen and acting like a real user (tap, swipe, type).
+- Works on canvas-rendered games (Unity, Cocos2d-x) that expose no inspectable UI tree.
+- Serverless and pay-per-use in your AWS account: resources start per task and stop when it ends, so idle cost is almost nothing.
+- Multilingual reports with screenshots, a step-by-step trace, a navigation map, and the spend per run.
+- Runtimes for web, Android/iOS real devices, an Android container, and Windows PC games.
 
-## Runtimes
+## Quick start
+
+The fastest path needs only a web browser; nothing is installed on your computer.
+
+**Before you start:** sign in to the AWS Console as an admin, enable the Bedrock models first in the target region (see [Turn on the AI models](#step-3--turn-on-the-ai-models-amazon-bedrock) — every run fails without them), then open **CloudShell** with the `>_` icon in the Console top bar.
+
+Paste one command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash
+```
+
+- It opens with a **language menu** (default English, no flag needed; `--lang en|zh-Hant|zh-Hans|ja|ko` still works), shows **step-by-step progress** instead of raw logs, and prints the error log if something fails.
+- The default region is `us-west-2`. Use `--region <region>` for another; the chosen region must have the Bedrock models enabled, and the default models use `us.` cross-region inference profiles, so non-US regions may need different model IDs. Device Farm real devices always run in `us-west-2`.
+- The admin account is created by a **Cognito email invite**: the temporary password is shown on screen at the end and also emailed to you. At first sign-in the web page asks you to set a new password.
+- **Run the same command again to update to the latest version.**
+
+What `scripts/cloudshell-install.sh` does:
+
+- Bootstraps CDK if this account/region was never bootstrapped. This is the only step that needs admin rights.
+- Creates the IAM role `playagent-installer`, trusted only by CodeBuild, with the least-privilege policy [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json). The build gets no AdministratorAccess.
+- Creates the CodeBuild project `playagent-installer`, which clones the public GitHub repo and runs the same deploy core (`scripts/deploy-latest.mjs`). No EC2 instance is needed.
+- Streams progress and prints the site URL when done.
+
+The policy only lets the build assume this account's CDK bootstrap roles, read the PlayAgent stacks, push the two runner images, create the Cognito admin, and write `/playagent/*` SSM parameters. CloudFormation changes run through CDK's `cdk-hnb659fds-cfn-exec-role`, which by default has admin rights, so anyone who can deploy can still create resources through CloudFormation.
+
+## Quick delete
+
+To remove PlayAgent, run one command in CloudShell:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-uninstall.sh | bash
+```
+
+- It shows the same **language menu**, scans the environment, and lists what will be deleted versus kept. Nothing is deleted until you confirm: you must **type the 12-digit account id** to proceed. `--yes` skips the prompt (not recommended by hand); `--region` defaults to `us-west-2`.
+- It removes PlayAgent's own resources: the six `PlayAgentDev-*` stacks, the retained data bucket / Cognito user pool / runner ECR repos, the installer CodeBuild project and IAM role, and PlayAgent SSM parameters and log groups.
+- It keeps the CDK bootstrap (`CDKToolkit`) and the shared `cdk-hnb659fds-*` assets (other apps may share them), so a later reinstall skips bootstrap.
+
+Full teardown by hand (and troubleshooting) is in [Cleanup and troubleshooting](#cleanup-and-troubleshooting).
+
+## Technical details
+
+### Runtimes
 
 | Runtime | What runs it | Available after install | Limits |
 | --- | --- | --- | --- |
@@ -27,7 +71,7 @@ PlayAgent Checker runs entirely on **AWS (region `us-west-2`)**: a serverless co
 
 Which one to pick for which game: [docs/design/multi-platform-workers.md](docs/design/multi-platform-workers.md).
 
-## What you get by default
+### What you get by default
 
 After following the install below, this is what is on, what is off, and what needs one extra step.
 
@@ -48,7 +92,7 @@ After following the install below, this is what is on, what is off, and what nee
 | System admin page → **UI-TARS** | ⛔ **Off** | A GPU grounding model. Admins turn it on/off on the page; it is billed only while on ([below](#optional-ui-tars-grounding-model)). |
 | Windows runtime | ⚙️ Optional | One-time GameLift Streams setup from a Windows machine. |
 
-## Architecture
+### Architecture
 
 ```mermaid
 flowchart TB
@@ -118,7 +162,7 @@ CDK stacks (all in `us-west-2`):
 
 Details: [docs/architecture.md](docs/architecture.md).
 
-## What it costs
+### What it costs
 
 Measured on this project's own account (October 2026). AWS prices change, so treat these as estimates.
 
@@ -145,7 +189,7 @@ Measured on this project's own account (October 2026). AWS prices change, so tre
 
 In practice, most of the spend on our account was Bedrock tokens and Device Farm minutes. Neither costs anything when you are not testing.
 
-## Features (what each page does)
+### Features (what each page does)
 
 | Page | What it's for |
 | --- | --- |
@@ -161,7 +205,7 @@ In practice, most of the spend on our account was Bedrock tokens and Device Farm
 | **Members** (admins) | Add users, reset passwords, disable/enable, move tenants, grant or remove admin. |
 | **System admin** (admins) | **System update** from GitHub (one-click, no token needed; version compare, progress, history), the **UI-TARS** on/off switch, and **Centralized logs** (search CloudWatch logs across all services). |
 
-## The AI: three model "seats"
+### The AI: three model "seats"
 
 Models are organized by **role (seat)**, not by vendor. Each seat is chosen per task:
 
@@ -171,11 +215,21 @@ Models are organized by **role (seat)**, not by vendor. Each seat is chosen per 
 
 You never pick an SDK or endpoint; the system derives it from the model id.
 
-## Cost guardrails
+### Cost guardrails
 
 Every task can have a step limit and a budget. Before running, the engine **locks a price snapshot** for each seat's model (fail-closed: if a price is unknown, the run is refused). Execution stops once spend reaches the budget, and the report shows actual spend and tokens.
 
-## Glossary
+### System admin
+
+The **System admin** page (admins only) has three tools.
+
+**One-click self-update.** The Updater stack is deployed automatically by the installer, so this is ready right after install. Open **System admin → System update**, pick a version, and confirm; it runs tests first, then `cdk deploy` in CodeBuild. No GitHub token is required: the repository is public and the update clones it directly. A token is optional and only raises the GitHub API rate limit; if you set one in **System admin**, it is stored in Secrets Manager (`playagent/github`) and never shown again. Using a fork? Deploy with `-c githubRepo=owner/name`. The button redeploys IAM and resources with high privileges, so only admins see it and every run is recorded. Design notes: [docs/design/self-update.md](docs/design/self-update.md).
+
+**Centralized logs.** A cross-service log viewer for debugging. It searches CloudWatch Logs across every service at once (control-plane API, engine, dispatcher, WebSocket, both Fargate runners, self-update and image-build CodeBuild) using CloudWatch Logs Insights, with a service filter, time range (last 15 min / 1 h / 3 h / 24 h), and a keyword. Results are newest-first and downloadable. Admin only. Design notes: [docs/design/centralized-logs.md](docs/design/centralized-logs.md).
+
+**UI-TARS on/off.** Admins turn the optional GPU grounding model on or off here; it is billed only while on. Setup and details are in [Manual installation](#manual-installation) under Optional: UI-TARS grounding model.
+
+### Glossary
 
 - **Seat** — a model role (Agent / VLM / Subagent), not a vendor.
 - **VLM** — Vision-Language Model; reads the screenshot and locates coordinates.
@@ -187,48 +241,11 @@ Every task can have a step limit and a budget. Before running, the engine **lock
 
 ---
 
-# 🚀 Install on a clean AWS account
+## Manual installation
 
-## Easiest: one command in AWS CloudShell (nothing to download)
+Prefer to deploy from your own machine, or need one of the one-time optional setups? Use the paths below. The CloudShell one-liner in [Quick start](#quick-start) is the easiest route; this section covers everything else.
 
-You only need a web browser. Nothing is installed on your computer.
-
-1. Sign in to the AWS Console as an admin.
-2. Enable the Bedrock models first in the target region, by default **US West (Oregon) us-west-2** ([Step 3](#step-3--turn-on-the-ai-models-amazon-bedrock)). Every test run fails without them.
-3. Open **CloudShell** with the `>_` icon in the Console top bar.
-4. Paste this command with your own email:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
-```
-
-To use another region, append `--region <region>`:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com --region ap-northeast-1
-```
-
-- Without `--region`, it deploys to `us-west-2` no matter which region the Console shows. The script ignores CloudShell's own region on purpose.
-- The chosen region must have the Bedrock models enabled. The default models use `us.` cross-region inference profiles, so non-US regions may need different model IDs.
-- Device Farm real devices always run in `us-west-2`, because AWS only offers Device Farm there.
-- `--no-wait` starts the build and exits without waiting.
-
-What `scripts/cloudshell-install.sh` does:
-
-- Bootstraps CDK if this account/region was never bootstrapped. This is the only step that needs admin rights.
-- Creates the IAM role `playagent-installer`, trusted only by CodeBuild, with the least-privilege policy [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json). The build gets no AdministratorAccess.
-- Creates the CodeBuild project `playagent-installer`, which clones the public GitHub repo and runs the same deploy core (`scripts/deploy-latest.mjs`). No EC2 instance is needed.
-- Streams the build log and prints the site URL when done.
-
-The policy only lets the build assume this account's CDK bootstrap roles, read the PlayAgent stacks, push the two runner images, create the Cognito admin, and write `/playagent/*` SSM parameters. CloudFormation changes run through CDK's `cdk-hnb659fds-cfn-exec-role`, which by default has admin rights, so anyone who can deploy can still create resources through CloudFormation.
-
-The install takes about 30–60 minutes. Closing CloudShell does not stop it: the build keeps running in CodeBuild, and you can follow it in the CodeBuild console.
-
-The admin account is created by a Cognito email invite. You get an email with a temporary password. At first sign-in the web page asks you to set a new password (at least 8 characters with upper-case, lower-case, and a digit).
-
-To update to the latest `main`, run the same command again.
-
-## Recommended on Windows and macOS: one-click latest installer
+### Recommended on Windows and macOS: one-click latest installer
 
 After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**, configure your AWS credentials and enable the Bedrock models in Step 3. Then clone the repository and launch:
 
@@ -275,7 +292,7 @@ These examples contain no literal password. Add `--admin-tenant <tenant>` only w
 >
 > **About reinstalling after `cdk destroy`:** the data bucket, Cognito User Pool, and runner ECR repositories have `Retain` protection. The installer detects orphaned retained ECR repositories and safely reuses them, so fixed repository names do not block reinstall. It intentionally does not delete or silently adopt an old data bucket/User Pool; a true empty reset requires explicitly deleting those retained resources after backing up anything needed.
 
-## Manual installation (step by step)
+### Manual installation (step by step)
 
 This section assumes **no prior AWS experience**. Follow it top to bottom. Total time: about **60–90 minutes**, most of it waiting for AWS.
 
@@ -283,7 +300,7 @@ This section assumes **no prior AWS experience**. Follow it top to bottom. Total
 >
 > Commands are written for **bash** (macOS, Linux, Git Bash, WSL). On Windows PowerShell, set variables with `$env:NAME="value"` instead of `NAME=value command`.
 
-## Step 0 — Install the tools on your computer
+#### Step 0 — Install the tools on your computer
 
 | Tool | Why | Install |
 | --- | --- | --- |
@@ -299,7 +316,7 @@ git --version
 
 You do **not** need Docker; container images are built in the cloud (AWS CodeBuild).
 
-## Step 1 — Get the code
+#### Step 1 — Get the code
 
 ```bash
 git clone https://github.com/hoycdanny/playagent-checker.git
@@ -307,7 +324,7 @@ cd playagent-checker
 npm install
 ```
 
-## Step 2 — Connect the AWS CLI to the account
+#### Step 2 — Connect the AWS CLI to the account
 
 Ask the account owner for an **Access Key ID** and **Secret Access Key** (AWS Console → IAM → Users → Security credentials → Create access key). Then:
 
@@ -323,7 +340,7 @@ aws sts get-caller-identity   # should print your account number
 
 > The credentials must be able to create Lambda, S3, Cognito, API Gateway, IAM, ECS, EC2, ECR, CodeBuild, SageMaker, Bedrock, and CloudFront resources. For a first setup, an admin user (`AdministratorAccess`) is simplest.
 
-## Step 3 — Turn on the AI models (Amazon Bedrock)
+#### Step 3 — Turn on the AI models (Amazon Bedrock)
 
 A new account has Bedrock models **off**. Enable them once, or every run fails.
 
@@ -337,7 +354,7 @@ A new account has Bedrock models **off**. Enable them once, or every run fails.
    - **Amazon – Titan Text Embeddings V2** (knowledge-base search)
 4. Wait for **Access granted**. Enabling every model in the region is fine for evaluation; the app lists whatever is available for each seat.
 
-## Step 4 — Prepare CDK (one-time per account)
+#### Step 4 — Prepare CDK (one-time per account)
 
 ```bash
 cd infra
@@ -346,7 +363,7 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-west-2
 
 Replace `ACCOUNT_ID` with the number from Step 2.
 
-## Step 5 — Deploy the backend
+#### Step 5 — Deploy the backend
 
 From `infra/`:
 
@@ -377,7 +394,7 @@ Write down:
 - **ApiUrl** — `https://xxxx.execute-api.us-west-2.amazonaws.com`
 - **WsUrl** — `wss://xxxx.execute-api.us-west-2.amazonaws.com/prod`
 
-## Step 6 — Build the runner images (required)
+#### Step 6 — Build the runner images (required)
 
 The Web and Device Farm runners run from container images in your ECR. They are built in the cloud with CodeBuild, so nothing large downloads to your computer.
 
@@ -398,7 +415,7 @@ node cloudBuildWebRunner.mjs
 
 > `PA_SM_BUCKET` is required. Set it to the DataBucket output from your own Foundation stack; the scripts no longer contain any account-specific bucket fallback.
 
-## Step 7 — Build the web console
+#### Step 7 — Build the web console
 
 ```bash
 cd ../../web
@@ -414,7 +431,7 @@ npm run build
 
 Replace each `PASTE_...` with the value from Step 5 before building.
 
-## Step 8 — Deploy the web console
+#### Step 8 — Deploy the web console
 
 ```bash
 cd ../infra
@@ -425,7 +442,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 
 Open the printed `https://xxxx.cloudfront.net` address; you should see the login page.
 
-## Step 9 — Create your first (admin) login
+#### Step 9 — Create your first (admin) login
 
 Sign-up is disabled on purpose. The simplest path is the one-click installer above. For a manual setup, run the helper below; it prompts for the password with hidden input, so the password never appears in the command or shell history. Use tenant `default` unless you intentionally need a separate tenant.
 
@@ -444,7 +461,7 @@ The password must be at least 8 characters and include upper-case, lower-case, a
 
 After that, create everyone else from the **Members** page.
 
-## Step 10 — Log in and run a first test
+#### Step 10 — Log in and run a first test
 
 Open the CloudFront URL and log in. You land on the **Guide**. Then:
 
@@ -459,19 +476,7 @@ Open the CloudFront URL and log in. You land on the **Guide**. Then:
 
 ---
 
-## Optional: one-click system update
-
-The Updater stack is deployed automatically by the installer, so this is ready right after install. To update, open **System admin → System update**, pick a version, and confirm; it runs tests first, then `cdk deploy` in CodeBuild.
-
-No GitHub token is required: the repository is public and the update clones it directly. A token is optional and only raises the GitHub API rate limit; if you set one in **System admin**, it is stored in Secrets Manager (`playagent/github`) and never shown again. Using a fork? Deploy with `-c githubRepo=owner/name`.
-
-The update button redeploys IAM and resources with high privileges, so only admins see it and every run is recorded. Design notes: [docs/design/self-update.md](docs/design/self-update.md).
-
-## Centralized logs
-
-**System admin → Centralized logs** is a cross-service log viewer for debugging. It searches CloudWatch Logs across every service at once (control-plane API, engine, dispatcher, WebSocket, both Fargate runners, self-update and image-build CodeBuild) using CloudWatch Logs Insights, with a service filter, time range (last 15 min / 1 h / 3 h / 24 h), and a keyword. Results are newest-first and downloadable. Admin only. Design notes: [docs/design/centralized-logs.md](docs/design/centralized-logs.md).
-
-## Optional: UI-TARS grounding model
+### Optional: UI-TARS grounding model
 
 UI-TARS-1.5-7B is a GUI-grounding model that can be more precise on small buttons. It is **off by default** because its GPU costs about **US$62.5 / day while on**. Today only the Device Farm real-device runtime uses it; other runtimes fall back to a Bedrock vision model.
 
@@ -499,7 +504,7 @@ Then use **System admin → UI-TARS → Turn on**. It takes about 8–15 minutes
 
 More: [docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md).
 
-## Optional: Windows PC games (GameLift Streams)
+### Optional: Windows PC games (GameLift Streams)
 
 Run this once **from a Windows machine** (it packages Windows tools for the GPU host):
 
@@ -511,7 +516,7 @@ $env:AWS_REGION="us-west-2"; node setup.mjs --capacity 2
 
 It creates the GameLift Streams application and a stream group with **no always-on capacity** (nothing is billed while no test runs) and up to 2 concurrent runs. Then the **Windows** runtime appears when submitting a task. A first start takes 10–15 minutes; each run is capped at 60 minutes. Re-run `setup.mjs` after changing the Windows host scripts; self-update does not cover it.
 
-## Enable the Cost Analysis page
+### Enable the Cost Analysis page
 
 The **Cost Analysis** page shows the real AWS bill (from Cost Explorer) next to task estimates (tokens × price). Estimates work immediately. For the real bill, once per account:
 
