@@ -68,6 +68,8 @@ export interface EngineJob {
   osVersion?: string;
   createdAt?: string;
   genres?: string[];
+  /** 案例帶結構化測項(items:)—— 以測項為主:知識庫衍生的建議項目/風險僅供參考,不下修結論。 */
+  scripted?: boolean;
 }
 export interface EngineApp {
   name?: string;
@@ -1194,6 +1196,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     quality,
     values: spec.values,
     thresholds,
+    scripted: job?.scripted === true,
   });
   const overallStatus: OverallStatus = acceptance.verdict;
   const statusReason: L10n = acceptance.verdictReason;
