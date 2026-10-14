@@ -198,14 +198,23 @@ const BOOT_MSG = {
 
 // ── VLM 決策(純邏輯,對齊 emulatorRunner 的 prompt/對話策略,但改用 SDK)──
 
-function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
+function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls, coordMode = 'pixel') {
+  // 座標契約依模型母語切換:pixel = 回「這張圖的絕對像素」;norm1000 = 回「0~1000 相對座標」(Nova 等)。
+  const normMode = coordMode === 'norm1000';
+  const coordUnit = normMode ? '0~1000' : '像素';
+  const coordRule = normMode
+    ? `【座標規則|最重要】座標一律用「0~1000 的相對座標」:x 由左到右 0→1000、y 由上到下 0→1000(與截圖實際像素大小無關)。` +
+      `左上角是 (0,0),右下角是 (1000,1000),正中央約 (500,500)。請把座標精準對到「按鈕/元件本身的正中心」(不是彈窗或文字區塊的中心)。`
+    : `【座標規則|最重要】座標一律用「你看到的這張截圖的絕對像素」:左上角是 (0,0),往右 x 變大、往下 y 變大,` +
+      `右下角就是該張圖的寬與高。每張圖尺寸會在該回合訊息中告知(如「這張截圖尺寸為 952x2156 像素」)。` +
+      `請把座標精準對到「按鈕/元件本身的正中心」(不是彈窗或文字區塊的中心)。不要用比例、不要用 0~1000。`;
   // 操作行為(控制方案,由測試腳本勾選):有指定時注入權威操作段落,且只有「下方中央搖桿」
   // 方案才保留割草類的移動說明;沒指定 = 舊行為(全部保留)。
   const includeMow = !controls || controls.battleMove;
   const controlsBlock = controls?.prompt ? `\n${controls.prompt}\n` : '';
   const actionEnum = controls?.allowedActions?.length ? controls.allowedActions.join('|') : 'tap|swipe|move|back|type|wait|launch|done';
   const gestureFields = controls
-    ? ',"durationMs":<滑動毫秒>,"tx":<右手像素x>,"ty":<右手像素y>,"taps":<次數>,"scale":"in|out"'
+    ? `,"durationMs":<滑動毫秒>,"tx":<右手${coordUnit}x>,"ty":<右手${coordUnit}y>,"taps":<次數>,"scale":"in|out"`
     : '';
   const gestureHelp = controls
     ? `hold 需 x,y,holdMs(按住);swipe 可加 durationMs(長=拖曳、短=快劃);combo 需 x,y(左手)、可選 dir、holdMs、tx,ty(右手按鈕)、taps;pinch 需 x,y 與 scale。只能使用上面列出的可用動作。`
@@ -213,10 +222,8 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
   const base =
     `你是專業遊戲測試工程師,正在測試一個 ${PLATFORM === 'ios' ? 'iOS' : PLATFORM === 'windows' ? 'Windows PC' : 'Android'} 遊戲。每一步你會看到一張最新截圖。` +
     (PLATFORM === 'windows' ? '這是 Windows 桌面:tap = 滑鼠左鍵單擊、swipe = 按住左鍵拖曳、back = 按 Esc;沒有多點觸控。截圖是整個螢幕,遊戲視窗外的桌面/工作列不要點。' : '') +
-    // A 路座標契約:直接回「這張圖的絕對像素座標」(Qwen-VL 系天生的定位方式),不要正規化。
-    `【座標規則|最重要】座標一律用「你看到的這張截圖的絕對像素」:左上角是 (0,0),往右 x 變大、往下 y 變大,` +
-    `右下角就是該張圖的寬與高。每張圖尺寸會在該回合訊息中告知(如「這張截圖尺寸為 952x2156 像素」)。` +
-    `請把座標精準對到「按鈕/元件本身的正中心」(不是彈窗或文字區塊的中心)。不要用比例、不要用 0~1000。` +
+    // 座標契約依模型母語(見 coordRule):pixel 回絕對像素;norm1000 回 0~1000 相對座標。
+    coordRule +
     `這是連續對話,你會記得前幾步做了什麼。每步之後我會給你執行後的最新畫面,據此判斷上一步是否生效:` +
     `若畫面推進→繼續;若沒變(無效點擊)→不要重複同座標,改點別的、換座標、或 back/swipe。` +
     `策略:遊戲開場常有彈窗/公告/教學/權限提示,積極關閉或確認它們以穿透到主畫面。` +
@@ -252,10 +259,10 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls) {
     `把座標對到「手指指尖正下方那顆發光圖示的正中心」。若點了 Start 沒反應、畫面沒變,幾乎一定是被教學 gating——` +
     `立刻改點手指所指的發光圖示,完成引導後再回來點 Start。反覆點 Start/房子/✕ 卻沒反應是最常見的卡死原因,務必避免。` +
     `thinking 務必簡短(一句話,約 30~60 字即可,不要長篇分析),再給動作。只輸出 JSON:` +
-    `{"thinking":"...","action":"${actionEnum}","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>${gestureFields},"text":"...","screen":"畫面名稱","memo":"進度筆記"}。` +
+    `{"thinking":"...","action":"${actionEnum}","x":<${coordUnit}>,"y":<${coordUnit}>,"x2":<${coordUnit}>,"y2":<${coordUnit}>,"dir":"up|down|left|right|upleft|upright|downleft|downright","holdMs":<毫秒>${gestureFields},"text":"...","screen":"畫面名稱","memo":"進度筆記"}。` +
     `memo 是你自己的「進度筆記」:測試腳本要你記住、之後還會用到的數字與進度(例如初始值、每局投注、已完成次數、目前第幾段、各段起始值),` +
     `每一步都覆寫成「最新的完整版」(200 字內)。你只看得到最近幾步,系統會把上一步的 memo 原樣交還給你——照它延續,不要重新開始、不要重記初始值;沒有需要記的就省略。` +
-    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe 需 x,y,x2,y2;` +
+    `x/y 是「${normMode ? '0~1000 相對座標' : '這張圖的像素座標'}」。tap 需 x,y;swipe 需 x,y,x2,y2;` +
     (controls
       ? (controls.joystick ? `move 需 dir 與可選 holdMs(按住毫秒,預設1500),x,y 省略時 runner 用本遊戲搖桿的預設位置,看得到搖桿圓圈時用 x,y 指定其中心更準;` : '')
       : `move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;`) +
@@ -694,13 +701,20 @@ async function main() {
   // 「以測項為主」:案例帶結構化測項時為 true。走完所有測項並宣告完成即為權威完成,
   // 輔助 Agent(靠知識庫/弱模型)不得推翻,避免用錯誤理由逼測試延伸到腳本以外。
   let scripted = false;
+  // VLM 座標系:pixel(Claude/K3/UI-TARS,回絕對像素)或 norm1000(Nova/Qwen/Gemma…,回 0~1000)。
+  // 由引擎依模型目錄寫進 context.json;runner 據此下座標契約並把 norm1000 換算成像素。
+  let vlmCoordSystem = 'pixel';
   try {
     const ctx = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/context.json` }))).Body.transformToString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
     if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
     if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
     if (ctx && ctx.scripted === true) scripted = true;
+    if (ctx && ctx.vlmCoordSystem === 'norm1000') vlmCoordSystem = 'norm1000';
   } catch { /* 無則略過 */ }
+  // UI-TARS 走自己的像素 grounding;norm1000 契約只套用在一般 Bedrock VLM。
+  const normCoord = vlmCoordSystem === 'norm1000' && !USE_UITARS;
+  console.log('VLM 座標系', vlmCoordSystem, normCoord ? '(回 0~1000,runner 換算像素)' : '(絕對像素)');
   // 操作行為:允許的動作集合(null = 未指定,不限定)。
   const allowedActions = controls ? new Set(controls.allowedActions) : null;
   if (controls) console.log('操作行為', controls.ids.join(','), `(${controls.source})`, '可用動作', controls.allowedActions.join('/'));
@@ -784,7 +798,7 @@ async function main() {
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
   // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
-  let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
+  let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
   // 記憶命中追蹤:以「本次開始前的記憶」為基準,每步記錄 AI 有沒有用到記憶、記憶的預測有沒有應驗。
   const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 9000 });
@@ -986,7 +1000,7 @@ async function main() {
       const dim = pngSize(Buffer.from(await client.takeScreenshot(), 'base64'));
       if (dim && (dim.w !== w || dim.h !== h)) {
         w = dim.w; h = dim.h;
-        system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls)
+        system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
           + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
           + (team?.enabled.agent && !USE_UITARS ? VISION_ELEMENTS_NOTE : '');
       }
@@ -1109,9 +1123,11 @@ async function main() {
     const isLandscape = origW > origH;
     const orient = isLandscape ? '橫向(landscape,寬>高)' : '直向(portrait,高>寬)';
     const orientChanged = prevOrient != null && prevOrient !== isLandscape;
-    // 座標契約:回「這張圖的絕對像素座標」(左上 0,0;右下 cw,ch),不是比例、不是 0~1000。
+    // 座標契約依模型母語:pixel 回絕對像素;norm1000 回 0~1000 相對座標。
     const dimHint =
-      `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高)。座標請用「這張圖的絕對像素」:左上角是 (0,0),右下角是 (${cw},${ch})。` +
+      (normCoord
+        ? `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高),但座標請一律用「0~1000 的相對座標」:左上角 (0,0)、右下角 (1000,1000)、正中央約 (500,500),與實際像素大小無關。`
+        : `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高)。座標請用「這張圖的絕對像素」:左上角是 (0,0),右下角是 (${cw},${ch})。`) +
       `把座標對到按鈕/元件本身的正中心。目前畫面方向:${orient}。` +
       (orientChanged
         ? `【方向已改變!】畫面剛從${prevOrient ? '橫向' : '直向'}切成${isLandscape ? '橫向' : '直向'},版面已不同,請重新看清整張圖再定位。`
@@ -1194,6 +1210,21 @@ async function main() {
       if (!retry.cmd.parseFailed && model !== VLM) console.log(`[decide] 第 ${i} 步改由備援模型 ${model} 決策`);
     }
     const { cmd, usage, rawText, trace } = decided;
+    // 【座標換算】norm1000 模型(Nova 等)回 0~1000 相對座標 → 換算成本張圖(cw×ch)的像素,
+    // 之後所有下游(元件正規化、落點標記、裝置換算)都在像素空間,與 pixel 模型一致。
+    // operator 直接點選(pointCmd)已是像素,不換算。
+    if (normCoord && !pointCmd) {
+      const toPx = (v, span) => { const n = Number(v); return Number.isFinite(n) ? Math.round((n / 1000) * span) : v; };
+      for (const [k, span] of [['x', cw], ['y', ch], ['x2', cw], ['y2', ch], ['tx', cw], ['ty', ch]]) {
+        if (cmd[k] != null) cmd[k] = toPx(cmd[k], span);
+      }
+      if (Array.isArray(cmd.elements)) {
+        for (const el of cmd.elements) {
+          if (el && el.x != null) el.x = toPx(el.x, cw);
+          if (el && el.y != null) el.y = toPx(el.y, ch);
+        }
+      }
+    }
     const vlmMs = Date.now() - tVlm;
     // 【決策 Agent】看視覺 Agent 的描述與元件清單,決定這一步的動作(座標取自元件清單)。
     // 測試人員在畫面上直接點的位置、UI-TARS、視覺回應無法解析時不經決策。決策失敗 → 採用視覺 Agent 的建議。

@@ -19,6 +19,7 @@ import { retrieveFromKb } from '../api/bedrockKb.js';
 import { applyExclude, mergeProfiles } from '../api/report/profiles.js';
 import { mergeSpecs, specFromKb } from '../api/report/reportSpec.js';
 import { buildControlsProtocol, sanitizeControls } from '../api/controlSchemes.js';
+import { findEntry } from '../api/modelCatalog.js';
 import {
   defaultSeatSelection,
   resolveExecutionConfig,
@@ -143,6 +144,7 @@ async function readJobMeta(
   maxHours?: number;
   display?: { width: number; height: number };
   scripted?: boolean;
+  vlmModel?: string;
 } | null> {
   try {
     const res = await s3.send(
@@ -167,6 +169,7 @@ async function readJobMeta(
       maxHours?: number;
       display?: { width?: unknown; height?: unknown };
       scripted?: boolean;
+      vlmModel?: string;
     };
     return {
       appId: job.appId ?? '',
@@ -189,6 +192,7 @@ async function readJobMeta(
         ? { display: { width: job.display.width as number, height: job.display.height as number } }
         : {}),
       ...(job.scripted === true ? { scripted: true } : {}),
+      ...(typeof job.vlmModel === 'string' && job.vlmModel ? { vlmModel: job.vlmModel } : {}),
     };
   } catch {
     return null;
@@ -212,8 +216,12 @@ async function assembleAgentContext(
   genres: string[] = [],
   controlsSnap?: { ids: string[]; source: 'case' | 'genre' },
   scripted = false,
+  vlmModel?: string,
 ): Promise<void> {
   if (!appId) return;
+  // VLM 的座標系(pixel vs norm1000):讓 runner 依模型母語下座標契約並換算,
+  // 像素模型(Claude/K3/UI-TARS)維持絕對像素;norm1000 模型(Nova/Qwen/Gemma…)改用 0~1000 再換算。
+  const vlmCoordSystem = vlmModel ? (findEntry(vlmModel)?.coordSystem ?? 'pixel') : 'pixel';
   const [knowledge, memory, kbMarkdown, kbReference, credInfo] = await Promise.all([
     readKnowledge(s3, bucket, tenantId, appId),
     readMemory(s3, bucket, tenantId, appId, locality),
@@ -267,8 +275,8 @@ async function assembleAgentContext(
   const evidence = await buildEvidenceProtocol(genres, knowledgeBaseIds).catch(() => null);
   // 操作行為(控制方案):runner 據此注入操作說明、限定手勢、決定搖桿預設位置。
   const controls = controlsSnap ? buildControlsProtocol(sanitizeControls(controlsSnap.ids), controlsSnap.source) : null;
-  // scripted 也要能傳到 runner,即使沒有任何知識/證據/操作段落也要寫出 context.json。
-  if (!context.trim() && !evidence && !controls && !scripted) return;
+  // scripted 或非像素座標系也要能傳到 runner,即使沒有任何知識/證據/操作段落也要寫出 context.json。
+  if (!context.trim() && !evidence && !controls && !scripted && vlmCoordSystem === 'pixel') return;
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -288,6 +296,7 @@ async function assembleAgentContext(
         ...(evidence ? { evidence } : {}),
         ...(controls ? { controls } : {}),
         ...(scripted ? { scripted: true } : {}),
+        vlmCoordSystem,
         assembledAt: new Date().toISOString(),
       }),
       ContentType: 'application/json',
@@ -411,6 +420,7 @@ export async function handler(event: EngineEvent): Promise<void> {
         meta.genres,
         meta.controls,
         meta.scripted === true,
+        meta.vlmModel,
       );
     }
   } catch (ctxErr) {
