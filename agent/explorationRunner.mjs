@@ -1396,7 +1396,14 @@ async function main() {
     // 其餘情況(低信心或沒回報信心)維持原本的寬鬆判斷。
     const strongLoadingScreen = /loading|載入中|载入中|請稍候|请稍候|installing|安裝中|安装中|connecting|連線中|连接中|config\s*ready/i;
     const aiConf = Number(cmd.conf);
-    const confidentInteract = (cmd.action === 'tap' || cmd.action === 'swipe') && Number.isFinite(aiConf) && aiConf >= 0.8;
+    // 2026-10-15 修正(job-mv8qsz6l-dp2f8r):Nova Pro 不回報 conf,點擊 PLAY 卻因 conf 無值
+    // 落入寬鬆分支,畫面名「開場畫面」命中 loadingHint 的「開場」,PLAY 的 tap 連 15 步全被
+    // 強制改成 wait,卡死在第一步。只要模型給出「具體落點(有限 x/y)」就代表畫面上有它要點的
+    // 東西(非純展示動畫),一律以嚴格 loading 判斷,不被「開場」等寬鬆字誤殺。
+    const hasConcreteTarget = (cmd.action === 'tap' || cmd.action === 'swipe')
+      && Number.isFinite(Number(cmd.x)) && Number.isFinite(Number(cmd.y));
+    const confidentInteract = (cmd.action === 'tap' || cmd.action === 'swipe')
+      && ((Number.isFinite(aiConf) && aiConf >= 0.8) || hasConcreteTarget);
     // 2026-10-05 修正(job-muv712gs-pvg7ow 第 4–5 步):大廳的「手指教學指引」被命名為「大廳開場教學」,
     // 「開場」命中寬鬆規則,AI 要點手指指的地方被強制改成 wait,最後要測試人員手動點。
     // 有教學手指 / 指引箭頭 = 畫面上一定有要點的東西,只看畫面名是否明確為載入中。
