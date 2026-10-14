@@ -9,6 +9,8 @@ import { applyControls, readControls } from '../components/controls/controlsYaml
 import { CaseVersions } from '../components/cases/CaseVersions.tsx';
 import { CaseOverviewTable, type CaseOverviewItem } from '../components/cases/CaseOverviewTable.tsx';
 import { ExcelImport } from '../components/cases/ExcelImport.tsx';
+import { AcceptanceEditor } from '../components/cases/AcceptanceEditor.tsx';
+import { type DraftSpec, emptyDraftSpec, acceptanceToPayload } from '../components/cases/acceptanceSpec.ts';
 import { reportLang } from '../components/report/reportText.ts';
 import './ListPage.css';
 import './CasesPage.css';
@@ -60,6 +62,8 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
   const [appId, setAppId] = useState(lockedApp ?? '');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  // 結構化驗收標準 + 草擬模型 + 可收合備註(「精準草擬」)。
+  const [draftSpec, setDraftSpec] = useState<DraftSpec>(emptyDraftSpec());
   const [yaml, setYaml] = useState('');
   // 操作行為(undefined = 未指定,執行時用 App 類型建議);與 YAML 的 controls: 欄位雙向同步。
   const [controls, setControls] = useState<string[] | undefined>(undefined);
@@ -81,6 +85,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
     setAppId(lockedApp ?? '');
     setName('');
     setDescription('');
+    setDraftSpec(emptyDraftSpec());
     setYaml('');
     setControls(undefined);
     setBaseYaml(null);
@@ -194,11 +199,16 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
     setError(null);
     setDrafting(true);
     try {
+      const acceptance = acceptanceToPayload(draftSpec.acceptance);
       const res = await apiPost<{ yaml: string }>('/cases/draft', {
         description,
         appId,
         // 有範本基礎時走「範本感知編修」(後端據此以既有範本為基礎修改)。
         ...(baseYaml ? { baseYaml } : {}),
+        // 使用者選的草擬模型 + 結構化驗收標準 + 備註(「精準草擬」)。
+        ...(draftSpec.model ? { model: draftSpec.model } : {}),
+        ...(acceptance.length > 0 ? { acceptance } : {}),
+        ...(draftSpec.note.trim() ? { note: draftSpec.note } : {}),
       });
       const drafted = applyControls(res.yaml, controls);
       setYaml(drafted);
@@ -364,12 +374,19 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={baseYaml ? t('cases.refineHint') : t('cases.describeHint')}
               />
+              {/* 範本感知編修流程不顯示結構化驗收編輯器(以既有範本為主);一般草擬才顯示 */}
+              {!baseYaml && (
+                <AcceptanceEditor lang={lang} value={draftSpec} onChange={setDraftSpec} />
+              )}
               <div className="cases__draft-row">
                 <button
                   type="button"
                   className="cases__draft-btn"
                   onClick={onDraft}
-                  disabled={drafting || (!baseYaml && !description.trim())}
+                  disabled={
+                    drafting ||
+                    (!baseYaml && !description.trim() && draftSpec.acceptance.length === 0)
+                  }
                 >
                   {drafting
                     ? t('cases.drafting')

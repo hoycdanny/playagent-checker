@@ -1,0 +1,127 @@
+.acc {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.acc__model {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.acc__note > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+  user-select: none;
+}
+
+.acc__note textarea {
+  margin-top: 0.4rem;
+  width: 100%;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 0.85rem;
+}
+
+.acc__items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.acc__item {
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+  padding: 0.6rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--surface, #fff);
+}
+
+.acc__item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.acc__item-no {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.acc__remove {
+  border: none;
+  background: transparent;
+  color: var(--danger, #dc2626);
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.acc__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.acc__field > span {
+  font-size: 0.78rem;
+  color: var(--text-muted, #6b7280);
+}
+
+.acc__field input,
+.acc__field textarea {
+  width: 100%;
+}
+
+.acc__img-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.acc__thumb {
+  max-height: 64px;
+  max-width: 120px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e5e7eb);
+  object-fit: cover;
+}
+
+.acc__img-btn {
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.acc__add {
+  align-self: flex-start;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px dashed var(--border, #cbd5e1);
+  background: transparent;
+  border-radius: 8px;
+  padding: 0.4rem 0.8rem;
+  color: var(--text, #111827);
+}
+
+.acc__warn {
+  border: 1px solid #f0c36d;
+  background: #fff8e6;
+  color: #7a5a00;
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.82rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.acc__warn ul {
+  margin: 0.2rem 0 0;
+  padding-left: 1.1rem;
+}

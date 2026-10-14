@@ -302,8 +302,8 @@ const deps: ApiDeps = {
   sharedS3,
   getTenantS3: (tenantId) =>
     assumeTenantS3({ sts, roleArn: TENANT_ROLE_ARN, region: REGION }, tenantId),
-  draftCase: (description, appId, baseYaml) =>
-    draftCaseYaml({ bedrock }, description, appId, baseYaml),
+  draftCase: (description, appId, baseYaml, opts) =>
+    draftCaseYaml({ bedrock }, description, appId, baseYaml, opts),
   enqueueJob: async (msg) => {
     await sqs.send(
       new SendMessageCommand({
