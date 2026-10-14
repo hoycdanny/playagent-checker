@@ -137,7 +137,8 @@ const stateText = (s: string, lang: RLang) => (STATE[s] ? STATE[s]![lang === 'zh
 
 function usd(n: number): string {
   if (!n) return '$0';
-  return n < 0.01 ? `$${n.toFixed(3)}` : `$${n.toFixed(2)}`;
+  // 每個案例的單次花費多半是幾分錢,顯示到小數點後四位才評估得準;≥ $1 維持兩位好讀。
+  return Math.abs(n) < 1 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
 }
 function duration(ms: number | null): string {
   if (ms === null) return '—';
