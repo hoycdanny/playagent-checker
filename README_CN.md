@@ -6,15 +6,59 @@
 
 ---
 
-## 功能概述
+## 这是什么
 
-PlayAgent Checker 完全运行在 **AWS（区域 `us-west-2`）** 上：一个 Serverless 控制平面，加上按任务启动、任务结束即关闭的执行 Runner。你上传一个应用（或指定一个 Web URL），Agent 会自行探索，你得到可重复、可审阅的测试运行。
+PlayAgent Checker 是 AI 驱动的游戏与应用自动化 QA，完全运行在你自己的 AWS 账户中。
 
-- **Agent 循环：** 截图 → VLM 定位目标 → Agent 决策 → 在设备上操作 → 再次截图，直到达成目标或触发停止条件。
-- **看屏幕，而不是 UI 树**，因此可用于没有可检查元素、基于 Canvas 渲染的游戏（Cocos2d-x、Unity）。
-- **知识库、费用护栏、5 种语言界面**（zh-Hant、en、zh-Hans、ja、ko），以及从 GitHub 一键自更新。
+- 用自然语言编写测试用例；AI Agent 会观察屏幕、像真实用户一样操作（点击、滑动、输入）来运行这些用例。
+- 可用于基于 Canvas 渲染、没有可检查 UI 树的游戏（Unity、Cocos2d-x）。
+- 在你的 AWS 账户中 Serverless、按用量计费：资源按任务启动、结束即停止，因此闲置成本几乎为零。
+- 多语言报告，包含截图、逐步轨迹、导航地图以及每次运行的花费。
+- 提供 Web、Android/iOS 真机、Android 容器和 Windows PC 游戏等运行环境。
 
-## 运行环境
+## 快速开始
+
+最快的方式只需要浏览器，不用在电脑上安装任何东西。
+
+**开始之前：** 以管理员身份登录 AWS 控制台，先在目标区域启用 Bedrock 模型（见[开启 AI 模型](#第-3-步开启-ai-模型amazon-bedrock) — 不启用的话每次运行都会失败），然后点击控制台顶部栏的 `>_` 图标打开 **CloudShell**。
+
+粘贴一行命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash
+```
+
+- 它会先显示**语言菜单**（默认英文，无需任何标志；仍可用 `--lang en|zh-Hant|zh-Hans|ja|ko`），以**逐步进度**取代原始日志，若失败则输出错误日志。
+- 默认区域为 `us-west-2`。要使用其他区域，加上 `--region <region>`；所选区域必须已启用 Bedrock 模型，而且默认模型使用 `us.` 跨区域推理配置文件，非美国区域可能需要改用其他模型 ID。Device Farm 真机始终在 `us-west-2` 运行。
+- 管理员账户通过 **Cognito 的 Email 邀请**创建：临时密码会在结束时显示在屏幕上，同时也会发送到你的邮箱。首次登录时网页会要求你设置新密码。
+- **再运行一次同一行命令，即可更新到最新版本。**
+
+`scripts/cloudshell-install.sh` 会做这些事：
+
+- 如果这个账户/区域从未做过 CDK bootstrap，就做一次。这是唯一需要管理员权限的步骤。
+- 创建只信任 CodeBuild 的 IAM 角色 `playagent-installer`，附加最小权限策略 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json)。构建过程不使用 AdministratorAccess。
+- 创建 CodeBuild 项目 `playagent-installer`，由它 clone 公开的 GitHub 仓库并运行同一份部署核心（`scripts/deploy-latest.mjs`）。不需要 EC2 实例。
+- 实时显示进度，完成后输出网站 URL。
+
+该策略只允许构建代入本账户的 CDK bootstrap 角色、读取 PlayAgent stack、推送两个 Runner 镜像、创建 Cognito 管理员，以及写入 `/playagent/*` SSM 参数。CloudFormation 的变更通过 CDK 的 `cdk-hnb659fds-cfn-exec-role` 执行，它默认有管理员权限，所以能部署的人仍可通过 CloudFormation 创建资源。
+
+## 快速删除
+
+要移除 PlayAgent，在 CloudShell 运行一行命令：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-uninstall.sh | bash
+```
+
+- 它会显示相同的**语言菜单**，扫描环境，并列出哪些会删除、哪些会保留。在你确认之前不会删除任何东西：你必须**输入 12 位账户 id** 才能继续。`--yes` 会跳过确认提示（不建议手动使用）；`--region` 默认为 `us-west-2`。
+- 它会移除 PlayAgent 自己的资源：六个 `PlayAgentDev-*` 堆栈、保留的数据桶 / Cognito 用户池 / Runner ECR 仓库、安装器的 CodeBuild 项目与 IAM 角色，以及 PlayAgent 的 SSM 参数和日志组。
+- 它会保留 CDK bootstrap（`CDKToolkit`）与共享的 `cdk-hnb659fds-*` 资产（其他应用可能共用），因此之后重装可跳过 bootstrap。
+
+手动完整拆除（与故障排查）请见[清理与故障排查](#清理与故障排查)。
+
+## 技术细节
+
+### 运行环境
 
 | 运行环境 | 由什么运行 | 安装后可用 | 限制 |
 | --- | --- | --- | --- |
@@ -27,7 +71,7 @@ PlayAgent Checker 完全运行在 **AWS（区域 `us-west-2`）** 上：一个 S
 
 各类游戏该选哪种运行环境：[docs/design/multi-platform-workers.md](docs/design/multi-platform-workers.md)。
 
-## 默认提供的功能
+### 默认提供的功能
 
 按下文完成安装后，以下是默认开启、默认关闭以及需要额外一步的功能。
 
@@ -48,7 +92,7 @@ PlayAgent Checker 完全运行在 **AWS（区域 `us-west-2`）** 上：一个 S
 | 系统管理页面 → **UI-TARS** | ⛔ **关闭** | GPU 定位模型。管理员在页面上开启/关闭；仅在开启期间计费（[见下方](#可选ui-tars-定位模型)）。 |
 | Windows 运行环境 | ⚙️ 可选 | 需在 Windows 机器上完成一次性 GameLift Streams 设置。 |
 
-## 架构
+### 架构
 
 ```mermaid
 flowchart TB
@@ -118,7 +162,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 详情：[docs/architecture.md](docs/architecture.md)。
 
-## 费用
+### 费用
 
 在本项目自己的账户中实测（2026 年 10 月）。AWS 价格会变动，以下数据仅供估算。
 
@@ -145,7 +189,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 实际使用中，我们账户的大部分支出来自 Bedrock Token 和 Device Farm 分钟数。不做测试时，这两项都不产生费用。
 
-## 功能（各页面用途）
+### 功能（各页面用途）
 
 | 页面 | 用途 |
 | --- | --- |
@@ -161,7 +205,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 | **成员管理**（管理员） | 添加用户、重置密码、禁用/启用、迁移租户、授予或撤销管理员权限。 |
 | **系统管理**（管理员） | 从 GitHub 进行**系统更新**（一键、无需 Token;版本对比、进度、历史记录）、**UI-TARS** 开关，以及**集中式日志**（跨所有服务搜索 CloudWatch 日志）。 |
 
-## AI：三个模型“席位”
+### AI：三个模型“席位”
 
 模型按**角色（席位）**组织，而不是按厂商。每个席位按任务选择：
 
@@ -171,11 +215,21 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 你无需选择 SDK 或端点；系统会根据模型 ID 自动推导。
 
-## 费用护栏
+### 费用护栏
 
 每个任务都可以设置步数上限和预算。运行前，引擎会为每个席位的模型**锁定价格快照**（fail-closed：价格未知时拒绝运行）。花费达到预算后执行即停止，报告中会显示实际花费和 Token。
 
-## 术语表
+### 系统管理
+
+**系统管理**页面（仅管理员）提供三项工具。
+
+**一键自更新。** Updater 堆栈由安装器自动部署，因此安装完成后即可使用。打开**系统管理 → 系统更新**，选择版本并确认；它会先运行测试，然后在 CodeBuild 中执行 `cdk deploy`。无需 GitHub Token：仓库为公开，更新会直接 clone。Token 为可选，只用于提高 GitHub API 速率限制；若在**系统管理**中设置，它会存储在 Secrets Manager（`playagent/github`）中，之后不会再显示。使用的是 Fork？请以 `-c githubRepo=owner/name` 部署。更新按钮会以高权限重新部署 IAM 和各类资源，因此只有管理员能看到，且每次运行都会被记录。设计说明：[docs/design/self-update.md](docs/design/self-update.md)。
+
+**集中式日志。** 用于调试的跨服务日志查看器。它使用 CloudWatch Logs Insights，一次搜索所有服务的 CloudWatch 日志（控制平面 API、engine、dispatcher、WebSocket、两个 Fargate Runner、系统自更新与镜像构建 CodeBuild），可按服务筛选、设置时间范围（最近 15 分钟 / 1 小时 / 3 小时 / 24 小时）和关键字。结果按最新优先排序，并可下载。仅限管理员。设计说明：[docs/design/centralized-logs.md](docs/design/centralized-logs.md)。
+
+**UI-TARS 开关。** 管理员可在此开启或关闭可选的 GPU 定位模型，仅在开启期间计费。设置与细节请见[手动安装](#手动安装)中的“可选：UI-TARS 定位模型”。
+
+### 术语表
 
 - **Seat（席位）**：模型角色（Agent / VLM / Subagent），而不是厂商。
 - **VLM**：Vision-Language Model（视觉语言模型）；读取截图并定位坐标。
@@ -187,48 +241,11 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 ---
 
-# 🚀 在全新 AWS 账户上安装
+## 手动安装
 
-## 最简单：在 AWS CloudShell 运行一行命令（无需下载任何东西）
+想从自己的电脑部署，或需要某项一次性的可选设置？请使用以下路径。[快速开始](#快速开始)中的 CloudShell 一行命令是最简单的方式，本节涵盖其余所有情况。
 
-只需要浏览器，不用在电脑上安装任何东西。
-
-1. 以管理员身份登录 AWS 控制台。
-2. 先在目标区域启用 Bedrock 模型，默认是 **美国西部（俄勒冈）us-west-2**（[第 3 步](#第-3-步开启-ai-模型amazon-bedrock)）。不启用的话，每次测试运行都会失败。
-3. 点击控制台顶部栏的 `>_` 图标打开 **CloudShell**。
-4. 粘贴这行命令（换成你自己的 Email）：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
-```
-
-要使用其他区域，在后面加上 `--region <region>`：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com --region ap-northeast-1
-```
-
-- 不加 `--region` 时，无论控制台当前显示哪个区域，都会部署到 `us-west-2`。脚本刻意忽略 CloudShell 自身的区域。
-- 所选区域必须已启用 Bedrock 模型。默认模型使用 `us.` 跨区域推理配置文件，非美国区域可能需要改用其他模型 ID。
-- Device Farm 真机始终在 `us-west-2` 运行，因为 AWS 只在该区域提供 Device Farm。
-- `--no-wait` 会启动构建后直接退出，不等待完成。
-
-`scripts/cloudshell-install.sh` 会做这些事：
-
-- 如果这个账户/区域从未做过 CDK bootstrap，就做一次。这是唯一需要管理员权限的步骤。
-- 创建只信任 CodeBuild 的 IAM 角色 `playagent-installer`，附加最小权限策略 [`infra/iam/playagent-deployer-policy.json`](infra/iam/playagent-deployer-policy.json)。构建过程不使用 AdministratorAccess。
-- 创建 CodeBuild 项目 `playagent-installer`，由它 clone 公开的 GitHub 仓库并运行同一份部署核心（`scripts/deploy-latest.mjs`）。不需要 EC2 实例。
-- 实时显示构建日志，完成后输出网站 URL。
-
-该策略只允许构建代入本账户的 CDK bootstrap 角色、读取 PlayAgent stack、推送两个 Runner 镜像、创建 Cognito 管理员，以及写入 `/playagent/*` SSM 参数。CloudFormation 的变更通过 CDK 的 `cdk-hnb659fds-cfn-exec-role` 执行，它默认有管理员权限，所以能部署的人仍可通过 CloudFormation 创建资源。
-
-安装约需 30–60 分钟。关闭 CloudShell 不会中断安装：构建会在 CodeBuild 中继续运行，进度可在 CodeBuild 控制台查看。
-
-管理员账户通过 Cognito 的 Email 邀请创建。你会收到一封含临时密码的邮件，首次登录时网页会要求你设置新密码（至少 8 个字符，需包含大写字母、小写字母和数字）。
-
-要更新到最新的 `main`，再运行一次同一行命令即可。
-
-## Windows 和 macOS 推荐：一键安装／更新到最新版
+### Windows 和 macOS 推荐：一键安装／更新到最新版
 
 先安装 **Node.js 22、AWS CLI v2、Git、Docker Desktop**，完成 AWS 登录并启用下文列出的 Bedrock 模型。然后 clone 仓库并运行：
 
@@ -269,7 +286,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 >
 > **在 `cdk destroy` 后重装：**数据桶、Cognito User Pool 和 Runner ECR 都有 `Retain` 保护。安装器会检测并复用保留的 ECR，避免同名 Repository 阻塞重装；但不会自动删除或接管旧数据桶/User Pool。若要真正完全清空，请先备份，再明确删除这些保留资源。
 
-## 手动安装（分步说明）
+### 手动安装（分步说明）
 
 本节假设你**没有任何 AWS 使用经验**。请从上到下依次操作。总耗时约 **60–90 分钟**，大部分时间在等待 AWS。
 
@@ -277,7 +294,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 >
 > 命令以 **bash** 编写（macOS、Linux、Git Bash、WSL）。在 Windows PowerShell 中，请用 `$env:NAME="value"` 设置变量，而不是 `NAME=value command`。
 
-## 第 0 步：在电脑上安装工具
+#### 第 0 步：在电脑上安装工具
 
 | 工具 | 用途 | 安装 |
 | --- | --- | --- |
@@ -293,7 +310,7 @@ git --version
 
 你**不需要** Docker；容器镜像在云端构建（AWS CodeBuild）。
 
-## 第 1 步：获取代码
+#### 第 1 步：获取代码
 
 ```bash
 git clone https://github.com/hoycdanny/playagent-checker.git
@@ -301,7 +318,7 @@ cd playagent-checker
 npm install
 ```
 
-## 第 2 步：将 AWS CLI 连接到账户
+#### 第 2 步：将 AWS CLI 连接到账户
 
 向账户所有者索取 **Access Key ID** 和 **Secret Access Key**（AWS 控制台 → IAM → Users → Security credentials → Create access key）。然后：
 
@@ -317,7 +334,7 @@ aws sts get-caller-identity   # 应输出你的账户编号
 
 > 该凭据必须能够创建 Lambda、S3、Cognito、API Gateway、IAM、ECS、EC2、ECR、CodeBuild、SageMaker、Bedrock 和 CloudFront 资源。首次设置时，使用管理员用户（`AdministratorAccess`）最简单。
 
-## 第 3 步：开启 AI 模型（Amazon Bedrock）
+#### 第 3 步：开启 AI 模型（Amazon Bedrock）
 
 新账户的 Bedrock 模型默认**关闭**。需要启用一次，否则每次运行都会失败。
 
@@ -331,7 +348,7 @@ aws sts get-caller-identity   # 应输出你的账户编号
    - **Amazon – Titan Text Embeddings V2**（知识库搜索）
 4. 等待状态变为 **Access granted**。评估阶段启用该区域的所有模型也没问题；应用会为每个席位列出所有可用模型。
 
-## 第 4 步：准备 CDK（每个账户一次）
+#### 第 4 步：准备 CDK（每个账户一次）
 
 ```bash
 cd infra
@@ -340,7 +357,7 @@ npx cdk bootstrap aws://ACCOUNT_ID/us-west-2
 
 将 `ACCOUNT_ID` 替换为第 2 步输出的账户编号。
 
-## 第 5 步：部署后端
+#### 第 5 步：部署后端
 
 在 `infra/` 目录下执行：
 
@@ -371,7 +388,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 - **ApiUrl**：`https://xxxx.execute-api.us-west-2.amazonaws.com`
 - **WsUrl**：`wss://xxxx.execute-api.us-west-2.amazonaws.com/prod`
 
-## 第 6 步：构建 Runner 镜像（必需）
+#### 第 6 步：构建 Runner 镜像（必需）
 
 Web 和 Device Farm Runner 使用你 ECR 中的容器镜像运行。镜像通过 CodeBuild 在云端构建，因此不会有大文件下载到你的电脑。
 
@@ -392,7 +409,7 @@ node cloudBuildWebRunner.mjs
 
 > `PA_SM_BUCKET` 为必填项，请设置为你自己的 Foundation 堆栈输出的 DataBucket；脚本不再包含任何特定账户的桶默认值。
 
-## 第 7 步：构建 Web 控制台
+#### 第 7 步：构建 Web 控制台
 
 ```bash
 cd ../../web
@@ -408,7 +425,7 @@ npm run build
 
 构建前，将每个 `PASTE_...` 替换为第 5 步得到的值。
 
-## 第 8 步：部署 Web 控制台
+#### 第 8 步：部署 Web 控制台
 
 ```bash
 cd ../infra
@@ -419,7 +436,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 
 打开输出的 `https://xxxx.cloudfront.net` 地址，应能看到登录页面。
 
-## 第 9 步：创建第一个（管理员）登录账号
+#### 第 9 步：创建第一个（管理员）登录账号
 
 自助注册是有意禁用的。最简单的方式是使用上面的一键安装器。手动设置时，运行下面的工具；程序会以隐藏输入方式询问密码，因此密码不会出现在命令或 shell history 中。除非确实需要隔离不同 tenant，否则使用默认的 `default`。
 
@@ -438,7 +455,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 
 之后，其他用户都在**成员管理**页面创建。
 
-## 第 10 步：登录并运行第一个测试
+#### 第 10 步：登录并运行第一个测试
 
 打开 CloudFront URL 并登录，会进入**指南**页面。然后：
 
@@ -453,19 +470,7 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 
 ---
 
-## 可选：一键系统更新
-
-Updater 堆栈由安装器自动部署，因此安装完成后即可使用。要更新时，打开**系统管理 → 系统更新**，选择版本并确认;它会先运行测试，然后在 CodeBuild 中执行 `cdk deploy`。
-
-无需 GitHub Token：仓库为公开，更新会直接 clone。Token 为可选，只用于提高 GitHub API 速率限制;若在**系统管理**中设置，它会存储在 Secrets Manager（`playagent/github`）中，之后不会再显示。使用的是 Fork？请以 `-c githubRepo=owner/name` 部署。
-
-更新按钮会以高权限重新部署 IAM 和各类资源，因此只有管理员能看到，且每次运行都会被记录。设计说明：[docs/design/self-update.md](docs/design/self-update.md)。
-
-## 集中式日志
-
-**系统管理 → 集中式日志**是用于调试的跨服务日志查看器。它使用 CloudWatch Logs Insights，一次搜索所有服务的 CloudWatch 日志（控制平面 API、engine、dispatcher、WebSocket、两个 Fargate Runner、系统自更新与镜像构建 CodeBuild），可按服务筛选、设置时间范围（最近 15 分钟 / 1 小时 / 3 小时 / 24 小时）和关键字。结果按最新优先排序，并可下载。仅限管理员。设计说明：[docs/design/centralized-logs.md](docs/design/centralized-logs.md)。
-
-## 可选：UI-TARS 定位模型
+### 可选：UI-TARS 定位模型
 
 UI-TARS-1.5-7B 是一个 GUI 定位模型，在小按钮上可能更精确。它**默认关闭**，因为其 GPU **开启期间约 US$62.5 / 天**。目前只有 Device Farm 真机运行环境会使用它；其他运行环境会回退到 Bedrock 视觉模型。
 
@@ -493,7 +498,7 @@ UI-TARS-1.5-7B 是一个 GUI 定位模型，在小按钮上可能更精确。它
 
 更多信息：[docs/design/uitars-sagemaker-grounding.md](docs/design/uitars-sagemaker-grounding.md)。
 
-## 可选：Windows PC 游戏（GameLift Streams）
+### 可选：Windows PC 游戏（GameLift Streams）
 
 **在 Windows 机器上**运行一次（它会为 GPU 主机打包 Windows 工具）：
 
@@ -505,7 +510,7 @@ $env:AWS_REGION="us-west-2"; node setup.mjs --capacity 2
 
 它会创建 GameLift Streams 应用和一个**没有常驻容量**的串流组（没有测试运行时不计费），最多支持 2 个并发运行。之后提交任务时会出现 **Windows** 运行环境。首次启动需要 10–15 分钟；每次运行上限 60 分钟。修改 Windows 主机脚本后需重新运行 `setup.mjs`；系统自更新不涵盖这部分。
 
-## 启用费用分析页面
+### 启用费用分析页面
 
 **费用分析**页面会把真实 AWS 账单（来自 Cost Explorer）与任务估算（Token × 单价）并排显示。估算功能立即可用。如需查看真实账单，每个账户需设置一次：
 
