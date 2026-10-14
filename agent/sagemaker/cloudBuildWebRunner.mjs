@@ -19,8 +19,10 @@ import { packSource } from './packSource.mjs';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = join(HERE, '..');           // agent/
 const REGION = process.env.PA_SM_REGION || process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2';
-const BUCKET = process.env.PA_SM_BUCKET?.trim();
-if (!BUCKET) throw new Error('PA_SM_BUCKET is required');
+// 來源 zip 的暫存桶:手動建置用 PA_SM_BUCKET;自更新器(updater-stack)環境沒有它,
+// 退回用資料桶 PA_DATA_BUCKET(更新器角色對它有讀寫權限),否則任何 agent/ 變更的自更新都會卡在這。
+const BUCKET = (process.env.PA_SM_BUCKET || process.env.PA_DATA_BUCKET || '').trim();
+if (!BUCKET) throw new Error('PA_SM_BUCKET or PA_DATA_BUCKET is required');
 const IMAGE_REPO = 'playagent-web-runner';
 const PROJECT = 'playagent-web-runner-build';
 const ROLE_NAME = 'PlayAgentCodeBuildUitarsRole';
