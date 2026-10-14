@@ -227,6 +227,7 @@ async function outer(o) {
     await requireCommand('git', 'https://git-scm.com/downloads');
     const isRepo = await succeeds('git', ['-C', CALLER_ROOT, 'rev-parse', '--is-inside-work-tree']);
     for (let round = 1; round <= 3; round++) {
+      if (process.env.PA_PROGRESS) console.log(`PA_PREPARE|${round}`);
       step(`取得最新版 (${o.repositoryUrl} / ${o.branch}),第 ${round} 輪`);
       let work, sha, isWorktree = false;
       if (isRepo) {
@@ -324,8 +325,18 @@ async function inner(o) {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '');
   const logFile = join(logDir, `deploy-${stamp}-${o.sourceSha.slice(0, 12)}-${process.platform}.log`);
   logStream = createWriteStream(logFile, { flags: 'a' });
+  // 進度標記:只在 PA_PROGRESS=1(CloudShell/CodeBuild)時輸出,讓 CloudShell 顯示 [i/N] 進度;
+  // 本機安裝器不設這個環境變數,看到的是原本的詳細輸出,不會被標記污染。
+  const PA_EMIT = !!process.env.PA_PROGRESS;
+  const stepsTotal = o.skipTests ? 12 : 13;
+  let stepNo = 0;
+  const pstep = (key, label) => {
+    stepNo += 1;
+    if (PA_EMIT) { const m = `PA_STEP|${key}|${stepNo}|${stepsTotal}`; console.log(m); logStream?.write(`${m}\n`); }
+    step(label);
+  };
   try {
-    step('檢查工具與 AWS 身分');
+    pstep('tools', '檢查工具與 AWS 身分');
     await requireCommand('node', 'Node.js 22 LTS:https://nodejs.org/');
     await requireCommand('npm', 'Node.js 22 LTS:https://nodejs.org/');
     await requireCommand('aws', 'AWS CLI v2:https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html');
@@ -361,10 +372,10 @@ async function inner(o) {
     const foundationExists = await succeeds('aws', ['cloudformation', 'describe-stacks', '--region', o.region, '--stack-name', names.foundation]);
     if (!foundationExists) warn('Foundation stack 不存在:將建立新資料桶與 Cognito User Pool;Retain 的舊資料不會自動接管。');
 
-    step('以 lockfile 安裝相依套件');
+    pstep('deps', '以 lockfile 安裝相依套件');
     await run('npm', ['ci', '--no-audit', '--no-fund'], { cwd: o.sourceRoot });
     if (!o.skipTests) {
-      step('執行部署前檢查');
+      pstep('tests', '執行部署前檢查');
       await run('npm', ['run', 'test:web'], { cwd: o.sourceRoot });
       await run('npm', ['run', 'test:worker'], { cwd: o.sourceRoot });
       await run('npx', ['tsc', '--noEmit', '-p', '.'], { cwd: join(o.sourceRoot, 'infra') });
@@ -376,9 +387,9 @@ async function inner(o) {
       // cdk deploy still enforces the minimum bootstrap version itself.
       const toolkit = await toolkitStatus(o.region);
       if (TOOLKIT_READY.test(toolkit) && !o.forceBootstrap) {
-        step(`CDK bootstrap 已存在(${toolkit}),略過`);
+        pstep('bootstrap', `CDK bootstrap 已存在(${toolkit}),略過`);
       } else {
-        step('CDK bootstrap');
+        pstep('bootstrap', 'CDK bootstrap');
         try {
           await run('npx', ['cdk', 'bootstrap', `aws://${account}/${o.region}`], { cwd: join(o.sourceRoot, 'infra') });
         } catch (e) {
@@ -387,7 +398,7 @@ async function inner(o) {
       }
     }
 
-    step('建立 Foundation、Execution 與 ECR repositories');
+    pstep('foundation', '建立 Foundation、Execution 與 ECR repositories');
     const executionExists = await succeeds('aws', ['cloudformation', 'describe-stacks', '--region', o.region, '--stack-name', names.execution]);
     const exploreExists = await succeeds('aws', ['ecr', 'describe-repositories', '--region', o.region, '--repository-names', 'playagent-exploration-runner']);
     const webExists = await succeeds('aws', ['ecr', 'describe-repositories', '--region', o.region, '--repository-names', 'playagent-web-runner']);
@@ -407,7 +418,7 @@ async function inner(o) {
     const fo = await stackOutputs(names.foundation, o.region);
     const poolId = outputStarting(fo, 'AuthUserPoolId');
     if (!poolId) fail('Foundation stack 找不到 Cognito User Pool ID');
-    step('建立／更新 Cognito 管理員');
+    pstep('admin', '建立／更新 Cognito 管理員');
     try {
       const userArgs = [
         join(o.sourceRoot, 'agent', 'sagemaker', 'createUser.mjs'),
@@ -416,15 +427,16 @@ async function inner(o) {
         '--pool-id', poolId,
         '--admin',
       ];
-      // 邀請模式:Cognito 寄臨時密碼到信箱,第一次登入時自己設密碼(密碼完全不經過安裝流程)。
-      if (o.adminInvite && !adminPassword) await run(process.execPath, [...userArgs, '--invite'], { cwd: o.sourceRoot });
+      // 邀請模式:Cognito 寄含臨時密碼的信,並把同一組臨時密碼寫進短效 SSM 參數,
+      // 讓安裝器在結束時顯示在畫面上(讀取後立刻刪除)。第一次登入時使用者自設新密碼。
+      if (o.adminInvite && !adminPassword) await run(process.execPath, [...userArgs, '--invite', '--temp-pw-param', `/playagent/${prefix}/admin-temp-password`], { cwd: o.sourceRoot });
       else await run(process.execPath, [...userArgs, '--password-stdin'], { cwd: o.sourceRoot, input: adminPassword });
     } finally {
       adminPassword?.fill(0);
       adminPassword = null;
     }
 
-    step('由同一個 Git SHA 建置並推送 runner images');
+    pstep('images', '由同一個 Git SHA 建置並推送 runner images');
     const registry = `${account}.dkr.ecr.${o.region}.amazonaws.com`;
     const password = await capture('aws', ['ecr', 'get-login-password', '--region', o.region]);
     await run('docker', ['login', '--username', 'AWS', '--password-stdin', registry], { input: `${password}\n` });
@@ -447,10 +459,10 @@ async function inner(o) {
       digests[r.name] = shaDigest; info(color(C.green, `  OK ${r.name}:${o.sourceSha.slice(0, 12)} = latest = ${shaDigest}`));
     }
 
-    step('鎖定 ECS task definitions 到 Git SHA'); await deployStacks(o, [names.execution], o.sourceSha, 1);
-    step('部署 Scheduling 與 ControlPlane'); await deployStacks(o, [names.scheduling, names.control], o.sourceSha);
+    pstep('pin_ecs', '鎖定 ECS task definitions 到 Git SHA'); await deployStacks(o, [names.execution], o.sourceSha, 1);
+    pstep('scheduling', '部署 Scheduling 與 ControlPlane'); await deployStacks(o, [names.scheduling, names.control], o.sourceSha);
 
-    step('由 Stack outputs 產生前端設定並建置');
+    pstep('frontend_build', '由 Stack outputs 產生前端設定並建置');
     const co = await stackOutputs(names.control, o.region);
     const clientId = outputStarting(fo, 'AuthUserPoolClientId');
     const apiUrl = outputStarting(co, 'ApiUrl'), wsUrl = outputStarting(co, 'WsUrl');
@@ -460,14 +472,14 @@ async function inner(o) {
     const dist = join(o.sourceRoot, 'web', 'dist'); rmSync(dist, { recursive: true, force: true });
     await run('npm', ['run', 'build:web'], { cwd: o.sourceRoot });
     if (!filesRecursive(join(dist, 'assets')).some((f) => readFileSync(f).includes(apiUrl))) fail('前端 bundle 沒有正確嵌入 API URL');
-    step('部署前端'); await deployStacks(o, [names.frontend], o.sourceSha, 1);
+    pstep('frontend', '部署前端'); await deployStacks(o, [names.frontend], o.sourceSha, 1);
 
     // 系統更新器(Updater):建立「系統管理頁 → 一鍵更新」用的 CodeBuild 專案。
     // 它刻意不在核心清單裡(一鍵更新時不自我修改),但乾淨安裝必須一併建立,
     // 否則新環境的一鍵更新沒有後端專案可用。倉庫已公開,Updater 不需要 GitHub token。
-    step('部署系統更新器(Updater)'); await deployStacks(o, [`${prefix}-Updater`], o.sourceSha);
+    pstep('updater', '部署系統更新器(Updater)'); await deployStacks(o, [`${prefix}-Updater`], o.sourceSha);
 
-    step('部署後驗證');
+    pstep('verify', '部署後驗證');
     for (const s of Object.values(names)) await verifyStack(s, o.region);
     const resources = JSON.parse(await capture('aws', ['cloudformation', 'list-stack-resources', '--region', o.region, '--stack-name', names.execution, '--output', 'json']));
     const taskDefs = resources.StackResourceSummaries.filter((x) => x.ResourceType === 'AWS::ECS::TaskDefinition');
