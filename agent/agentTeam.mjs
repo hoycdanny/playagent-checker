@@ -280,7 +280,7 @@ const SUMMARY_SYSTEM = `你是遊戲自動化測試的「輔助 Agent」。把�
  */
 export function createAgentTeam({
   bedrock, ConverseCommand, agentModel, subagentModel, task, controlsPrompt = '', knowledge = '',
-  put, prefix, log = () => {}, timeoutMs = CALL_TIMEOUT_MS,
+  scripted = false, put, prefix, log = () => {}, timeoutMs = CALL_TIMEOUT_MS,
 }) {
   const steps = scriptSteps(task);
   const tokens = { agent: { input: 0, output: 0 }, subagent: { input: 0, output: 0 } };
@@ -405,6 +405,7 @@ export function createAgentTeam({
         : '(視覺 Agent 沒有列出元件)';
       const sug = suggestion?.action ? `${suggestion.action}${suggestion.target ? ` → ${suggestion.target}` : ''}${suggestion.dir ? ` dir=${suggestion.dir}` : ''}` : '—';
       const user = [
+        scripted ? '【最高原則|測項為主】只做下面測試腳本列出的測項,逐項對照預期結果判定通過或失敗。知識庫只是幫你看懂畫面,嚴禁主動延伸去測知識庫提到、但腳本沒列的玩法或功能(例如多轉幾局、刷任務、逛其他頁面)。所有測項都判定完成後,立刻用 done 結束,不要多做。' : '',
         `【測試腳本】\n${scriptText()}`,
         `【目前進度】腳本第 ${scriptStep} / ${Math.max(1, steps.length)} 步`,
         plan ? `【上一步】動作:${plan.actionText || '—'};目標:${plan.goal}(預期:${plan.expect || '—'})` : '',
@@ -507,6 +508,7 @@ export function createAgentTeam({
     async verifyDone({ index, observation }) {
       if (!enabled.subagent) return null;
       const user = [
+        scripted ? '【核對範圍|測項為主】只依下面測試腳本列出的測項判斷是否完成;腳本沒列的項目(即使知識庫有提到)不算缺漏,不要因此判未完成。' : '',
         `【測試腳本】\n${scriptText()}`,
         `【目前進度】腳本第 ${scriptStep} / ${Math.max(1, steps.length)} 步`,
         summary ? `【進度摘要】\n${summary}` : '',

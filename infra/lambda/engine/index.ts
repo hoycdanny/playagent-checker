@@ -142,6 +142,7 @@ async function readJobMeta(
   controls?: { ids: string[]; source: 'case' | 'genre' };
   maxHours?: number;
   display?: { width: number; height: number };
+  scripted?: boolean;
 } | null> {
   try {
     const res = await s3.send(
@@ -165,6 +166,7 @@ async function readJobMeta(
       controls?: { ids?: unknown; source?: string };
       maxHours?: number;
       display?: { width?: unknown; height?: unknown };
+      scripted?: boolean;
     };
     return {
       appId: job.appId ?? '',
@@ -186,6 +188,7 @@ async function readJobMeta(
       ...(job.display && Number.isInteger(job.display.width) && Number.isInteger(job.display.height)
         ? { display: { width: job.display.width as number, height: job.display.height as number } }
         : {}),
+      ...(job.scripted === true ? { scripted: true } : {}),
     };
   } catch {
     return null;
@@ -208,6 +211,7 @@ async function assembleAgentContext(
   caseTask: string,
   genres: string[] = [],
   controlsSnap?: { ids: string[]; source: 'case' | 'genre' },
+  scripted = false,
 ): Promise<void> {
   if (!appId) return;
   const [knowledge, memory, kbMarkdown, kbReference, credInfo] = await Promise.all([
@@ -263,7 +267,8 @@ async function assembleAgentContext(
   const evidence = await buildEvidenceProtocol(genres, knowledgeBaseIds).catch(() => null);
   // 操作行為(控制方案):runner 據此注入操作說明、限定手勢、決定搖桿預設位置。
   const controls = controlsSnap ? buildControlsProtocol(sanitizeControls(controlsSnap.ids), controlsSnap.source) : null;
-  if (!context.trim() && !evidence && !controls) return;
+  // scripted 也要能傳到 runner,即使沒有任何知識/證據/操作段落也要寫出 context.json。
+  if (!context.trim() && !evidence && !controls && !scripted) return;
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
@@ -282,6 +287,7 @@ async function assembleAgentContext(
         context,
         ...(evidence ? { evidence } : {}),
         ...(controls ? { controls } : {}),
+        ...(scripted ? { scripted: true } : {}),
         assembledAt: new Date().toISOString(),
       }),
       ContentType: 'application/json',
@@ -404,6 +410,7 @@ export async function handler(event: EngineEvent): Promise<void> {
         meta.caseTask,
         meta.genres,
         meta.controls,
+        meta.scripted === true,
       );
     }
   } catch (ctxErr) {

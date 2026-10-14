@@ -76,6 +76,8 @@ export interface JobRecord {
   caseVersion?: string;
   /** 該版本的案例名稱快照。 */
   caseName?: string;
+  /** 案例帶結構化測項(items:)—— 執行時以測項為主、作為權威停止條件。 */
+  scripted?: boolean;
   createdAt: string;
 }
 
@@ -327,7 +329,7 @@ export async function createJob(
   tenantId: string,
   input: SubmitInput,
   artifactVersion?: string,
-  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string },
+  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string; scripted?: boolean },
 ): Promise<JobRecord> {
   const jobId = newJobId();
   const record: JobRecord = {
@@ -361,6 +363,7 @@ export async function createJob(
     ...(extra?.controls && extra.controls.ids.length > 0 ? { controls: extra.controls } : {}),
     ...(extra?.caseVersion ? { caseVersion: extra.caseVersion } : {}),
     ...(extra?.caseName ? { caseName: extra.caseName } : {}),
+    ...(extra?.scripted ? { scripted: true } : {}),
     ...(input.knowledgeBaseIds && input.knowledgeBaseIds.length > 0
       ? { knowledgeBaseIds: input.knowledgeBaseIds }
       : {}),
