@@ -1706,9 +1706,16 @@ async function main() {
     // (例如 AutoSpin 還在跑)→ 以視覺 Agent 為準,不結束。實測 job-mv1nkax6:500 局只跑了約 27 局,
     // 決策 Agent 自認「腳本最後一步」就下 done,視覺 Agent 當時是 wait。
     // 上限 60 次:避免視覺 Agent 一直誤判「還要繼續」時永遠結束不了(步數 / 預算 / 時數上限仍然有效)。
-    if (cmd.action === 'done' && cmd.decidedBy === 'agent' && cmd.visionSuggested && cmd.visionSuggested !== 'done' && agentDoneOverrides < 60) {
+    // 測項為主:使用者有明確測項、且已走到最後一項並宣告 done → 不讓視覺 Agent 推翻,
+    // 直接進入下方的「權威完成」判定(否則弱視覺模型如 Nova 會一直要求繼續 tap,測不完)。
+    const scriptAllDone = scripted && team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
+    if (cmd.action === 'done' && cmd.decidedBy === 'agent' && cmd.visionSuggested && cmd.visionSuggested !== 'done' && agentDoneOverrides < 60 && !scriptAllDone) {
       agentDoneOverrides++;
-      const back = cmd.visionSuggested;
+      let back = cmd.visionSuggested;
+      // done 本身沒有座標;若視覺建議的是需要座標的動作(tap/swipe/hold/combo)卻沒有座標,
+      // 改成 wait,避免送出「沒有位置的點擊」被 Appium 擋下(連續失敗 3 次會直接判 error)。
+      const needsXY = back === 'tap' || back === 'swipe' || back === 'hold' || back === 'combo';
+      if (needsXY && !(Number.isFinite(cmd.x) && Number.isFinite(cmd.y))) back = 'wait';
       cmd.action = back;
       if (back === 'wait') { cmd.duration = 2; cmd.x = undefined; cmd.y = undefined; }
       cmd.thinking = `[拒絕假完成] 決策 Agent 想結束,但看畫面的視覺 Agent 判斷還要繼續(${back}),第 ${agentDoneOverrides} 次以視覺為準。` + String(cmd.thinking || '');
@@ -1960,6 +1967,9 @@ async function main() {
     // AutoSpin 看守剛結束:事件幀已備好,立刻交回 AI(再等 3 秒,自動關閉的彈窗就消失了)。
     if (!spinWatched) await sleep(lastBattleMove ? 300 : 3000);
   }
+
+  // 收尾(停止並上傳整場錄影、收 log、產生報告)可能要十幾秒到一兩分鐘;先更新狀態訊息,讓前端不是乾等。
+  await writeStatus('running', '測試已結束,正在收尾:上傳錄影、整理畫面與產生報告(約需 1–2 分鐘)…', steps.length).catch(() => {});
 
   // 等最後一輪 Agent 協作寫完紀錄(最多 15 秒)。
   if (teamPending) await Promise.race([teamPending, sleep(15_000)]);
