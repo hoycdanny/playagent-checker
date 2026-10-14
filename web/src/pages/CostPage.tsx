@@ -161,7 +161,8 @@ const RANGES = [7, 14, 30, 90] as const;
 
 function usd(n: number): string {
   if (n === 0) return '$0';
-  if (Math.abs(n) < 0.01) return `$${n.toFixed(3)}`;
+  // 單筆/每局花費通常是幾分錢,顯示到小數點後四位才評估得準;金額 ≥ $1 的彙總維持兩位好讀。
+  if (Math.abs(n) < 1) return `$${n.toFixed(4)}`;
   return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 const shortDate = (d: string) => `${d.slice(5, 7)}/${d.slice(8, 10)}`;
