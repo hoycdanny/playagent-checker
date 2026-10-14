@@ -1737,6 +1737,15 @@ export function extractCaseTask(yaml: string): string | undefined {
   return text || undefined;
 }
 
+/**
+ * 案例是否帶「結構化測項」(頂層 `items:` 區塊)—— 由結構化草擬或 Excel 匯入產生。
+ * 有的話代表使用者有明確、可逐項判定的驗收標準,執行時「以測項為主」:
+ * 走完所有測項即為完成,知識庫僅供輔助,不得逼代理延伸測試或推翻完成判定。
+ */
+export function caseHasItems(yaml: string): boolean {
+  return /^items:\s*$/m.test(yaml);
+}
+
 /** 要求呼叫者為 admin(JWT cognito:groups 含 admins);否則丟 ForbiddenError → 403。 */
 function requireAdmin(claims: unknown): void {
   if (!isAdmin(claims)) throw new ForbiddenError('需要管理員權限');
@@ -2137,6 +2146,8 @@ async function handleSubmitTask(
   const pkg = appRecord?.identifier;
   // 任務目標取自「本次使用的版本」內容(不是 head,避免提交瞬間被改)。
   const caseYamlText = caseRecord.yaml;
+  // 「以測項為主」:案例含結構化測項時標記 scripted,交給引擎 → runner 作為權威停止條件。
+  const scripted = caseHasItems(caseYamlText);
   let caseTask: string | undefined = extractCaseTask(caseYamlText);
   // exploration 任務且案例未指定 task 時,依 App 類型組出「自主探索目標」,
   // 讓探索有語意(走遍該類型關鍵畫面)而非泛用亂逛。
@@ -2167,6 +2178,7 @@ async function handleSubmitTask(
       ...(genres.length > 0 ? { genres } : {}),
       ...(kbSnapshot.length > 0 ? { kbSnapshot } : {}),
       ...(controls ? { controls } : {}),
+      ...(scripted ? { scripted: true } : {}),
       caseVersion: caseRecord.version,
       caseName: caseRecord.name,
     },

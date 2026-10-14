@@ -691,11 +691,15 @@ async function main() {
   let knowledge = '';
   let evidence = null; // 證據協議(模組/機制/觀測欄位),由類型知識庫決定
   let controls = null; // 操作行為(控制方案):測試腳本勾選或類型建議,engine 組成協議
+  // 「以測項為主」:案例帶結構化測項時為 true。走完所有測項並宣告完成即為權威完成,
+  // 輔助 Agent(靠知識庫/弱模型)不得推翻,避免用錯誤理由逼測試延伸到腳本以外。
+  let scripted = false;
   try {
     const ctx = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/context.json` }))).Body.transformToString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
     if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
     if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
+    if (ctx && ctx.scripted === true) scripted = true;
   } catch { /* 無則略過 */ }
   // 操作行為:允許的動作集合(null = 未指定,不限定)。
   const allowedActions = controls ? new Set(controls.allowedActions) : null;
@@ -849,7 +853,7 @@ async function main() {
   const team = process.env.PA_AGENT_TEAM !== '0' && (AGENT_MODEL || SUBAGENT_MODEL)
     ? createAgentTeam({
       bedrock, ConverseCommand, agentModel: AGENT_MODEL, subagentModel: SUBAGENT_MODEL, task: TASK,
-      controlsPrompt: controls?.prompt ?? '', knowledge, put: s3put, prefix: PREFIX, log: (m) => console.log(m),
+      controlsPrompt: controls?.prompt ?? '', knowledge, scripted, put: s3put, prefix: PREFIX, log: (m) => console.log(m),
     })
     : null;
   console.log('Agent 協作', team ? `決策=${AGENT_MODEL || '停用'} 輔助=${SUBAGENT_MODEL || '停用'}` : '停用(只用視覺 Agent)');
@@ -1694,9 +1698,16 @@ async function main() {
         step.action = cmd.action; step.override = 'reject_done'; step.thinking = cmd.thinking; delete step.expect;
         stuckCount = 0;
       } else {
-        // 輔助 Agent 核對「完成」宣告:證據不足就退回繼續(最多 3 次,之後交給視覺 Agent 判斷)。
-        // 測試人員正在指揮時不擋。核對失敗 / 無法核對 → 照舊結束。
-        const vd = team && !operatorDirected && teamDoneRejects < 3
+        // 【以測項為主】案例帶結構化測項(scripted)且已走到最後一項並宣告完成 → 權威完成:
+        // 直接通過,不讓輔助 Agent(靠知識庫 / 弱模型)用錯誤理由或知識庫延伸項目逼測試繼續。
+        // 這是客戶「我只叫它進畫面就結束」卻被硬測到玩 slot、最後誤判 FAIL 的根因修正。
+        const reachedAllItems = team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
+        const authoritativeDone = scripted && reachedAllItems;
+        // 輔助 Agent 核對「完成」宣告:證據不足就退回繼續。
+        // scripted(測項為主)時最多核對 1 次就放行,避免弱模型反覆否決;一般探索維持 3 次。
+        // 測試人員指揮中、或已是權威完成時不再核對。核對失敗 / 無法核對 → 照舊結束。
+        const vetoCap = scripted ? 1 : 3;
+        const vd = team && !operatorDirected && !authoritativeDone && teamDoneRejects < vetoCap
           ? await team.verifyDone({ index: i, observation: { screen: cmd.screen, thinking: cmd.thinking, obs: cmd.obs } }).catch(() => null)
           : null;
         if (vd && vd.ok === false) {
@@ -1706,11 +1717,16 @@ async function main() {
           cmd.thinking = `[拒絕假完成] 輔助 Agent 核對未通過(第 ${teamDoneRejects} 次):${vd.missing || '腳本還沒全部完成'}。` + String(cmd.thinking || '');
           cmd.override = 'reject_done';
           step.action = 'wait'; step.override = 'reject_done'; step.thinking = cmd.thinking; step.doneCheck = vd; delete step.expect;
-          controlNote = `【輔助 Agent 核對】你宣告測試完成,但還缺:${vd.missing || '腳本還沒全部完成'}。請繼續完成測試腳本,不要再提早 done。`;
+          controlNote = scripted
+            ? `【提醒|測項為主】還差:${vd.missing || '腳本項目未完成'}。只需完成測試腳本列出的測項;知識庫僅供理解遊戲,不要延伸腳本以外的玩法(例如多餘的轉動 / 刷任務)。所有測項完成後即可 done。`
+            : `【輔助 Agent 核對】你宣告測試完成,但還缺:${vd.missing || '腳本還沒全部完成'}。請繼續完成測試腳本,不要再提早 done。`;
           stuckCount = 0;
         } else {
           if (vd) step.doneCheck = vd;
-          finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break;
+          finalState = 'pass';
+          finalMsg = cmd.thinking || (authoritativeDone ? '所有測項完成,任務結束' : '流程完成');
+          if (authoritativeDone) console.log(`[測項為主] 已走完所有測項(${team.scriptStep}/${team.scriptTotal})且宣告完成 → 直接通過,不經輔助 Agent 推翻。`);
+          break;
         }
       }
     }
