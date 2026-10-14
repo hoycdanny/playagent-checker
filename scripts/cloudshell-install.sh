@@ -249,6 +249,97 @@ T[zh-Hans.done_update]=" 之后要更新:再执行同一行命令即可。"
 T[ja.done_update]=" 後で更新:同じコマンドを再実行するだけです。"
 T[ko.done_update]=" 나중에 업데이트: 같은 명령을 다시 실행하면 됩니다."
 
+T[en.inst_running]="==> Installing. Progress below (each step; closing CloudShell keeps it running in AWS):"
+T[zh-Hant.inst_running]="==> 安裝中,下面是進度(逐步顯示;關掉 CloudShell 也會繼續在 AWS 上跑):"
+T[zh-Hans.inst_running]="==> 安装中,下面是进度(逐步显示;关掉 CloudShell 也会继续在 AWS 上跑):"
+T[ja.inst_running]="==> インストール中。以下は進捗(各ステップ。CloudShell を閉じても AWS 上で継続します):"
+T[ko.inst_running]="==> 설치 중. 아래는 진행 상황(각 단계. CloudShell 을 닫아도 AWS 에서 계속 실행됩니다):"
+T[en.s_prepare]="Preparing the latest source"
+T[zh-Hant.s_prepare]="準備最新版原始碼"
+T[zh-Hans.s_prepare]="准备最新版源码"
+T[ja.s_prepare]="最新ソースを準備"
+T[ko.s_prepare]="최신 소스 준비"
+T[en.s_tools]="Check tools & AWS identity"
+T[zh-Hant.s_tools]="檢查工具與 AWS 身分"
+T[zh-Hans.s_tools]="检查工具与 AWS 身份"
+T[ja.s_tools]="ツールと AWS ID を確認"
+T[ko.s_tools]="도구와 AWS 자격 증명 확인"
+T[en.s_deps]="Install dependencies (lockfile)"
+T[zh-Hant.s_deps]="安裝相依套件(lockfile)"
+T[zh-Hans.s_deps]="安装依赖(lockfile)"
+T[ja.s_deps]="依存関係をインストール(lockfile)"
+T[ko.s_deps]="의존성 설치(lockfile)"
+T[en.s_tests]="Run pre-deploy checks"
+T[zh-Hant.s_tests]="執行部署前檢查"
+T[zh-Hans.s_tests]="执行部署前检查"
+T[ja.s_tests]="デプロイ前チェック"
+T[ko.s_tests]="배포 전 점검 실행"
+T[en.s_bootstrap]="CDK bootstrap"
+T[zh-Hant.s_bootstrap]="CDK bootstrap"
+T[zh-Hans.s_bootstrap]="CDK bootstrap"
+T[ja.s_bootstrap]="CDK bootstrap"
+T[ko.s_bootstrap]="CDK bootstrap"
+T[en.s_foundation]="Deploy Foundation, Execution & ECR"
+T[zh-Hant.s_foundation]="部署 Foundation、Execution 與 ECR"
+T[zh-Hans.s_foundation]="部署 Foundation、Execution 与 ECR"
+T[ja.s_foundation]="Foundation・Execution・ECR をデプロイ"
+T[ko.s_foundation]="Foundation, Execution, ECR 배포"
+T[en.s_admin]="Create the admin account"
+T[zh-Hant.s_admin]="建立管理員帳號"
+T[zh-Hans.s_admin]="创建管理员账号"
+T[ja.s_admin]="管理者アカウントを作成"
+T[ko.s_admin]="관리자 계정 생성"
+T[en.s_images]="Build & push runner images"
+T[zh-Hant.s_images]="建置並推送 runner 映像"
+T[zh-Hans.s_images]="构建并推送 runner 镜像"
+T[ja.s_images]="ランナーイメージをビルド&プッシュ"
+T[ko.s_images]="러너 이미지 빌드 및 푸시"
+T[en.s_pin_ecs]="Pin ECS task definitions"
+T[zh-Hant.s_pin_ecs]="鎖定 ECS task definitions"
+T[zh-Hans.s_pin_ecs]="锁定 ECS task definitions"
+T[ja.s_pin_ecs]="ECS タスク定義を固定"
+T[ko.s_pin_ecs]="ECS 작업 정의 고정"
+T[en.s_scheduling]="Deploy Scheduling & ControlPlane"
+T[zh-Hant.s_scheduling]="部署 Scheduling 與 ControlPlane"
+T[zh-Hans.s_scheduling]="部署 Scheduling 与 ControlPlane"
+T[ja.s_scheduling]="Scheduling と ControlPlane をデプロイ"
+T[ko.s_scheduling]="Scheduling 과 ControlPlane 배포"
+T[en.s_frontend_build]="Build the web frontend"
+T[zh-Hant.s_frontend_build]="建置前端網站"
+T[zh-Hans.s_frontend_build]="构建前端网站"
+T[ja.s_frontend_build]="フロントエンドをビルド"
+T[ko.s_frontend_build]="프런트엔드 빌드"
+T[en.s_frontend]="Deploy the frontend"
+T[zh-Hant.s_frontend]="部署前端"
+T[zh-Hans.s_frontend]="部署前端"
+T[ja.s_frontend]="フロントエンドをデプロイ"
+T[ko.s_frontend]="프런트엔드 배포"
+T[en.s_updater]="Deploy the Updater (one-click update)"
+T[zh-Hant.s_updater]="部署更新器(一鍵更新)"
+T[zh-Hans.s_updater]="部署更新器(一键更新)"
+T[ja.s_updater]="アップデータをデプロイ(ワンクリック更新)"
+T[ko.s_updater]="업데이터 배포(원클릭 업데이트)"
+T[en.s_verify]="Verify the deployment"
+T[zh-Hant.s_verify]="部署後驗證"
+T[zh-Hans.s_verify]="部署后验证"
+T[ja.s_verify]="デプロイを検証"
+T[ko.s_verify]="배포 검증"
+T[en.done_pw]=" Temp password : %s"
+T[zh-Hant.done_pw]=" 臨時密碼: %s"
+T[zh-Hans.done_pw]=" 临时密码: %s"
+T[ja.done_pw]=" 仮パスワード: %s"
+T[ko.done_pw]=" 임시 비밀번호: %s"
+T[en.done_pw_note]=" (also emailed to the admin; you must change it on first sign-in)"
+T[zh-Hant.done_pw_note]=" (也已寄到管理員信箱;第一次登入時必須改掉)"
+T[zh-Hans.done_pw_note]=" (也已发到管理员邮箱;第一次登录时必须改掉)"
+T[ja.done_pw_note]=" (管理者宛てにメールも送信済み。初回ログインで必ず変更してください)"
+T[ko.done_pw_note]=" (관리자 이메일로도 발송됨. 첫 로그인 시 반드시 변경하세요)"
+T[en.done_pw_existing]=" Admin already existed — temporary password unchanged (reset it on the Members page if needed)"
+T[zh-Hant.done_pw_existing]=" 管理員原本就存在 — 臨時密碼未變更(需要的話到成員管理頁重設)"
+T[zh-Hans.done_pw_existing]=" 管理员原本就存在 — 临时密码未变更(需要的话到成员管理页重置)"
+T[ja.done_pw_existing]=" 管理者は既に存在 — 仮パスワードは変更なし(必要ならメンバー管理ページで再設定)"
+T[ko.done_pw_existing]=" 관리자가 이미 존재 — 임시 비밀번호 변경 없음(필요하면 멤버 관리 페이지에서 재설정)"
+
 t(){ local k="${LANG_CODE}.$1"; printf '%s' "${T[$k]:-${T[en.$1]:-$1}}"; }
 say(){ printf '%s\n' "$(t "$1")"; }
 sayf(){ local f; f="$(t "$1")"; shift; printf "$f\n" "$@"; }
@@ -394,7 +485,7 @@ const buildspec = [
   "  build:",
   "    commands:",
   "      - git clone --depth 1 --branch \"$PA_BRANCH\" \"$PA_REPO\" /tmp/src",
-  "      - cd /tmp/src && node scripts/deploy-latest.mjs --non-interactive --repository-url \"$PA_REPO\" --branch \"$PA_BRANCH\" --region \"$PA_REGION\" --admin-email \"$PA_ADMIN_EMAIL\" --admin-invite",
+  "      - cd /tmp/src && PA_PROGRESS=1 node scripts/deploy-latest.mjs --non-interactive --repository-url \"$PA_REPO\" --branch \"$PA_BRANCH\" --region \"$PA_REGION\" --admin-email \"$PA_ADMIN_EMAIL\" --admin-invite",
 ].join("\n");
 const env = (name, value) => ({ name, value, type: "PLAINTEXT" });
 const project = {
@@ -441,29 +532,55 @@ BUILD_ID="$(aws codebuild start-build --project-name "$NAME" \
 sayf dep_start "$BUILD_ID"
 sayf dep_console "https://$REGION.console.aws.amazon.com/codesuite/codebuild/projects/$NAME/history?region=$REGION"
 if (( ! WAIT )); then exit 0; fi
-say dep_follow
+say inst_running
 
-aws logs tail "$LOG_GROUP" --follow --format short --since 1m --log-stream-name-prefix "${BUILD_ID#*:}" &
+# 進度顯示:只呈現步驟進度([i/N]),不把 CodeBuild 原始 log 洗版到畫面上;
+# 失敗時才印出 log 末段幫忙除錯。原始 log 寫到檔案,從裡面挑 PA_STEP / PA_PREPARE 標記來呈現。
+LOGF="$WORK/build.log"
+: > "$LOGF"
+aws logs tail "$LOG_GROUP" --follow --format short --since 1m --log-stream-name-prefix "${BUILD_ID#*:}" > "$LOGF" 2>/dev/null &
 TAIL_PID=$!
 trap 'kill "$TAIL_PID" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+
+LAST=0; PREPARED=0
+render_steps() {
+  while IFS='|' read -r key idx total; do
+    [[ -z "${idx:-}" ]] && continue
+    if (( idx > LAST )); then LAST=$idx; printf '  [%s/%s] %s\n' "$idx" "$total" "$(t "s_$key")"; fi
+  done < <(grep -ao 'PA_STEP|[a-z_]*|[0-9][0-9]*|[0-9][0-9]*' "$LOGF" 2>/dev/null | sed 's/^PA_STEP|//')
+}
 STATE=IN_PROGRESS
 while [[ "$STATE" == IN_PROGRESS ]]; do
-  sleep 20
+  sleep 15
+  if (( ! PREPARED )) && grep -aq 'PA_PREPARE|' "$LOGF" 2>/dev/null; then PREPARED=1; echo "  $(t s_prepare)"; fi
+  render_steps
   STATE="$(aws codebuild batch-get-builds --ids "$BUILD_ID" --query 'builds[0].buildStatus' --output text 2>/dev/null || echo IN_PROGRESS)"
 done
-sleep 10
+sleep 6
+render_steps
 kill "$TAIL_PID" 2>/dev/null || true
 
 echo
 if [[ "$STATE" != SUCCEEDED ]]; then
   sayf dep_fail "$STATE" "$BUILD_ID" >&2
+  echo "---- log tail ----" >&2
+  tail -n 25 "$LOGF" >&2
   exit 1
 fi
+
 SITE="$(aws cloudformation describe-stacks --stack-name PlayAgentDev-Frontend --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue | [0]" --output text 2>/dev/null || true)"
+# 讀取安裝器在部署期間暫存的臨時密碼,顯示後立刻刪除(值不會留在 SSM)。
+PW="$(aws ssm get-parameter --name "/playagent/PlayAgentDev/admin-temp-password" --query Parameter.Value --output text 2>/dev/null || true)"
+if [[ -n "$PW" && "$PW" != None ]]; then aws ssm delete-parameter --name "/playagent/PlayAgentDev/admin-temp-password" >/dev/null 2>&1 || true; fi
 echo "========================================"
 say done_title
 sayf done_url "$SITE"
 sayf done_admin "$EMAIL"
-say done_first
+if [[ -n "$PW" && "$PW" != None ]]; then
+  sayf done_pw "$PW"
+  say done_pw_note
+else
+  say done_pw_existing
+fi
 say done_update
 echo "========================================"

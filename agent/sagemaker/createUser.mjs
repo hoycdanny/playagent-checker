@@ -10,7 +10,7 @@
  *   node createUser.mjs --email admin@example.com --tenant default --admin --invite
  */
 import { execFileSync } from 'node:child_process';
-import { timingSafeEqual } from 'node:crypto';
+import { randomInt, timingSafeEqual } from 'node:crypto';
 import {
   CognitoIdentityProviderClient,
   AdminAddUserToGroupCommand,
@@ -18,6 +18,7 @@ import {
   AdminGetUserCommand,
   AdminSetUserPasswordCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
+import { SSMClient, PutParameterCommand } from '@aws-sdk/client-ssm';
 import {
   promptHidden,
   readSecretFromStdin,
@@ -36,6 +37,24 @@ function flag(name) { return process.argv.includes(`--${name}`); }
 function maskedEmail(email) {
   const [local, domain] = email.split('@');
   return `${local.slice(0, 2)}***@${domain}`;
+}
+
+/**
+ * 產生一組符合 Cognito 預設密碼規則的臨時密碼(至少含大寫、小寫、數字、符號;長度 16)。
+ * 刻意避開易混淆字元(0/O/1/l/I)。
+ */
+function genTempPassword() {
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const lower = 'abcdefghijkmnpqrstuvwxyz';
+  const digit = '23456789';
+  const symbol = '!@#%*-_=+';
+  const all = upper + lower + digit + symbol;
+  const pick = (set) => set[randomInt(set.length)];
+  const chars = [pick(upper), pick(lower), pick(digit), pick(symbol)];
+  while (chars.length < 16) chars.push(pick(all));
+  // Fisher–Yates 洗牌,避免前四位固定是各類別。
+  for (let i = chars.length - 1; i > 0; i--) { const j = randomInt(i + 1); [chars[i], chars[j]] = [chars[j], chars[i]]; }
+  return chars.join('');
 }
 
 function validateInputs(email, tenant) {
@@ -93,13 +112,16 @@ async function findUser(cognito, poolId, email) {
  * 使用者第一次登入時在登入頁設定自己的密碼(NEW_PASSWORD_REQUIRED)。
  * 帳號已存在就不動密碼(重跑安裝 = 更新,不會把管理員的密碼重設掉),只確保在管理員群組。
  */
-async function invite({ poolId, email, tenant, admin }) {
+async function invite({ poolId, email, tenant, admin, tempPwParam }) {
   const cognito = new CognitoIdentityProviderClient({ region: REGION });
   const user = await findUser(cognito, poolId, email);
   if (!user) {
+    // 自己產生臨時密碼(而非讓 Cognito 自動產),這樣才能同時「寄信」又「交給安裝器顯示」。
+    const tempPw = genTempPassword();
     await cognito.send(new AdminCreateUserCommand({
       UserPoolId: poolId,
       Username: email,
+      TemporaryPassword: tempPw,
       DesiredDeliveryMediums: ['EMAIL'],
       UserAttributes: [
         { Name: 'email', Value: email },
@@ -108,6 +130,18 @@ async function invite({ poolId, email, tenant, admin }) {
       ],
     }));
     console.log(`已建立使用者並寄出邀請信:${maskedEmail(email)}(臨時密碼 7 天內有效,第一次登入時設定新密碼)`);
+    // 把臨時密碼寫進短效 SSM 參數,交給安裝器讀取後顯示並立即刪除(值不進部署 log)。
+    if (tempPwParam) {
+      try {
+        await new SSMClient({ region: REGION }).send(new PutParameterCommand({
+          Name: tempPwParam, Value: tempPw, Type: 'String', Overwrite: true,
+          Description: 'PlayAgent admin temporary password (read + deleted by the installer)',
+        }));
+        console.log(`臨時密碼已暫存到 SSM 參數供安裝器顯示:${tempPwParam}`);
+      } catch (e) {
+        console.log(`提醒:臨時密碼未能暫存到 SSM(${e?.name || e?.message || e});仍已寄送邀請信。`);
+      }
+    }
   } else {
     console.log(`使用者已存在:${maskedEmail(email)},保留原本的密碼。`);
   }
@@ -132,7 +166,7 @@ async function main() {
   }
 
   if (flag('invite')) {
-    await invite({ poolId, email, tenant, admin });
+    await invite({ poolId, email, tenant, admin, tempPwParam: arg('temp-pw-param') });
     return;
   }
 
