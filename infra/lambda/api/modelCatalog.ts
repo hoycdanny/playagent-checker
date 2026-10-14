@@ -76,7 +76,8 @@ const CATALOG_SPECS: CatalogSpec[] = [
   { modelId: 'google.gemma-3-12b-it', displayName: 'Gemma 3 12B', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'google.gemma-3-4b-it', displayName: 'Gemma 3 4B', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['vlm', 'subagent'] },
   { modelId: 'moonshotai.kimi-k2.5', displayName: 'Kimi K2.5', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
-  { modelId: 'moonshotai.kimi-k3', displayName: 'Kimi K3', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
+  // Kimi K3:實測在 smart-resize 幀回「絕對像素」座標、點位命中 10/10,屬 pixel(非供應商預設的 norm1000)。
+  { modelId: 'moonshotai.kimi-k3', displayName: 'Kimi K3', regions: ['us-west-2'], coordSystem: 'pixel', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'mistral.mistral-large-3-675b-instruct', displayName: 'Mistral Large 3', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'mistral.ministral-3-14b-instruct', displayName: 'Ministral 14B 3.0', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['agent', 'vlm', 'subagent'] },
   { modelId: 'mistral.ministral-3-3b-instruct', displayName: 'Ministral 3B', regions: ['us-west-2'], coordSystem: 'norm1000', seats: ['vlm', 'subagent'] },
