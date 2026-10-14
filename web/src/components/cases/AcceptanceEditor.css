@@ -1,19 +1,40 @@
 .acc {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.6rem;
   margin-top: 0.5rem;
+}
+
+.acc__intro {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--text-muted, #6b7280);
+}
+
+.acc__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
 }
 
 .acc__model {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+  min-width: 260px;
+}
+
+.acc__meta-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text, #374151);
 }
 
 .acc__note > summary {
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text-muted, #6b7280);
   user-select: none;
 }
@@ -25,88 +46,143 @@
   font-size: 0.85rem;
 }
 
-.acc__items {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.acc__item {
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 8px;
-  padding: 0.6rem 0.7rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  background: var(--surface, #fff);
-}
-
-.acc__item-head {
+.acc__table-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+  margin-top: 0.3rem;
 }
 
-.acc__item-no {
+.acc__table-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+}
+
+.acc__btn {
+  cursor: pointer;
+  font-size: 0.82rem;
+  border-radius: 7px;
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--primary, #2563eb);
+  background: var(--primary, #2563eb);
+  color: #fff;
+}
+
+.acc__btn--ghost {
+  background: transparent;
+  color: var(--primary, #2563eb);
+}
+
+.acc__btn--sm {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+}
+
+.acc__table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 8px;
+}
+
+.acc__table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 760px;
+  font-size: 0.82rem;
+}
+
+.acc__table th,
+.acc__table td {
+  border: 1px solid var(--border, #e5e7eb);
+  padding: 0.3rem 0.4rem;
+  vertical-align: top;
+  text-align: left;
+}
+
+.acc__table thead th {
+  background: var(--surface-2, #f3f4f6);
   font-weight: 600;
-  font-size: 0.85rem;
+  color: var(--text, #374151);
+  white-space: nowrap;
+  position: sticky;
+  top: 0;
+}
+
+.acc__table input,
+.acc__table textarea {
+  width: 100%;
+  border: 1px solid transparent;
+  background: transparent;
+  font: inherit;
+  padding: 0.2rem 0.3rem;
+  border-radius: 5px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.acc__table input:focus,
+.acc__table textarea:focus {
+  border-color: var(--primary, #2563eb);
+  background: var(--surface, #fff);
+  outline: none;
+}
+
+.acc__c-no {
+  width: 2.2rem;
+  text-align: center;
   color: var(--text-muted, #6b7280);
 }
 
-.acc__remove {
-  border: none;
-  background: transparent;
-  color: var(--danger, #dc2626);
-  cursor: pointer;
-  font-size: 0.8rem;
-}
+.acc__c-cat { width: 7rem; }
+.acc__c-mod { width: 8rem; }
+.acc__c-pur { width: 9rem; }
+.acc__c-step { min-width: 12rem; }
+.acc__c-exp { min-width: 12rem; }
+.acc__c-img { width: 8.5rem; }
+.acc__c-del { width: 1.8rem; text-align: center; }
 
-.acc__field {
+.acc__img-cell {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
-}
-
-.acc__field > span {
-  font-size: 0.78rem;
-  color: var(--text-muted, #6b7280);
-}
-
-.acc__field input,
-.acc__field textarea {
-  width: 100%;
-}
-
-.acc__img-row {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: flex-start;
 }
 
 .acc__thumb {
-  max-height: 64px;
-  max-width: 120px;
-  border-radius: 6px;
+  max-height: 56px;
+  max-width: 100%;
+  border-radius: 5px;
   border: 1px solid var(--border, #e5e7eb);
   object-fit: cover;
 }
 
-.acc__img-btn {
-  font-size: 0.8rem;
-  cursor: pointer;
+.acc__img-cell-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 
-.acc__add {
-  align-self: flex-start;
-  font-size: 0.85rem;
-  cursor: pointer;
-  border: 1px dashed var(--border, #cbd5e1);
+.acc__link {
+  border: none;
   background: transparent;
-  border-radius: 8px;
-  padding: 0.4rem 0.8rem;
-  color: var(--text, #111827);
+  color: var(--primary, #2563eb);
+  cursor: pointer;
+  font-size: 0.76rem;
+  padding: 0;
+}
+
+.acc__link--danger {
+  color: var(--danger, #dc2626);
+}
+
+.acc__row-del {
+  border: none;
+  background: transparent;
+  color: var(--danger, #dc2626);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
 }
 
 .acc__warn {

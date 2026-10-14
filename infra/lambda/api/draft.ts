@@ -45,12 +45,16 @@ export interface DraftDeps {
   bedrock: Pick<BedrockRuntimeClient, 'send'>;
 }
 
-/** 單一結構化驗收項目(由前端表格填入)。 */
+/** 單一結構化測試項目(由前端表格填入,欄位對齊常見測試案例表)。 */
 export interface DraftAcceptanceItem {
+  /** 類別(例:中央畫面區)。 */
+  category?: string;
+  /** 項目 / 功能(例:神秘商人)。 */
+  module?: string;
   purpose: string;
   steps: string[];
   expected: string;
-  /** 預期畫面的 artifactId(選填);對照畫面用。 */
+  /** 截圖的 artifactId(選填);幫助 AI 理解此項畫面並對照判定。 */
   expectedImage?: string;
 }
 
@@ -87,8 +91,12 @@ export function appendStructuredBlocks(
   if (acceptance && acceptance.length > 0) {
     const lines = ['items:'];
     acceptance.forEach((it, i) => {
+      const title = it.module || it.purpose || `項目 ${i + 1}`;
       lines.push(`  - ref: ${yscalar(String(i + 1))}`);
+      lines.push(`    title: ${yscalar(title)}`);
       if (it.purpose) lines.push(`    purpose: ${yscalar(it.purpose)}`);
+      if (it.category) lines.push(`    category: ${yscalar(it.category)}`);
+      if (it.module) lines.push(`    module: ${yscalar(it.module)}`);
       const steps = (it.steps ?? []).filter((s) => s && s.trim() !== '');
       if (steps.length) {
         lines.push('    steps:');
@@ -114,14 +122,15 @@ export function appendStructuredBlocks(
 function acceptanceToPrompt(acceptance: DraftAcceptanceItem[]): string {
   const lines: string[] = [];
   acceptance.forEach((it, i) => {
-    lines.push(`${i + 1}. 測試目的: ${it.purpose || '(未填)'}`);
+    const head = [it.category, it.module].filter(Boolean).join(' / ');
+    lines.push(`${i + 1}. ${head ? head + ' — ' : ''}測試目的: ${it.purpose || '(未填)'}`);
     const steps = (it.steps ?? []).filter((s) => s && s.trim() !== '');
     if (steps.length) {
       lines.push('   測試步驟:');
       steps.forEach((s, j) => lines.push(`     ${j + 1}) ${s}`));
     }
     lines.push(`   預期結果: ${it.expected || '(未填)'}`);
-    if (it.expectedImage) lines.push('   (本項附有預期畫面,判定時需與當下畫面比對)');
+    if (it.expectedImage) lines.push('   (本項附有參考截圖,請據此理解要測的畫面/元素,並在判定時對照當下畫面)');
   });
   return lines.join('\n');
 }

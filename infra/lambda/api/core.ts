@@ -2231,6 +2231,8 @@ function parseAcceptance(raw: unknown): DraftAcceptanceItem[] | undefined {
   for (const r of raw) {
     if (typeof r !== 'object' || r === null) continue;
     const o = r as Record<string, unknown>;
+    const category = typeof o['category'] === 'string' ? o['category'].trim() : '';
+    const module = typeof o['module'] === 'string' ? o['module'].trim() : '';
     const purpose = typeof o['purpose'] === 'string' ? o['purpose'].trim() : '';
     const expected = typeof o['expected'] === 'string' ? o['expected'].trim() : '';
     const expectedImage = typeof o['expectedImage'] === 'string' ? o['expectedImage'].trim() : '';
@@ -2240,8 +2242,15 @@ function parseAcceptance(raw: unknown): DraftAcceptanceItem[] | undefined {
     } else if (typeof o['steps'] === 'string') {
       steps = (o['steps'] as string).split('\n').map((s) => s.trim()).filter(Boolean);
     }
-    if (!purpose && !expected && steps.length === 0) continue;
-    items.push({ purpose, steps, expected, ...(expectedImage ? { expectedImage } : {}) });
+    if (!purpose && !expected && steps.length === 0 && !module && !category) continue;
+    items.push({
+      ...(category ? { category } : {}),
+      ...(module ? { module } : {}),
+      purpose,
+      steps,
+      expected,
+      ...(expectedImage ? { expectedImage } : {}),
+    });
   }
   return items.length > 0 ? items : undefined;
 }
