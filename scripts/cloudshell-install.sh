@@ -40,6 +40,8 @@ EMAIL=""
 WAIT=1
 SKIP_PREFLIGHT=0
 LANG_CODE="${PLAYAGENT_LANG:-en}"
+LANG_SET=0
+[[ -n "${PLAYAGENT_LANG:-}" ]] && LANG_SET=1
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,8 +49,8 @@ while [[ $# -gt 0 ]]; do
     --admin-email=*) EMAIL="${1#*=}"; shift ;;
     --region) REGION="${2:-}"; shift 2 ;;
     --region=*) REGION="${1#*=}"; shift ;;
-    --lang) LANG_CODE="${2:-}"; shift 2 ;;
-    --lang=*) LANG_CODE="${1#*=}"; shift ;;
+    --lang) LANG_CODE="${2:-}"; LANG_SET=1; shift 2 ;;
+    --lang=*) LANG_CODE="${1#*=}"; LANG_SET=1; shift ;;
     --branch) BRANCH="${2:-}"; shift 2 ;;
     --no-wait) WAIT=0; shift ;;
     --skip-preflight) SKIP_PREFLIGHT=1; shift ;;
@@ -57,7 +59,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# ── i18n: default English, selectable via --lang / PLAYAGENT_LANG ──────────────
+# 第一次使用的人不會知道 --lang;沒指定語言又有終端機時,先跳一個選單讓他選(預設英文)。
+choose_language() {
+  (( LANG_SET )) && return 0
+  [[ -r /dev/tty ]] || return 0
+  {
+    printf '\n'
+    printf 'Select language / 選擇語言 / 言語を選択 / 언어 선택:\n'
+    printf '  1) English\n  2) 繁體中文\n  3) 简体中文\n  4) 日本語\n  5) 한국어\n'
+    printf 'Choice [1]: '
+  } >/dev/tty
+  local choice=''
+  read -r -t 120 choice </dev/tty || choice=1
+  case "$choice" in
+    2) LANG_CODE=zh-Hant ;;
+    3) LANG_CODE=zh-Hans ;;
+    4) LANG_CODE=ja ;;
+    5) LANG_CODE=ko ;;
+    *) LANG_CODE=en ;;
+  esac
+}
+choose_language
+
+# ── i18n: default English, selectable via menu / --lang / PLAYAGENT_LANG ───────
 case "$LANG_CODE" in
   en|english|EN) LANG_CODE=en ;;
   zh-Hant|zh-hant|zh-TW|zh_TW|zh-tw|hant|TW) LANG_CODE=zh-Hant ;;

@@ -20,19 +20,43 @@ PREFIX="PlayAgentDev"
 NAME="playagent-installer"
 REGION="${PLAYAGENT_REGION:-us-west-2}"
 LANG_CODE="${PLAYAGENT_LANG:-en}"
+LANG_SET=0
+[[ -n "${PLAYAGENT_LANG:-}" ]] && LANG_SET=1
 ASSUME_YES=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --region) REGION="${2:-}"; shift 2 ;;
     --region=*) REGION="${1#*=}"; shift ;;
-    --lang) LANG_CODE="${2:-}"; shift 2 ;;
-    --lang=*) LANG_CODE="${1#*=}"; shift ;;
+    --lang) LANG_CODE="${2:-}"; LANG_SET=1; shift 2 ;;
+    --lang=*) LANG_CODE="${1#*=}"; LANG_SET=1; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) echo "usage: cloudshell-uninstall.sh [--region us-west-2] [--lang en|zh-Hant|zh-Hans|ja|ko] [--yes]"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# 第一次使用的人不會知道 --lang;沒指定語言又有終端機時,先跳一個選單讓他選(預設英文)。
+choose_language() {
+  (( LANG_SET )) && return 0
+  [[ -r /dev/tty ]] || return 0
+  {
+    printf '\n'
+    printf 'Select language / 選擇語言 / 言語を選択 / 언어 선택:\n'
+    printf '  1) English\n  2) 繁體中文\n  3) 简体中文\n  4) 日本語\n  5) 한국어\n'
+    printf 'Choice [1]: '
+  } >/dev/tty
+  local choice=''
+  read -r -t 120 choice </dev/tty || choice=1
+  case "$choice" in
+    2) LANG_CODE=zh-Hant ;;
+    3) LANG_CODE=zh-Hans ;;
+    4) LANG_CODE=ja ;;
+    5) LANG_CODE=ko ;;
+    *) LANG_CODE=en ;;
+  esac
+}
+choose_language
 
 case "$LANG_CODE" in
   en|english|EN) LANG_CODE=en ;;
