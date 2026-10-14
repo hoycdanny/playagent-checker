@@ -43,7 +43,8 @@ After following the install below, this is what is on, what is off, and what nee
 | Cost Analysis page — task estimates | ✅ On | Token × price per task. |
 | Cost Analysis page — real AWS bill | ⚙️ Needs account setup | Enable Cost Explorer + activate tags ([below](#enable-the-cost-analysis-page)). |
 | Members page (admins) | ✅ On | Add users, reset passwords, move tenants, grant admin. |
-| System admin page → **System update** | ⚙️ Optional | Deploy the Updater stack and save a GitHub token ([below](#optional-one-click-system-update)). |
+| System admin page → **System update** | ✅ On | One-click update from GitHub. No token needed (the repo is public); a token is optional only to raise GitHub's rate limit ([below](#optional-one-click-system-update)). |
+| System admin page → **Centralized logs** | ✅ On | Search CloudWatch logs across all services from one place to debug failures ([below](#centralized-logs)). |
 | System admin page → **UI-TARS** | ⛔ **Off** | A GPU grounding model. Admins turn it on/off on the page; it is billed only while on ([below](#optional-ui-tars-grounding-model)). |
 | Windows runtime | ⚙️ Optional | One-time GameLift Streams setup from a Windows machine. |
 
@@ -65,7 +66,7 @@ flowchart TB
 
   subgraph data["Data & AI"]
     s3[("S3 data bucket<br/>(per-tenant prefixes)")]
-    sm["Secrets Manager<br/>(test credentials, GitHub token)"]
+    sm["Secrets Manager<br/>(test credentials; optional GitHub token)"]
     bedrock["Amazon Bedrock<br/>(models, knowledge bases)"]
   end
 
@@ -113,7 +114,7 @@ CDK stacks (all in `us-west-2`):
 | **Scheduling** | SQS dispatch queue + Dispatcher Lambda. |
 | **Execution** | Engine Lambda, ECS cluster + Fargate task definitions, ECR repos, VPC (no NAT gateway), per-task EC2 launch settings. |
 | **Frontend** | CloudFront + S3 static site. |
-| **Updater** (optional) | CodeBuild project that redeploys the five stacks above from a GitHub version. |
+| **Updater** | CodeBuild project that redeploys the five stacks above from a GitHub version; deployed automatically by the installer. |
 
 Details: [docs/architecture.md](docs/architecture.md).
 
@@ -158,7 +159,7 @@ In practice, most of the spend on our account was Bedrock tokens and Device Farm
 | **Knowledge** | Shared knowledge bases (game genre / scenario): Markdown injected in full and/or PDF retrieval. |
 | **Cost Analysis** | Task estimates by app and model, and the real AWS bill by service / component (once enabled). |
 | **Members** (admins) | Add users, reset passwords, disable/enable, move tenants, grant or remove admin. |
-| **System admin** (admins) | **System update** from GitHub (version compare, one-click update, progress, history) and the **UI-TARS** on/off switch. |
+| **System admin** (admins) | **System update** from GitHub (one-click, no token needed; version compare, progress, history), the **UI-TARS** on/off switch, and **Centralized logs** (search CloudWatch logs across all services). |
 
 ## The AI: three model "seats"
 
@@ -460,18 +461,15 @@ Open the CloudFront URL and log in. You land on the **Guide**. Then:
 
 ## Optional: one-click system update
 
-Lets admins update the whole platform to a GitHub version from **System admin → System update** (runs tests first, then `cdk deploy` in CodeBuild).
+The Updater stack is deployed automatically by the installer, so this is ready right after install. To update, open **System admin → System update**, pick a version, and confirm; it runs tests first, then `cdk deploy` in CodeBuild.
 
-1. Deploy the Updater stack once (it is never updated by itself):
-   ```bash
-   cd infra
-   AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
-   ```
-   Using a fork? Add `-c githubRepo=owner/name` to this and every deploy.
-2. Create a GitHub **fine-grained** token for this repository with **Contents: Read-only** and **Metadata: Read-only**.
-3. Open **System admin**, paste the token, and save. It is stored in Secrets Manager (`playagent/github`) and never shown again.
+No GitHub token is required: the repository is public and the update clones it directly. A token is optional and only raises the GitHub API rate limit; if you set one in **System admin**, it is stored in Secrets Manager (`playagent/github`) and never shown again. Using a fork? Deploy with `-c githubRepo=owner/name`.
 
 The update button redeploys IAM and resources with high privileges, so only admins see it and every run is recorded. Design notes: [docs/design/self-update.md](docs/design/self-update.md).
+
+## Centralized logs
+
+**System admin → Centralized logs** is a cross-service log viewer for debugging. It searches CloudWatch Logs across every service at once (control-plane API, engine, dispatcher, WebSocket, both Fargate runners, self-update and image-build CodeBuild) using CloudWatch Logs Insights, with a service filter, time range (last 15 min / 1 h / 3 h / 24 h), and a keyword. Results are newest-first and downloadable. Admin only. Design notes: [docs/design/centralized-logs.md](docs/design/centralized-logs.md).
 
 ## Optional: UI-TARS grounding model
 
