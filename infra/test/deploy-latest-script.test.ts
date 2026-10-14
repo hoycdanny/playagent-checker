@@ -201,8 +201,22 @@ describe('CloudShell → CodeBuild one-line installer', () => {
   test('installer and createUser support invite mode end to end', () => {
     expect(core).toContain("else if (a === '--admin-invite') o.adminInvite = true;");
     expect(core).toContain("if (o.adminInvite) a.push('--admin-invite');");
-    expect(core).toContain("[...userArgs, '--invite']");
+    expect(core).toContain("[...userArgs, '--invite', '--temp-pw-param'");
     expect(createUser).toContain("DesiredDeliveryMediums: ['EMAIL']");
     expect(createUser).toContain("if (flag('invite'))");
+  });
+
+  test('CloudShell shows step progress and the admin temp password (shown + emailed)', () => {
+    // deploy core emits machine-readable progress markers only under PA_PROGRESS.
+    expect(core).toContain('const PA_EMIT');
+    expect(core).toContain('PA_STEP|');
+    expect(core).toContain("'--temp-pw-param'");
+    // createUser sets a temporary password (emailed) and stashes it in a short-lived SSM param.
+    expect(createUser).toContain('TemporaryPassword');
+    expect(createUser).toContain('PutParameterCommand');
+    // the installer renders [i/N] progress and reads+deletes the temp-password SSM param.
+    expect(cs).toContain('PA_PROGRESS=1');
+    expect(cs).toContain('render_steps');
+    expect(cs).toContain('admin-temp-password');
   });
 });
