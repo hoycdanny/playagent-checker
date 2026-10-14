@@ -462,6 +462,11 @@ async function inner(o) {
     if (!filesRecursive(join(dist, 'assets')).some((f) => readFileSync(f).includes(apiUrl))) fail('前端 bundle 沒有正確嵌入 API URL');
     step('部署前端'); await deployStacks(o, [names.frontend], o.sourceSha, 1);
 
+    // 系統更新器(Updater):建立「系統管理頁 → 一鍵更新」用的 CodeBuild 專案。
+    // 它刻意不在核心清單裡(一鍵更新時不自我修改),但乾淨安裝必須一併建立,
+    // 否則新環境的一鍵更新沒有後端專案可用。倉庫已公開,Updater 不需要 GitHub token。
+    step('部署系統更新器(Updater)'); await deployStacks(o, [`${prefix}-Updater`], o.sourceSha);
+
     step('部署後驗證');
     for (const s of Object.values(names)) await verifyStack(s, o.region);
     const resources = JSON.parse(await capture('aws', ['cloudformation', 'list-stack-resources', '--region', o.region, '--stack-name', names.execution, '--output', 'json']));

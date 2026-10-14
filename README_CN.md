@@ -43,7 +43,8 @@ PlayAgent Checker 完全运行在 **AWS（区域 `us-west-2`）** 上：一个 S
 | 费用分析页面 — 任务估算 | ✅ 开启 | 每个任务的 Token × 单价。 |
 | 费用分析页面 — 真实 AWS 账单 | ⚙️ 需要账户设置 | 启用 Cost Explorer 并激活标签（[见下方](#启用费用分析页面)）。 |
 | 成员管理页面（管理员） | ✅ 开启 | 添加用户、重置密码、迁移租户、授予管理员权限。 |
-| 系统管理页面 → **系统更新** | ⚙️ 可选 | 部署 Updater 堆栈并保存 GitHub Token（[见下方](#可选一键系统更新)）。 |
+| 系统管理页面 → **系统更新** | ✅ 开启 | 从 GitHub 一键更新。无需 Token（仓库为公开）；Token 仅为可选，只用于提高 GitHub API 速率限制（[见下方](#可选一键系统更新)）。 |
+| 系统管理页面 → **集中式日志** | ✅ 开启 | 在一处搜索所有服务的 CloudWatch 日志以排查失败（[见下方](#集中式日志)）。 |
 | 系统管理页面 → **UI-TARS** | ⛔ **关闭** | GPU 定位模型。管理员在页面上开启/关闭；仅在开启期间计费（[见下方](#可选ui-tars-定位模型)）。 |
 | Windows 运行环境 | ⚙️ 可选 | 需在 Windows 机器上完成一次性 GameLift Streams 设置。 |
 
@@ -65,7 +66,7 @@ flowchart TB
 
   subgraph data["数据与 AI"]
     s3[("S3 数据桶<br/>(按租户分前缀)")]
-    sm["Secrets Manager<br/>(测试凭据、GitHub token)"]
+    sm["Secrets Manager<br/>(测试凭据;可选的 GitHub token)"]
     bedrock["Amazon Bedrock<br/>(模型、知识库)"]
   end
 
@@ -113,7 +114,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 | **Scheduling** | SQS 分发队列 + Dispatcher Lambda。 |
 | **Execution** | Engine Lambda、ECS 集群 + Fargate 任务定义、ECR 仓库、VPC（无 NAT 网关）、按任务启动的 EC2 配置。 |
 | **Frontend** | CloudFront + S3 静态站点。 |
-| **Updater**（可选） | 从 GitHub 版本重新部署上述五个堆栈的 CodeBuild 项目。 |
+| **Updater** | 从 GitHub 版本重新部署上述五个堆栈的 CodeBuild 项目;由安装器自动部署。 |
 
 详情：[docs/architecture.md](docs/architecture.md)。
 
@@ -158,7 +159,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 | **知识库** | 共享知识库（游戏类型 / 场景）：Markdown 全文注入和/或 PDF 检索。 |
 | **费用分析** | 按应用和模型统计的任务估算，以及按服务 / 组件统计的真实 AWS 账单（启用后）。 |
 | **成员管理**（管理员） | 添加用户、重置密码、禁用/启用、迁移租户、授予或撤销管理员权限。 |
-| **系统管理**（管理员） | 从 GitHub 进行**系统更新**（版本对比、一键更新、进度、历史记录），以及 **UI-TARS** 开关。 |
+| **系统管理**（管理员） | 从 GitHub 进行**系统更新**（一键、无需 Token;版本对比、进度、历史记录）、**UI-TARS** 开关，以及**集中式日志**（跨所有服务搜索 CloudWatch 日志）。 |
 
 ## AI：三个模型“席位”
 
@@ -454,18 +455,15 @@ aws secretsmanager get-secret-value --region us-west-2 --secret-id playagent/adm
 
 ## 可选：一键系统更新
 
-允许管理员在**系统管理 → 系统更新**中把整个平台更新到某个 GitHub 版本（先运行测试，然后在 CodeBuild 中执行 `cdk deploy`）。
+Updater 堆栈由安装器自动部署，因此安装完成后即可使用。要更新时，打开**系统管理 → 系统更新**，选择版本并确认;它会先运行测试，然后在 CodeBuild 中执行 `cdk deploy`。
 
-1. 部署一次 Updater 堆栈（它永远不会更新自身）：
-   ```bash
-   cd infra
-   AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
-   ```
-   使用的是 Fork？在这次以及之后每次部署时都加上 `-c githubRepo=owner/name`。
-2. 为本仓库创建一个 GitHub **fine-grained** Token，权限为 **Contents: Read-only** 和 **Metadata: Read-only**。
-3. 打开**系统管理**，粘贴 Token 并保存。它存储在 Secrets Manager（`playagent/github`）中，之后不会再显示。
+无需 GitHub Token：仓库为公开，更新会直接 clone。Token 为可选，只用于提高 GitHub API 速率限制;若在**系统管理**中设置，它会存储在 Secrets Manager（`playagent/github`）中，之后不会再显示。使用的是 Fork？请以 `-c githubRepo=owner/name` 部署。
 
 更新按钮会以高权限重新部署 IAM 和各类资源，因此只有管理员能看到，且每次运行都会被记录。设计说明：[docs/design/self-update.md](docs/design/self-update.md)。
+
+## 集中式日志
+
+**系统管理 → 集中式日志**是用于调试的跨服务日志查看器。它使用 CloudWatch Logs Insights，一次搜索所有服务的 CloudWatch 日志（控制平面 API、engine、dispatcher、WebSocket、两个 Fargate Runner、系统自更新与镜像构建 CodeBuild），可按服务筛选、设置时间范围（最近 15 分钟 / 1 小时 / 3 小时 / 24 小时）和关键字。结果按最新优先排序，并可下载。仅限管理员。设计说明：[docs/design/centralized-logs.md](docs/design/centralized-logs.md)。
 
 ## 可选：UI-TARS 定位模型
 

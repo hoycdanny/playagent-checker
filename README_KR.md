@@ -43,7 +43,8 @@ PlayAgent Checker는 전부 **AWS(리전 `us-west-2`)**에서 실행됩니다. �
 | 비용 분석 페이지 — 작업 추정 비용 | ✅ 켜짐 | 작업별 토큰 × 가격. |
 | 비용 분석 페이지 — 실제 AWS 청구액 | ⚙️ 계정 설정 필요 | Cost Explorer 활성화 + 태그 활성화([아래](#비용-분석-페이지-활성화)). |
 | 멤버 관리 페이지(관리자) | ✅ 켜짐 | 사용자 추가, 비밀번호 재설정, 테넌트 이동, 관리자 권한 부여. |
-| 시스템 관리 페이지 → **시스템 업데이트** | ⚙️ 선택 | Updater 스택을 배포하고 GitHub 토큰을 저장합니다([아래](#선택-원클릭-시스템-업데이트)). |
+| 시스템 관리 페이지 → **시스템 업데이트** | ✅ 켜짐 | GitHub에서 원클릭으로 업데이트합니다. 토큰이 필요 없습니다(리포지토리가 공개). 토큰은 선택 사항이며 GitHub API 속도 제한을 높이는 용도로만 사용합니다([아래](#선택-원클릭-시스템-업데이트)). |
+| 시스템 관리 페이지 → **중앙 집중식 로그** | ✅ 켜짐 | 한 곳에서 모든 서비스의 CloudWatch 로그를 검색해 실패를 디버깅합니다([아래](#중앙-집중식-로그)). |
 | 시스템 관리 페이지 → **UI-TARS 그라운딩 모델** | ⛔ **꺼짐** | GPU 그라운딩 모델입니다. 관리자가 페이지에서 켜고 끄며, 켜져 있는 동안에만 과금됩니다([아래](#선택-ui-tars-그라운딩-모델)). |
 | Windows 런타임 | ⚙️ 선택 | Windows 머신에서 GameLift Streams를 1회 설정합니다. |
 
@@ -65,7 +66,7 @@ flowchart TB
 
   subgraph data["데이터와 AI"]
     s3[("S3 데이터 버킷<br/>(테넌트별 접두사)")]
-    sm["Secrets Manager<br/>(테스트 자격 증명, GitHub token)"]
+    sm["Secrets Manager<br/>(테스트 자격 증명; 선택적 GitHub token)"]
     bedrock["Amazon Bedrock<br/>(모델, 지식 베이스)"]
   end
 
@@ -113,7 +114,7 @@ CDK 스택(모두 `us-west-2`):
 | **Scheduling** | SQS 디스패치 큐 + Dispatcher Lambda. |
 | **Execution** | Engine Lambda, ECS 클러스터 + Fargate 작업 정의, ECR 리포지토리, VPC(NAT 게이트웨이 없음), 작업별 EC2 시작 설정. |
 | **Frontend** | CloudFront + S3 정적 사이트. |
-| **Updater**(선택) | 위 5개 스택을 GitHub 버전으로 재배포하는 CodeBuild 프로젝트. |
+| **Updater** | 위 5개 스택을 GitHub 버전으로 재배포하는 CodeBuild 프로젝트. 설치 프로그램이 자동으로 배포합니다. |
 
 자세한 내용: [docs/architecture.md](docs/architecture.md).
 
@@ -158,7 +159,7 @@ CDK 스택(모두 `us-west-2`):
 | **지식 베이스** | 공유 지식 베이스(게임 장르 / 시나리오): Markdown 전체 주입 및/또는 PDF 검색. |
 | **비용 분석** | 앱 및 모델별 작업 추정 비용과, 서비스 / 컴포넌트별 실제 AWS 청구액(활성화 후). |
 | **멤버 관리**(관리자) | 사용자 추가, 비밀번호 재설정, 비활성화/활성화, 테넌트 이동, 관리자 권한 부여 또는 해제. |
-| **시스템 관리**(관리자) | GitHub에서의 **시스템 업데이트**(버전 비교, 원클릭 업데이트, 진행 상황, 이력)와 **UI-TARS 그라운딩 모델** 켜기/끄기 스위치. |
+| **시스템 관리**(관리자) | GitHub에서의 **시스템 업데이트**(원클릭, 토큰 불필요; 버전 비교, 진행 상황, 이력), **UI-TARS 그라운딩 모델** 켜기/끄기 스위치, 그리고 **중앙 집중식 로그**(모든 서비스의 CloudWatch 로그 검색). |
 
 ## AI: 3개의 모델 "seat"
 
@@ -454,18 +455,15 @@ CloudFront URL을 열고 로그인합니다. **가이드** 페이지가 표시�
 
 ## 선택: 원클릭 시스템 업데이트
 
-관리자가 **시스템 관리 → 시스템 업데이트**에서 전체 플랫폼을 GitHub 버전으로 업데이트할 수 있습니다(먼저 테스트를 실행한 다음 CodeBuild에서 `cdk deploy`).
+Updater 스택은 설치 프로그램이 자동으로 배포하므로, 설치 직후 바로 사용할 수 있습니다. 업데이트하려면 **시스템 관리 → 시스템 업데이트**를 열고 버전을 선택한 뒤 확인합니다. 먼저 테스트를 실행한 다음 CodeBuild에서 `cdk deploy`를 실행합니다.
 
-1. Updater 스택을 한 번 배포합니다(자기 자신은 업데이트되지 않습니다).
-   ```bash
-   cd infra
-   AWS_REGION=us-west-2 npx cdk deploy PlayAgentDev-Updater --require-approval never --exclusively
-   ```
-   포크를 사용합니까? 이 배포와 모든 배포에 `-c githubRepo=owner/name`을 추가하십시오.
-2. 이 리포지토리에 대해 **Contents: Read-only** 및 **Metadata: Read-only** 권한을 가진 GitHub **fine-grained** 토큰을 생성합니다.
-3. **시스템 관리**를 열고 토큰을 붙여넣은 후 저장합니다. 토큰은 Secrets Manager(`playagent/github`)에 저장되며 다시 표시되지 않습니다.
+GitHub 토큰은 필요 없습니다. 리포지토리가 공개되어 있어 업데이트가 직접 clone합니다. 토큰은 선택 사항이며 GitHub API 속도 제한을 높이는 용도로만 사용합니다. **시스템 관리**에서 설정하면 Secrets Manager(`playagent/github`)에 저장되며 다시 표시되지 않습니다. 포크를 사용합니까? `-c githubRepo=owner/name`으로 배포하십시오.
 
 업데이트 버튼은 높은 권한으로 IAM과 리소스를 재배포하므로 관리자에게만 표시되며 모든 실행이 기록됩니다. 설계 문서: [docs/design/self-update.md](docs/design/self-update.md).
+
+## 중앙 집중식 로그
+
+**시스템 관리 → 중앙 집중식 로그**는 디버깅을 위한 서비스 횡단 로그 뷰어입니다. CloudWatch Logs Insights를 사용해 모든 서비스의 CloudWatch 로그(컨트롤 플레인 API, engine, dispatcher, WebSocket, 두 개의 Fargate 러너, 자체 업데이트 및 이미지 빌드 CodeBuild)를 한 번에 검색합니다. 서비스 필터, 기간(최근 15분 / 1시간 / 3시간 / 24시간), 키워드를 지정할 수 있으며, 결과는 최신 순으로 정렬되고 다운로드할 수 있습니다. 관리자 전용입니다. 설계 문서: [docs/design/centralized-logs.md](docs/design/centralized-logs.md).
 
 ## 선택: UI-TARS 그라운딩 모델
 
