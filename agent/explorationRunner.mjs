@@ -1026,6 +1026,22 @@ async function main() {
     return null;
   }
 
+  // 可被即時點擊打斷的等待:等待期間每 ~0.4 秒輪詢一次操作員指令;一偵測到點擊就提早結束,
+  // 讓下一步馬上執行你的手勢(新指令先暫存進 pendingCmds,不會遺失)。純 S3 輪詢,不碰裝置。
+  const sleepOrOperator = async (ms) => {
+    const chunk = 400;
+    for (let w = 0; w < ms; w += chunk) {
+      await sleep(Math.min(chunk, ms - w));
+      let fresh = [];
+      try { fresh = await operator.poll(); } catch { fresh = []; }
+      if (fresh.length) {
+        for (const c of fresh) await operator.ack(c, { status: 'received' }).catch(() => {});
+        pendingCmds.push(...fresh);
+        if (fresh.some((c) => c.point)) return;
+      }
+    }
+  };
+
   for (let i = 0; i < MAX_STEPS; i++) {
     // 取消旗標檢查。
     if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
@@ -1063,7 +1079,7 @@ async function main() {
     if (effectivePkg) {
       try {
         const wasForeground = await client.ensureForeground(effectivePkg);
-        if (!wasForeground) { foregroundLost = true; appState = client.lastAppState; await sleep(4000); }
+        if (!wasForeground) { foregroundLost = true; appState = client.lastAppState; await sleepOrOperator(4000); }
       } catch { /* 盡力,不擋主流程 */ }
     }
     // 效能取樣(每 PERF_EVERY 步一次;取不到為 null,報告標示未收集)。
@@ -1177,11 +1193,10 @@ async function main() {
       : uitarsBase;
     // 測試人員直接在即時畫面上點了位置 / 拖了一段:不靠 AI 猜座標,這一步就照做(最準)。
     // point/to 是相對畫面的比例(0–1),換算到本步截圖(cw×ch)空間後走同一條點擊/拖曳/標記鏈。
-    const pointCmd = [...newCmds].reverse().find((c) => c.point);
-    let decided;
-    if (pointCmd) {
-      const gesture = operatorGestureCmd(pointCmd, cw, ch);
-      const said = pointCmd.text && pointCmd.text !== POINT_ONLY_TEXT && pointCmd.text !== DRAG_ONLY_TEXT ? pointCmd.text : '';
+    // 測試人員在即時畫面上的手勢 → 這一步直接照做(不經 VLM)的「決策」物件。
+    const buildOperatorDecided = (c) => {
+      const gesture = operatorGestureCmd(c, cw, ch);
+      const said = c.text && c.text !== POINT_ONLY_TEXT && c.text !== DRAG_ONLY_TEXT ? c.text : '';
       const note = said ? `(${said})` : '';
       const opCmd = {
         ...gesture,
@@ -1191,11 +1206,47 @@ async function main() {
           : `依測試人員在即時畫面上點選的位置直接點擊 (${gesture.x}, ${gesture.y})${note}。`,
         target: said || (gesture.operatorDrag ? '測試人員指定拖曳路徑' : '測試人員指定位置'),
       };
-      decided = { cmd: opCmd, usage: null, rawText: JSON.stringify(opCmd), trace: { modelId: 'operator', channel: 'operator', ok: true, request: {} } };
+      return { cmd: opCmd, usage: null, rawText: JSON.stringify(opCmd), trace: { modelId: 'operator', channel: 'operator', ok: true, request: {} } };
+    };
+    let pointCmd = [...newCmds].reverse().find((c) => c.point);
+    let decided;
+    if (pointCmd) {
+      decided = buildOperatorDecided(pointCmd);
+    } else if (USE_UITARS) {
+      decided = await decideUitars(uitarsInstr, messages, cw, ch);
     } else {
-      decided = USE_UITARS
-        ? await decideUitars(uitarsInstr, messages, cw, ch)
-        : await decide(system, messages);
+      // 【即時操作】等 VLM 的 10~30 秒內,背景每 0.5 秒輪詢你的即時點擊;一偵測到點擊就
+      // 中止這一步的等待、直接執行你的手勢(丟棄這次 VLM 結果),讓「人點一下 → 裝置幾乎立刻動」。
+      // 全程單執行緒:背景只做 S3 輪詢,送點擊仍走主迴圈唯一的裝置通道,不會與主迴圈搶 Appium。
+      let stopPoll = false;
+      const operatorArrived = new Promise((resolve) => {
+        (async () => {
+          while (!stopPoll) {
+            await sleep(500);
+            if (stopPoll) return;
+            let fresh = [];
+            try { fresh = await operator.poll(); } catch { fresh = []; }
+            for (const c of fresh) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined }).catch(() => {});
+            if (fresh.length) newCmds.push(...fresh); // 讓本步 operatorDirected 生效、並供後續注入
+            const pt = [...fresh].reverse().find((c) => c.point);
+            if (pt) { resolve(pt); return; }
+          }
+        })();
+      });
+      const vlmPromise = decide(system, messages);
+      const winner = await Promise.race([
+        vlmPromise.then((r) => ({ kind: 'vlm', r })),
+        operatorArrived.then((pt) => ({ kind: 'operator', pt })),
+      ]);
+      stopPoll = true;
+      if (winner.kind === 'operator') {
+        vlmPromise.catch(() => {}); // 丟棄這次 VLM(背景自然結束,避免 unhandled rejection)
+        pointCmd = winner.pt;
+        decided = buildOperatorDecided(pointCmd);
+        console.log(`[operator] 即時點擊打斷 VLM 等待,立刻執行(第 ${i} 步)`);
+      } else {
+        decided = winner.r;
+      }
     }
     // 解析失敗(模型吐亂碼/空字串)時立即重問,最多 2 次;不浪費一個步驟、也不讓連續失敗計數誤殺任務。
     //   第 1 次:同模型,但只帶「本回合」(拿掉長對話歷史 —— 實測模型多半是被長歷史帶歪才開始吐亂碼)。
@@ -1965,7 +2016,7 @@ async function main() {
     }
     // 戰鬥走位中不額外等待(站著不動就會被包圍);其餘維持 3 秒讓畫面穩定。
     // AutoSpin 看守剛結束:事件幀已備好,立刻交回 AI(再等 3 秒,自動關閉的彈窗就消失了)。
-    if (!spinWatched) await sleep(lastBattleMove ? 300 : 3000);
+    if (!spinWatched) { if (lastBattleMove) await sleep(300); else await sleepOrOperator(3000); }
   }
 
   // 收尾(停止並上傳整場錄影、收 log、產生報告)可能要十幾秒到一兩分鐘;先更新狀態訊息,讓前端不是乾等。
