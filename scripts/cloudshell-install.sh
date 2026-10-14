@@ -13,10 +13,17 @@
 # The admin account is created with a Cognito invite: a temporary password is emailed to the
 # admin, who sets a new password on first sign-in. No password passes through this script.
 #
+# Before touching anything it runs a preflight scan (step 0): required tools, that the policy
+# template is reachable on the chosen branch, whether the current identity actually has the
+# permissions the install needs (IAM / CodeBuild / Logs / CloudFormation, plus bootstrap on a
+# first install), whether an install is already running, and Bedrock reachability. If a blocker
+# is found it stops before creating anything, so you never fail halfway through a 30-60 min deploy.
+#
 # Options: --admin-email EMAIL (required, prompted if missing),
 #          --region REGION (default us-west-2; also PLAYAGENT_REGION. AWS_REGION is ignored on purpose,
 #                           because CloudShell sets it to whatever region the console is showing),
-#          --branch NAME (main), --no-wait (start the build and exit).
+#          --branch NAME (main), --no-wait (start the build and exit),
+#          --skip-preflight (bypass the pre-install checks).
 # Example, another region:  ... | bash -s -- --admin-email you@example.com --region ap-northeast-1
 set -euo pipefail
 
@@ -30,6 +37,7 @@ REGION="${PLAYAGENT_REGION:-us-west-2}"
 BRANCH="main"
 EMAIL=""
 WAIT=1
+SKIP_PREFLIGHT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -39,7 +47,8 @@ while [[ $# -gt 0 ]]; do
     --region=*) REGION="${1#*=}"; shift ;;
     --branch) BRANCH="${2:-}"; shift 2 ;;
     --no-wait) WAIT=0; shift ;;
-    -h|--help) echo "usage: cloudshell-install.sh --admin-email EMAIL [--region us-west-2] [--branch main] [--no-wait]"; exit 0 ;;
+    --skip-preflight) SKIP_PREFLIGHT=1; shift ;;
+    -h|--help) echo "usage: cloudshell-install.sh --admin-email EMAIL [--region us-west-2] [--branch main] [--no-wait] [--skip-preflight]"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
@@ -52,6 +61,79 @@ fi
 [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { echo "Invalid branch: $BRANCH" >&2; exit 1; }
 command -v aws >/dev/null && command -v node >/dev/null && command -v curl >/dev/null || { echo "需要 aws、node、curl(AWS CloudShell 已內建)" >&2; exit 1; }
 
+# 安裝前檢查:掃描必備工具、政策範本、呼叫者權限、是否已有安裝在跑、Bedrock 可用性。
+# 有任何阻擋項就在建立任何資源「之前」停下,一次列出所有問題,避免部署到一半才失敗。
+preflight() {
+  local toolkit="$1"
+  local blockers=() warnings=()
+  echo "==> 安裝前檢查(preflight)…"
+
+  # 必備工具(CloudShell 內建;第一次安裝的 cdk bootstrap 需要 npx)。
+  for t in aws node curl; do command -v "$t" >/dev/null || blockers+=("缺少指令:$t"); done
+  if [[ "$toolkit" == MISSING ]]; then command -v npx >/dev/null || blockers+=("缺少 npx(第一次安裝的 cdk bootstrap 需要)"); fi
+
+  # 權限政策範本要抓得到(順便驗證分支名正確)。
+  if ! curl -fsIL "$RAW_BASE/$BRANCH/infra/iam/playagent-deployer-policy.json" >/dev/null 2>&1; then
+    blockers+=("抓不到權限政策範本:$RAW_BASE/$BRANCH/infra/iam/playagent-deployer-policy.json(分支名正確嗎?)")
+  fi
+
+  # 用呼叫者身分模擬這支腳本需要的動作(identity policy 層級;不含 SCP/權限邊界,但能擋掉大多數權限不足)。
+  local caller principal role_name
+  caller="$(aws sts get-caller-identity --query Arn --output text 2>/dev/null || true)"
+  principal="$caller"
+  if [[ "$caller" == *:assumed-role/* ]]; then
+    role_name="$(sed -E 's#.*:assumed-role/([^/]+)/.*#\1#' <<<"$caller")"
+    principal="arn:aws:iam::$ACCOUNT:role/$role_name"
+  fi
+  local actions=(iam:GetRole iam:CreateRole iam:PutRolePolicy iam:UpdateAssumeRolePolicy iam:PassRole \
+    codebuild:CreateProject codebuild:UpdateProject codebuild:BatchGetProjects codebuild:StartBuild \
+    logs:CreateLogGroup logs:PutRetentionPolicy cloudformation:DescribeStacks)
+  if [[ "$toolkit" == MISSING ]]; then
+    actions+=(cloudformation:CreateStack s3:CreateBucket ecr:CreateRepository ssm:PutParameter iam:AttachRolePolicy)
+  fi
+  local denied
+  denied="$(aws iam simulate-principal-policy --policy-source-arn "$principal" \
+      --action-names "${actions[@]}" \
+      --query 'EvaluationResults[?EvalDecision!=`allowed`].EvalActionName' --output text 2>"$WORK/sim.err" || true)"
+  if [[ -s "$WORK/sim.err" ]]; then
+    warnings+=("無法自動驗證權限(略過此項):$(head -1 "$WORK/sim.err")")
+  elif [[ -n "$denied" ]]; then
+    blockers+=("目前身分缺少這些權限:$(tr '\t' ' ' <<<"$denied")")
+    [[ "$toolkit" == MISSING ]] && warnings+=("第一次安裝需要 cdk bootstrap,通常需要接近管理員的權限")
+  else
+    echo "    OK 權限檢查通過($principal)"
+  fi
+
+  # 已經有安裝/更新在跑?避免同時部署互相打架。
+  local running rstate
+  running="$(aws codebuild list-builds-for-project --project-name "$NAME" --query 'ids[0]' --output text 2>/dev/null || true)"
+  if [[ -n "$running" && "$running" != None ]]; then
+    rstate="$(aws codebuild batch-get-builds --ids "$running" --query 'builds[0].buildStatus' --output text 2>/dev/null || true)"
+    [[ "$rstate" == IN_PROGRESS ]] && blockers+=("已有一個安裝/更新正在執行($running),請等它結束,或到 CodeBuild 主控台停止")
+  fi
+
+  # Bedrock(非阻擋):部署不需要,但實際測試需要先在這個區域開通模型存取。
+  if ! aws bedrock list-foundation-models --query 'modelSummaries[0].modelId' --output text >/dev/null 2>&1; then
+    warnings+=("這個區域呼叫不到 Bedrock 或帳號尚未開通:部署會成功,但實際測試前要先在 Bedrock 主控台開啟模型存取")
+  fi
+  case "$REGION" in
+    us-*) : ;;
+    *) warnings+=("非美國區域:預設模型用 us. 跨區推論設定檔,可能要改用該區的模型 ID;Device Farm 真機一律在 us-west-2") ;;
+  esac
+
+  for w in "${warnings[@]:-}"; do [[ -n "$w" ]] && echo "    ⚠ $w"; done
+  if (( ${#blockers[@]} )); then
+    { echo ""
+      echo "安裝前檢查沒通過,為避免部署到一半失敗,先停在這裡:"
+      for b in "${blockers[@]}"; do echo "  ✗ $b"; done
+      echo ""
+      echo "修正上述問題後再執行同一行指令。(確定要略過檢查可加 --skip-preflight)"
+    } >&2
+    exit 1
+  fi
+  echo "==> 檢查通過,開始安裝"
+}
+
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
 [[ "$ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "Could not resolve AWS account" >&2; exit 1; }
@@ -60,15 +142,18 @@ echo "==> 帳號 $ACCOUNT / 區域 $REGION / 分支 $BRANCH / 管理員 $EMAIL"
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# 0. Preflight:在建立任何資源「之前」掃描前置條件與權限,fail fast(可用 --skip-preflight 略過)。
+TOOLKIT_STATUS="$(aws cloudformation describe-stacks --stack-name CDKToolkit --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo MISSING)"
+if (( ! SKIP_PREFLIGHT )); then preflight "$TOOLKIT_STATUS"; fi
+
 # 1. CDK bootstrap (admin only, once per account/region)
-STATUS="$(aws cloudformation describe-stacks --stack-name CDKToolkit --query 'Stacks[0].StackStatus' --output text 2>/dev/null || echo MISSING)"
-if [[ "$STATUS" == MISSING ]]; then
+if [[ "$TOOLKIT_STATUS" == MISSING ]]; then
   echo "==> 第一次在這個區域安裝:執行 cdk bootstrap(約 2 分鐘)"
   (cd "$WORK" && npx -y aws-cdk@2 bootstrap "aws://$ACCOUNT/$REGION")
-elif [[ ! "$STATUS" =~ ^(CREATE|UPDATE|UPDATE_ROLLBACK)_COMPLETE$ ]]; then
-  echo "CDKToolkit 狀態是 $STATUS,請先到 CloudFormation 主控台處理" >&2; exit 1
+elif [[ ! "$TOOLKIT_STATUS" =~ ^(CREATE|UPDATE|UPDATE_ROLLBACK)_COMPLETE$ ]]; then
+  echo "CDKToolkit 狀態是 $TOOLKIT_STATUS,請先到 CloudFormation 主控台處理" >&2; exit 1
 else
-  echo "==> CDKToolkit 已就緒 ($STATUS)"
+  echo "==> CDKToolkit 已就緒 ($TOOLKIT_STATUS)"
 fi
 
 # 2. Least-privilege CodeBuild role (policy template from the same branch of the repo)
