@@ -75,6 +75,7 @@ import { DEVICE_LOG_KINDS, readDeviceLogs, type DeviceLogKind } from './deviceLo
 import { generateInsights } from './report/insights.js';
 import { CATALOG, modelsForSeat, type Seat } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
+import type { DraftAcceptanceItem, DraftOptions } from './draft.js';
 import {
   readKnowledge,
   writeKnowledge,
@@ -203,8 +204,13 @@ export interface ApiDeps {
   /** 共用命名空間(shared/*)的 S3 client,跨租戶共用資源用(如知識庫),不經租戶隔離角色。 */
   sharedS3: S3Client;
   bucket: string;
-  /** AI 草擬/編修案例 YAML(baseYaml 有值時為「範本感知編修」)。 */
-  draftCase: (description: string, appId: string, baseYaml?: string) => Promise<string>;
+  /** AI 草擬/編修案例 YAML(baseYaml 有值時為「範本感知編修」;opts 可指定模型與結構化驗收標準)。 */
+  draftCase: (
+    description: string,
+    appId: string,
+    baseYaml?: string,
+    opts?: DraftOptions,
+  ) => Promise<string>;
   /** 把任務送入分派佇列(注入以利測試)。 */
   enqueueJob: (msg: {
     tenantId: string;
@@ -885,7 +891,21 @@ export async function handleRequest(
 
       case 'POST /cases/draft': {
         const parsed = parseDraftBody(req.body);
-        const yaml = await deps.draftCase(parsed.description, parsed.appId, parsed.baseYaml);
+        // 指定草擬模型時驗證:必須在 agent seat 可選清單內且查得到單價(Fail Closed)。
+        if (parsed.model) {
+          const allowed = modelsForSeat('agent');
+          if (!allowed.find((m) => m.modelId === parsed.model)) {
+            return json(400, { error: `草擬模型不在可選清單: ${parsed.model}` });
+          }
+          if (!isPriceable(parsed.model)) {
+            return json(400, { error: `草擬模型查無單價(Fail Closed): ${parsed.model}` });
+          }
+        }
+        const yaml = await deps.draftCase(parsed.description, parsed.appId, parsed.baseYaml, {
+          ...(parsed.model ? { model: parsed.model } : {}),
+          ...(parsed.acceptance ? { acceptance: parsed.acceptance } : {}),
+          ...(parsed.note ? { note: parsed.note } : {}),
+        });
         return json(200, { yaml });
       }
 
@@ -2204,9 +2224,31 @@ async function handleCancelTask(
   return json(200, { jobId, state: finalState });
 }
 
+/** 清洗前端送來的結構化驗收標準(容錯:型別不符的欄位略過,只留有內容的項目)。 */
+function parseAcceptance(raw: unknown): DraftAcceptanceItem[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items: DraftAcceptanceItem[] = [];
+  for (const r of raw) {
+    if (typeof r !== 'object' || r === null) continue;
+    const o = r as Record<string, unknown>;
+    const purpose = typeof o['purpose'] === 'string' ? o['purpose'].trim() : '';
+    const expected = typeof o['expected'] === 'string' ? o['expected'].trim() : '';
+    const expectedImage = typeof o['expectedImage'] === 'string' ? o['expectedImage'].trim() : '';
+    let steps: string[] = [];
+    if (Array.isArray(o['steps'])) {
+      steps = (o['steps'] as unknown[]).filter((s): s is string => typeof s === 'string').map((s) => s.trim()).filter(Boolean);
+    } else if (typeof o['steps'] === 'string') {
+      steps = (o['steps'] as string).split('\n').map((s) => s.trim()).filter(Boolean);
+    }
+    if (!purpose && !expected && steps.length === 0) continue;
+    items.push({ purpose, steps, expected, ...(expectedImage ? { expectedImage } : {}) });
+  }
+  return items.length > 0 ? items : undefined;
+}
+
 function parseDraftBody(
   body: unknown,
-): { description: string; appId: string; baseYaml?: string } {
+): { description: string; appId: string; baseYaml?: string; model?: string; acceptance?: DraftAcceptanceItem[]; note?: string } {
   if (typeof body !== 'object' || body === null) {
     throw new BadRequestError('請求主體必須是物件');
   }
@@ -2214,15 +2256,21 @@ function parseDraftBody(
   const description = b['description'];
   const appId = b['appId'];
   const baseYaml = b['baseYaml'];
+  const model = b['model'];
+  const note = b['note'];
+  const acceptance = parseAcceptance(b['acceptance']);
   const hasBase = typeof baseYaml === 'string' && baseYaml.trim() !== '';
-  // 編修模式(有 baseYaml)可不帶 description(視為潤飾);純產生模式 description 必填。
-  if (!hasBase && (typeof description !== 'string' || description.trim() === '')) {
+  // 編修模式(有 baseYaml)或有結構化驗收標準時可不帶 description;純文字產生模式 description 必填。
+  if (!hasBase && !acceptance && (typeof description !== 'string' || description.trim() === '')) {
     throw new BadRequestError('description 為必填');
   }
   return {
     description: typeof description === 'string' ? description.trim() : '',
     appId: typeof appId === 'string' ? appId : '',
     ...(hasBase ? { baseYaml: (baseYaml as string).trim() } : {}),
+    ...(typeof model === 'string' && model.trim() !== '' ? { model: model.trim() } : {}),
+    ...(acceptance ? { acceptance } : {}),
+    ...(typeof note === 'string' && note.trim() !== '' ? { note: note } : {}),
   };
 }
 
