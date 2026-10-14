@@ -3,7 +3,13 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/scripts/cloudshell-install.sh | bash -s -- --admin-email you@example.com
 #
+# Messages default to English; pick another with --lang (en, zh-Hant, zh-Hans, ja, ko) or PLAYAGENT_LANG.
+# To remove everything later, use the matching uninstaller: scripts/cloudshell-uninstall.sh.
+#
 # Run it again any time to update to the latest main. What it does:
+#   0. Preflight: scan tools, that the policy template is reachable on the chosen branch, whether the
+#      current identity has the permissions the install needs, whether an install is already running,
+#      and Bedrock reachability. Any blocker stops BEFORE creating anything, so you never fail halfway.
 #   1. CDK-bootstraps the account/region if CDKToolkit is missing (the only step that needs admin);
 #   2. creates/updates the IAM role playagent-installer (trusted by CodeBuild only) with the
 #      least-privilege policy infra/iam/playagent-deployer-policy.json (no AdministratorAccess);
@@ -11,17 +17,12 @@
 #      repo and runs scripts/deploy-latest.mjs inside AWS;
 #   4. starts the build, streams its log here and prints the website URL.
 # The admin account is created with a Cognito invite: a temporary password is emailed to the
-# admin, who sets a new password on first sign-in. No password passes through this script.
-#
-# Before touching anything it runs a preflight scan (step 0): required tools, that the policy
-# template is reachable on the chosen branch, whether the current identity actually has the
-# permissions the install needs (IAM / CodeBuild / Logs / CloudFormation, plus bootstrap on a
-# first install), whether an install is already running, and Bedrock reachability. If a blocker
-# is found it stops before creating anything, so you never fail halfway through a 30-60 min deploy.
+# admin, who sets a new password on first sign-in. No secret passes through this script.
 #
 # Options: --admin-email EMAIL (required, prompted if missing),
 #          --region REGION (default us-west-2; also PLAYAGENT_REGION. AWS_REGION is ignored on purpose,
 #                           because CloudShell sets it to whatever region the console is showing),
+#          --lang CODE (en | zh-Hant | zh-Hans | ja | ko; default en; also PLAYAGENT_LANG),
 #          --branch NAME (main), --no-wait (start the build and exit),
 #          --skip-preflight (bypass the pre-install checks).
 # Example, another region:  ... | bash -s -- --admin-email you@example.com --region ap-northeast-1
@@ -38,6 +39,7 @@ BRANCH="main"
 EMAIL=""
 WAIT=1
 SKIP_PREFLIGHT=0
+LANG_CODE="${PLAYAGENT_LANG:-en}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,36 +47,234 @@ while [[ $# -gt 0 ]]; do
     --admin-email=*) EMAIL="${1#*=}"; shift ;;
     --region) REGION="${2:-}"; shift 2 ;;
     --region=*) REGION="${1#*=}"; shift ;;
+    --lang) LANG_CODE="${2:-}"; shift 2 ;;
+    --lang=*) LANG_CODE="${1#*=}"; shift ;;
     --branch) BRANCH="${2:-}"; shift 2 ;;
     --no-wait) WAIT=0; shift ;;
     --skip-preflight) SKIP_PREFLIGHT=1; shift ;;
-    -h|--help) echo "usage: cloudshell-install.sh --admin-email EMAIL [--region us-west-2] [--branch main] [--no-wait] [--skip-preflight]"; exit 0 ;;
+    -h|--help) echo "usage: cloudshell-install.sh --admin-email EMAIL [--region us-west-2] [--lang en|zh-Hant|zh-Hans|ja|ko] [--branch main] [--no-wait] [--skip-preflight]"; exit 0 ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
+# ── i18n: default English, selectable via --lang / PLAYAGENT_LANG ──────────────
+case "$LANG_CODE" in
+  en|english|EN) LANG_CODE=en ;;
+  zh-Hant|zh-hant|zh-TW|zh_TW|zh-tw|hant|TW) LANG_CODE=zh-Hant ;;
+  zh-Hans|zh-hans|zh-CN|zh_CN|zh-cn|zh|hans|CN) LANG_CODE=zh-Hans ;;
+  ja|jp|JP|japanese) LANG_CODE=ja ;;
+  ko|kr|KR|korean) LANG_CODE=ko ;;
+  *) LANG_CODE=en ;;
+esac
+
+declare -A T
+T[en.ask_email]="Admin email: "
+T[zh-Hant.ask_email]="管理員 Email: "
+T[zh-Hans.ask_email]="管理员 Email: "
+T[ja.ask_email]="管理者メール: "
+T[ko.ask_email]="관리자 이메일: "
+T[en.bad_email]="A valid --admin-email is required"
+T[zh-Hant.bad_email]="請用 --admin-email 指定有效的 Email"
+T[zh-Hans.bad_email]="请用 --admin-email 指定有效的 Email"
+T[ja.bad_email]="有効な --admin-email を指定してください"
+T[ko.bad_email]="유효한 --admin-email 이 필요합니다"
+T[en.bad_region]="Invalid region: %s"
+T[zh-Hant.bad_region]="區域格式錯誤: %s"
+T[zh-Hans.bad_region]="区域格式错误: %s"
+T[ja.bad_region]="リージョンが不正です: %s"
+T[ko.bad_region]="잘못된 리전: %s"
+T[en.bad_branch]="Invalid branch: %s"
+T[zh-Hant.bad_branch]="分支名稱錯誤: %s"
+T[zh-Hans.bad_branch]="分支名称错误: %s"
+T[ja.bad_branch]="ブランチ名が不正です: %s"
+T[ko.bad_branch]="잘못된 브랜치: %s"
+T[en.need_tools]="aws, node and curl are required (built into AWS CloudShell)"
+T[zh-Hant.need_tools]="需要 aws、node、curl(AWS CloudShell 已內建)"
+T[zh-Hans.need_tools]="需要 aws、node、curl(AWS CloudShell 已内置)"
+T[ja.need_tools]="aws、node、curl が必要です(AWS CloudShell に標準装備)"
+T[ko.need_tools]="aws, node, curl 가 필요합니다(AWS CloudShell 기본 제공)"
+T[en.no_account]="Could not resolve the AWS account"
+T[zh-Hant.no_account]="無法取得 AWS 帳號"
+T[zh-Hans.no_account]="无法获取 AWS 账号"
+T[ja.no_account]="AWS アカウントを取得できません"
+T[ko.no_account]="AWS 계정을 확인할 수 없습니다"
+T[en.summary]="==> Account %s / region %s / branch %s / admin %s"
+T[zh-Hant.summary]="==> 帳號 %s / 區域 %s / 分支 %s / 管理員 %s"
+T[zh-Hans.summary]="==> 账号 %s / 区域 %s / 分支 %s / 管理员 %s"
+T[ja.summary]="==> アカウント %s / リージョン %s / ブランチ %s / 管理者 %s"
+T[ko.summary]="==> 계정 %s / 리전 %s / 브랜치 %s / 관리자 %s"
+T[en.pf_run]="==> Preflight checks…"
+T[zh-Hant.pf_run]="==> 安裝前檢查(preflight)…"
+T[zh-Hans.pf_run]="==> 安装前检查(preflight)…"
+T[ja.pf_run]="==> インストール前チェック(preflight)…"
+T[ko.pf_run]="==> 설치 전 점검(preflight)…"
+T[en.pf_miss_cmd]="Missing command: %s"
+T[zh-Hant.pf_miss_cmd]="缺少指令: %s"
+T[zh-Hans.pf_miss_cmd]="缺少命令: %s"
+T[ja.pf_miss_cmd]="コマンドがありません: %s"
+T[ko.pf_miss_cmd]="명령이 없습니다: %s"
+T[en.pf_miss_npx]="Missing npx (needed by cdk bootstrap on a first install)"
+T[zh-Hant.pf_miss_npx]="缺少 npx(第一次安裝的 cdk bootstrap 需要)"
+T[zh-Hans.pf_miss_npx]="缺少 npx(首次安装的 cdk bootstrap 需要)"
+T[ja.pf_miss_npx]="npx がありません(初回の cdk bootstrap に必要)"
+T[ko.pf_miss_npx]="npx 가 없습니다(첫 설치의 cdk bootstrap 에 필요)"
+T[en.pf_policy]="Cannot fetch the permission policy template: %s (is the branch name correct?)"
+T[zh-Hant.pf_policy]="抓不到權限政策範本: %s(分支名正確嗎?)"
+T[zh-Hans.pf_policy]="拉不到权限策略模板: %s(分支名正确吗?)"
+T[ja.pf_policy]="権限ポリシーのテンプレートを取得できません: %s(ブランチ名は正しいですか?)"
+T[ko.pf_policy]="권한 정책 템플릿을 가져올 수 없습니다: %s(브랜치 이름이 맞나요?)"
+T[en.pf_perm_ok]="    OK permission check passed (%s)"
+T[zh-Hant.pf_perm_ok]="    OK 權限檢查通過(%s)"
+T[zh-Hans.pf_perm_ok]="    OK 权限检查通过(%s)"
+T[ja.pf_perm_ok]="    OK 権限チェック通過(%s)"
+T[ko.pf_perm_ok]="    OK 권한 점검 통과(%s)"
+T[en.pf_perm_skip]="Could not verify permissions (skipped): %s"
+T[zh-Hant.pf_perm_skip]="無法自動驗證權限(略過): %s"
+T[zh-Hans.pf_perm_skip]="无法自动验证权限(跳过): %s"
+T[ja.pf_perm_skip]="権限を自動検証できません(スキップ): %s"
+T[ko.pf_perm_skip]="권한을 자동 확인할 수 없습니다(건너뜀): %s"
+T[en.pf_perm_deny]="Your current identity is missing these permissions: %s"
+T[zh-Hant.pf_perm_deny]="目前身分缺少這些權限: %s"
+T[zh-Hans.pf_perm_deny]="当前身份缺少这些权限: %s"
+T[ja.pf_perm_deny]="現在の権限では次が不足しています: %s"
+T[ko.pf_perm_deny]="현재 자격 증명에 다음 권한이 없습니다: %s"
+T[en.pf_boot_admin]="A first install runs cdk bootstrap, which usually needs near-admin permissions"
+T[zh-Hant.pf_boot_admin]="第一次安裝需要 cdk bootstrap,通常需要接近管理員的權限"
+T[zh-Hans.pf_boot_admin]="首次安装需要 cdk bootstrap,通常需要接近管理员的权限"
+T[ja.pf_boot_admin]="初回は cdk bootstrap が必要で、通常は管理者に近い権限が要ります"
+T[ko.pf_boot_admin]="첫 설치는 cdk bootstrap 가 필요하며 보통 관리자급 권한이 필요합니다"
+T[en.pf_running]="An install/update is already running (%s); wait for it to finish or stop it in the CodeBuild console"
+T[zh-Hant.pf_running]="已有一個安裝/更新正在執行(%s),請等它結束或到 CodeBuild 主控台停止"
+T[zh-Hans.pf_running]="已有一个安装/更新正在执行(%s),请等它结束或到 CodeBuild 控制台停止"
+T[ja.pf_running]="インストール/更新が既に実行中です(%s)。終了を待つか CodeBuild コンソールで停止してください"
+T[ko.pf_running]="설치/업데이트가 이미 실행 중입니다(%s). 끝날 때까지 기다리거나 CodeBuild 콘솔에서 중지하세요"
+T[en.pf_bedrock]="Bedrock is not callable in this region or not enabled: the deploy will still succeed, but enable model access in the Bedrock console before running tests"
+T[zh-Hant.pf_bedrock]="這個區域呼叫不到 Bedrock 或尚未開通:部署仍會成功,但實際測試前要先在 Bedrock 主控台開啟模型存取"
+T[zh-Hans.pf_bedrock]="这个区域调用不到 Bedrock 或尚未开通:部署仍会成功,但实际测试前要先在 Bedrock 控制台开启模型访问"
+T[ja.pf_bedrock]="このリージョンで Bedrock を呼び出せないか未有効化です。デプロイは成功しますが、テスト前に Bedrock コンソールでモデルアクセスを有効化してください"
+T[ko.pf_bedrock]="이 리전에서 Bedrock 를 호출할 수 없거나 미활성화 상태입니다. 배포는 성공하지만 테스트 전에 Bedrock 콘솔에서 모델 액세스를 켜세요"
+T[en.pf_nonus]="Non-US region: default models use us. cross-region inference profiles, so you may need region-specific model IDs; Device Farm real devices are always in us-west-2"
+T[zh-Hant.pf_nonus]="非美國區域:預設模型用 us. 跨區推論設定檔,可能要改用該區的模型 ID;Device Farm 真機一律在 us-west-2"
+T[zh-Hans.pf_nonus]="非美国区域:默认模型用 us. 跨区推理配置文件,可能要改用该区的模型 ID;Device Farm 真机一律在 us-west-2"
+T[ja.pf_nonus]="米国外リージョン:既定モデルは us. のクロスリージョン推論プロファイルを使うため、リージョン別のモデル ID が必要な場合があります。Device Farm 実機は常に us-west-2 です"
+T[ko.pf_nonus]="미국 외 리전: 기본 모델은 us. 교차 리전 추론 프로필을 사용하므로 리전별 모델 ID가 필요할 수 있습니다. Device Farm 실기기는 항상 us-west-2 입니다"
+T[en.pf_blocked]="Preflight failed; stopping before anything is created:"
+T[zh-Hant.pf_blocked]="安裝前檢查沒通過,為避免部署到一半失敗,先停在這裡:"
+T[zh-Hans.pf_blocked]="安装前检查未通过,为避免部署到一半失败,先停在这里:"
+T[ja.pf_blocked]="プレフライトに失敗。何も作成する前に停止します:"
+T[ko.pf_blocked]="프리플라이트 실패. 아무것도 만들기 전에 중단합니다:"
+T[en.pf_fix]="Fix the above and run the same command again. (Add --skip-preflight to bypass.)"
+T[zh-Hant.pf_fix]="修正上述問題後再執行同一行指令。(確定要略過檢查可加 --skip-preflight)"
+T[zh-Hans.pf_fix]="修正上述问题后再执行同一行命令。(确定要跳过检查可加 --skip-preflight)"
+T[ja.pf_fix]="上記を修正して同じコマンドを再実行してください。(スキップは --skip-preflight)"
+T[ko.pf_fix]="위 문제를 고친 뒤 같은 명령을 다시 실행하세요. (건너뛰려면 --skip-preflight)"
+T[en.pf_pass]="==> Checks passed, starting install"
+T[zh-Hant.pf_pass]="==> 檢查通過,開始安裝"
+T[zh-Hans.pf_pass]="==> 检查通过,开始安装"
+T[ja.pf_pass]="==> チェック通過、インストールを開始します"
+T[ko.pf_pass]="==> 점검 통과, 설치를 시작합니다"
+T[en.boot_first]="==> First install in this region: running cdk bootstrap (~2 min)"
+T[zh-Hant.boot_first]="==> 第一次在這個區域安裝:執行 cdk bootstrap(約 2 分鐘)"
+T[zh-Hans.boot_first]="==> 首次在这个区域安装:执行 cdk bootstrap(约 2 分钟)"
+T[ja.boot_first]="==> このリージョン初回:cdk bootstrap を実行(約 2 分)"
+T[ko.boot_first]="==> 이 리전 첫 설치: cdk bootstrap 실행(약 2분)"
+T[en.boot_bad]="CDKToolkit status is %s; please fix it in the CloudFormation console first"
+T[zh-Hant.boot_bad]="CDKToolkit 狀態是 %s,請先到 CloudFormation 主控台處理"
+T[zh-Hans.boot_bad]="CDKToolkit 状态是 %s,请先到 CloudFormation 控制台处理"
+T[ja.boot_bad]="CDKToolkit の状態が %s です。先に CloudFormation コンソールで対処してください"
+T[ko.boot_bad]="CDKToolkit 상태가 %s 입니다. 먼저 CloudFormation 콘솔에서 조치하세요"
+T[en.boot_ready]="==> CDKToolkit ready (%s)"
+T[zh-Hant.boot_ready]="==> CDKToolkit 已就緒(%s)"
+T[zh-Hans.boot_ready]="==> CDKToolkit 已就绪(%s)"
+T[ja.boot_ready]="==> CDKToolkit 準備完了(%s)"
+T[ko.boot_ready]="==> CDKToolkit 준비됨(%s)"
+T[en.role_new]="==> Creating IAM role %s"
+T[zh-Hant.role_new]="==> 建立 IAM 角色 %s"
+T[zh-Hans.role_new]="==> 创建 IAM 角色 %s"
+T[ja.role_new]="==> IAM ロール %s を作成"
+T[ko.role_new]="==> IAM 역할 %s 생성"
+T[en.role_wait]="==> Waiting for the IAM role to take effect"
+T[zh-Hant.role_wait]="==> 等 IAM 角色生效"
+T[zh-Hans.role_wait]="==> 等 IAM 角色生效"
+T[ja.role_wait]="==> IAM ロールの反映を待機"
+T[ko.role_wait]="==> IAM 역할 적용 대기"
+T[en.proj_ready]="==> CodeBuild project %s ready"
+T[zh-Hant.proj_ready]="==> CodeBuild 專案 %s 已就緒"
+T[zh-Hans.proj_ready]="==> CodeBuild 项目 %s 已就绪"
+T[ja.proj_ready]="==> CodeBuild プロジェクト %s 準備完了"
+T[ko.proj_ready]="==> CodeBuild 프로젝트 %s 준비됨"
+T[en.dep_start]="==> Deploy started: %s"
+T[zh-Hant.dep_start]="==> 開始部署: %s"
+T[zh-Hans.dep_start]="==> 开始部署: %s"
+T[ja.dep_start]="==> デプロイ開始: %s"
+T[ko.dep_start]="==> 배포 시작: %s"
+T[en.dep_console]="    Console: %s"
+T[zh-Hant.dep_console]="    主控台: %s"
+T[zh-Hans.dep_console]="    控制台: %s"
+T[ja.dep_console]="    コンソール: %s"
+T[ko.dep_console]="    콘솔: %s"
+T[en.dep_follow]="==> Deployment log below (~30-60 min; closing CloudShell keeps it running in AWS)"
+T[zh-Hant.dep_follow]="==> 下面是部署紀錄(約 30–60 分鐘;關掉 CloudShell 也會繼續在 AWS 上跑)"
+T[zh-Hans.dep_follow]="==> 下面是部署日志(约 30–60 分钟;关掉 CloudShell 也会继续在 AWS 上跑)"
+T[ja.dep_follow]="==> 以下はデプロイログ(約30〜60分。CloudShell を閉じても AWS 上で継続します)"
+T[ko.dep_follow]="==> 아래는 배포 로그(약 30~60분. CloudShell 을 닫아도 AWS 에서 계속 실행됩니다)"
+T[en.dep_fail]="Deploy failed (%s). See the log above, or the CodeBuild console for %s; fix it and run the same command again."
+T[zh-Hant.dep_fail]="部署失敗(%s)。看上面的紀錄,或到 CodeBuild 主控台查看 %s;修好後重新執行同一行指令即可。"
+T[zh-Hans.dep_fail]="部署失败(%s)。看上面的日志,或到 CodeBuild 控制台查看 %s;修好后重新执行同一行命令即可。"
+T[ja.dep_fail]="デプロイ失敗(%s)。上のログ、または CodeBuild コンソールで %s を確認し、修正後に同じコマンドを再実行してください。"
+T[ko.dep_fail]="배포 실패(%s). 위 로그 또는 CodeBuild 콘솔에서 %s 를 확인하고, 수정 후 같은 명령을 다시 실행하세요."
+T[en.done_title]=" PlayAgent Checker deployed"
+T[zh-Hant.done_title]=" PlayAgent Checker 部署完成"
+T[zh-Hans.done_title]=" PlayAgent Checker 部署完成"
+T[ja.done_title]=" PlayAgent Checker デプロイ完了"
+T[ko.done_title]=" PlayAgent Checker 배포 완료"
+T[en.done_url]=" URL   : %s"
+T[zh-Hant.done_url]=" 網址  : %s"
+T[zh-Hans.done_url]=" 网址  : %s"
+T[ja.done_url]=" URL   : %s"
+T[ko.done_url]=" URL   : %s"
+T[en.done_admin]=" Admin : %s"
+T[zh-Hant.done_admin]=" 管理員: %s"
+T[zh-Hans.done_admin]=" 管理员: %s"
+T[ja.done_admin]=" 管理者: %s"
+T[ko.done_admin]=" 관리자: %s"
+T[en.done_first]=" First sign-in: check your email for the temporary password; you set a new one on first login."
+T[zh-Hant.done_first]=" 第一次登入:到信箱找臨時密碼,登入後會要求設定新的。"
+T[zh-Hans.done_first]=" 第一次登录:到邮箱找临时密码,登录后会要求设置新的。"
+T[ja.done_first]=" 初回ログイン:メールの仮パスワードでログインし、新しいものを設定します。"
+T[ko.done_first]=" 첫 로그인: 이메일의 임시 비밀번호로 로그인한 뒤 새로 설정합니다."
+T[en.done_update]=" To update later: run the same command again."
+T[zh-Hant.done_update]=" 之後要更新:再執行同一行指令即可。"
+T[zh-Hans.done_update]=" 之后要更新:再执行同一行命令即可。"
+T[ja.done_update]=" 後で更新:同じコマンドを再実行するだけです。"
+T[ko.done_update]=" 나중에 업데이트: 같은 명령을 다시 실행하면 됩니다."
+
+t(){ local k="${LANG_CODE}.$1"; printf '%s' "${T[$k]:-${T[en.$1]:-$1}}"; }
+say(){ printf '%s\n' "$(t "$1")"; }
+sayf(){ local f; f="$(t "$1")"; shift; printf "$f\n" "$@"; }
+
 if [[ -z "$EMAIL" && -r /dev/tty ]]; then
-  read -r -p "管理員 Email / Admin email: " EMAIL </dev/tty
+  read -r -p "$(t ask_email)" EMAIL </dev/tty
 fi
-[[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || { echo "請用 --admin-email 指定有效的 Email / a valid --admin-email is required" >&2; exit 1; }
-[[ "$REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || { echo "Invalid region: $REGION" >&2; exit 1; }
-[[ "$BRANCH" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { echo "Invalid branch: $BRANCH" >&2; exit 1; }
-command -v aws >/dev/null && command -v node >/dev/null && command -v curl >/dev/null || { echo "需要 aws、node、curl(AWS CloudShell 已內建)" >&2; exit 1; }
+[[ "$EMAIL" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || { say bad_email >&2; exit 1; }
+[[ "$REGION" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]$ ]] || { sayf bad_region "$REGION" >&2; exit 1; }
+[[ "$BRANCH" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { sayf bad_branch "$BRANCH" >&2; exit 1; }
+command -v aws >/dev/null && command -v node >/dev/null && command -v curl >/dev/null || { say need_tools >&2; exit 1; }
 
 # 安裝前檢查:掃描必備工具、政策範本、呼叫者權限、是否已有安裝在跑、Bedrock 可用性。
 # 有任何阻擋項就在建立任何資源「之前」停下,一次列出所有問題,避免部署到一半才失敗。
 preflight() {
   local toolkit="$1"
   local blockers=() warnings=()
-  echo "==> 安裝前檢查(preflight)…"
+  say pf_run
 
   # 必備工具(CloudShell 內建;第一次安裝的 cdk bootstrap 需要 npx)。
-  for t in aws node curl; do command -v "$t" >/dev/null || blockers+=("缺少指令:$t"); done
-  if [[ "$toolkit" == MISSING ]]; then command -v npx >/dev/null || blockers+=("缺少 npx(第一次安裝的 cdk bootstrap 需要)"); fi
+  for c in aws node curl; do command -v "$c" >/dev/null || blockers+=("$(printf "$(t pf_miss_cmd)" "$c")"); done
+  if [[ "$toolkit" == MISSING ]]; then command -v npx >/dev/null || blockers+=("$(t pf_miss_npx)"); fi
 
   # 權限政策範本要抓得到(順便驗證分支名正確)。
   if ! curl -fsIL "$RAW_BASE/$BRANCH/infra/iam/playagent-deployer-policy.json" >/dev/null 2>&1; then
-    blockers+=("抓不到權限政策範本:$RAW_BASE/$BRANCH/infra/iam/playagent-deployer-policy.json(分支名正確嗎?)")
+    blockers+=("$(printf "$(t pf_policy)" "$RAW_BASE/$BRANCH/infra/iam/playagent-deployer-policy.json")")
   fi
 
   # 用呼叫者身分模擬這支腳本需要的動作(identity policy 層級;不含 SCP/權限邊界,但能擋掉大多數權限不足)。
@@ -96,12 +296,12 @@ preflight() {
       --action-names "${actions[@]}" \
       --query 'EvaluationResults[?EvalDecision!=`allowed`].EvalActionName' --output text 2>"$WORK/sim.err" || true)"
   if [[ -s "$WORK/sim.err" ]]; then
-    warnings+=("無法自動驗證權限(略過此項):$(head -1 "$WORK/sim.err")")
+    warnings+=("$(printf "$(t pf_perm_skip)" "$(head -1 "$WORK/sim.err")")")
   elif [[ -n "$denied" ]]; then
-    blockers+=("目前身分缺少這些權限:$(tr '\t' ' ' <<<"$denied")")
-    [[ "$toolkit" == MISSING ]] && warnings+=("第一次安裝需要 cdk bootstrap,通常需要接近管理員的權限")
+    blockers+=("$(printf "$(t pf_perm_deny)" "$(tr '\t' ' ' <<<"$denied")")")
+    [[ "$toolkit" == MISSING ]] && warnings+=("$(t pf_boot_admin)")
   else
-    echo "    OK 權限檢查通過($principal)"
+    printf "$(t pf_perm_ok)\n" "$principal"
   fi
 
   # 已經有安裝/更新在跑?避免同時部署互相打架。
@@ -109,35 +309,33 @@ preflight() {
   running="$(aws codebuild list-builds-for-project --project-name "$NAME" --query 'ids[0]' --output text 2>/dev/null || true)"
   if [[ -n "$running" && "$running" != None ]]; then
     rstate="$(aws codebuild batch-get-builds --ids "$running" --query 'builds[0].buildStatus' --output text 2>/dev/null || true)"
-    [[ "$rstate" == IN_PROGRESS ]] && blockers+=("已有一個安裝/更新正在執行($running),請等它結束,或到 CodeBuild 主控台停止")
+    [[ "$rstate" == IN_PROGRESS ]] && blockers+=("$(printf "$(t pf_running)" "$running")")
   fi
 
   # Bedrock(非阻擋):部署不需要,但實際測試需要先在這個區域開通模型存取。
   if ! aws bedrock list-foundation-models --query 'modelSummaries[0].modelId' --output text >/dev/null 2>&1; then
-    warnings+=("這個區域呼叫不到 Bedrock 或帳號尚未開通:部署會成功,但實際測試前要先在 Bedrock 主控台開啟模型存取")
+    warnings+=("$(t pf_bedrock)")
   fi
   case "$REGION" in
     us-*) : ;;
-    *) warnings+=("非美國區域:預設模型用 us. 跨區推論設定檔,可能要改用該區的模型 ID;Device Farm 真機一律在 us-west-2") ;;
+    *) warnings+=("$(t pf_nonus)") ;;
   esac
 
   for w in "${warnings[@]:-}"; do [[ -n "$w" ]] && echo "    ⚠ $w"; done
   if (( ${#blockers[@]} )); then
-    { echo ""
-      echo "安裝前檢查沒通過,為避免部署到一半失敗,先停在這裡:"
+    { echo ""; say pf_blocked
       for b in "${blockers[@]}"; do echo "  ✗ $b"; done
-      echo ""
-      echo "修正上述問題後再執行同一行指令。(確定要略過檢查可加 --skip-preflight)"
+      echo ""; say pf_fix
     } >&2
     exit 1
   fi
-  echo "==> 檢查通過,開始安裝"
+  say pf_pass
 }
 
 export AWS_REGION="$REGION" AWS_DEFAULT_REGION="$REGION"
 ACCOUNT="$(aws sts get-caller-identity --query Account --output text)"
-[[ "$ACCOUNT" =~ ^[0-9]{12}$ ]] || { echo "Could not resolve AWS account" >&2; exit 1; }
-echo "==> 帳號 $ACCOUNT / 區域 $REGION / 分支 $BRANCH / 管理員 $EMAIL"
+[[ "$ACCOUNT" =~ ^[0-9]{12}$ ]] || { say no_account >&2; exit 1; }
+sayf summary "$ACCOUNT" "$REGION" "$BRANCH" "$EMAIL"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -148,12 +346,12 @@ if (( ! SKIP_PREFLIGHT )); then preflight "$TOOLKIT_STATUS"; fi
 
 # 1. CDK bootstrap (admin only, once per account/region)
 if [[ "$TOOLKIT_STATUS" == MISSING ]]; then
-  echo "==> 第一次在這個區域安裝:執行 cdk bootstrap(約 2 分鐘)"
+  say boot_first
   (cd "$WORK" && npx -y aws-cdk@2 bootstrap "aws://$ACCOUNT/$REGION")
 elif [[ ! "$TOOLKIT_STATUS" =~ ^(CREATE|UPDATE|UPDATE_ROLLBACK)_COMPLETE$ ]]; then
-  echo "CDKToolkit 狀態是 $TOOLKIT_STATUS,請先到 CloudFormation 主控台處理" >&2; exit 1
+  sayf boot_bad "$TOOLKIT_STATUS" >&2; exit 1
 else
-  echo "==> CDKToolkit 已就緒 ($TOOLKIT_STATUS)"
+  sayf boot_ready "$TOOLKIT_STATUS"
 fi
 
 # 2. Least-privilege CodeBuild role (policy template from the same branch of the repo)
@@ -167,7 +365,7 @@ NEW_ROLE=0
 if ! aws iam get-role --role-name "$NAME" >/dev/null 2>&1; then
   aws iam create-role --role-name "$NAME" --assume-role-policy-document "$TRUST" --description "PlayAgent Checker installer (CodeBuild, least privilege)" >/dev/null
   NEW_ROLE=1
-  echo "==> 建立 IAM 角色 $NAME"
+  sayf role_new "$NAME"
 else
   aws iam update-assume-role-policy --role-name "$NAME" --policy-document "$TRUST"
 fi
@@ -177,7 +375,7 @@ ROLE_ARN="arn:aws:iam::$ACCOUNT:role/$NAME"
 LOG_GROUP="/aws/codebuild/$NAME"
 aws logs create-log-group --log-group-name "$LOG_GROUP" 2>/dev/null || true
 aws logs put-retention-policy --log-group-name "$LOG_GROUP" --retention-in-days 30
-if (( NEW_ROLE )); then echo "==> 等 IAM 角色生效"; sleep 15; fi
+if (( NEW_ROLE )); then say role_wait; sleep 15; fi
 
 # 3. CodeBuild project: no source, inline buildspec clones the public repo
 PA_NODE_VERSION="$NODE_VERSION" PA_REPO="$REPO_URL" PA_NAME="$NAME" PA_ROLE="$ROLE_ARN" PA_LOG_GROUP="$LOG_GROUP" \
@@ -234,16 +432,16 @@ for i in 1 2 3 4 5 6; do
   if (( i == 6 )) || ! grep -qiE 'not authorized to perform: ?sts:AssumeRole|InvalidInputException' "$WORK/err"; then cat "$WORK/err" >&2; exit 1; fi
   sleep 10
 done
-echo "==> CodeBuild 專案 $NAME 已就緒"
+sayf proj_ready "$NAME"
 
 # 4. Start the build and follow it
 BUILD_ID="$(aws codebuild start-build --project-name "$NAME" \
   --environment-variables-override "name=PA_ADMIN_EMAIL,value=$EMAIL,type=PLAINTEXT" "name=PA_REGION,value=$REGION,type=PLAINTEXT" "name=PA_BRANCH,value=$BRANCH,type=PLAINTEXT" \
   --query 'build.id' --output text)"
-echo "==> 開始部署:$BUILD_ID"
-echo "    主控台:https://$REGION.console.aws.amazon.com/codesuite/codebuild/projects/$NAME/history?region=$REGION"
+sayf dep_start "$BUILD_ID"
+sayf dep_console "https://$REGION.console.aws.amazon.com/codesuite/codebuild/projects/$NAME/history?region=$REGION"
 if (( ! WAIT )); then exit 0; fi
-echo "==> 下面是部署紀錄(約 30–60 分鐘;關掉 CloudShell 也會繼續在 AWS 上跑)"
+say dep_follow
 
 aws logs tail "$LOG_GROUP" --follow --format short --since 1m --log-stream-name-prefix "${BUILD_ID#*:}" &
 TAIL_PID=$!
@@ -258,14 +456,14 @@ kill "$TAIL_PID" 2>/dev/null || true
 
 echo
 if [[ "$STATE" != SUCCEEDED ]]; then
-  echo "部署失敗($STATE)。看上面的紀錄,或到 CodeBuild 主控台查看 $BUILD_ID;修好後重新執行同一行指令即可。" >&2
+  sayf dep_fail "$STATE" "$BUILD_ID" >&2
   exit 1
 fi
 SITE="$(aws cloudformation describe-stacks --stack-name PlayAgentDev-Frontend --query "Stacks[0].Outputs[?contains(OutputKey,'SiteUrl')].OutputValue | [0]" --output text 2>/dev/null || true)"
 echo "========================================"
-echo " PlayAgent Checker 部署完成"
-echo " 網址 URL : $SITE"
-echo " 管理員   : $EMAIL"
-echo " 第一次登入:到信箱找臨時密碼,登入後會要求設定新密碼。"
-echo " 之後要更新:再執行同一行指令即可。"
+say done_title
+sayf done_url "$SITE"
+sayf done_admin "$EMAIL"
+say done_first
+say done_update
 echo "========================================"
