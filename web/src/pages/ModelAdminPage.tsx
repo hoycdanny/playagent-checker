@@ -7,6 +7,7 @@ import './ModelAdminPage.css';
 
 type Seat = 'agent' | 'vlm' | 'subagent' | 'draft';
 const SEATS: Seat[] = ['agent', 'vlm', 'subagent', 'draft'];
+type SortKey = 'name' | 'price' | Seat;
 
 interface ModelRow {
   modelId: string;
@@ -52,6 +53,7 @@ export default function ModelAdminPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [onlyChecked, setOnlyChecked] = useState(false);
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'name', dir: 1 });
 
   const load = useCallback(async () => {
     setError(null);
@@ -102,6 +104,22 @@ export default function ModelAdminPage() {
       );
     });
   }, [models, filter, onlyChecked, sel]);
+
+  const sorted = useMemo(() => {
+    const arr = [...shown];
+    const { key, dir } = sort;
+    arr.sort((a, b) => {
+      let r = 0;
+      if (key === 'name') r = a.displayName.localeCompare(b.displayName) || a.provider.localeCompare(b.provider);
+      else if (key === 'price') r = a.pricing.inputPerM - b.pricing.inputPerM;
+      else r = (sel[b.modelId]?.[key] ? 1 : 0) - (sel[a.modelId]?.[key] ? 1 : 0);
+      return r * dir;
+    });
+    return arr;
+  }, [shown, sort, sel]);
+  const toggleSort = (key: SortKey) =>
+    setSort((p) => (p.key === key ? { key, dir: (p.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: 1 }));
+  const mark = (key: SortKey) => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '');
 
   async function onSave() {
     setError(null);
@@ -179,17 +197,17 @@ export default function ModelAdminPage() {
           <table className="modeladmin__table">
             <thead>
               <tr>
-                <th>{T.thModel}</th>
+                <th className="modeladmin__sortable" onClick={() => toggleSort('name')}>{T.thModel}{mark('name')}</th>
                 <th>{T.thCaps}</th>
-                <th>{T.thPrice}</th>
-                <th className="modeladmin__c">{T.colAgent}</th>
-                <th className="modeladmin__c">{T.colVlm}</th>
-                <th className="modeladmin__c">{T.colSub}</th>
-                <th className="modeladmin__c">{T.colDraft}</th>
+                <th className="modeladmin__sortable" onClick={() => toggleSort('price')}>{T.thPrice}{mark('price')}</th>
+                <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('agent')}>{T.colAgent}{mark('agent')}</th>
+                <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('vlm')}>{T.colVlm}{mark('vlm')}</th>
+                <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('subagent')}>{T.colSub}{mark('subagent')}</th>
+                <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('draft')}>{T.colDraft}{mark('draft')}</th>
               </tr>
             </thead>
             <tbody>
-              {shown.map((m) => (
+              {sorted.map((m) => (
                 <tr key={m.modelId}>
                   <td>
                     <div className="modeladmin__name">{m.displayName}</div>
@@ -214,7 +232,7 @@ export default function ModelAdminPage() {
                   ))}
                 </tr>
               ))}
-              {shown.length === 0 && (
+              {sorted.length === 0 && (
                 <tr><td colSpan={7} className="modeladmin__muted">{T.noMatch}</td></tr>
               )}
             </tbody>
@@ -273,7 +291,7 @@ function text(locale: string) {
     colAgent: ['控制遊戲', 'Game control', '控制游戏', 'ゲーム操作', '게임 제어'] as L5,
     colVlm: ['分析畫面', 'Screen analysis', '分析画面', '画面分析', '화면 분석'] as L5,
     colSub: ['子代理', 'Subagent', '子代理', 'サブエージェント', '서브에이전트'] as L5,
-    colDraft: ['產生測試腳本', 'Draft test cases', '生成测试脚本', 'テスト作成', '테스트 생성'] as L5,
+    colDraft: ['測試腳本', 'Test script', '测试脚本', 'テストスクリプト', '테스트 스크립트'] as L5,
     capImage: ['看圖', 'Vision', '看图', '画像', '비전'] as L5,
     capText: ['文字', 'Text', '文字', 'テキスト', '텍스트'] as L5,
     coordPixel: ['像素座標', 'pixel coords', '像素座标', 'ピクセル座標', '픽셀 좌표'] as L5,

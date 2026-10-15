@@ -217,19 +217,19 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
       .catch(() => {});
     // 各角色 Seat 可選模型:vlm=分析畫面、agent=控制遊戲、subagent=子代理。
     // 預設 = 各 seat 推薦第 1 名;下拉選項前 5 名置頂並加 ★(見 modelRecommend)。
-    apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=vlm&all=1')
       .then((r) => {
         setVlmModels(sortByRecommend('vlm', r.items));
         setVlmModel(recommendedDefault('vlm', r.items));
       })
       .catch(() => {});
-    apiGet<ListResponse<ModelEntry>>('/models?seat=agent')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=agent&all=1')
       .then((r) => {
         setAgentModels(sortByRecommend('agent', r.items));
         setAgentModel(recommendedDefault('agent', r.items));
       })
       .catch(() => {});
-    apiGet<ListResponse<ModelEntry>>('/models?seat=subagent')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=subagent&all=1')
       .then((r) => {
         setSubagentModels(sortByRecommend('subagent', r.items));
         setSubagentModel(recommendedDefault('subagent', r.items));

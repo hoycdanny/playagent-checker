@@ -80,8 +80,17 @@ const systemLogs = logsCfg ? { ports: makeSystemLogsPorts(logsCfg) } : undefined
 // 模型管理(admin 專用):Bedrock 控制面掃描 + 設定存 shared/model-admin.json(自身角色)。
 const bedrockControl = makeBedrockControl(REGION);
 const modelAdminStore = makeModelAdminStore(sharedS3, BUCKET);
+// Bedrock 控制面掃描結果快取 5 分鐘:提交任務頁(all=1)與模型管理頁都會打,避免每次開頁都掃一遍。
+let scanCache: { at: number; items: Awaited<ReturnType<typeof scanBedrockModels>> } | null = null;
+const SCAN_TTL_MS = 5 * 60 * 1000;
+const cachedScan = async () => {
+  if (scanCache && Date.now() - scanCache.at < SCAN_TTL_MS) return scanCache.items;
+  const items = await scanBedrockModels(bedrockControl);
+  scanCache = { at: Date.now(), items };
+  return items;
+};
 const modelAdmin = {
-  scan: () => scanBedrockModels(bedrockControl),
+  scan: cachedScan,
   readConfig: () => modelAdminStore.readConfig(),
   writeConfig: (c: Parameters<typeof modelAdminStore.writeConfig>[0]) => modelAdminStore.writeConfig(c),
 };

@@ -752,9 +752,25 @@ export async function handleRequest(
         // 附上每模型的當前有效單價(input/output 每百萬 token),供前端下拉呈現費用。
         const seatRaw = req.query?.['seat'];
         const seat = (MODEL_SEATS as string[]).includes(seatRaw ?? '') ? (seatRaw as ModelSeat) : undefined;
-        const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
+        // all=1(提交任務頁用):列出「所有查得到單價」的掃描模型,不受管理頁勾選限制,
+        // 只依 seat 能力過濾(vlm 需看圖,其餘需文字輸出)。管理頁的勾選只約束 draft(測試腳本)下拉。
+        const wantAll = req.query?.['all'] === '1' && !!deps.modelAdmin;
+        const cfg = !wantAll && deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
         let all: ModelListItem[];
-        if (cfg && cfg.entries.length) {
+        if (wantAll && deps.modelAdmin) {
+          const scanned = [...(await deps.modelAdmin.scan()), uitarsScanned()];
+          all = scanned
+            .filter((m) => isPriceable(m.modelId))
+            .filter((m) => (seat === 'vlm' ? m.image : seat ? m.text : true))
+            .map((m) => ({
+              modelId: m.modelId,
+              displayName: m.displayName,
+              channel: m.channel,
+              regions: ['us-west-2'],
+              coordSystem: m.coordSystem,
+              seats: [...(m.image ? ['vlm'] : []), ...(m.text ? ['agent', 'subagent'] : [])] as Seat[],
+            }));
+        } else if (cfg && cfg.entries.length) {
           all = cfg.entries
             .filter((e) => !seat || e.seats.includes(seat))
             .filter((e) => isPriceable(e.modelId)) // 只呈現查得到單價的(Fail Closed)
@@ -2221,14 +2237,20 @@ async function handleSubmitTask(
     ['agent', input.agentModel, 'Agent(控制遊戲)'],
     ['subagent', input.subagentModel, 'Subagent(子代理)'],
   ];
-  for (const [seat, modelId, label] of seatChecks) {
+  // 提交任務的三個座位(agent/vlm/subagent)可選「所有查得到單價」的模型(與下拉 all=1 一致),
+  // 不受模型管理頁勾選限制;只要查得到單價、且是已知/可掃描到的模型即可(draft 另有自己的校驗)。
+  const submitScan = deps.modelAdmin ? await deps.modelAdmin.scan() : [];
+  for (const [, modelId, label] of seatChecks) {
     if (!modelId) continue;
-    const allowed = await effectiveSeatModels(deps, seat);
-    if (!allowed.find((m) => m.modelId === modelId)) {
-      return json(400, { error: `${label} 模型不在可選清單: ${modelId}` });
-    }
     if (!isPriceable(modelId)) {
       return json(400, { error: `${label} 模型查無單價(Fail Closed): ${modelId}` });
+    }
+    const known =
+      modelId === 'uitars' ||
+      CATALOG.some((m) => m.modelId === modelId) ||
+      submitScan.some((m) => m.modelId === modelId);
+    if (!known) {
+      return json(400, { error: `${label} 模型不在可選清單: ${modelId}` });
     }
   }
   // UI-TARS 關閉時拒絕(否則 runner 會打一個不存在的 endpoint,每一步都只能等待)。
