@@ -91,9 +91,29 @@ const TABLE: Record<string, ModelPrice> = {
   'openai.gpt-oss-safeguard-20b': { inputPerM: 0.07, outputPerM: 0.2, estimated: true },
   'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24, estimated: true },
   'amazon.nova-micro-v1:0': { inputPerM: 0.035, outputPerM: 0.14, estimated: true },
-  // OpenAI GPT(Bedrock 上架,多模態可看圖):官方 model card 公告價(非估算)。
-  // GPT-5.6 Luna 商業區域短內容:input $0.22 / output $1.32(含 Bedrock +10% 已內含)。
+  // OpenAI GPT(Bedrock 上架,多模態可看圖):官方 model card 公告價(商業區域短內容 In-Region/Geo 標準層,已內含 +10%)。
+  // 註:GPT-6 Luna 僅 bedrock-mantle、不支援 bedrock-runtime Converse,本平台用不到,故不定價(維持隱藏)。
   'openai.gpt-5.6-luna': { inputPerM: 0.22, outputPerM: 1.32 },
+  'openai.gpt-5.6-terra': { inputPerM: 2.2, outputPerM: 13.2 },
+  'openai.gpt-5.6-sol': { inputPerM: 4.4, outputPerM: 22 },
+  'openai.gpt-6-sol': { inputPerM: 2.2, outputPerM: 11 },
+  'openai.gpt-6-astra': { inputPerM: 11, outputPerM: 55 },
+  // xAI Grok(AWS Price List us-west-2 標準層;多模態可看圖)。
+  'xai.grok-4.7': { inputPerM: 2.2, outputPerM: 6.6, estimated: true },
+  'xai.grok-4.6': { inputPerM: 2.2, outputPerM: 6.6, estimated: true },
+  // Amazon Nova 2 Lite(Price List;多模態、便宜)。
+  'amazon.nova-2-lite-v1:0': { inputPerM: 0.33, outputPerM: 2.75, estimated: true },
+  // Mistral / Meta / NVIDIA(Price List us-west-2 標準層)。
+  'mistral.magistral-small-2509': { inputPerM: 0.5, outputPerM: 1.5, estimated: true },
+  'mistral.ministral-3-8b-instruct': { inputPerM: 0.15, outputPerM: 0.15, estimated: true },
+  'mistral.mistral-7b-instruct-v0:2': { inputPerM: 0.15, outputPerM: 0.2, estimated: true },
+  'mistral.mistral-large-2402-v1:0': { inputPerM: 4, outputPerM: 12, estimated: true },
+  'mistral.mistral-large-2407-v1:0': { inputPerM: 2, outputPerM: 6, estimated: true },
+  'mistral.mixtral-8x7b-instruct-v0:1': { inputPerM: 0.45, outputPerM: 0.7, estimated: true },
+  'meta.llama3-70b-instruct-v1:0': { inputPerM: 2.65, outputPerM: 3.5, estimated: true },
+  'meta.llama3-8b-instruct-v1:0': { inputPerM: 0.3, outputPerM: 0.6, estimated: true },
+  'nvidia.nemotron-nano-12b-v2': { inputPerM: 0.2, outputPerM: 0.6, estimated: true },
+  'nvidia.nemotron-nano-9b-v2': { inputPerM: 0.06, outputPerM: 0.23, estimated: true },
   'deepseek.r1-v1:0': { inputPerM: 1.35, outputPerM: 5.4, estimated: true },
   'mistral.pixtral-large-2502-v1:0': { inputPerM: 2.0, outputPerM: 6.0, estimated: true },
   'meta.llama3-1-8b-instruct-v1:0:128k': { inputPerM: 0.22, outputPerM: 0.22, estimated: true },
