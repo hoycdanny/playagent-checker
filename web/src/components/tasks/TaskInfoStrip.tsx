@@ -3,6 +3,7 @@ import type { TaskMeta } from '../../api/useJobStream.ts';
 import { modelLabel, PROVIDER_LABEL, providerOf } from '../modelProvider.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { InfoIcon, type InfoIconName } from './InfoIcon.tsx';
+import { usd4 } from '../money.ts';
 
 /**
  * 任務資訊精簡列:一排 icon 晶片(知識庫 / 裝置 / 三個模型 / 花費 / Token)。
@@ -36,7 +37,7 @@ export function TaskInfoStrip({ meta, kbNames }: { meta: TaskMeta | undefined; k
     { seat: 'vlm', icon: 'eye', label: t('detail.roleVlm'), hint: t('detail.roleVlmHint') },
     { seat: 'subagent', icon: 'sparkle', label: t('detail.roleSubagent'), hint: t('detail.roleSubagentHint') },
   ];
-  const fmtUsd = (n: number) => `$${n.toFixed(2)}`;
+  const fmtUsd = usd4;
 
   return (
     <ul className="dchips" aria-label={t('detail.info')}>

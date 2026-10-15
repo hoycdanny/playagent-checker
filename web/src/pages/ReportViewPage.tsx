@@ -11,6 +11,7 @@ import type { ReportInsights, StructuredReport } from '../components/report/repo
 import { outcomeKey, outcomeOfVerdict } from '../components/outcome.ts';
 import './ListPage.css';
 import './ReportViewPage.css';
+import { usd4 } from '../components/money.ts';
 
 /** emulator 報告的逐步 trace。 */
 interface EmuStep {
@@ -326,7 +327,7 @@ function WebNarrativeReport({
     <>
       {report.billableSpendUsd !== undefined && (
         <div className="report__cost">
-          <span>{t('report.spend')}: ${report.billableSpendUsd.toFixed(2)}</span>
+          <span>{t('report.spend')}: {usd4(report.billableSpendUsd)}</span>
         </div>
       )}
       <div className="report__narrative-box">
