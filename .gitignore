@@ -28,3 +28,6 @@ coverage/
 # 本地測試用的 Windows 遊戲安裝檔(大型二進位檔,不應進版控)
 APP-Windows/
 *.exe
+
+# Kiro workspace files (specs, steering, hooks) stay local
+.kiro/
