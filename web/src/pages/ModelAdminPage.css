@@ -73,3 +73,6 @@
 .modeladmin__unpriced ul { margin: 0.5rem 0; padding-left: 1.1rem; }
 .modeladmin__unpriced li { margin: 0.25rem 0; }
 .modeladmin__unpriced code { font-size: 0.78rem; }
+
+.modeladmin__sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+.modeladmin__sortable:hover { color: var(--accent, #2563eb); }
