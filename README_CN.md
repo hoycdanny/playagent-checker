@@ -245,7 +245,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 想从自己的电脑部署，或需要某项一次性的可选设置？请使用以下路径。[快速开始](#快速开始)中的 CloudShell 一行命令是最简单的方式，本节涵盖其余所有情况。
 
-### Windows 和 macOS 推荐：一键安装／更新到最新版
+### Windows 和 macOS 推荐：一键安装／更新
 
 先安装 **Node.js 22、AWS CLI v2、Git、Docker Desktop**，完成 AWS 登录并启用下文列出的 Bedrock 模型。然后 clone 仓库并运行：
 
@@ -259,7 +259,7 @@ Linux：  运行 scripts/deploy-latest.sh
 
 任何系统都可以使用 `npm run deploy:latest -- --expected-account-id 123456789012` 校验 AWS 账户。旧的 Windows PowerShell 脚本仍可使用，但只是兼容包装；三个系统共用同一份 Node.js 部署核心。
 
-也可以运行 `npm run deploy:latest`。安装器始终从官方 GitHub `main` 解析不可变 Git SHA，在隔离的临时 worktree 中安装、测试和部署；两个 Runner 同时推送 SHA 标签与 `latest`，ECS 任务定义锁定 SHA。最后会验证 CloudFormation、ECR digest、ECS 镜像和 CloudFront。如果部署期间 `main` 又有更新，会自动改为部署更新版本（最多三轮）。本机未提交的文件不会被带入或重置。
+也可以运行 `npm run deploy:latest`。安装器会**原样部署这个文件夹**，不会自行拉取新版；要部署最新的 `main`，请先 `git pull`。版本标签为 Git commit SHA（从没有 `.git` 的 ZIP 解压则为 `local-<UTC 时间>`）；有未提交的更改时会一并部署，并给出警告、使用 `<sha12>-dirty-<UTC 时间>` 标签。它会依 lockfile 安装、测试、部署所有堆栈与更新器（Updater）；两个 Runner 同时推送版本标签与 `latest`，ECS 任务定义锁定版本标签。最后会验证 CloudFormation、ECR digest、ECS 镜像和 CloudFront。不会重置、stash 或清除本机文件。
 
 为避免部署到错误环境，建议使用 `npm run deploy:latest -- --expected-account-id 123456789012` 检查 AWS 账户。首次安装结束前，交互式安装只询问管理员的 **Email（登录 username）**和以隐藏方式输入的密码。tenant 默认为 `default`；只有高级场景才需要用 `--admin-tenant <tenant>` 覆盖。
 

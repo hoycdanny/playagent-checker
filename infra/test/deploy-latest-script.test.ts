@@ -12,7 +12,7 @@ const cmd = readFileSync(join(root, 'Install-Latest.cmd'), 'utf8');
 const mac = readFileSync(join(root, 'Install-Latest.command'), 'utf8');
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 
-describe('cross-platform one-click latest deployment contract', () => {
+describe('cross-platform one-click local-source deployment contract', () => {
   test('Windows, macOS, shell, PowerShell, and npm all call the same Node core', () => {
     expect(cmd).toContain('scripts\\deploy-latest.mjs');
     expect(cmd).toContain('%*');
@@ -48,22 +48,29 @@ describe('cross-platform one-click latest deployment contract', () => {
     }
   });
 
-  test('deploys an isolated canonical-main SHA without touching local work', () => {
-    expect(core).toContain("const DEFAULT_REPO = 'https://github.com/hoycdanny/playagent-checker.git'");
-    expect(core).toContain("branch: 'main'");
-    expect(core).toContain("'worktree', 'add', '--detach'");
-    expect(core).toContain("'worktree', 'remove', '--force'");
-    expect(core).toContain('main 已更新');
+  test('deploys the local folder and never fetches latest', () => {
+    for (const forbidden of ['DEFAULT_REPO', "'worktree'", "'clone'", "'ls-remote'", "'fetch'", 'main 已更新']) {
+      expect(core, forbidden).not.toContain(forbidden);
+    }
+    expect(core).toContain("from './source-version.mjs'");
+    expect(core).toContain('detectSourceVersion(');
+    expect(core).toContain('CALLER_ROOT');
     expect(core).not.toMatch(/git[^\n]*(?:reset|stash|clean)/i);
+    // Compat flags so an older outer launcher can still hand off to this core.
+    expect(core).toContain("a === '--internal'");
+    expect(core).toContain("a === '--source-root'");
+    expect(core).toContain("a === '--source-sha'");
+    expect(cmd).not.toContain('Latest PlayAgent Checker');
+    expect(mac).not.toContain('Latest PlayAgent Checker');
   });
 
   test('builds both immutable runner tags, updates latest, and pins ECS', () => {
     expect(core).toContain("name: 'playagent-exploration-runner'");
     expect(core).toContain("name: 'playagent-web-runner'");
-    expect(core).toContain('org.opencontainers.image.revision=${o.sourceSha}');
-    expect(core).toContain('SHA tag 與 latest digest 不一致');
+    expect(core).toContain('org.opencontainers.image.revision=${o.sourceVersion}');
+    expect(core).toContain('版本 tag 與 latest digest 不一致');
     expect(core).toContain('runnerImageTag=${imageTag}');
-    expect(core).toContain('ECS 尚未鎖定 SHA');
+    expect(core).toContain('ECS 尚未鎖定版本 tag');
     expect(core).toContain('existingRunnerRepos=true');
     expect(core).toContain('ensureRepo');
   });
@@ -200,10 +207,19 @@ describe('CloudShell → CodeBuild one-line installer', () => {
 
   test('installer and createUser support invite mode end to end', () => {
     expect(core).toContain("else if (a === '--admin-invite') o.adminInvite = true;");
-    expect(core).toContain("if (o.adminInvite) a.push('--admin-invite');");
+    expect(ps).toContain("if ($AdminInvite) { $argsList += '--admin-invite' }");
     expect(core).toContain("[...userArgs, '--invite', '--temp-pw-param'");
+    // 非互動 + 邀請模式不需要 stdin 密碼(CloudShell 沒有密碼可傳)。
+    expect(core).toContain('if (!o.adminInvite) {');
     expect(createUser).toContain("DesiredDeliveryMediums: ['EMAIL']");
     expect(createUser).toContain("if (flag('invite'))");
+  });
+
+  test('every flag the CloudShell buildspec passes is accepted by the installer', () => {
+    const line = cs.split('\n').find((l) => l.includes('PA_PROGRESS=1 node scripts/deploy-latest.mjs'))!;
+    const flags = [...line.matchAll(/(--[a-z-]+)/g)].map((m) => m[1]!);
+    expect(flags).toEqual(expect.arrayContaining(['--non-interactive', '--region', '--admin-email', '--admin-invite']));
+    for (const f of flags) expect(core, f).toContain(`a === '${f}'`);
   });
 
   test('CloudShell shows step progress and the admin temp password (shown + emailed)', () => {
@@ -211,6 +227,12 @@ describe('CloudShell → CodeBuild one-line installer', () => {
     expect(core).toContain('const PA_EMIT');
     expect(core).toContain('PA_STEP|');
     expect(core).toContain("'--temp-pw-param'");
+    // every step key CloudShell can label is emitted, including the Updater.
+    for (const key of ['tools', 'deps', 'tests', 'bootstrap', 'foundation', 'admin', 'images', 'pin_ecs', 'scheduling', 'frontend_build', 'frontend', 'updater', 'verify']) {
+      expect(core, key).toContain(`pstep('${key}'`);
+      expect(cs, key).toContain(`s_${key}`);
+    }
+    expect(core).toContain('`${prefix}-Updater`');
     // createUser sets a temporary password (emailed) and stashes it in a short-lived SSM param.
     expect(createUser).toContain('TemporaryPassword');
     expect(createUser).toContain('PutParameterCommand');

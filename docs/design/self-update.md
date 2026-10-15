@@ -55,6 +55,8 @@ buildspec 刻意**寫在 CDK 裡而不是放進倉庫**:更新器要能部署任
 
 優先序:GitHub **latest release** → 最新 **tag** → 預設分支最新 **commit**。本專案目前沒有 release 也沒有 tag,所以會顯示 `main` 的最新 commit,頁面上標為「分支最新 commit」。開始打 tag 之後會自動改用 tag,不需要改程式。
 
+一鍵安裝器(`scripts/deploy-latest.mjs`)從 git checkout 部署時會把真正的 commit 寫進 `deployed-version` 的 `sha`;從 ZIP(沒有 `.git`)部署時不寫 `sha`,所以頁面會顯示「還沒有更新紀錄」,直到第一次從頁面更新為止。
+
 ## 5. 安全邊界
 
 **必須先理解的事:這顆按鈕最終會以 AdministratorAccess 改動整個 AWS 帳號。** 能部署 CloudFormation 就能改 IAM,這一點無法用技術消除,只能限制誰按得到、留下紀錄、縮小其他環節的權限。

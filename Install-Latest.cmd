@@ -1,10 +1,10 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title PlayAgent Checker - Install Latest
+title PlayAgent Checker - Install
 
 echo ============================================================
-echo  PlayAgent Checker - one-click latest installer / updater
+echo  PlayAgent Checker - one-click installer / updater (deploys this folder)
 echo ============================================================
 echo.
 where node >nul 2>nul
@@ -17,7 +17,7 @@ node "%~dp0scripts\deploy-latest.mjs" %*
 set "EXIT_CODE=%ERRORLEVEL%"
 echo.
 if "%EXIT_CODE%"=="0" (
-  echo [SUCCESS] Latest PlayAgent Checker is installed and verified.
+  echo [SUCCESS] PlayAgent Checker is installed and verified.
 ) else (
   echo [FAILED] Deployment stopped. Read the error and log path above.
 )

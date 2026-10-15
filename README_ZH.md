@@ -245,7 +245,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 想從自己的電腦部署,或需要某項一次性的選用設定?請使用以下路徑。[快速開始](#快速開始)中的 CloudShell 一行指令是最簡單的方式,本節涵蓋其餘所有情況。
 
-### Windows 與 macOS 建議:一鍵安裝／更新最新版
+### Windows 與 macOS 建議:一鍵安裝／更新
 
 先安裝 **Node.js 22、AWS CLI v2、Git、Docker Desktop**,完成 `aws configure`(或 AWS SSO)並在奧勒岡啟用下方列出的 Bedrock 模型。接著 clone 儲存庫並執行:
 
@@ -265,7 +265,7 @@ npm run deploy:latest -- --expected-account-id 123456789012
 
 舊的 Windows `scripts/deploy-latest.ps1` 仍可使用,但只是相容包裝；Windows、macOS、Linux 都執行同一份 Node.js 部署核心。
 
-腳本不會直接部署目前資料夾。它會從官方 GitHub `main` 取得當下最新 commit SHA,建立隔離的暫存 worktree,依 lockfile 安裝套件、跑測試、CDK bootstrap／部署、建置兩個 runner 映像,同時推送 `:<Git SHA>` 與 `:latest`,並讓 ECS Task Definition 鎖定 SHA tag。最後會核對 CloudFormation、ECR digest、ECS image 與 CloudFront。部署期間 `main` 若又更新,會自動改部署新版本(最多三輪);不會 reset、stash 或夾帶本機未提交檔案。
+安裝器會**原樣部署這個資料夾**,不會自行抓取新版;要部署最新的 `main`,請先 `git pull`。版本 tag 是 Git commit SHA(從沒有 `.git` 的 ZIP 解壓縮則為 `local-<UTC 時間>`);有未提交的變更時會一併部署,並顯示警告、使用 `<sha12>-dirty-<UTC 時間>` tag。它會依 lockfile 安裝套件、跑測試、CDK bootstrap、部署所有 stack 與更新器(Updater)、建置兩個 runner 映像並同時推送 `:<版本>` 與 `:latest`、讓 ECS Task Definition 鎖定版本 tag、由 stack outputs 建置前端,最後核對 CloudFormation、ECR digest、ECS image 與 CloudFront。不會 reset、stash 或清除本機檔案。
 
 第一次安裝接近結束時,互動式安裝只會詢問管理員的 **Email(登入 username)** 與以隱藏輸入方式填寫的密碼。tenant 預設為 `default`;只有進階情境才需要用 `--admin-tenant <tenant>` 覆寫。
 

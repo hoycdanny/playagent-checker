@@ -245,7 +245,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 自分のコンピューターからデプロイしたい場合や、一度きりの任意セットアップが必要な場合は、以下の方法を使用してください。[クイックスタート](#クイックスタート)の CloudShell ワンライナーが最も簡単な方法で、このセクションはそれ以外のすべてを扱います。
 
-### Windows / macOS 推奨：最新版をワンクリックでインストール／更新
+### Windows / macOS 推奨：ワンクリックでインストール／更新
 
 **Node.js 22、AWS CLI v2、Git、Docker Desktop** をインストールし、AWS にログインして下記の Bedrock モデルを有効にします。その後リポジトリを clone し、次を実行します。
 
@@ -259,7 +259,7 @@ Linux:   scripts/deploy-latest.sh を実行
 
 どの OS でも `npm run deploy:latest -- --expected-account-id 123456789012` で AWS アカウントを検証できます。従来の PowerShell スクリプトは互換ラッパーとして残りますが、全 OS が同じ Node.js デプロイコアを使用します。
 
-`npm run deploy:latest` でも実行できます。インストーラーは公式 GitHub `main` の不変 Git SHA を解決し、隔離した一時 worktree で依存関係のインストール、テスト、デプロイを行います。両ランナーには SHA タグと `latest` を付け、ECS タスク定義は SHA に固定します。最後に CloudFormation、ECR digest、ECS イメージ、CloudFront を検証します。デプロイ中に `main` が更新された場合は、新しい版を自動的に再デプロイします（最大 3 回）。ローカルの未コミット変更は含めず、リセットもしません。
+`npm run deploy:latest` でも実行できます。インストーラーは**このフォルダーをそのままデプロイ**し、新しい版を自動取得しません。最新の `main` をデプロイするには先に `git pull` してください。バージョンタグは Git commit SHA です(`.git` のない ZIP を展開した場合は `local-<UTC 時刻>`)。未コミットの変更がある場合は警告を表示し、`<sha12>-dirty-<UTC 時刻>` タグで一緒にデプロイします。lockfile からのインストール、テスト、全スタックとアップデータ(Updater)のデプロイを行い、両ランナーにバージョンタグと `latest` を付け、ECS タスク定義はバージョンタグに固定します。最後に CloudFormation、ECR digest、ECS イメージ、CloudFront を検証します。ローカルファイルをリセット・stash・削除することはありません。
 
 誤った AWS アカウントへのデプロイを防ぐため、`npm run deploy:latest -- --expected-account-id 123456789012` の使用を推奨します。初回インストールの対話モードで入力するのは、管理者の **Email（ログイン username）** と、画面に表示されないパスワードだけです。tenant のデフォルトは `default` です。高度な構成で変更する場合だけ `--admin-tenant <tenant>` を使用します。
 
