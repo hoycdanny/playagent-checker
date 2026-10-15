@@ -167,7 +167,7 @@ import {
 import { genreBuiltinKbId, explorationGoalForGenre, isBuiltinKbId } from './builtinKnowledgeBases.js';
 import { buildStructuredReport, type EngineJob, type EngineKb } from './report/engine.js';
 import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } from './kbRefs.js';
-import { defaultControlsForGenre, describeControlCatalog, parseCaseControls, reconcileControlsWithText } from './controlSchemes.js';
+import { defaultControlsFor, describeControlCatalog, parseCaseControls, parseCaseKeys, reconcileControlsWithText, sanitizeControls } from './controlSchemes.js';
 import { ASK_MODELS, AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
 import { describeProfile } from './report/profiles.js';
 import type { ReportInsights, StructuredReport } from './report/types.js';
@@ -2405,9 +2405,16 @@ async function handleSubmitTask(
 
   // 操作行為(控制方案):案例 YAML `controls:` 優先;沒寫則用 App 類型的建議(寫了空清單 = 不限定)。
   const caseControls = caseYamlText ? parseCaseControls(caseYamlText) : undefined;
+  // 按鍵對應(keys:):網頁 / PC 遊戲每個鍵的用途,注入 AI 並限定只送這些鍵。
+  const caseKeys = caseYamlText ? parseCaseKeys(caseYamlText) ?? [] : [];
   // 案例內文要求長按、controls 卻沒勾 → 補上 hold(以內文為準,避免 AI 被規定擋住做不到腳本要求的事)。
-  const controlIds = reconcileControlsWithText(caseYamlText ?? '', caseControls ?? defaultControlsForGenre(appRecord?.genre)).ids;
-  const controls = controlIds.length > 0 ? { ids: controlIds, source: caseControls ? ('case' as const) : ('genre' as const) } : undefined;
+  // 沒寫 controls:網頁 / PC → 鍵盤 + 滑鼠;手機 → 依類型建議。
+  let controlIds = reconcileControlsWithText(caseYamlText ?? '', caseControls ?? defaultControlsFor(appRecord?.genre, appRecord?.platform)).ids;
+  // 寫了按鍵用途卻沒勾任何操作方式 → 視為鍵盤 + 滑鼠(否則按鍵對應不會傳給 AI)。
+  if (controlIds.length === 0 && caseKeys.length > 0) controlIds = sanitizeControls(['keyboard', 'mouse']);
+  const controls = controlIds.length > 0
+    ? { ids: controlIds, source: caseControls ? ('case' as const) : ('genre' as const), ...(caseKeys.length ? { keys: caseKeys } : {}) }
+    : undefined;
 
   const job = await createJob(
     s3,

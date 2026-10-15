@@ -26,11 +26,22 @@ export const CONTROL_IDS = [
   'pedals',
   'pinch',
   'rhythm',
+  'keyboard',
+  'mouse',
 ] as const;
 export type ControlId = (typeof CONTROL_IDS)[number];
 
-/** runner 的手勢動作(基礎動作之外,依方案開放)。 */
-export type GestureAction = 'move' | 'hold' | 'combo' | 'pinch';
+/** runner 的手勢動作(基礎動作之外,依方案開放)。key = 鍵盤按鍵(網頁 / Windows)。 */
+export type GestureAction = 'move' | 'hold' | 'combo' | 'pinch' | 'key';
+
+/** 方案適用的平台:mobile = Android/iOS 觸控;web = 瀏覽器;windows = PC。 */
+export type ControlPlatform = 'mobile' | 'web' | 'windows';
+export function platformKind(platform: string | undefined): ControlPlatform | undefined {
+  if (platform === 'web') return 'web';
+  if (platform === 'windows') return 'windows';
+  if (platform === 'android' || platform === 'ios') return 'mobile';
+  return undefined;
+}
 export const BASE_ACTIONS = ['tap', 'swipe', 'back', 'type', 'wait', 'launch', 'done'] as const;
 
 interface L10n {
@@ -48,6 +59,8 @@ export interface ControlScheme {
   zone: 'any' | 'center' | 'bottom_center' | 'left' | 'right' | 'lanes';
   /** 開放的手勢動作。 */
   actions: GestureAction[];
+  /** 適用平台(前端依 App 平台篩選顯示);未填 = 只適用手機觸控。 */
+  platforms?: ControlPlatform[];
   /** 給 AI 的操作指示(zh,注入 prompt)。 */
   prompt: string;
 }
@@ -163,7 +176,140 @@ export const CONTROL_SCHEMES: ControlScheme[] = [
     actions: ['hold'],
     prompt: '節奏遊戲:音符落到判定線時 tap 該軌道,長條音符用 hold(holdMs 依長條長度)。截圖有延遲,請預估音符到達位置。',
   },
+  {
+    id: 'keyboard',
+    label: L('鍵盤', 'Keyboard'),
+    desc: L('用鍵盤按鍵操作(方向鍵移動、Enter/Z 確認、Esc/X 選單…);可自訂每個鍵的用途', 'Played with keys (arrows to move, Enter/Z to confirm, Esc/X for menu…); define what each key does'),
+    fingers: 1,
+    zone: 'any',
+    actions: ['key'],
+    platforms: ['web', 'windows'],
+    prompt: '這款遊戲用「鍵盤」操作:用 key 動作送按鍵(key=按鍵名;repeat=連按次數 1~20;holdMs=按住毫秒,衝刺/蓄力等需要按住時才給)。移動、確認、推進對話、開選單都用鍵盤,不要去點畫面上的文字或角色。',
+  },
+  {
+    id: 'mouse',
+    label: L('滑鼠', 'Mouse'),
+    desc: L('滑鼠左鍵點擊、按住拖曳、滾輪捲動;右鍵可自訂用途', 'Left-click, drag, scroll wheel; right-click can be given a purpose'),
+    fingers: 1,
+    zone: 'any',
+    actions: [],
+    platforms: ['web', 'windows'],
+    prompt: '這款遊戲用「滑鼠」操作:tap = 滑鼠左鍵單擊(對準按鈕正中心);swipe = 按住左鍵拖曳(durationMs 越長越像拖曳);垂直長距離 swipe 會變成滾輪捲動頁面。',
+  },
 ];
+
+/** 觸控通用的方案在網頁 / PC 上也有意義(滑鼠點擊、按住、拖曳、快速劃動)。 */
+for (const s of CONTROL_SCHEMES) {
+  if (!s.platforms) s.platforms = ['tap', 'hold', 'swipe', 'drag'].includes(s.id) ? ['mobile', 'web', 'windows'] : ['mobile'];
+}
+
+/** 網頁 / PC 平台沒指定操作方式時的建議(類型建議都是手機觸控,不適用)。 */
+export const PLATFORM_DEFAULT_CONTROLS: Partial<Record<ControlPlatform, ControlId[]>> = {
+  web: ['keyboard', 'mouse'],
+  windows: ['keyboard', 'mouse'],
+};
+
+// ───────────────────────── 按鍵對應(鍵盤 / 滑鼠)─────────────────────────
+// 與 agent/keyNames.mjs 同一份清單與別名(infra/test/control-keys.test.ts 檢查兩邊一致)。
+
+const LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
+const DIGITS = '0123456789'.split('');
+/** 鍵盤可用按鍵(標準名稱,小寫)。刻意不開放 F1~F12 與組合鍵(F5 重整、F12 開發者工具會破壞測試環境)。 */
+export const KEY_IDS: string[] = [
+  'up', 'down', 'left', 'right',
+  'enter', 'space', 'escape', 'tab', 'shift', 'ctrl', 'alt',
+  'backspace', 'delete', 'home', 'end', 'pageup', 'pagedown',
+  ...LETTERS, ...DIGITS,
+];
+/** 滑鼠按鍵(可標用途;實際用 tap / swipe 操作)。 */
+export const MOUSE_IDS: string[] = ['mouse_left', 'mouse_right', 'wheel'];
+
+const KEY_ALIASES: Record<string, string> = {
+  arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right',
+  '↑': 'up', '↓': 'down', '←': 'left', '→': 'right',
+  '上': 'up', '下': 'down', '左': 'left', '右': 'right',
+  return: 'enter', '確認': 'enter',
+  spacebar: 'space', ' ': 'space', '空白': 'space', '空白鍵': 'space', '空格': 'space', '空格键': 'space',
+  esc: 'escape',
+  control: 'ctrl', ctl: 'ctrl', option: 'alt',
+  pgup: 'pageup', pgdn: 'pagedown', page_up: 'pageup', page_down: 'pagedown', 'page up': 'pageup', 'page down': 'pagedown',
+  del: 'delete', bksp: 'backspace',
+  lmb: 'mouse_left', leftclick: 'mouse_left', 'left click': 'mouse_left', '左鍵': 'mouse_left', '滑鼠左鍵': 'mouse_left',
+  rmb: 'mouse_right', rightclick: 'mouse_right', 'right click': 'mouse_right', '右鍵': 'mouse_right', '滑鼠右鍵': 'mouse_right',
+  scroll: 'wheel', mousewheel: 'wheel', '滾輪': 'wheel', '滑鼠滾輪': 'wheel',
+};
+
+/** 任意寫法(ArrowUp / ↑ / PgDn / KeyZ / Digit1 / Shift…)→ 標準名稱;不認得回 null。 */
+export function normalizeKey(raw: unknown): string | null {
+  let s = String(raw ?? '');
+  if (s === ' ') return 'space';
+  s = s.trim().toLowerCase();
+  if (!s) return null;
+  // 先查完整別名(「右鍵」「空白鍵」),再去掉結尾的「鍵」(「Z 鍵」→ z)。
+  if (KEY_ALIASES[s]) return KEY_ALIASES[s]!;
+  s = s.replace(/\s*鍵$/, '');
+  if (KEY_ALIASES[s]) return KEY_ALIASES[s]!;
+  const m = /^(?:key)([a-z])$/.exec(s) || /^(?:digit|numpad)([0-9])$/.exec(s);
+  if (m) return m[1]!;
+  if (MOUSE_IDS.includes(s) || KEY_IDS.includes(s)) return s;
+  const compact = s.replace(/[\s_-]+/g, '');
+  if (KEY_ALIASES[compact]) return KEY_ALIASES[compact]!;
+  if (KEY_IDS.includes(compact)) return compact;
+  return null;
+}
+
+/** 前端下拉顯示用的按鍵名稱。 */
+const KEY_LABELS: Record<string, string> = {
+  up: '↑ 上', down: '↓ 下', left: '← 左', right: '→ 右',
+  enter: 'Enter', space: 'Space 空白鍵', escape: 'Esc', tab: 'Tab', shift: 'Shift', ctrl: 'Ctrl', alt: 'Alt',
+  backspace: 'Backspace', delete: 'Delete', home: 'Home', end: 'End', pageup: 'Page Up', pagedown: 'Page Down',
+  mouse_left: '滑鼠左鍵', mouse_right: '滑鼠右鍵', wheel: '滑鼠滾輪',
+};
+export function keyLabel(id: string): string {
+  return KEY_LABELS[id] ?? id.toUpperCase();
+}
+
+export interface CaseKey {
+  /** 標準按鍵名(見 KEY_IDS / MOUSE_IDS)。 */
+  key: string;
+  /** 使用者寫的用途(例:移動、確認/互動、開選單、衝刺、快轉)。 */
+  purpose: string;
+}
+
+/** 清理按鍵對應:正規化鍵名、去掉不認得的鍵、同鍵去重(保留第一個)、用途限 60 字。 */
+export function sanitizeKeys(raw: unknown): CaseKey[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CaseKey[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    const r = (item ?? {}) as { key?: unknown; purpose?: unknown };
+    const key = normalizeKey(r.key);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ key, purpose: String(r.purpose ?? '').replace(/\s+/g, ' ').trim().slice(0, 60) });
+  }
+  return out.slice(0, 40);
+}
+
+/**
+ * 從案例 YAML 讀頂層 `keys:`(按鍵對應)。格式:
+ *   keys:
+ *     - up: 移動(上)
+ *     - z: 確認 / 互動
+ * 沒寫 → undefined。
+ */
+export function parseCaseKeys(yaml: string): CaseKey[] | undefined {
+  const lines = yaml.split(/\r?\n/);
+  const idx = lines.findIndex((l) => /^keys:/.test(l));
+  if (idx < 0) return undefined;
+  const items: Array<{ key: string; purpose: string }> = [];
+  for (let i = idx + 1; i < lines.length; i++) {
+    const m = /^\s+-\s*(.+?)\s*[:：]\s*(.*)$/.exec(lines[i]!);
+    if (m) items.push({ key: m[1]!.replace(/^["']|["']$/g, ''), purpose: m[2]!.replace(/^["']|["']$/g, '') });
+    else if (lines[i]!.trim() !== '' && !/^\s/.test(lines[i]!)) break;
+  }
+  return sanitizeKeys(items);
+}
 
 const BY_ID = new Map(CONTROL_SCHEMES.map((s) => [s.id, s]));
 
@@ -209,6 +355,13 @@ export function defaultControlsForGenre(genre: string | undefined): ControlId[] 
   return genre ? [...(GENRE_DEFAULT_CONTROLS[genre] ?? [])] : [];
 }
 
+/** 沒指定操作方式時的建議:網頁 / PC → 鍵盤 + 滑鼠;手機 → 依類型。 */
+export function defaultControlsFor(genre: string | undefined, platform: string | undefined): ControlId[] {
+  const kind = platformKind(platform);
+  const byPlatform = kind ? PLATFORM_DEFAULT_CONTROLS[kind] : undefined;
+  return byPlatform ? [...byPlatform] : defaultControlsForGenre(genre);
+}
+
 /** 清理輸入(去重、只留合法 id、保持目錄順序)。 */
 export function sanitizeControls(raw: unknown): ControlId[] {
   const list = Array.isArray(raw) ? raw : typeof raw === 'string' ? raw.split(/[,\s]+/) : [];
@@ -248,7 +401,13 @@ export function parseCaseControls(yaml: string): ControlId[] | undefined {
  */
 const HOLD_TEXT_RE = /長按|长按|按住|holdMs|\bhold\b|long[\s-]?press/i;
 export function reconcileControlsWithText(yaml: string, ids: ControlId[]): { ids: ControlId[]; added: ControlId[] } {
-  const body = yaml.split(/\r?\n/).filter((l) => !/^controls:/.test(l) && !/^\s+-\s*[A-Za-z_]+\s*$/.test(l)).join('\n');
+  // 按鍵對應(keys: 區塊)的用途文字不算案例內文(「Shift:按住衝刺」不代表要觸控長按)。
+  const all = yaml.split(/\r?\n/);
+  const kIdx = all.findIndex((l) => /^keys:/.test(l));
+  let kEnd = kIdx;
+  if (kIdx >= 0) { kEnd = kIdx + 1; while (kEnd < all.length && (/^\s/.test(all[kEnd]!) || all[kEnd]!.trim() === '')) kEnd++; }
+  const rest = kIdx >= 0 ? [...all.slice(0, kIdx), ...all.slice(kEnd)] : all;
+  const body = rest.filter((l) => !/^controls:/.test(l) && !/^\s+-\s*[A-Za-z_]+\s*$/.test(l)).join('\n');
   const added: ControlId[] = [];
   if (ids.length > 0 && !ids.includes('hold') && HOLD_TEXT_RE.test(body)) added.push('hold');
   return { ids: [...ids, ...added], added };
@@ -265,15 +424,21 @@ export interface ControlsProtocol {
   battleMove: boolean;
   /** 需要雙指(多點觸控)。 */
   multiTouch: boolean;
+  /** 測試腳本定義的按鍵對應(鍵盤鍵 + 用途);有值時 runner 只允許送這些鍵。 */
+  keys?: CaseKey[];
   /** 注入 prompt 的權威段落。 */
   prompt: string;
 }
 
-/** 組成 runner 用的控制協議;ids 為空 → null(runner 維持舊行為)。 */
-export function buildControlsProtocol(ids: ControlId[], source: 'case' | 'genre'): ControlsProtocol | null {
+/** 組成 runner 用的控制協議;ids 為空 → null(runner 維持舊行為)。keys = 測試腳本的按鍵對應。 */
+export function buildControlsProtocol(ids: ControlId[], source: 'case' | 'genre', keys: CaseKey[] = []): ControlsProtocol | null {
   if (ids.length === 0) return null;
   const schemes = ids.map((id) => BY_ID.get(id)!).filter(Boolean);
   const gestures = new Set<GestureAction>(schemes.flatMap((s) => s.actions));
+  // 有定義鍵盤按鍵用途 → 就算沒勾「鍵盤」也開放 key(使用者都寫了 Enter 要做什麼了)。
+  const keyboardKeys = keys.filter((k) => KEY_IDS.includes(k.key));
+  const mouseKeys = keys.filter((k) => MOUSE_IDS.includes(k.key));
+  if (keyboardKeys.length) gestures.add('key');
   const has = (id: ControlId) => ids.includes(id);
   const leftFinger = has('joystick_left') || has('joystick_center') || has('steer');
   const rightFinger = has('skill_right') || has('aim_right') || has('pedals');
@@ -292,11 +457,31 @@ export function buildControlsProtocol(ids: ControlId[], source: 'case' | 'genre'
         'tx,ty=右手要點的按鈕中心,taps=按住期間右手點擊次數(1~5)。邊走邊打、邊轉彎邊開氮氣都用 combo。',
     );
   }
+  if (keyboardKeys.length) {
+    lines.push(
+      '【按鍵對應|測試腳本指定|必須遵守】用 key 動作送鍵,"key" 填下面的按鍵名(小寫);只能用這些鍵,其他鍵會被系統拒絕:\n' +
+        keyboardKeys.map((k) => `- ${k.key}(${keyLabel(k.key)}):${k.purpose || '(未寫用途)'}`).join('\n') +
+        '\n要做某件事時,找用途相符的鍵(例如「確認 / 推進對話」就用對應的那一鍵);同一件事有兩個鍵可用時,第一次沒反應就換另一個。',
+    );
+  } else if (gestures.has('key')) {
+    lines.push(`可用按鍵(key 填這些名稱,小寫):${KEY_IDS.join(' / ')}。`);
+  }
+  if (mouseKeys.length) {
+    lines.push(
+      '【滑鼠按鍵用途】' +
+        mouseKeys
+          .map((k) => `${keyLabel(k.key)}:${k.purpose || '(未寫用途)'}${k.key === 'mouse_right' ? '(用 tap 並加 "button":"right")' : k.key === 'wheel' ? '(用垂直 swipe 捲動)' : '(用 tap)'}`)
+          .join(';') +
+        '。',
+    );
+  }
+  const keyed = gestures.has('key');
   lines.push(
-    `可用動作只有:${allowedActions.join(' / ')}。選單、彈窗、設定頁一律用 tap;` +
+    `可用動作只有:${allowedActions.join(' / ')}。` +
+      (keyed ? '鍵盤能做的事優先用 key;畫面上的按鈕、連結、彈窗用 tap(滑鼠左鍵)。' : '選單、彈窗、設定頁一律用 tap;') +
       '不在清單內的動作會被系統拒絕且浪費一步。',
   );
-  if (!has('joystick_center') && !has('joystick_left')) lines.push('這款遊戲沒有虛擬搖桿,不要用 move。');
+  if (!has('joystick_center') && !has('joystick_left')) lines.push(keyed ? '這款遊戲沒有虛擬搖桿,移動用方向鍵等鍵盤按鍵,不要用 move。' : '這款遊戲沒有虛擬搖桿,不要用 move。');
   return {
     ids,
     source,
@@ -304,17 +489,25 @@ export function buildControlsProtocol(ids: ControlId[], source: 'case' | 'genre'
     ...(joystick ? { joystick } : {}),
     battleMove: has('joystick_center'),
     multiTouch: gestures.has('combo') || gestures.has('pinch'),
+    ...(keys.length ? { keys } : {}),
     prompt: lines.join('\n'),
   };
 }
 
-/** 前端用的目錄(標籤、說明、區域、建議類型)。 */
+/** 前端用的目錄(標籤、說明、區域、建議類型、平台建議、可選按鍵)。 */
 export function describeControlCatalog(): {
   items: Array<Omit<ControlScheme, 'prompt'>>;
   genreDefaults: Record<string, ControlId[]>;
+  platformDefaults: Partial<Record<ControlPlatform, ControlId[]>>;
+  keyOptions: Array<{ id: string; label: string; kind: 'key' | 'mouse' }>;
 } {
   return {
     items: CONTROL_SCHEMES.map(({ prompt: _p, ...rest }) => rest),
     genreDefaults: GENRE_DEFAULT_CONTROLS,
+    platformDefaults: PLATFORM_DEFAULT_CONTROLS,
+    keyOptions: [
+      ...KEY_IDS.map((id) => ({ id, label: keyLabel(id), kind: 'key' as const })),
+      ...MOUSE_IDS.map((id) => ({ id, label: keyLabel(id), kind: 'mouse' as const })),
+    ],
   };
 }

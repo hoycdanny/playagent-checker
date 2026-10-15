@@ -25,7 +25,7 @@ export interface ParsedCase {
   extra: Record<string, string>;
 }
 
-const KNOWN = new Set(['name', 'app', 'task', 'assertions', 'controls', 'url', 'priority', 'severity', 'module', 'category', 'precondition', 'preconditions', 'expected', 'expectedResult', 'tags']);
+const KNOWN = new Set(['name', 'app', 'task', 'assertions', 'controls', 'keys', 'url', 'priority', 'severity', 'module', 'category', 'precondition', 'preconditions', 'expected', 'expectedResult', 'tags']);
 
 function unquote(s: string): string {
   const t = s.trim();

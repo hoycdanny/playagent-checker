@@ -6,6 +6,7 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import { type AppRef } from '../components/AppRef.tsx';
 import { ControlSchemePicker } from '../components/controls/ControlSchemePicker.tsx';
 import { applyControls, readControls } from '../components/controls/controlsYaml.ts';
+import { applyKeys, readKeys, type CaseKey } from '../components/controls/keysYaml.ts';
 import { CaseVersions } from '../components/cases/CaseVersions.tsx';
 import { CaseOverviewTable, type CaseOverviewItem } from '../components/cases/CaseOverviewTable.tsx';
 import { ExcelImport } from '../components/cases/ExcelImport.tsx';
@@ -67,6 +68,15 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
   const [yaml, setYaml] = useState('');
   // 操作行為(undefined = 未指定,執行時用 App 類型建議);與 YAML 的 controls: 欄位雙向同步。
   const [controls, setControls] = useState<string[] | undefined>(undefined);
+  // 按鍵對應(鍵盤 / 滑鼠每個鍵的用途);與 YAML 的 keys: 區塊雙向同步。
+  const [keys, setKeys] = useState<CaseKey[]>([]);
+  /** 從 YAML 同步操作行為與按鍵對應。 */
+  const syncFromYaml = (y: string) => {
+    setControls(readControls(y));
+    setKeys(readKeys(y) ?? []);
+  };
+  /** 把操作行為與按鍵對應寫回 YAML。 */
+  const withControls = (y: string) => applyKeys(applyControls(y, controls), keys);
   const [drafting, setDrafting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +98,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
     setDraftSpec(emptyDraftSpec());
     setYaml('');
     setControls(undefined);
+    setKeys([]);
     setBaseYaml(null);
     setError(null);
   }
@@ -104,7 +115,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
       setAppId(app);
       setName(nm);
       setYaml(decoded);
-      setControls(readControls(decoded));
+      syncFromYaml(decoded);
       setBaseYaml(decoded);
       setMode('nl'); // 停在自然語言分頁,讓使用者輸入微調指令做範本感知編修
       setShowForm(true);
@@ -140,7 +151,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
         `/cases/${encodeURIComponent(c.app)}/${encodeURIComponent(c.id)}`,
       );
       setYaml(detail.yaml);
-      setControls(readControls(detail.yaml));
+      syncFromYaml(detail.yaml);
     } catch {
       setError(t('page.loadError'));
     }
@@ -210,7 +221,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
         ...(acceptance.length > 0 ? { acceptance } : {}),
         ...(draftSpec.note.trim() ? { note: draftSpec.note } : {}),
       });
-      const drafted = applyControls(res.yaml, controls);
+      const drafted = withControls(res.yaml);
       setYaml(drafted);
       setBaseYaml(drafted); // 編修後的結果成為下一輪微調的新基礎
       setMode('yaml'); // 草擬完成後切到 YAML 供審閱/修改
@@ -233,10 +244,10 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
       if (editingId) {
         await apiPut(
           `/cases/${encodeURIComponent(appId)}/${encodeURIComponent(editingId)}`,
-          { name, yaml: applyControls(yaml, controls) },
+          { name, yaml: withControls(yaml) },
         );
       } else {
-        await apiPost('/cases', { app: appId, name, yaml: applyControls(yaml, controls) });
+        await apiPost('/cases', { app: appId, name, yaml: withControls(yaml) });
       }
       setShowForm(false);
       resetForm();
@@ -350,6 +361,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
             <ExcelImport
               appId={appId}
               controls={controls}
+              keys={keys}
               lang={lang}
               onCreated={(allOk) => {
                 refetchAll();
@@ -406,7 +418,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
                 value={yaml}
                 onChange={(e) => {
                   setYaml(e.target.value);
-                  setControls(readControls(e.target.value));
+                  syncFromYaml(e.target.value);
                 }}
                 spellCheck={false}
               />
@@ -416,9 +428,15 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
           <ControlSchemePicker
             value={controls}
             genre={appById.get(appId)?.genre}
+            platform={appById.get(appId)?.platform}
             onChange={(ids) => {
               setControls(ids);
               setYaml((y) => applyControls(y, ids));
+            }}
+            keys={keys}
+            onKeysChange={(next) => {
+              setKeys(next);
+              setYaml((y) => applyKeys(y, next));
             }}
           />
 
@@ -435,7 +453,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
               onActivated={(v) => {
                 setName(v.name);
                 setYaml(v.yaml);
-                setControls(readControls(v.yaml));
+                syncFromYaml(v.yaml);
                 setMode('yaml');
                 refetchAll();
               }}

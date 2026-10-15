@@ -24,6 +24,7 @@ import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, o
 import { foldSystemIntoFirstUser } from './converseShape.mjs';
 import { accumulate, addUsage, createUsageLedger, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
+import { normalizeKey, KEY_IDS } from './keyNames.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
@@ -84,7 +85,19 @@ async function writeStatus(state, message, steps) {
 }
 
 // ── VLM 決策(對齊 explorationRunner,但 prompt 改成「網頁」語意)──
-function buildSystemPrompt(knowledge, evidence) {
+// 網頁 runner(PlaywrightClient)實際支援的動作;controls 開放的觸控手勢(move/combo/pinch)在網頁上無效。
+const WEB_ACTIONS = ['tap', 'hold', 'swipe', 'type', 'key', 'back', 'wait', 'done'];
+function buildSystemPrompt(knowledge, evidence, controls = null) {
+  // 測試腳本指定了操作方式(鍵盤 / 滑鼠 / 按鍵對應)→ 用權威段落取代通用的鍵盤說明,JSON 也只列可用的動作與鍵。
+  const actions = controls ? WEB_ACTIONS.filter((a) => controls.allowedActions.includes(a)) : WEB_ACTIONS.filter((a) => a !== 'hold');
+  const mappedKeys = controls && Array.isArray(controls.keys) ? controls.keys.map((k) => k.key).filter((k) => KEY_IDS.includes(k)) : [];
+  const keyEnum = mappedKeys.length ? mappedKeys.join('|') : 'up|down|left|right|enter|space|escape|tab|shift|z|x|w|a|s|d|…';
+  const keyboardSection = controls
+    ? `\n${controls.prompt}\n` +
+      (actions.includes('hold') ? `hold = 滑鼠左鍵在 x,y 按住 holdMs 毫秒再放開。` : '') +
+      (actions.includes('key') ? `key 可加 holdMs(按住毫秒,衝刺 / 蓄力才需要;不給 = 一般按一下)。` : '')
+    : `【鍵盤操作】網頁遊戲若點擊/滑動都沒反應,很可能只吃鍵盤:用 key 送按鍵。` +
+      `可用按鍵:up/down/left/right、enter、space、escape、tab、shift、ctrl、alt、backspace、a~z、0~9,可加 repeat(1~20)連按、holdMs(按住毫秒)。`;
   const base =
     `你是專業網頁應用測試工程師,正在用瀏覽器測試一個網站/網頁遊戲。每一步你會看到一張最新的網頁截圖。` +
     `【座標規則|最重要】座標一律用「你看到的這張截圖的絕對像素」:左上角是 (0,0),往右 x 變大、往下 y 變大,` +
@@ -98,12 +111,17 @@ function buildSystemPrompt(knowledge, evidence) {
     `唯有「目標」沒有提供帳密時,才關閉登入彈窗改走訪客/其他路徑。` +
     `需要輸入時,先 tap 輸入框再用 type 輸入(type 會自動送出 Enter)。需要往下看更多內容時用 swipe(垂直)捲動。` +
     // 很多網頁遊戲(2048、射擊、平台跳躍)只監聽鍵盤,滑鼠點擊與拖曳完全沒反應,必須讓模型知道有 key 可用。
-    `【鍵盤操作】網頁遊戲若點擊/滑動都沒反應,很可能只吃鍵盤:用 key 送按鍵。` +
-    `可用按鍵:up/down/left/right、w/a/s/d、space、enter、escape、tab、1~5,可加 repeat(1~20)連按。` +
+    keyboardSection +
     `目標:${TASK}` +
     `先簡短思考(thinking),再給動作。只輸出 JSON:` +
-    `{"thinking":"...","action":"tap|swipe|type|key|back|wait|done","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"text":"...","key":"up|down|left|right|w|a|s|d|space|enter|escape|tab","repeat":<連按次數>,"screen":"畫面名稱"}。` +
-    `x/y 是「這張圖的像素座標」。tap 需 x,y;swipe(捲動)需 x,y,x2,y2;type 需 text;key 需 key(可選 repeat);done 只在真正完成目標或完全無法進行時用。` +
+    `{"thinking":"...","action":"${actions.join('|')}","x":<像素>,"y":<像素>,"x2":<像素>,"y2":<像素>,"text":"..."` +
+    (actions.includes('key') ? `,"key":"${keyEnum}","repeat":<連按次數>` : '') +
+    (actions.includes('key') || actions.includes('hold') ? `,"holdMs":<按住毫秒>` : '') +
+    `,"button":"left|right","screen":"畫面名稱"}。` +
+    `x/y 是「這張圖的像素座標」。tap 需 x,y(button 預設 left,滑鼠右鍵才給 "right");swipe(捲動/拖曳)需 x,y,x2,y2;type 需 text;` +
+    (actions.includes('key') ? `key 需 key(可選 repeat、holdMs);` : '') +
+    (actions.includes('hold') ? `hold 需 x,y,holdMs;` : '') +
+    `done 只在真正完成目標或完全無法進行時用。` +
     `screen 用精確畫面名描述當前畫面(如「首頁」「登入」「遊戲主畫面」「結算」),不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
   const withEvidence = base + evidencePromptSection(evidence, { subject: '網頁/遊戲' });
@@ -243,11 +261,27 @@ async function main() {
   // 讀注入知識(engine 已組 context.json)。
   let knowledge = '';
   let evidence = null; // 證據協議(由類型知識庫決定)
+  let controls = null; // 操作方式協議(engine 依測試腳本 controls: / keys: 組成)
   try {
     const ctx = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/context.json` }))).Body.transformToString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
     if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
+    if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
   } catch { /* 無則略過 */ }
+  // 舊案例只勾了手機觸控方案(搖桿、技能鍵…,多半是依類型自動預選)→ 在網頁上沒有意義,
+  // 維持舊行為(不限定動作、不注入手機操作說明),避免把原本能用的鍵盤擋掉。
+  // 有勾「鍵盤」或「滑鼠」(網頁版的操作方式選擇器)或有按鍵對應,才依測試腳本把關。
+  if (controls && !(controls.ids || []).some((id) => id === 'keyboard' || id === 'mouse') && !(Array.isArray(controls.keys) && controls.keys.length)) {
+    console.log('操作方式只有手機觸控方案,網頁測試不套用:', (controls.ids || []).join(','));
+    controls = null;
+  }
+  // 操作方式(測試腳本勾的鍵盤 / 滑鼠 / 觸控方案)與按鍵對應;null = 未指定,不限定。
+  const allowedActions = controls ? new Set(controls.allowedActions) : null;
+  const allowedKeys = controls && Array.isArray(controls.keys) && controls.keys.some((k) => KEY_IDS.includes(k.key))
+    ? new Set(controls.keys.map((k) => k.key).filter((k) => KEY_IDS.includes(k)))
+    : null;
+  if (controls) console.log('操作方式', (controls.ids || []).join(','), '可用動作', controls.allowedActions.join('/'), allowedKeys ? `按鍵 ${[...allowedKeys].join(',')}` : '');
+  let controlNote = ''; // 上一步被操作方式擋下時,下一回合提醒 AI
 
   // 應用記憶(使用者教過 AI 的經驗 + 記憶地圖編修)與測試人員即時指令通道(見 operatorMemory.mjs)。
   const S3CMDS = { ListObjectsV2Command, GetObjectCommand, PutObjectCommand };
@@ -259,7 +293,7 @@ async function main() {
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
   // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
-  const system = buildSystemPrompt(knowledge, evidence) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
+  const system = buildSystemPrompt(knowledge, evidence, controls) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
   // 記憶命中追蹤(以本次開始前的記憶為基準;見 memoryTrace.mjs)。
   const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 4000 });
   console.log(memTrace.startupLog());
@@ -328,7 +362,9 @@ async function main() {
       ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
       : '';
     const turnText = (i === 0 ? `第一張畫面(網址 ${client.currentUrl()})。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint
+      + controlNote
       + memoryNote + routeTurnNote(appMemory.edits?.routes, prevPageId, routePageName) + operatorTurnNote(newCmds, operator.active);
+    controlNote = '';
     messages.push(makeUserTurn([ds.b64], turnText, visionFmt));
 
     const tVlm = Date.now();
@@ -384,6 +420,29 @@ async function main() {
 
     const screenName = cmd.screen || `畫面 ${i}`;
 
+    // 【操作方式把關】測試腳本指定了操作方式 / 按鍵對應時:不在允許清單的動作、或沒定義用途的按鍵,
+    // 不送到頁面,改成短暫等待並在下一回合告訴 AI 能用什麼(測試人員親手點/拖的不受限)。
+    if (typeof cmd.action === 'string') cmd.action = cmd.action.trim().toLowerCase();
+    let controlViolation = '';
+    if (allowedActions && !cmd.operatorTap && cmd.action && !allowedActions.has(cmd.action)) {
+      controlViolation = `上一步你用了「${cmd.action}」,但本遊戲的操作方式只允許:${controls.allowedActions.join(' / ')}。`;
+    } else if (cmd.action === 'key' && allowedKeys) {
+      const k = normalizeKey(cmd.key);
+      if (!k || !allowedKeys.has(k)) {
+        controlViolation = `上一步你按了「${cmd.key ?? ''}」,但測試腳本只定義了這些按鍵:${controls.keys.filter((x) => allowedKeys.has(x.key)).map((x) => `${x.key}=${x.purpose || '?'}`).join('、')}。請改用用途相符的鍵。`;
+      } else {
+        cmd.key = k;
+      }
+    }
+    if (controlViolation) {
+      const bad = cmd.action === 'key' ? `key ${cmd.key ?? ''}` : cmd.action;
+      cmd.thinking = `[操作方式限制] 「${bad}」不在本遊戲的操作方式內,未執行。` + String(cmd.thinking || '');
+      cmd.action = 'wait'; cmd.duration = 1;
+      for (const k of ['x', 'y', 'x2', 'y2', 'key']) cmd[k] = undefined;
+      cmd.override = 'control_violation';
+      controlNote = `\n【操作方式提醒】${controlViolation}`;
+    }
+
     // 落點標記圖(畫在 smart-resize 圖上,座標同空間)。
     let annotatedKey;
     if (MAGICK && (cmd.action === 'tap' || cmd.action === 'swipe') && cmd.x != null && cmd.y != null) {
@@ -399,6 +458,10 @@ async function main() {
         ? { x2: cmd.x2, y2: cmd.y2, deviceX2: toDevX(cmd.x2), deviceY2: toDevY(cmd.y2), ...(Number.isFinite(cmd.durationMs) ? { swipeMs: cmd.durationMs } : {}) } : {}),
       ...(cmd.operatorTap ? { operatorGesture: cmd.operatorDrag ? 'drag' : 'tap' } : {}),
       ...(cmd.x != null ? { space: { shot: [cw, ch], device: [origW, origH] } } : {}),
+      ...(cmd.action === 'key' && cmd.key ? { key: cmd.key, ...(cmd.repeat ? { repeat: cmd.repeat } : {}), ...(cmd.holdMs ? { holdMs: cmd.holdMs } : {}) } : {}),
+      ...(cmd.action === 'hold' && cmd.holdMs ? { holdMs: cmd.holdMs } : {}),
+      ...(cmd.action === 'tap' && (cmd.button === 'right' || cmd.button === 'middle') ? { button: cmd.button } : {}),
+      ...(cmd.override ? { override: cmd.override } : {}),
       url: client.currentUrl(),
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,
       ...(annotatedKey ? { annotatedKey } : {}),

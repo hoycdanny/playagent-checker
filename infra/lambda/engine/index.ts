@@ -18,7 +18,7 @@ import { readNavigationSummary } from '../api/memoryStructure.js';
 import { retrieveFromKb } from '../api/bedrockKb.js';
 import { applyExclude, mergeProfiles } from '../api/report/profiles.js';
 import { mergeSpecs, specFromKb } from '../api/report/reportSpec.js';
-import { buildControlsProtocol, sanitizeControls } from '../api/controlSchemes.js';
+import { buildControlsProtocol, sanitizeControls, sanitizeKeys, type CaseKey } from '../api/controlSchemes.js';
 import { findEntry, defaultCoordSystem } from '../api/modelCatalog.js';
 import {
   defaultSeatSelection,
@@ -140,7 +140,7 @@ async function readJobMeta(
   deviceModel?: string;
   osVersion?: string;
   genres: string[];
-  controls?: { ids: string[]; source: 'case' | 'genre' };
+  controls?: { ids: string[]; source: 'case' | 'genre'; keys?: CaseKey[] };
   maxHours?: number;
   display?: { width: number; height: number };
   scripted?: boolean;
@@ -165,7 +165,7 @@ async function readJobMeta(
       deviceModel?: string;
       osVersion?: string;
       genres?: string[];
-      controls?: { ids?: unknown; source?: string };
+      controls?: { ids?: unknown; source?: string; keys?: unknown };
       maxHours?: number;
       display?: { width?: unknown; height?: unknown };
       scripted?: boolean;
@@ -185,7 +185,13 @@ async function readJobMeta(
       ...(job.osVersion ? { osVersion: job.osVersion } : {}),
       genres: Array.isArray(job.genres) ? job.genres.filter((g): g is string => typeof g === 'string') : [],
       ...(job.controls
-        ? { controls: { ids: sanitizeControls(job.controls.ids), source: job.controls.source === 'case' ? ('case' as const) : ('genre' as const) } }
+        ? {
+          controls: {
+            ids: sanitizeControls(job.controls.ids),
+            source: job.controls.source === 'case' ? ('case' as const) : ('genre' as const),
+            ...(Array.isArray(job.controls.keys) && job.controls.keys.length ? { keys: sanitizeKeys(job.controls.keys) } : {}),
+          },
+        }
         : {}),
       ...(typeof job.maxHours === 'number' && job.maxHours > 0 ? { maxHours: job.maxHours } : {}),
       ...(job.display && Number.isInteger(job.display.width) && Number.isInteger(job.display.height)
@@ -214,7 +220,7 @@ async function assembleAgentContext(
   knowledgeBaseIds: string[],
   caseTask: string,
   genres: string[] = [],
-  controlsSnap?: { ids: string[]; source: 'case' | 'genre' },
+  controlsSnap?: { ids: string[]; source: 'case' | 'genre'; keys?: CaseKey[] },
   scripted = false,
   vlmModel?: string,
 ): Promise<void> {
@@ -275,7 +281,9 @@ async function assembleAgentContext(
   // 模組/機制標註與畫面觀測值,報告引擎再用程式計算指標(數字不由 LLM 決定)。
   const evidence = await buildEvidenceProtocol(genres, knowledgeBaseIds).catch(() => null);
   // 操作行為(控制方案):runner 據此注入操作說明、限定手勢、決定搖桿預設位置。
-  const controls = controlsSnap ? buildControlsProtocol(sanitizeControls(controlsSnap.ids), controlsSnap.source) : null;
+  const controls = controlsSnap
+    ? buildControlsProtocol(sanitizeControls(controlsSnap.ids), controlsSnap.source, sanitizeKeys(controlsSnap.keys ?? []))
+    : null;
   // scripted 或非像素座標系也要能傳到 runner,即使沒有任何知識/證據/操作段落也要寫出 context.json。
   if (!context.trim() && !evidence && !controls && !scripted && vlmCoordSystem === 'pixel') return;
   await s3.send(

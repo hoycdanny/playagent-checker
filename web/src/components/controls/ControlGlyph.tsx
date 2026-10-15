@@ -138,10 +138,60 @@ const GLYPHS: Record<string, ReactNode> = {
       <Finger x={92} y={70} />
     </g>
   ),
+  keyboard: (
+    <g>
+      <rect x={10} y={48} width={104} height={36} rx={3} fill={SOFT} stroke={ACCENT} strokeWidth={1.2} />
+      {[0, 1].map((row) =>
+        Array.from({ length: 8 }, (_, i) => (
+          <rect
+            key={`${row}-${i}`}
+            x={14 + i * 12}
+            y={52 + row * 9}
+            width={10}
+            height={7}
+            rx={1.2}
+            fill={(row === 1 && (i === 1 || i === 2)) ? ACCENT : 'var(--surface)'}
+            stroke={ACCENT}
+            strokeWidth={0.6}
+          />
+        )),
+      )}
+      <rect x={30} y={71} width={50} height={8} rx={1.2} fill="var(--surface)" stroke={ACCENT} strokeWidth={0.6} />
+      {/* 方向鍵 */}
+      <rect x={93} y={63} width={8} height={7} rx={1} fill={ACCENT} />
+      <rect x={84} y={72} width={8} height={7} rx={1} fill="var(--surface)" stroke={ACCENT} strokeWidth={0.6} />
+      <rect x={93} y={72} width={8} height={7} rx={1} fill="var(--surface)" stroke={ACCENT} strokeWidth={0.6} />
+      <rect x={102} y={72} width={8} height={7} rx={1} fill="var(--surface)" stroke={ACCENT} strokeWidth={0.6} />
+      <text x={62} y={40} textAnchor="middle" fontSize={8} fontWeight={700} fill={ACCENT}>↑ ↓ ← → Z X</text>
+    </g>
+  ),
+  mouse: (
+    <g>
+      <rect x={128} y={46} width={22} height={36} rx={11} fill={SOFT} stroke={ACCENT} strokeWidth={1.2} />
+      <line x1={128} y1={60} x2={150} y2={60} stroke={ACCENT} strokeWidth={1} />
+      <line x1={139} y1={46} x2={139} y2={60} stroke={ACCENT} strokeWidth={1} />
+      <path d="M139 46 A11 11 0 0 0 128 57 L128 60 L139 60 Z" fill={ACCENT} opacity={0.55} />
+      <rect x={137.5} y={50} width={3} height={7} rx={1.5} fill="var(--surface)" stroke={ACCENT} strokeWidth={0.6} />
+      <polygon points="118,12 118,32 123,27 127,35 130,33.5 126,26 133,26" fill={ACCENT} stroke="var(--surface)" strokeWidth={0.8} />
+    </g>
+  ),
 };
 
 /** 手機外框 + 選定操作的疊圖。size = 寬度 px。 */
-export function ControlGlyph({ ids, size = 96, title }: { ids: string[]; size?: number; title?: string }) {
+export function ControlGlyph({
+  ids,
+  size = 96,
+  title,
+  frame = 'phone',
+}: {
+  ids: string[];
+  size?: number;
+  title?: string;
+  /** phone = 橫向手機外框;screen = 螢幕外框(網頁 / PC)。 */
+  frame?: 'phone' | 'screen';
+}) {
+  const outerRx = frame === 'screen' ? 3 : 12;
+  const innerRx = frame === 'screen' ? 1 : 6;
   return (
     <svg
       viewBox="-6 -6 172 102"
@@ -152,8 +202,8 @@ export function ControlGlyph({ ids, size = 96, title }: { ids: string[]; size?: 
       aria-hidden={title ? undefined : true}
       focusable="false"
     >
-      <rect x={-4} y={-4} width={168} height={98} rx={12} fill="var(--surface-raised)" stroke="var(--border-strong, #999)" strokeWidth={2} />
-      <rect x={0} y={0} width={160} height={90} rx={6} fill="var(--surface)" stroke="var(--border)" strokeWidth={0.8} />
+      <rect x={-4} y={-4} width={168} height={98} rx={outerRx} fill="var(--surface-raised)" stroke="var(--border-strong, #999)" strokeWidth={2} />
+      <rect x={0} y={0} width={160} height={90} rx={innerRx} fill="var(--surface)" stroke="var(--border)" strokeWidth={0.8} />
       {ids.map((id) => (
         <g key={id}>{GLYPHS[id] ?? null}</g>
       ))}

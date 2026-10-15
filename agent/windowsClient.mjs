@@ -15,7 +15,21 @@ import { createInterface } from 'node:readline';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const HERE = dirname(fileURLToPath(import.meta.url));
-const VK = { esc: 0x1b, enter: 0x0d, tab: 0x09, backspace: 0x08, space: 0x20, up: 0x26, down: 0x28, left: 0x25, right: 0x27 };
+// 標準按鍵名(與 keyNames.mjs / 後端 controlSchemes.ts 一致)→ Windows 虛擬鍵碼。
+// 刻意自帶(不 import keyNames.mjs):Windows 主機的套件是另外打包部署的。
+const VK = {
+  esc: 0x1b, escape: 0x1b, enter: 0x0d, tab: 0x09, backspace: 0x08, space: 0x20,
+  up: 0x26, down: 0x28, left: 0x25, right: 0x27,
+  shift: 0x10, ctrl: 0x11, alt: 0x12,
+  pageup: 0x21, pagedown: 0x22, end: 0x23, home: 0x24, delete: 0x2e,
+  ...Object.fromEntries('abcdefghijklmnopqrstuvwxyz'.split('').map((c, i) => [c, 0x41 + i])),
+  ...Object.fromEntries('0123456789'.split('').map((d, i) => [d, 0x30 + i])),
+};
+const VK_ALIAS = { arrowup: 'up', arrowdown: 'down', arrowleft: 'left', arrowright: 'right', return: 'enter', control: 'ctrl', pgup: 'pageup', pgdn: 'pagedown', del: 'delete' };
+function vkOf(raw) {
+  const s = String(raw ?? '').trim().toLowerCase().replace(/^key([a-z])$/, '$1').replace(/^digit([0-9])$/, '$1');
+  return VK[VK_ALIAS[s] ?? s];
+}
 
 function dirOffset(dir, mag) {
   const d = String(dir ?? 'up').toLowerCase();
@@ -130,7 +144,7 @@ export class WindowsClient {
       case 'type':
         return this.#call('type', { text: String(cmd.text ?? '').slice(0, 500) }, 60_000);
       case 'key': {
-        const vk = VK[String(cmd.key ?? '').toLowerCase()];
+        const vk = vkOf(cmd.key);
         if (!vk) throw new Error(`不支援的按鍵:${cmd.key}`);
         return this.#call('key', { vk });
       }
