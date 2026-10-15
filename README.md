@@ -245,7 +245,7 @@ The **System admin** page (admins only) has three tools.
 
 Prefer to deploy from your own machine, or need one of the one-time optional setups? Use the paths below. The CloudShell one-liner in [Quick start](#quick-start) is the easiest route; this section covers everything else.
 
-### Recommended on Windows and macOS: one-click latest installer
+### Recommended on Windows and macOS: one-click installer
 
 After installing **Node.js 22**, **AWS CLI v2**, **Git**, and **Docker Desktop**, configure your AWS credentials and enable the Bedrock models in Step 3. Then clone the repository and launch:
 
@@ -265,7 +265,7 @@ npm run deploy:latest -- --expected-account-id 123456789012
 
 The legacy Windows PowerShell entry `scripts/deploy-latest.ps1` remains as a compatibility wrapper; Windows, macOS, and Linux all execute the same Node.js deployment core.
 
-The installer does not deploy the current folder blindly. It fetches canonical GitHub `main`, resolves one immutable commit SHA, creates an isolated temporary worktree, installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks, builds both runner images locally, pushes both `:<Git SHA>` and `:latest`, pins ECS task definitions to the SHA tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. If `main` changes during deployment, it automatically repeats with the newer commit (up to three rounds). Local uncommitted work is never reset or included.
+The installer deploys **this folder as-is**; it never fetches a newer version, so run `git pull` first if you want the latest `main`. The version tag is the Git commit SHA (or `local-<UTC time>` for an extracted ZIP without `.git`); uncommitted changes are included with a warning and a `<sha12>-dirty-<UTC time>` tag. It installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks and the Updater, builds both runner images locally, pushes both `:<version>` and `:latest`, pins ECS task definitions to the version tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. Local files are never reset, stashed, or cleaned.
 
 For the first admin account, the interactive installer asks only for the administrator **Email (username)** and a password entered with hidden input. The tenant defaults to `default`; only advanced setups need `--admin-tenant <tenant>`.
 

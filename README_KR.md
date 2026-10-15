@@ -245,7 +245,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 본인 컴퓨터에서 배포하고 싶거나 일회성 선택 설정이 필요하면 아래 방법을 사용하십시오. [빠른 시작](#빠른-시작)의 CloudShell 한 줄 명령이 가장 쉬운 방법이며, 이 섹션은 그 외의 모든 경우를 다룹니다.
 
-### Windows / macOS 권장: 최신 버전 원클릭 설치／업데이트
+### Windows / macOS 권장: 원클릭 설치／업데이트
 
 먼저 **Node.js 22, AWS CLI v2, Git, Docker Desktop**을 설치하고 AWS에 로그인한 뒤 아래의 Bedrock 모델을 활성화합니다. 리포지토리를 clone한 다음 다음 중 하나를 실행합니다.
 
@@ -259,7 +259,7 @@ Linux:   scripts/deploy-latest.sh 실행
 
 모든 OS에서 `npm run deploy:latest -- --expected-account-id 123456789012`로 AWS 계정을 확인할 수 있습니다. 기존 PowerShell 스크립트는 호환 래퍼로 유지되며, 모든 OS가 동일한 Node.js 배포 코어를 사용합니다.
 
-`npm run deploy:latest`로도 실행할 수 있습니다. 설치 프로그램은 공식 GitHub `main`의 불변 Git SHA를 확인하고, 격리된 임시 worktree에서 설치·테스트·배포합니다. 두 러너 이미지는 SHA 태그와 `latest`를 함께 푸시하며 ECS 작업 정의는 SHA에 고정됩니다. 마지막에 CloudFormation, ECR digest, ECS 이미지, CloudFront를 검증합니다. 배포 중 `main`이 갱신되면 새 버전으로 자동 재실행합니다(최대 3회). 로컬의 커밋되지 않은 파일은 포함하거나 초기화하지 않습니다.
+`npm run deploy:latest`로도 실행할 수 있습니다. 설치 프로그램은 **이 폴더를 있는 그대로 배포**하며 새 버전을 자동으로 가져오지 않습니다. 최신 `main`을 배포하려면 먼저 `git pull`을 실행하십시오. 버전 태그는 Git commit SHA입니다(`.git`이 없는 ZIP을 푼 경우 `local-<UTC 시각>`). 커밋되지 않은 변경이 있으면 경고를 표시하고 `<sha12>-dirty-<UTC 시각>` 태그로 함께 배포합니다. lockfile 설치, 테스트, 모든 스택과 업데이터(Updater) 배포를 수행하고, 두 러너 이미지는 버전 태그와 `latest`를 함께 푸시하며 ECS 작업 정의는 버전 태그에 고정됩니다. 마지막에 CloudFormation, ECR digest, ECS 이미지, CloudFront를 검증합니다. 로컬 파일을 초기화·stash·삭제하지 않습니다.
 
 잘못된 AWS 계정에 배포하지 않도록 `npm run deploy:latest -- --expected-account-id 123456789012` 사용을 권장합니다. 첫 설치의 대화형 입력은 관리자 **Email(로그인 username)**과 화면에 표시되지 않는 비밀번호만 묻습니다. tenant 기본값은 `default`이며 고급 설정에서 변경할 때만 `--admin-tenant <tenant>`를 사용합니다.
 
