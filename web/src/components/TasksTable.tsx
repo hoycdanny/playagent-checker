@@ -6,6 +6,7 @@ import TaskIcon, { backendIcon } from './TaskIcon.tsx';
 import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome.ts';
+import { usd4 } from './money.ts';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
 export interface TaskRow {
@@ -190,7 +191,7 @@ export default function TasksTable({
                         : t('detail.cost')
                     }
                   >
-                    ${x.billableSpendUsd.toFixed(2)}
+                    {usd4(x.billableSpendUsd)}
                     {x.spendEstimated && (
                       <span className="tasks__cost-est"> {t('tasks.costEstimatedShort')}</span>
                     )}

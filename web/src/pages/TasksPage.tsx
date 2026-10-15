@@ -14,6 +14,7 @@ import DevicePicker from '../components/DevicePicker.tsx';
 import type { CaseVersionSummary } from '../components/cases/CaseVersions.tsx';
 import './ListPage.css';
 import './TasksPage.css';
+import { usd4 } from '../components/money.ts';
 
 type AppRecord = AppRef & {
   defaultKnowledgeBaseIds?: string[];
@@ -933,7 +934,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
               step={0.01}
               value={[costVal[0], costVal[1]]}
               onChange={setCostRange}
-              format={(n) => `$${n.toFixed(2)}`}
+              format={(n) => usd4(n)}
               label={t('tasks.colCost')}
               minLabel={t('tasks.rangeMin')}
               maxLabel={t('tasks.rangeMax')}

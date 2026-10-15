@@ -12,6 +12,7 @@ import { outcomeClass, outcomeKey, outcomeOf, outcomeTip, type VerdictInfo } fro
 import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
+import { usd4 } from '../components/money.ts';
 
 /** GET /reports 回傳的列(對齊後端 TaskListItem)。 */
 interface ReportItem {
@@ -275,7 +276,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
             <Stat label={t('state.error')} value={String(stats.error)} tone={stats.error ? 'warn' : undefined} />
             <Stat label={t('reports.stat.passRate')} value={stats.passRate === null ? '—' : `${stats.passRate}%`} />
             <Stat label={t('reports.stat.avgDuration')} value={formatDuration(stats.avgDuration)} />
-            <Stat label={t('reports.stat.cost')} value={`$${stats.cost.toFixed(2)}${stats.anyEstimated ? ` (${t('reports.estimated')})` : ''}`} />
+            <Stat label={t('reports.stat.cost')} value={`${usd4(stats.cost)}${stats.anyEstimated ? ` (${t('reports.estimated')})` : ''}`} />
           </div>
 
           {/* 搜尋 + 篩選 */}
@@ -443,7 +444,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                       <td className="tasks__cost">
                         {typeof x.billableSpendUsd === 'number' ? (
                           <>
-                            ${x.billableSpendUsd.toFixed(2)}
+                            {usd4(x.billableSpendUsd)}
                             {x.spendEstimated && <span className="tasks__cost-est"> {t('reports.estimated')}</span>}
                           </>
                         ) : <span className="tasks__muted-cell">—</span>}

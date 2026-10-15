@@ -17,6 +17,7 @@ import Sparkline from '../components/charts/Sparkline.tsx';
 import { outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import './ListPage.css';
 import './AppsPage.css';
+import { usd4 } from '../components/money.ts';
 
 type Platform = 'android' | 'ios' | 'windows' | 'web';
 
@@ -787,7 +788,7 @@ function AppCard({ app, stats }: AppCardProps) {
           <span title={t('apps.kpiPassRateHint')}>{t('apps.kpiPassRate')}</span>
         </div>
         <div className="apps__kpi">
-          <b>{stats ? `$${stats.spendUsd.toFixed(2)}` : '—'}</b>
+          <b>{stats ? usd4(stats.spendUsd) : '—'}</b>
           <span>{t('apps.kpiSpend')}</span>
         </div>
         {/* 走勢圖自己一列、撐滿卡片寬度 —— 擠在數字旁邊會把三個標籤壓成「測…」 */}
@@ -797,7 +798,7 @@ function AppCard({ app, stats }: AppCardProps) {
             values={stats?.spark ?? []}
             width={240}
             height={28}
-            format={(v) => `$${v.toFixed(2)}`}
+            format={(v) => usd4(v)}
             ariaLabel={`${app.name} ${t('apps.costTrend')}`}
           />
         </div>

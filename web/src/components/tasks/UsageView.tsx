@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { MetaSeat } from '../../api/useJobStream.ts';
 import { modelLabel } from '../modelProvider.ts';
 import type { AgentSeat, TraceLog } from './AgentLogView.tsx';
+import { usd4 } from '../money.ts';
 
 type L5 = readonly [string, string, string, string, string];
 const T = {
@@ -91,7 +92,7 @@ export function summarizeUsage(traces: TraceLog[], seats: MetaSeat[] = [], price
 }
 
 const n = (v: number) => v.toLocaleString();
-const usd = (v: number | undefined) => (v === undefined ? '—' : v < 0.01 && v > 0 ? `$${v.toFixed(4)}` : `$${v.toFixed(2)}`);
+const usd = (v: number | undefined) => usd4(v);
 
 /** 用量分頁:每個 Agent 的 Token 用量與估算費用 + 每一步的用量。 */
 export function UsageView({ traces, seats, prices, loc }: { traces: TraceLog[] | null; seats: MetaSeat[]; prices?: PriceMap; loc: string }) {
