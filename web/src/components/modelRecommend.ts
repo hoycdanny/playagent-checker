@@ -57,8 +57,16 @@ export function recommendRank(seat: SeatKind, modelId: string): number {
   return i < 0 ? 0 : i + 1;
 }
 
-/** 該 seat 的預設模型 id:DEFAULT_MODELS(清單有才用)→ 推薦第 1 名 → 清單第一個。 */
-export function recommendedDefault(seat: SeatKind, items: { modelId: string }[]): string {
+/**
+ * 推薦以「模型管理頁的金勾勾」為準:後端 /models 對被管理員標推薦的項目帶 recommended:true。
+ * (上面的 RECOMMENDED 名次表不再用來加 ★,只保留給預設值的退路。)
+ */
+type Rec = { modelId: string; recommended?: boolean };
+
+/** 該 seat 的預設模型 id:管理員推薦的第一個 → DEFAULT_MODELS(清單有才用)→ 名次表 → 清單第一個。 */
+export function recommendedDefault(seat: SeatKind, items: Rec[]): string {
+  const rec = items.find((m) => m.recommended);
+  if (rec) return rec.modelId;
   if (items.some((m) => m.modelId === DEFAULT_MODELS[seat])) return DEFAULT_MODELS[seat];
   for (const id of RECOMMENDED[seat]) {
     if (items.some((m) => m.modelId === id)) return id;
@@ -66,19 +74,17 @@ export function recommendedDefault(seat: SeatKind, items: { modelId: string }[])
   return items[0]?.modelId ?? '';
 }
 
-/** 依推薦名次排序:前 5 名(依 1→5)置頂,其餘維持原順序在後。 */
-export function sortByRecommend<T extends { modelId: string }>(seat: SeatKind, items: T[]): T[] {
-  return [...items].sort((a, b) => {
-    const ra = recommendRank(seat, a.modelId);
-    const rb = recommendRank(seat, b.modelId);
-    if (ra && rb) return ra - rb; // 兩者皆推薦:依名次
-    if (ra) return -1; // a 推薦、b 不推薦:a 在前
-    if (rb) return 1;
-    return 0; // 皆非推薦:維持原序(sort 穩定)
-  });
+/** 管理員推薦(金勾勾)的置頂,其餘維持原順序(sort 穩定)。seat 參數保留以相容既有呼叫。 */
+export function sortByRecommend<T extends Rec>(_seat: SeatKind, items: T[]): T[] {
+  return [...items].sort((a, b) => Number(Boolean(b.recommended)) - Number(Boolean(a.recommended)));
 }
 
-/** 選項顯示文字:推薦(前 5 名)前面加 ★。label 由呼叫端算好(含價格等)。 */
-export function starLabel(seat: SeatKind, modelId: string, label: string): string {
-  return recommendRank(seat, modelId) > 0 ? `★ ${label}` : label;
+/** 選項顯示文字:管理員推薦的前面加「★ 推薦」。label 由呼叫端算好(含價格等)。 */
+export function starLabel(_seat: SeatKind, m: Rec, label: string): string {
+  return m.recommended ? `★ ${label}` : label;
+}
+
+/** 推薦選項的樣式(金色粗體;下拉清單內也看得出來)。 */
+export function recommendStyle(m: Rec): { color: string; fontWeight: number } | undefined {
+  return m.recommended ? { color: '#b45309', fontWeight: 700 } : undefined;
 }

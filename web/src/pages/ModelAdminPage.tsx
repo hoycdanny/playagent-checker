@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, Fragment } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { apiGet, apiPut } from '../api/client.ts';
 import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
@@ -20,6 +20,8 @@ interface ModelRow {
   onDemand: boolean;
   pricing: { inputPerM: number; outputPerM: number; estimated?: boolean };
   seats: Seat[];
+  /** 被標為推薦(金勾勾)的座位。 */
+  recommended?: Seat[];
 }
 interface UnpricedRow {
   modelId: string;
@@ -47,6 +49,8 @@ export default function ModelAdminPage() {
   const [unpriced, setUnpriced] = useState<UnpricedRow[]>([]);
   const [config, setConfig] = useState<ScanResponse['config']>(null);
   const [sel, setSel] = useState<Record<string, Partial<Record<Seat, boolean>>>>({});
+  // 推薦(金勾勾):必為已勾選的子集。
+  const [rec, setRec] = useState<Record<string, Partial<Record<Seat, boolean>>>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +73,11 @@ export default function ModelAdminPage() {
         if (m.seats.length) next[m.modelId] = Object.fromEntries(m.seats.map((s) => [s, true]));
       }
       setSel(next);
+      const nextRec: Record<string, Partial<Record<Seat, boolean>>> = {};
+      for (const m of r.models) {
+        if (m.recommended?.length) nextRec[m.modelId] = Object.fromEntries(m.recommended.map((s) => [s, true]));
+      }
+      setRec(nextRec);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -80,12 +89,41 @@ export default function ModelAdminPage() {
     if (isAdmin) void load();
   }, [isAdmin, load]);
 
-  const toggle = (modelId: string, seat: Seat) =>
-    setSel((prev) => {
-      const row = { ...(prev[modelId] ?? {}) };
-      row[seat] = !row[seat];
-      return { ...prev, [modelId]: row };
-    });
+  const setCell = (
+    setter: typeof setSel,
+    modelId: string,
+    seat: Seat,
+    value: boolean,
+  ) =>
+    setter((prev) => ({ ...prev, [modelId]: { ...(prev[modelId] ?? {}), [seat]: value } }));
+  // 單擊:藍勾勾開/關(關掉時一併取消推薦)。
+  const toggle = (modelId: string, seat: Seat) => {
+    const on = !sel[modelId]?.[seat];
+    setCell(setSel, modelId, seat, on);
+    if (!on) setCell(setRec, modelId, seat, false);
+  };
+  // 雙擊:金勾勾(推薦)開/關;設為推薦時一定同時勾選,取消推薦時保留藍勾勾。
+  const toggleRecommend = (modelId: string, seat: Seat) => {
+    const wasRec = Boolean(rec[modelId]?.[seat]);
+    setCell(setRec, modelId, seat, !wasRec);
+    setCell(setSel, modelId, seat, true);
+  };
+  // 瀏覽器在 dblclick 前會先送兩次 click;單擊延遲執行,雙擊時取消,避免單擊把推薦先清掉。
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCellClick = (modelId: string, seat: Seat) => {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      clickTimer.current = null;
+      toggle(modelId, seat);
+    }, 220);
+  };
+  const onCellDoubleClick = (modelId: string, seat: Seat) => {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = null;
+    toggleRecommend(modelId, seat);
+  };
+  const cellState = (modelId: string, seat: Seat): 'off' | 'on' | 'rec' =>
+    rec[modelId]?.[seat] ? 'rec' : sel[modelId]?.[seat] ? 'on' : 'off';
 
   const counts = useMemo(() => {
     const c: Record<Seat, number> = { agent: 0, vlm: 0, subagent: 0, draft: 0 };
@@ -113,11 +151,14 @@ export default function ModelAdminPage() {
       let r = 0;
       if (key === 'name') r = a.displayName.localeCompare(b.displayName) || a.provider.localeCompare(b.provider);
       else if (key === 'price') r = a.pricing.inputPerM - b.pricing.inputPerM;
-      else r = (sel[b.modelId]?.[key] ? 1 : 0) - (sel[a.modelId]?.[key] ? 1 : 0);
+      else {
+        const w = (id: string) => (rec[id]?.[key] ? 2 : sel[id]?.[key] ? 1 : 0);
+        r = w(b.modelId) - w(a.modelId);
+      }
       return r * dir;
     });
     return arr;
-  }, [shown, sort, sel]);
+  }, [shown, sort, sel, rec]);
   const toggleSort = (key: SortKey) =>
     setSort((p) => (p.key === key ? { key, dir: (p.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: 1 }));
   const mark = (key: SortKey) => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '');
@@ -153,7 +194,8 @@ export default function ModelAdminPage() {
       return lo === hi ? `$${lo.toFixed(2)}` : `$${lo.toFixed(2)}–$${hi.toFixed(2)}`;
     };
     const picked = rows.filter((r) => SEATS.some((s) => sel[r.modelId]?.[s])).length;
-    return { img, txt, price: `${rng(ins)} / ${rng(outs)}`, picked };
+    const starred = rows.filter((r) => SEATS.some((s) => rec[r.modelId]?.[s])).length;
+    return { img, txt, price: `${rng(ins)} / ${rng(outs)}`, picked, starred };
   };
 
   async function onSave() {
@@ -166,7 +208,12 @@ export default function ModelAdminPage() {
         const seats = SEATS.filter((s) => row[s]);
         if (seats.length) selections[modelId] = seats;
       }
-      const r = await apiPut<{ ok: boolean; count: number }>('/model-admin', { selections });
+      const recommended: Record<string, Seat[]> = {};
+      for (const [modelId, row] of Object.entries(rec)) {
+        const seats = SEATS.filter((s) => row[s] && sel[modelId]?.[s]);
+        if (seats.length) recommended[modelId] = seats;
+      }
+      const r = await apiPut<{ ok: boolean; count: number }>('/model-admin', { selections, recommended });
       setNotice(T.saved.replace('{n}', String(r.count)));
       await load();
     } catch (e) {
@@ -203,6 +250,10 @@ export default function ModelAdminPage() {
       </header>
 
       <p className="modeladmin__intro">{T.intro}</p>
+      <p className="modeladmin__legend">
+        <span className="modeladmin__cell modeladmin__cell--on" aria-hidden="true">✓</span> {T.legendOn}
+        <span className="modeladmin__cell modeladmin__cell--rec" aria-hidden="true">★</span> {T.legendRec}
+      </p>
       {config && <p className="modeladmin__muted">{T.lastSaved.replace('{who}', config.updatedBy).replace('{when}', new Date(config.updatedAt).toLocaleString())}</p>}
 
       {error && <p className="modeladmin__error" role="alert">{error}</p>}
@@ -257,6 +308,7 @@ export default function ModelAdminPage() {
                         {g.txt && <span className="modeladmin__tag">{T.capText}</span>}
                         <span className="modeladmin__grange">{g.price}</span>
                         {g.picked > 0 && <span className="modeladmin__picked">✓{g.picked}</span>}
+                        {g.starred > 0 && <span className="modeladmin__starred">★{g.starred}</span>}
                       </td>
                     </tr>
                     {open && rows.map((m) => (
@@ -273,13 +325,31 @@ export default function ModelAdminPage() {
                         <td className="modeladmin__price">{price(m)}</td>
                         {SEATS.map((s) => (
                           <td key={s} className="modeladmin__c">
-                            <input
-                              type="checkbox"
-                              checked={Boolean(sel[m.modelId]?.[s])}
-                              disabled={!seatAllowed(s, m)}
-                              onChange={() => toggle(m.modelId, s)}
-                              aria-label={`${m.displayName} ${s}`}
-                            />
+                            {(() => {
+                              const st = cellState(m.modelId, s);
+                              const allowed = seatAllowed(s, m);
+                              return (
+                                <button
+                                  type="button"
+                                  className={`modeladmin__cell modeladmin__cell--${allowed ? st : 'na'}`}
+                                  disabled={!allowed}
+                                  onClick={() => onCellClick(m.modelId, s)}
+                                  onDoubleClick={() => onCellDoubleClick(m.modelId, s)}
+                                  onKeyDown={(e) => {
+                                    // 鍵盤:Shift+Enter / Shift+Space 切換推薦(雙擊的替代)。
+                                    if (e.shiftKey && (e.key === 'Enter' || e.key === ' ')) {
+                                      e.preventDefault();
+                                      toggleRecommend(m.modelId, s);
+                                    }
+                                  }}
+                                  aria-pressed={st !== 'off'}
+                                  aria-label={`${m.displayName} ${s} ${st === 'rec' ? T.stateRec : st === 'on' ? T.stateOn : T.stateOff}`}
+                                  title={allowed ? T.cellHint : ''}
+                                >
+                                  {allowed ? (st === 'rec' ? '★' : st === 'on' ? '✓' : '') : '–'}
+                                </button>
+                              );
+                            })()}
                           </td>
                         ))}
                       </tr>
@@ -339,6 +409,12 @@ function text(locale: string) {
     loading: ['掃描中…', 'Scanning…', '扫描中…', 'スキャン中…', '스캔 중…'] as L5,
     searchPlaceholder: ['搜尋模型 / 供應商 / id', 'Search model / provider / id', '搜索模型 / 供应商 / id', 'モデル / プロバイダー / id を検索', '모델 / 공급자 / id 검색'] as L5,
     onlyChecked: ['只顯示已勾選', 'Only checked', '只显示已勾选', '選択済みのみ', '선택된 항목만'] as L5,
+    legendOn: ['單擊:開放在該下拉', 'Click: show in that dropdown', '单击:开放在该下拉', 'クリック:そのドロップダウンに表示', '클릭: 해당 드롭다운에 표시'] as L5,
+    legendRec: ['雙擊:設為推薦(下拉置頂並標 ★)', 'Double-click: recommend (pinned with ★ in the dropdown)', '双击:设为推荐(下拉置顶并标 ★)', 'ダブルクリック:おすすめ(★付きで先頭に表示)', '더블클릭: 추천(드롭다운 상단에 ★ 표시)'] as L5,
+    cellHint: ['單擊開放/取消,雙擊設為推薦(Shift+Enter 亦可)', 'Click to toggle, double-click to recommend (or Shift+Enter)', '单击开放/取消,双击设为推荐(Shift+Enter 亦可)', 'クリックで切替、ダブルクリックでおすすめ(Shift+Enter 可)', '클릭으로 전환, 더블클릭으로 추천(Shift+Enter 가능)'] as L5,
+    stateOff: ['未開放', 'off', '未开放', 'オフ', '꺼짐'] as L5,
+    stateOn: ['已開放', 'on', '已开放', 'オン', '켜짐'] as L5,
+    stateRec: ['推薦', 'recommended', '推荐', 'おすすめ', '추천'] as L5,
     expandAll: ['全部展開', 'Expand all', '全部展开', 'すべて展開', '모두 펼치기'] as L5,
     collapseAll: ['全部收合', 'Collapse all', '全部收合', 'すべて折りたたむ', '모두 접기'] as L5,
     noMatch: ['沒有符合的模型。', 'No matching models.', '没有符合的模型。', '一致するモデルがありません。', '일치하는 모델이 없습니다.'] as L5,
@@ -368,6 +444,8 @@ function text(locale: string) {
     saving: pick(S.saving, i), saved: pick(S.saved, i), loading: pick(S.loading, i),
     searchPlaceholder: pick(S.searchPlaceholder, i), onlyChecked: pick(S.onlyChecked, i), noMatch: pick(S.noMatch, i),
     expandAll: pick(S.expandAll, i), collapseAll: pick(S.collapseAll, i),
+    legendOn: pick(S.legendOn, i), legendRec: pick(S.legendRec, i), cellHint: pick(S.cellHint, i),
+    stateOff: pick(S.stateOff, i), stateOn: pick(S.stateOn, i), stateRec: pick(S.stateRec, i),
     thModel: pick(S.thModel, i), thCaps: pick(S.thCaps, i), thPrice: pick(S.thPrice, i),
     colAgent: pick(S.colAgent, i), colVlm: pick(S.colVlm, i), colSub: pick(S.colSub, i), colDraft: pick(S.colDraft, i),
     capImage: pick(S.capImage, i), capText: pick(S.capText, i), coordPixel: pick(S.coordPixel, i), coordNorm: pick(S.coordNorm, i),

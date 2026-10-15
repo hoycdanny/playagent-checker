@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost, uploadToS3, type ListResponse, type UploadTarget } from '../../api/client.ts';
-import { sortByRecommend, starLabel } from '../modelRecommend.ts';
+import { recommendStyle, sortByRecommend, starLabel } from '../modelRecommend.ts';
 import {
   type AcceptanceItemDraft,
   type DraftSpec,
@@ -16,6 +16,7 @@ interface ModelEntry {
   displayName: string;
   unavailable?: string;
   pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
+  recommended?: boolean;
 }
 
 /** 上傳截圖大小上限(5MB)。 */
@@ -89,12 +90,12 @@ export function AcceptanceEditor({ lang, value, onChange }: Props) {
 
   // 草擬模型清單:agent seat(具備足夠能力的文字/多模態模型),預設挑 Sonnet。
   useEffect(() => {
-    apiGet<ListResponse<ModelEntry>>('/models?seat=draft&all=1')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=draft')
       .then((r) => {
         const sorted = sortByRecommend('agent', r.items);
         setModels(sorted);
         if (!value.model) {
-          onChange({ ...value, model: pickDraftModelDefault(sorted.map((m) => m.modelId)) });
+          onChange({ ...value, model: sorted.find((m) => m.recommended)?.modelId ?? pickDraftModelDefault(sorted.map((m) => m.modelId)) });
         }
       })
       .catch(() => {});
@@ -163,8 +164,8 @@ export function AcceptanceEditor({ lang, value, onChange }: Props) {
           <select value={value.model} onChange={(e) => onChange({ ...value, model: e.target.value })}>
             {models.length === 0 && <option value="">—</option>}
             {models.map((m) => (
-              <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
-                {starLabel('agent', m.modelId, modelOptionLabel(m))}
+              <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                {starLabel('agent', m, modelOptionLabel(m))}
               </option>
             ))}
           </select>

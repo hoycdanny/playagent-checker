@@ -6,7 +6,7 @@ import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
-import { recommendedDefault, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
+import { recommendedDefault, recommendStyle, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import { outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import RangeSlider from '../components/RangeSlider.tsx';
 import TasksTable from '../components/TasksTable.tsx';
@@ -59,6 +59,8 @@ interface ModelEntry {
   /** 有值 = 這個模型目前叫不動(原因為英文短句,來自後端實呼驗證);選項反灰。 */
   unavailable?: string;
   pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
+  /** 管理員在模型管理頁標為推薦(金勾勾)。 */
+  recommended?: boolean;
 }
 
 /** 模型下拉顯示:名稱 + 每百萬 token 進/出價(估算價標註)。
@@ -217,19 +219,19 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
       .catch(() => {});
     // 各角色 Seat 可選模型:vlm=分析畫面、agent=控制遊戲、subagent=子代理。
     // 預設 = 各 seat 推薦第 1 名;下拉選項前 5 名置頂並加 ★(見 modelRecommend)。
-    apiGet<ListResponse<ModelEntry>>('/models?seat=vlm&all=1')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=vlm')
       .then((r) => {
         setVlmModels(sortByRecommend('vlm', r.items));
         setVlmModel(recommendedDefault('vlm', r.items));
       })
       .catch(() => {});
-    apiGet<ListResponse<ModelEntry>>('/models?seat=agent&all=1')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=agent')
       .then((r) => {
         setAgentModels(sortByRecommend('agent', r.items));
         setAgentModel(recommendedDefault('agent', r.items));
       })
       .catch(() => {});
-    apiGet<ListResponse<ModelEntry>>('/models?seat=subagent&all=1')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=subagent')
       .then((r) => {
         setSubagentModels(sortByRecommend('subagent', r.items));
         setSubagentModel(recommendedDefault('subagent', r.items));
@@ -707,8 +709,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
                     <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
                       {agentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
-                          {starLabel('agent', m.modelId, modelOptionLabel(m))}
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                          {starLabel('agent', m, modelOptionLabel(m))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
@@ -723,8 +725,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     </span>
                     <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                       {vlmModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
-                          {starLabel('vlm', m.modelId, modelOptionLabel(m))}
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                          {starLabel('vlm', m, modelOptionLabel(m))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
@@ -737,8 +739,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
                     <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
                       {subagentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''}>
-                          {starLabel('subagent', m.modelId, modelOptionLabel(m))}
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                          {starLabel('subagent', m, modelOptionLabel(m))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}

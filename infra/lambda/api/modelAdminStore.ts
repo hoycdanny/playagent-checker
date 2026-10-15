@@ -22,6 +22,8 @@ export interface ModelAdminEntry {
   text: boolean;
   /** 這個模型被勾選出現在哪些下拉。 */
   seats: ModelSeat[];
+  /** 在哪些下拉被標為「推薦」(金勾勾);必為 seats 的子集。 */
+  recommended?: ModelSeat[];
 }
 
 export interface ModelAdminConfig {
