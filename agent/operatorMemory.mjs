@@ -312,6 +312,25 @@ export function operatorGestureCmd(c, cw, ch) {
   return { action: 'tap', x, y, operatorTap: true };
 }
 
+/**
+ * 測試人員「直接操作裝置」後,告訴控制遊戲 Agent 剛剛發生什麼(下一回合注入)。
+ * 同時給「Agent 自己的座標」(像素模型 = 截圖像素;千分制模型 = 0~1000)與「裝置像素」,
+ * 讓 Agent 知道人點在哪、下一張圖就是操作後的結果,不要重做同一個動作。
+ * op = { kind:'tap'|'drag', shot:{x,y,x2?,y2?}, device:{x,y,x2?,y2?}, space:{shot:[cw,ch]}, said? }
+ */
+export function operatorDirectNote(op, normCoord) {
+  const [cw, ch] = op.space?.shot ?? [0, 0];
+  const ai = (v, span) => (normCoord && span > 0 ? Math.round((v / span) * 1000) : Math.round(v));
+  const unit = normCoord ? '0~1000 相對座標' : '截圖像素';
+  const p = (x, y) => `(${ai(x, cw)}, ${ai(y, ch)})`;
+  const what = op.kind === 'drag'
+    ? `從你的座標 ${p(op.shot.x, op.shot.y)} 按住拖到 ${p(op.shot.x2, op.shot.y2)}(${unit});裝置像素 (${op.device.x}, ${op.device.y}) → (${op.device.x2}, ${op.device.y2})`
+    : `點擊你的座標 ${p(op.shot.x, op.shot.y)}(${unit});裝置像素 (${op.device.x}, ${op.device.y})`;
+  return `\n【測試人員已直接操作裝置|已執行完畢,不經 AI】${what}。` +
+    (op.said ? `測試人員說明:「${op.said}」。` : '') +
+    `下一張截圖就是操作後的畫面:從那個狀態接著做,不要重複這個操作;同一個按鈕之後要再點時,就用這個位置。`;
+}
+
 /** 從 S3 key 清單過濾出指令 id(按時間排序)。 */
 export function commandIdsFromKeys(keys, prefix) {
   return keys

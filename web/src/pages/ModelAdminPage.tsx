@@ -5,8 +5,8 @@ import { useI18n } from '../i18n/I18nProvider.tsx';
 import './ListPage.css';
 import './ModelAdminPage.css';
 
-type Seat = 'agent' | 'vlm' | 'subagent' | 'draft';
-const SEATS: Seat[] = ['agent', 'vlm', 'subagent', 'draft'];
+type Seat = 'agent' | 'vlm' | 'subagent' | 'draft' | 'ask';
+const SEATS: Seat[] = ['agent', 'vlm', 'subagent', 'draft', 'ask'];
 type SortKey = 'name' | 'price' | Seat;
 
 interface ModelRow {
@@ -126,7 +126,7 @@ export default function ModelAdminPage() {
     rec[modelId]?.[seat] ? 'rec' : sel[modelId]?.[seat] ? 'on' : 'off';
 
   const counts = useMemo(() => {
-    const c: Record<Seat, number> = { agent: 0, vlm: 0, subagent: 0, draft: 0 };
+    const c: Record<Seat, number> = { agent: 0, vlm: 0, subagent: 0, draft: 0, ask: 0 };
     for (const row of Object.values(sel)) for (const s of SEATS) if (row[s]) c[s]++;
     return c;
   }, [sel]);
@@ -274,7 +274,7 @@ export default function ModelAdminPage() {
         <button type="button" className="modeladmin__ghost" onClick={expandAll}>{T.expandAll}</button>
         <button type="button" className="modeladmin__ghost" onClick={collapseAll}>{T.collapseAll}</button>
         <span className="modeladmin__counts">
-          {T.colAgent}: {counts.agent} · {T.colVlm}: {counts.vlm} · {T.colSub}: {counts.subagent} · {T.colDraft}: {counts.draft}
+          {T.colAgent}: {counts.agent} · {T.colVlm}: {counts.vlm} · {T.colSub}: {counts.subagent} · {T.colDraft}: {counts.draft} · {T.colAsk}: {counts.ask}
         </span>
       </div>
 
@@ -292,6 +292,7 @@ export default function ModelAdminPage() {
                 <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('vlm')}>{T.colVlm}{mark('vlm')}</th>
                 <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('subagent')}>{T.colSub}{mark('subagent')}</th>
                 <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('draft')}>{T.colDraft}{mark('draft')}</th>
+                <th className="modeladmin__c modeladmin__sortable" onClick={() => toggleSort('ask')}>{T.colAsk}{mark('ask')}</th>
               </tr>
             </thead>
             <tbody>
@@ -301,7 +302,7 @@ export default function ModelAdminPage() {
                 return (
                   <Fragment key={prov}>
                     <tr className="modeladmin__grouprow" onClick={() => toggleProvider(prov)}>
-                      <td colSpan={7}>
+                      <td colSpan={8}>
                         <span className="modeladmin__caret">{open ? '▼' : '▶'}</span>
                         <strong>{prov}</strong> <span className="modeladmin__muted">({rows.length})</span>
                         {g.img && <span className="modeladmin__tag modeladmin__tag--img">{T.capImage}</span>}
@@ -358,7 +359,7 @@ export default function ModelAdminPage() {
                 );
               })}
               {groups.length === 0 && (
-                <tr><td colSpan={7} className="modeladmin__muted">{T.noMatch}</td></tr>
+                <tr><td colSpan={8} className="modeladmin__muted">{T.noMatch}</td></tr>
               )}
             </tbody>
           </table>
@@ -425,6 +426,7 @@ function text(locale: string) {
     colVlm: ['分析畫面', 'Screen analysis', '分析画面', '画面分析', '화면 분석'] as L5,
     colSub: ['子代理', 'Subagent', '子代理', 'サブエージェント', '서브에이전트'] as L5,
     colDraft: ['測試腳本', 'Test script', '测试脚本', 'テストスクリプト', '테스트 스크립트'] as L5,
+    colAsk: ['AI 問答', 'AI Q&A', 'AI 问答', 'AI 質問', 'AI 질문'] as L5,
     capImage: ['看圖', 'Vision', '看图', '画像', '비전'] as L5,
     capText: ['文字', 'Text', '文字', 'テキスト', '텍스트'] as L5,
     coordPixel: ['像素座標', 'pixel coords', '像素座标', 'ピクセル座標', '픽셀 좌표'] as L5,
@@ -447,7 +449,7 @@ function text(locale: string) {
     legendOn: pick(S.legendOn, i), legendRec: pick(S.legendRec, i), cellHint: pick(S.cellHint, i),
     stateOff: pick(S.stateOff, i), stateOn: pick(S.stateOn, i), stateRec: pick(S.stateRec, i),
     thModel: pick(S.thModel, i), thCaps: pick(S.thCaps, i), thPrice: pick(S.thPrice, i),
-    colAgent: pick(S.colAgent, i), colVlm: pick(S.colVlm, i), colSub: pick(S.colSub, i), colDraft: pick(S.colDraft, i),
+    colAgent: pick(S.colAgent, i), colVlm: pick(S.colVlm, i), colSub: pick(S.colSub, i), colDraft: pick(S.colDraft, i), colAsk: pick(S.colAsk, i),
     capImage: pick(S.capImage, i), capText: pick(S.capText, i), coordPixel: pick(S.coordPixel, i), coordNorm: pick(S.coordNorm, i),
     unpricedTitle: pick(S.unpricedTitle, i), unpricedNote: pick(S.unpricedNote, i),
   };

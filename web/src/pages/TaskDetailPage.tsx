@@ -60,7 +60,7 @@ const PT = {
   bootingHintWeb: ['正在啟動雲端瀏覽器,畫面就緒後會自動出現。', 'Starting the cloud browser; the screen appears automatically.'],
   bootingHintWindows: ['Windows 主機(GameLift Streams)首次啟動約需 10–15 分鐘,畫面就緒後會自動出現。', 'The Windows host (GameLift Streams) takes about 10–15 minutes on first start; the screen appears automatically.'],
   replay: ['回放', 'Replay'],
-  chat: ['對 AI 下指令', 'Instruct the AI'],
+  chat: ['與控制遊戲 Agent 互動', 'Interact with the game-control Agent'],
   goalHint: ['決策 Agent 給這一步的目標', 'Goal set by the Decision Agent for this step'],
   scriptStep: ['腳本 {n}/{m}', 'Script {n}/{m}'],
   effectHint: ['輔助 Agent 判斷這一步的動作有沒有生效', 'Helper Agent verdict on whether this action worked'],
@@ -141,7 +141,7 @@ export default function TaskDetailPage() {
   const TERMINAL_STATES = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
   const isLive = !TERMINAL_STATES.has(state) && state !== 'queued';
   const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
-  // 測試人員在即時畫面上選的位置(可直接「讓 AI 點這裡」,或在聊天室加說明一起送)。
+  // 測試人員在即時畫面上選的位置(可「直接點這裡」在裝置上執行,或在聊天室加說明一起送)。
   const [pickPoint, setPickPoint] = useState<PickPoint | null>(null);
   async function sendPoint(p: PickPoint) {
     if (!jobId) return;
@@ -371,7 +371,7 @@ export default function TaskDetailPage() {
               {asText(latestStep.action) && <span className="detail__step-action">{asText(latestStep.action)}</span>}
             </div>
           )}
-          {/* 即時畫面底下:對 AI 下指令 + 測試腳本(皆可收合,讓畫面保持最大) */}
+          {/* 即時畫面底下:與控制遊戲 Agent 互動 + 測試腳本(皆可收合,讓畫面保持最大) */}
           <div className="detail__live-ops">
             {showChat && (
               <div className="detail__fold">

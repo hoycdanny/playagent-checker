@@ -1,7 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { apiDelete, apiGet, apiPost } from '../../api/client.ts';
+import { apiDelete, apiGet, apiPost, type ListResponse } from '../../api/client.ts';
 import type { RLang } from '../report/reportText.ts';
+import { recommendStyle, sortByRecommend, starLabel } from '../modelRecommend.ts';
 import './TaskAskPanel.css';
+
+/** GET /models?seat=ask 的一筆(管理員在模型管理「AI 問答」欄開放的模型)。 */
+interface AskModel {
+  modelId: string;
+  displayName: string;
+  unavailable?: string;
+  recommended?: boolean;
+  pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
+}
+const MODEL_PREF_KEY = 'pa.taskAsk.model';
 
 /**
  * 任務 AI 問答:針對這一次任務發問,AI 依任務的步驟、裝置 log、知識庫、報告回答。
@@ -31,6 +42,7 @@ const T = {
   q2: ['這次測試為什麼失敗 / 卡住?', 'Why did this run fail or get stuck?'],
   q3: ['AI 有沒有照測試腳本走?哪一步偏離了?', 'Did the AI follow the script? Where did it deviate?'],
   q4: ['有沒有當機、ANR 或錯誤訊息?', 'Any crashes, ANRs or error messages?'],
+  model: ['問答模型', 'Model'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 
@@ -40,6 +52,8 @@ export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [open, setOpen] = useState(true);
+  const [models, setModels] = useState<AskModel[]>([]);
+  const [model, setModel] = useState('');
   const listRef = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
@@ -49,6 +63,31 @@ export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
       .catch(() => {});
     return () => { stale = true; };
   }, [jobId]);
+
+  // 可選的問答模型:依模型管理「AI 問答」欄;預設 = 上次選的 → 推薦(金勾勾)→ 第一個。
+  useEffect(() => {
+    let stale = false;
+    apiGet<ListResponse<AskModel>>('/models?seat=ask')
+      .then((r) => {
+        if (stale) return;
+        const list = sortByRecommend('agent', r.items.filter((m) => !m.unavailable));
+        setModels(list);
+        const saved = typeof localStorage !== 'undefined' ? localStorage.getItem(MODEL_PREF_KEY) : null;
+        setModel(list.find((m) => m.modelId === saved)?.modelId ?? list.find((m) => m.recommended)?.modelId ?? list[0]?.modelId ?? '');
+      })
+      .catch(() => {});
+    return () => { stale = true; };
+  }, []);
+  function pickModel(id: string) {
+    setModel(id);
+    try { localStorage.setItem(MODEL_PREF_KEY, id); } catch { /* 無痕模式等 */ }
+  }
+  const modelName = (id?: string) => (id ? models.find((m) => m.modelId === id)?.displayName ?? id.replace(/^(us|global)\./, '') : '');
+  const optionLabel = (m: AskModel) => {
+    if (!m.pricing) return m.displayName;
+    const f = (n: number) => `$${n.toFixed(2)}`;
+    return `${m.displayName} — ${f(m.pricing.inputPerM)}/${f(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}`;
+  };
 
   // 新訊息 / 分析中時捲到底。
   useEffect(() => {
@@ -65,7 +104,7 @@ export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
     setItems((prev) => [...prev, { role: 'user', text, at: new Date().toISOString() }]);
     setQ('');
     try {
-      const r = await apiPost<{ items: AskMessage[] }>(`/tasks/${encodeURIComponent(jobId)}/ask`, { question: text, lang });
+      const r = await apiPost<{ items: AskMessage[] }>(`/tasks/${encodeURIComponent(jobId)}/ask`, { question: text, lang, ...(model ? { modelId: model } : {}) });
       setItems(r.items ?? []);
     } catch (err) {
       setError(`${tx('failed', lang)}${err instanceof Error ? err.message : String(err)}`);
@@ -111,7 +150,10 @@ export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
             <ol className="taskask__list" ref={listRef} aria-live="polite">
               {items.map((m, i) => (
                 <li key={i} className={`taskask__msg taskask__msg--${m.role}`}>
-                  <span className="taskask__who">{m.role === 'user' ? tx('you', lang) : tx('ai', lang)}</span>
+                  <span className="taskask__who">
+                    {m.role === 'user' ? tx('you', lang) : tx('ai', lang)}
+                    {m.role === 'assistant' && m.model && <span className="taskask__model"> · {modelName(m.model)}</span>}
+                  </span>
                   <div className="taskask__text">{m.text}</div>
                 </li>
               ))}
@@ -137,6 +179,16 @@ export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
             />
             <button type="submit" className="taskask__send" disabled={busy || !q.trim()}>{tx('send', lang)}</button>
           </form>
+          {models.length > 0 && (
+            <label className="taskask__modelpick">
+              <span>{tx('model', lang)}</span>
+              <select value={model} onChange={(e) => pickModel(e.target.value)} disabled={busy}>
+                {models.map((m) => (
+                  <option key={m.modelId} value={m.modelId} style={recommendStyle(m)}>{starLabel('agent', m, optionLabel(m))}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </>
       )}
     </section>

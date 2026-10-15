@@ -6,7 +6,7 @@
  * 對話存在 tenants/<t>/jobs/<id>/ask/history.json(重新整理後還在)。
  * 必須在 API Gateway 30 秒內回應:用 Haiku(快),無權限才退 Sonnet;輸入內容有上限。
  */
-import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { BedrockRuntimeClient, ConverseCommand, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
 
@@ -236,6 +236,49 @@ export function plainText(s: string): string {
 
 export interface AskDeps {
   bedrock?: Pick<BedrockRuntimeClient, 'send'>;
+  /** 指定問答模型(由管理員在模型管理開放、使用者在任務詳情選擇);未指定則用 ASK_MODELS 預設。 */
+  modelId?: string;
+}
+
+const ASK_MAX_TOKENS = 1100;
+const isAnthropic = (modelId: string) => /^(?:(?:us|eu|apac|jp|au|global)\.)?anthropic\./.test(modelId);
+
+/**
+ * 非 Claude 模型(Nova / GPT / Grok…)走 Converse(統一格式)。
+ * 有些模型不收 temperature,被拒就拿掉重送;有些不收獨立 system,被拒就併進第一則 user。
+ */
+async function converseAsk(
+  br: Pick<BedrockRuntimeClient, 'send'>,
+  modelId: string,
+  system: string,
+  messages: Array<{ role: string; content: string }>,
+): Promise<{ text: string; truncated: boolean }> {
+  const toBlocks = (withSystem: boolean) => {
+    const ms = messages.map((m) => ({ role: m.role as 'user' | 'assistant', content: [{ text: m.content }] }));
+    if (!withSystem && ms[0]) ms[0] = { ...ms[0], content: [{ text: `${system}\n\n${ms[0].content[0]!.text}` }] };
+    return ms;
+  };
+  const send = (withTemp: boolean, withSystem: boolean) =>
+    br.send(new ConverseCommand({
+      modelId,
+      ...(withSystem ? { system: [{ text: system }] } : {}),
+      messages: toBlocks(withSystem),
+      inferenceConfig: withTemp ? { maxTokens: ASK_MAX_TOKENS, temperature: 0.2 } : { maxTokens: ASK_MAX_TOKENS },
+    })) as Promise<{ output?: { message?: { content?: Array<{ text?: string }> } }; stopReason?: string }>;
+  let withTemp = true;
+  let withSystem = true;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await send(withTemp, withSystem);
+      const text = (res.output?.message?.content ?? []).map((c) => c.text ?? '').join('').trim();
+      return { text, truncated: res.stopReason === 'max_tokens' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt < 2 && withTemp && /temperature|top_?p/i.test(msg)) { withTemp = false; continue; }
+      if (attempt < 2 && withSystem && /system|alternate/i.test(msg)) { withSystem = false; continue; }
+      throw err;
+    }
+  }
 }
 let client: BedrockRuntimeClient | null = null;
 const bedrock = () => (client ??= new BedrockRuntimeClient({ region: process.env['AWS_REGION'] ?? 'us-west-2' }));
@@ -272,25 +315,35 @@ export async function askTask(
   const body = JSON.stringify({
     anthropic_version: 'bedrock-2023-05-31',
     // 回答上限(也控制延遲:API Gateway 30 秒內要回)。
-    max_tokens: 1100,
+    max_tokens: ASK_MAX_TOKENS,
     temperature: 0.2,
     system: SYSTEM(lang),
     messages,
   });
   const br = deps.bedrock ?? bedrock();
+  const cutNote = lang === 'en' ? '\n…(answer cut off — ask a follow-up for details)' : '\n…(回答過長已截斷,可以追問細節)';
   let lastErr: unknown;
   let text = '';
   let usedModel = '';
-  for (const modelId of ASK_MODELS) {
+  // 指定模型(管理員在任務詳情選的)只試那一個,失敗就直接回錯誤 —— 不默默改用別的模型。
+  const candidates = deps.modelId ? [deps.modelId] : ASK_MODELS;
+  for (const modelId of candidates) {
     try {
-      const res = await br.send(new InvokeModelCommand({ modelId, contentType: 'application/json', accept: 'application/json', body }));
-      const parsed = JSON.parse(new TextDecoder().decode(res.body as Uint8Array)) as { content?: Array<{ type: string; text?: string }>; stop_reason?: string };
-      text = plainText((parsed.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('').trim());
-      if (parsed.stop_reason === 'max_tokens') text += lang === 'en' ? '\n…(answer cut off — ask a follow-up for details)' : '\n…(回答過長已截斷,可以追問細節)';
+      if (isAnthropic(modelId)) {
+        const res = await br.send(new InvokeModelCommand({ modelId, contentType: 'application/json', accept: 'application/json', body }));
+        const parsed = JSON.parse(new TextDecoder().decode(res.body as Uint8Array)) as { content?: Array<{ type: string; text?: string }>; stop_reason?: string };
+        text = plainText((parsed.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('').trim());
+        if (parsed.stop_reason === 'max_tokens') text += cutNote;
+      } else {
+        const r = await converseAsk(br, modelId, SYSTEM(lang), messages);
+        text = plainText(r.text);
+        if (r.truncated) text += cutNote;
+      }
       usedModel = modelId;
       break;
     } catch (err) {
       lastErr = err;
+      if (deps.modelId) throw err;
       const name = err instanceof Error ? err.name : '';
       if (!/AccessDenied|ResourceNotFound|ValidationException/.test(name)) throw err;
     }
