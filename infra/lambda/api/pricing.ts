@@ -91,6 +91,9 @@ const TABLE: Record<string, ModelPrice> = {
   'openai.gpt-oss-safeguard-20b': { inputPerM: 0.07, outputPerM: 0.2, estimated: true },
   'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24, estimated: true },
   'amazon.nova-micro-v1:0': { inputPerM: 0.035, outputPerM: 0.14, estimated: true },
+  // OpenAI GPT(Bedrock 上架,多模態可看圖):官方 model card 公告價(非估算)。
+  // GPT-5.6 Luna 商業區域短內容:input $0.22 / output $1.32(含 Bedrock +10% 已內含)。
+  'openai.gpt-5.6-luna': { inputPerM: 0.22, outputPerM: 1.32 },
   'deepseek.r1-v1:0': { inputPerM: 1.35, outputPerM: 5.4, estimated: true },
   'mistral.pixtral-large-2502-v1:0': { inputPerM: 2.0, outputPerM: 6.0, estimated: true },
   'meta.llama3-1-8b-instruct-v1:0:128k': { inputPerM: 0.22, outputPerM: 0.22, estimated: true },

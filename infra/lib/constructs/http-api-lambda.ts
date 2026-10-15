@@ -241,6 +241,15 @@ export class HttpApiLambda extends Construct {
       }),
     );
 
+    // 模型管理頁(admin 專用):掃描帳號當前可用模型與跨區推論設定檔(控制面唯讀 List)。
+    // List* 不支援資源級條件,故 *;真正守門是後端 requireAdmin。
+    this.apiFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:ListFoundationModels', 'bedrock:ListInferenceProfiles'],
+        resources: ['*'],
+      }),
+    );
+
     // 裝置管理頁顯示 Device Farm 真機池:唯讀 ListDevices(不支援資源級條件,故 *)。
     this.apiFn.addToRolePolicy(
       new iam.PolicyStatement({
