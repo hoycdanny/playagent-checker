@@ -76,3 +76,29 @@
 
 .modeladmin__sortable { cursor: pointer; user-select: none; white-space: nowrap; }
 .modeladmin__sortable:hover { color: var(--accent, #2563eb); }
+
+.modeladmin__ghost {
+  padding: 0.3rem 0.7rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #ccc);
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.modeladmin__ghost:hover { border-color: var(--accent, #2563eb); color: var(--accent, #2563eb); }
+
+.modeladmin__grouprow { cursor: pointer; user-select: none; background: var(--group-bg, rgba(127,127,127,0.08)); }
+.modeladmin__grouprow:hover { background: var(--group-bg-hover, rgba(127,127,127,0.16)); }
+.modeladmin__grouprow td { font-size: 0.9rem; }
+.modeladmin__caret { display: inline-block; width: 1.1rem; color: var(--muted, #6b7280); }
+.modeladmin__grange { margin-left: 0.6rem; font-variant-numeric: tabular-nums; color: var(--muted, #6b7280); }
+.modeladmin__picked {
+  margin-left: 0.6rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  background: #dbeafe;
+  color: #1e40af;
+}
+.modeladmin__indent { padding-left: 1.1rem; }
