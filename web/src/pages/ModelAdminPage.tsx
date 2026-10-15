@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, Fragment } from 'react';
 import { apiGet, apiPut } from '../api/client.ts';
 import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
@@ -54,6 +54,7 @@ export default function ModelAdminPage() {
   const [filter, setFilter] = useState('');
   const [onlyChecked, setOnlyChecked] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: 'name', dir: 1 });
+  const [expanded, setExpanded] = useState<Set<string>>(new Set()); // 預設全部收合
 
   const load = useCallback(async () => {
     setError(null);
@@ -121,6 +122,40 @@ export default function ModelAdminPage() {
     setSort((p) => (p.key === key ? { key, dir: (p.dir === 1 ? -1 : 1) as 1 | -1 } : { key, dir: 1 }));
   const mark = (key: SortKey) => (sort.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : '');
 
+  // 依廠家分組(組內維持目前排序;組依廠家名排序)。
+  const groups = useMemo(() => {
+    const map = new Map<string, ModelRow[]>();
+    for (const m of sorted) {
+      const arr = map.get(m.provider) ?? [];
+      arr.push(m);
+      map.set(m.provider, arr);
+    }
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [sorted]);
+  // 搜尋時一律展開(讓結果看得到);否則依使用者的展開狀態。預設全收合。
+  const searching = filter.trim().length > 0;
+  const isOpen = (prov: string) => searching || expanded.has(prov);
+  const toggleProvider = (prov: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(prov)) next.delete(prov); else next.add(prov);
+      return next;
+    });
+  const expandAll = () => setExpanded(new Set(groups.map((g) => g[0])));
+  const collapseAll = () => setExpanded(new Set());
+  const groupSummary = (rows: ModelRow[]) => {
+    const img = rows.some((r) => r.image);
+    const txt = rows.some((r) => r.text);
+    const ins = rows.map((r) => r.pricing.inputPerM);
+    const outs = rows.map((r) => r.pricing.outputPerM);
+    const rng = (a: number[]) => {
+      const lo = Math.min(...a), hi = Math.max(...a);
+      return lo === hi ? `$${lo.toFixed(2)}` : `$${lo.toFixed(2)}–$${hi.toFixed(2)}`;
+    };
+    const picked = rows.filter((r) => SEATS.some((s) => sel[r.modelId]?.[s])).length;
+    return { img, txt, price: `${rng(ins)} / ${rng(outs)}`, picked };
+  };
+
   async function onSave() {
     setError(null);
     setNotice(null);
@@ -185,6 +220,8 @@ export default function ModelAdminPage() {
           <input type="checkbox" checked={onlyChecked} onChange={(e) => setOnlyChecked(e.target.checked)} />
           {T.onlyChecked}
         </label>
+        <button type="button" className="modeladmin__ghost" onClick={expandAll}>{T.expandAll}</button>
+        <button type="button" className="modeladmin__ghost" onClick={collapseAll}>{T.collapseAll}</button>
         <span className="modeladmin__counts">
           {T.colAgent}: {counts.agent} · {T.colVlm}: {counts.vlm} · {T.colSub}: {counts.subagent} · {T.colDraft}: {counts.draft}
         </span>
@@ -207,32 +244,50 @@ export default function ModelAdminPage() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((m) => (
-                <tr key={m.modelId}>
-                  <td>
-                    <div className="modeladmin__name">{m.displayName}</div>
-                    <div className="modeladmin__id">{m.provider} · <code>{m.modelId}</code></div>
-                  </td>
-                  <td>
-                    {m.image && <span className="modeladmin__tag modeladmin__tag--img">{T.capImage}</span>}
-                    {m.text && <span className="modeladmin__tag">{T.capText}</span>}
-                    <span className="modeladmin__tag modeladmin__tag--muted">{m.coordSystem === 'pixel' ? T.coordPixel : T.coordNorm}</span>
-                  </td>
-                  <td className="modeladmin__price">{price(m)}</td>
-                  {SEATS.map((s) => (
-                    <td key={s} className="modeladmin__c">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(sel[m.modelId]?.[s])}
-                        disabled={!seatAllowed(s, m)}
-                        onChange={() => toggle(m.modelId, s)}
-                        aria-label={`${m.displayName} ${s}`}
-                      />
-                    </td>
-                  ))}
-                </tr>
-              ))}
-              {sorted.length === 0 && (
+              {groups.map(([prov, rows]) => {
+                const g = groupSummary(rows);
+                const open = isOpen(prov);
+                return (
+                  <Fragment key={prov}>
+                    <tr className="modeladmin__grouprow" onClick={() => toggleProvider(prov)}>
+                      <td colSpan={7}>
+                        <span className="modeladmin__caret">{open ? '▼' : '▶'}</span>
+                        <strong>{prov}</strong> <span className="modeladmin__muted">({rows.length})</span>
+                        {g.img && <span className="modeladmin__tag modeladmin__tag--img">{T.capImage}</span>}
+                        {g.txt && <span className="modeladmin__tag">{T.capText}</span>}
+                        <span className="modeladmin__grange">{g.price}</span>
+                        {g.picked > 0 && <span className="modeladmin__picked">✓{g.picked}</span>}
+                      </td>
+                    </tr>
+                    {open && rows.map((m) => (
+                      <tr key={m.modelId}>
+                        <td>
+                          <div className="modeladmin__name modeladmin__indent">{m.displayName}</div>
+                          <div className="modeladmin__id">{m.provider} · <code>{m.modelId}</code></div>
+                        </td>
+                        <td>
+                          {m.image && <span className="modeladmin__tag modeladmin__tag--img">{T.capImage}</span>}
+                          {m.text && <span className="modeladmin__tag">{T.capText}</span>}
+                          <span className="modeladmin__tag modeladmin__tag--muted">{m.coordSystem === 'pixel' ? T.coordPixel : T.coordNorm}</span>
+                        </td>
+                        <td className="modeladmin__price">{price(m)}</td>
+                        {SEATS.map((s) => (
+                          <td key={s} className="modeladmin__c">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(sel[m.modelId]?.[s])}
+                              disabled={!seatAllowed(s, m)}
+                              onChange={() => toggle(m.modelId, s)}
+                              aria-label={`${m.displayName} ${s}`}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </Fragment>
+                );
+              })}
+              {groups.length === 0 && (
                 <tr><td colSpan={7} className="modeladmin__muted">{T.noMatch}</td></tr>
               )}
             </tbody>
@@ -284,6 +339,8 @@ function text(locale: string) {
     loading: ['掃描中…', 'Scanning…', '扫描中…', 'スキャン中…', '스캔 중…'] as L5,
     searchPlaceholder: ['搜尋模型 / 供應商 / id', 'Search model / provider / id', '搜索模型 / 供应商 / id', 'モデル / プロバイダー / id を検索', '모델 / 공급자 / id 검색'] as L5,
     onlyChecked: ['只顯示已勾選', 'Only checked', '只显示已勾选', '選択済みのみ', '선택된 항목만'] as L5,
+    expandAll: ['全部展開', 'Expand all', '全部展开', 'すべて展開', '모두 펼치기'] as L5,
+    collapseAll: ['全部收合', 'Collapse all', '全部收合', 'すべて折りたたむ', '모두 접기'] as L5,
     noMatch: ['沒有符合的模型。', 'No matching models.', '没有符合的模型。', '一致するモデルがありません。', '일치하는 모델이 없습니다.'] as L5,
     thModel: ['模型', 'Model', '模型', 'モデル', '모델'] as L5,
     thCaps: ['能力', 'Capabilities', '能力', '機能', '기능'] as L5,
@@ -310,6 +367,7 @@ function text(locale: string) {
     lastSaved: pick(S.lastSaved, i), refresh: pick(S.refresh, i), save: pick(S.save, i),
     saving: pick(S.saving, i), saved: pick(S.saved, i), loading: pick(S.loading, i),
     searchPlaceholder: pick(S.searchPlaceholder, i), onlyChecked: pick(S.onlyChecked, i), noMatch: pick(S.noMatch, i),
+    expandAll: pick(S.expandAll, i), collapseAll: pick(S.collapseAll, i),
     thModel: pick(S.thModel, i), thCaps: pick(S.thCaps, i), thPrice: pick(S.thPrice, i),
     colAgent: pick(S.colAgent, i), colVlm: pick(S.colVlm, i), colSub: pick(S.colSub, i), colDraft: pick(S.colDraft, i),
     capImage: pick(S.capImage, i), capText: pick(S.capText, i), coordPixel: pick(S.coordPixel, i), coordNorm: pick(S.coordNorm, i),

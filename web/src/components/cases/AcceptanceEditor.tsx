@@ -89,7 +89,7 @@ export function AcceptanceEditor({ lang, value, onChange }: Props) {
 
   // 草擬模型清單:agent seat(具備足夠能力的文字/多模態模型),預設挑 Sonnet。
   useEffect(() => {
-    apiGet<ListResponse<ModelEntry>>('/models?seat=draft')
+    apiGet<ListResponse<ModelEntry>>('/models?seat=draft&all=1')
       .then((r) => {
         const sorted = sortByRecommend('agent', r.items);
         setModels(sorted);

@@ -752,9 +752,9 @@ export async function handleRequest(
         // 附上每模型的當前有效單價(input/output 每百萬 token),供前端下拉呈現費用。
         const seatRaw = req.query?.['seat'];
         const seat = (MODEL_SEATS as string[]).includes(seatRaw ?? '') ? (seatRaw as ModelSeat) : undefined;
-        // all=1(提交任務頁用):列出「所有查得到單價」的掃描模型,不受管理頁勾選限制,
-        // 只依 seat 能力過濾(vlm 需看圖,其餘需文字輸出)。管理頁的勾選只約束 draft(測試腳本)下拉。
-        const wantAll = req.query?.['all'] === '1' && !!deps.modelAdmin;
+        // all=1 僅對「管理員」生效:管理員看得到所有查得到單價的模型(完整自由度)。
+        // 一般成員一律套用模型管理頁的勾選(控制使用範圍,避免誤用昂貴模型);沒設定則退回靜態目錄。
+        const wantAll = req.query?.['all'] === '1' && isAdmin(req.claims) && !!deps.modelAdmin;
         const cfg = !wantAll && deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
         let all: ModelListItem[];
         if (wantAll && deps.modelAdmin) {
@@ -1087,12 +1087,15 @@ export async function handleRequest(
         const parsed = parseDraftBody(req.body);
         // 指定草擬模型時驗證:必須在 agent seat 可選清單內且查得到單價(Fail Closed)。
         if (parsed.model) {
-          const allowed = await effectiveSeatModels(deps, 'draft');
-          if (!allowed.find((m) => m.modelId === parsed.model)) {
-            return json(400, { error: `草擬模型不在可選清單: ${parsed.model}` });
-          }
           if (!isPriceable(parsed.model)) {
             return json(400, { error: `草擬模型查無單價(Fail Closed): ${parsed.model}` });
+          }
+          // 管理員可用任意有單價模型;一般成員限管理員在「測試腳本」開放的清單。
+          if (!isAdmin(req.claims)) {
+            const allowed = await effectiveSeatModels(deps, 'draft');
+            if (!allowed.find((m) => m.modelId === parsed.model)) {
+              return json(400, { error: `草擬模型未開放給一般成員,請洽管理員: ${parsed.model}` });
+            }
           }
         }
         const yaml = await deps.draftCase(parsed.description, parsed.appId, parsed.baseYaml, {
@@ -2237,20 +2240,29 @@ async function handleSubmitTask(
     ['agent', input.agentModel, 'Agent(控制遊戲)'],
     ['subagent', input.subagentModel, 'Subagent(子代理)'],
   ];
-  // 提交任務的三個座位(agent/vlm/subagent)可選「所有查得到單價」的模型(與下拉 all=1 一致),
-  // 不受模型管理頁勾選限制;只要查得到單價、且是已知/可掃描到的模型即可(draft 另有自己的校驗)。
-  const submitScan = deps.modelAdmin ? await deps.modelAdmin.scan() : [];
-  for (const [, modelId, label] of seatChecks) {
+  // 提交任務的三個座位模型校驗(與下拉一致,並實際把關使用範圍):
+  //  - 管理員:可選「所有查得到單價」的模型(與 all=1 下拉一致)。
+  //  - 一般成員:只能選管理員在「模型管理」開放的清單(避免誤用昂貴模型);沒設定則退回靜態目錄。
+  const submitAdmin = isAdmin(req.claims);
+  const submitScan = submitAdmin && deps.modelAdmin ? await deps.modelAdmin.scan() : [];
+  for (const [seat, modelId, label] of seatChecks) {
     if (!modelId) continue;
     if (!isPriceable(modelId)) {
       return json(400, { error: `${label} 模型查無單價(Fail Closed): ${modelId}` });
     }
-    const known =
-      modelId === 'uitars' ||
-      CATALOG.some((m) => m.modelId === modelId) ||
-      submitScan.some((m) => m.modelId === modelId);
-    if (!known) {
-      return json(400, { error: `${label} 模型不在可選清單: ${modelId}` });
+    if (submitAdmin) {
+      const known =
+        modelId === 'uitars' ||
+        CATALOG.some((m) => m.modelId === modelId) ||
+        submitScan.some((m) => m.modelId === modelId);
+      if (!known) {
+        return json(400, { error: `${label} 模型不在可選清單: ${modelId}` });
+      }
+    } else {
+      const allowed = await effectiveSeatModels(deps, seat);
+      if (!allowed.find((m) => m.modelId === modelId)) {
+        return json(400, { error: `${label} 模型未開放給一般成員,請洽管理員: ${modelId}` });
+      }
     }
   }
   // UI-TARS 關閉時拒絕(否則 runner 會打一個不存在的 endpoint,每一步都只能等待)。
