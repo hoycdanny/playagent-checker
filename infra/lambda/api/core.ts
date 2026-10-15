@@ -338,10 +338,12 @@ interface ModelListItem {
   coordSystem: CoordSystem;
   seats: Seat[];
   unavailable?: string;
+  /** 管理員在模型管理頁對「這個下拉」標了推薦(金勾勾)。 */
+  recommended?: boolean;
 }
 
 /** 把管理頁設定的 entry 轉成下拉項目形狀(座位含 draft,這裡回傳 catalog 的三座位子集供前端)。 */
-function entryToListItem(e: ModelAdminEntry): ModelListItem {
+function entryToListItem(e: ModelAdminEntry, seat?: ModelSeat): ModelListItem {
   const seats = e.seats.filter((s): s is Seat => s === 'agent' || s === 'vlm' || s === 'subagent');
   return {
     modelId: e.modelId,
@@ -350,6 +352,7 @@ function entryToListItem(e: ModelAdminEntry): ModelListItem {
     regions: ['us-west-2'],
     coordSystem: e.coordSystem,
     seats,
+    ...(seat && e.recommended?.includes(seat) ? { recommended: true } : {}),
   };
 }
 
@@ -362,7 +365,7 @@ async function effectiveSeatModels(deps: ApiDeps, seat: ModelSeat): Promise<Mode
   if (cfg && cfg.entries.length) {
     return cfg.entries
       .filter((e) => e.seats.includes(seat) && isPriceable(e.modelId))
-      .map(entryToListItem);
+      .map((e) => entryToListItem(e, seat));
   }
   const base: Seat = seat === 'draft' ? 'agent' : seat;
   return modelsForSeat(base).map((m) => ({
@@ -673,7 +676,11 @@ export async function handleRequest(
         ]);
         const all = [...scanned, uitarsScanned()];
         const enabledBy = new Map<string, ModelSeat[]>();
-        for (const e of cfg?.entries ?? []) enabledBy.set(e.modelId, e.seats);
+        const recommendedBy = new Map<string, ModelSeat[]>();
+        for (const e of cfg?.entries ?? []) {
+          enabledBy.set(e.modelId, e.seats);
+          if (e.recommended?.length) recommendedBy.set(e.modelId, e.recommended);
+        }
         const uitarsOn = deps.uitars ? await uitarsAvailable(deps.uitars.ports) : false;
         const models: unknown[] = [];
         const unpriced: unknown[] = [];
@@ -695,7 +702,12 @@ export async function handleRequest(
             onDemand: m.onDemand,
           };
           if (pricing) {
-            models.push({ ...row, pricing, seats: enabledBy.get(m.modelId) ?? [] });
+            models.push({
+              ...row,
+              pricing,
+              seats: enabledBy.get(m.modelId) ?? [],
+              recommended: recommendedBy.get(m.modelId) ?? [],
+            });
           } else {
             unpriced.push(row);
           }
@@ -710,8 +722,9 @@ export async function handleRequest(
       case 'PUT /model-admin': {
         requireAdmin(req.claims);
         if (!deps.modelAdmin) return json(501, { error: '模型管理未設定' });
-        const body = (req.body ?? {}) as { selections?: Record<string, unknown> };
+        const body = (req.body ?? {}) as { selections?: Record<string, unknown>; recommended?: Record<string, unknown> };
         const selections = body.selections;
+        const recMap = body.recommended && typeof body.recommended === 'object' ? body.recommended : {};
         if (!selections || typeof selections !== 'object') {
           throw new BadRequestError('selections 必須是物件 { modelId: ["vlm","agent",...] }');
         }
@@ -726,6 +739,8 @@ export async function handleRequest(
           if (!isPriceable(m.modelId)) {
             return json(400, { error: `模型查無單價,無法啟用(Fail Closed): ${m.modelId}` });
           }
+          // 推薦必須是已勾選座位的子集(沒開放的下拉不能推薦)。
+          const rec = validSeatsFor(m.image, m.text, recMap[modelId]).filter((s) => seats.includes(s));
           entries.push({
             modelId: m.modelId,
             displayName: m.displayName,
@@ -735,6 +750,7 @@ export async function handleRequest(
             image: m.image,
             text: m.text,
             seats,
+            ...(rec.length ? { recommended: rec } : {}),
           });
         }
         const config: ModelAdminConfig = {
@@ -752,29 +768,15 @@ export async function handleRequest(
         // 附上每模型的當前有效單價(input/output 每百萬 token),供前端下拉呈現費用。
         const seatRaw = req.query?.['seat'];
         const seat = (MODEL_SEATS as string[]).includes(seatRaw ?? '') ? (seatRaw as ModelSeat) : undefined;
-        // all=1 僅對「管理員」生效:管理員看得到所有查得到單價的模型(完整自由度)。
-        // 一般成員一律套用模型管理頁的勾選(控制使用範圍,避免誤用昂貴模型);沒設定則退回靜態目錄。
-        const wantAll = req.query?.['all'] === '1' && isAdmin(req.claims) && !!deps.modelAdmin;
-        const cfg = !wantAll && deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
+        // 下拉一律依模型管理頁的勾選(管理員與一般成員都一樣),讓「勾什麼就出現什麼」;
+        // 有標推薦(金勾勾)的帶 recommended:true,前端置頂並加 ★。沒設定則退回靜態目錄。
+        const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
         let all: ModelListItem[];
-        if (wantAll && deps.modelAdmin) {
-          const scanned = [...(await deps.modelAdmin.scan()), uitarsScanned()];
-          all = scanned
-            .filter((m) => isPriceable(m.modelId))
-            .filter((m) => (seat === 'vlm' ? m.image : seat ? m.text : true))
-            .map((m) => ({
-              modelId: m.modelId,
-              displayName: m.displayName,
-              channel: m.channel,
-              regions: ['us-west-2'],
-              coordSystem: m.coordSystem,
-              seats: [...(m.image ? ['vlm'] : []), ...(m.text ? ['agent', 'subagent'] : [])] as Seat[],
-            }));
-        } else if (cfg && cfg.entries.length) {
+        if (cfg && cfg.entries.length) {
           all = cfg.entries
             .filter((e) => !seat || e.seats.includes(seat))
             .filter((e) => isPriceable(e.modelId)) // 只呈現查得到單價的(Fail Closed)
-            .map(entryToListItem);
+            .map((e) => entryToListItem(e, seat));
         } else {
           const base: Seat | undefined = seat === 'draft' ? 'agent' : seat;
           all = (base ? modelsForSeat(base) : CATALOG).map((m) => ({

@@ -102,3 +102,38 @@
   color: #1e40af;
 }
 .modeladmin__indent { padding-left: 1.1rem; }
+
+/* 三態格:空(未開放)→ 藍 ✓(開放)→ 金 ★(推薦) */
+.modeladmin__cell {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 5px;
+  border: 1.5px solid var(--border, #9ca3af);
+  background: var(--surface, #fff);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  padding: 0;
+  vertical-align: middle;
+}
+.modeladmin__cell:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }
+.modeladmin__cell--on { background: #2563eb; border-color: #2563eb; }
+.modeladmin__cell--rec { background: #f59e0b; border-color: #d97706; box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25); }
+.modeladmin__cell--na { background: transparent; border-style: dashed; color: var(--muted, #9ca3af); cursor: not-allowed; }
+.modeladmin__legend { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted, #6b7280); margin: 0 0 0.5rem; }
+.modeladmin__legend .modeladmin__cell { width: 1.2rem; height: 1.2rem; font-size: 0.75rem; cursor: default; margin-left: 0.6rem; }
+.modeladmin__legend .modeladmin__cell:first-child { margin-left: 0; }
+.modeladmin__starred {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  background: #fef3c7;
+  color: #92400e;
+}
