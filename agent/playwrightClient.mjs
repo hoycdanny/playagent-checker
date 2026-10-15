@@ -7,7 +7,7 @@
  *   act(tap)          → page.mouse.click(x, y)
  *   act(swipe)        → mouse.move → down → move → up(拖曳/捲動)
  *   act(type)         → keyboard.type(帶 Enter 送出)
- *   act(key)          → keyboard.press(方向鍵 / WASD / Enter…;只開放遊戲常用鍵,可 repeat 連按)
+ *   act(key)          → keyboard.down → 按住 KEY_HOLD_MS → up(方向鍵 / WASD / Enter…;只開放遊戲常用鍵,可 repeat 連按)
  *   act(back)         → page.goBack()
  *   act(launch/goto)  → page.goto(url)
  *   getScreenSize()   → 視埠寬高
@@ -18,6 +18,14 @@
 import { chromium } from 'playwright';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 按鍵按住時間(毫秒)與連按間隔。要大於雲端容器裡遊戲的一幀(低 fps 時 100–200 ms),
+ * 否則以「每幀讀一次按鍵狀態」的引擎(RPG Maker、許多 canvas 遊戲)會漏掉按鍵。
+ * 可用 PA_KEY_HOLD_MS 調整;模型也可在單步給 holdMs(長按衝刺等)。
+ */
+const KEY_HOLD_MS = Math.max(50, Math.min(1000, Number(process.env.PA_KEY_HOLD_MS) || 250));
+const KEY_GAP_MS = 150;
 
 /**
  * 模型可用的按鍵名 → Playwright 的鍵名。
@@ -161,12 +169,24 @@ export class PlaywrightClient {
       case 'key': {
         // 鍵盤按鍵:很多網頁遊戲(2048、射擊、平台跳躍)只監聽 keydown,滑鼠與拖曳完全沒反應。
         // 可按 n 次(repeat),用於連續移動。
+        //
+        // 必須「按住一小段時間」再放開,不能用 keyboard.press():press 會在同一瞬間送出
+        // keydown + keyup。RPG Maker 等引擎是「每一幀讀一次按鍵狀態」,雲端容器沒有 GPU、
+        // 遊戲只跑 ~5–10 fps(一幀 100–200 ms),按下與放開都落在兩幀之間 → 遊戲完全沒看到。
+        // 實測(job-mv97uocw-hdzi6d 的 Silver Thread,遊戲迴圈壓到 ~7 fps):
+        //   press() 連按 5 次標題畫面都沒反應;按住 250 ms 再放,第 1 次就進入遊戲。
+        // 人用實體鍵盤時自然會按住約 100 ms,所以人按 Enter 可以玩、AI 按卻「沒反應」。
         const name = KEYS[String(cmd.key ?? '').toLowerCase()];
         if (!name) throw new Error(`不支援的按鍵:${cmd.key}`);
         const times = Math.max(1, Math.min(20, Number(cmd.repeat) || 1));
+        const holdMs = Number.isFinite(Number(cmd.holdMs)) && Number(cmd.holdMs) > 0
+          ? Math.max(50, Math.min(3000, Math.round(Number(cmd.holdMs))))
+          : KEY_HOLD_MS;
         for (let i = 0; i < times; i++) {
-          await this.#page.keyboard.press(name);
-          if (times > 1) await new Promise((r) => setTimeout(r, 120));
+          await this.#page.keyboard.down(name);
+          await sleep(holdMs);
+          await this.#page.keyboard.up(name);
+          if (i < times - 1) await sleep(KEY_GAP_MS);
         }
         break;
       }
