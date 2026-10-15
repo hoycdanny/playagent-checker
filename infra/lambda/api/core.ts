@@ -2191,6 +2191,7 @@ async function handleSubmitTask(
   const input = validateSubmit(req.body);
   const s3 = await deps.getTenantS3(tenantId);
 
+  const adminCfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
   // 模型可用性:在花任何錢之前擋下「選得到但叫不動」的模型。
   // 不擋的話會走完開機 → 裝 App → 第一次呼叫模型才失敗(job-mv4ogljf-t6izg9 就是這樣,
   // 花了真機時間與 2 分半,只換到一句 The provided model identifier is invalid)。
@@ -2201,8 +2202,11 @@ async function handleSubmitTask(
   ] as const) {
     if (!modelId) continue;
     const entry = CATALOG.find((e) => e.modelId === modelId);
+    // 管理員在「模型管理」明確把這個模型開放在這個座位 → 以管理員設定為準
+    // (例:靜態目錄只讓 Nova Micro 坐子代理,但管理員開放它當控制遊戲)。
+    const adminEnabled = adminCfg?.entries.some((e) => e.modelId === modelId && e.seats.includes(seat)) ?? false;
     if (entry) {
-      if (!entry.seats.includes(seat)) {
+      if (!entry.seats.includes(seat) && !adminEnabled) {
         return json(400, { error: `${entry.displayName} 不能坐 ${seat} 座位` });
       }
       if (entry.unavailable) {
