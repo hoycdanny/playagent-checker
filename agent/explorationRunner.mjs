@@ -47,7 +47,8 @@ import { createLiveVideo, recordSize } from './liveVideo.mjs';
 import { createMediaRecorder } from './mediaAudio.mjs';
 import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
-import { createAgentTeam, normalizeElements, screenFromSeen, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
+import { createAgentTeam, normalizeElements, screenFromSeen, scriptSteps, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
+import { createScriptTracker, DEFAULT_ITEM_BUDGET } from './scriptTracker.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
 import { isAutoSpinWait, watchAutoSpin, watchNote } from './spinWatch.mjs';
@@ -181,12 +182,17 @@ async function writeStatus(state, message, steps) {
     'application/json').catch(() => {});
 }
 
-/** 依決策 Agent 的腳本進度更新 scriptProgress(done 只增不減:模型偶爾把步驟號往回報)。 */
+// 測項為主時的進度(視覺 Agent 判定;見 scriptTracker.mjs)。有它就以它為準,不用決策 Agent 的猜測。
+let scriptTracker = null;
+
+/** 更新 scriptProgress(done 只增不減:模型偶爾把步驟號往回報)。 */
 function updateScriptProgress(team, { allDone = false } = {}) {
-  const items = team?.scriptItems ?? [];
+  const items = scriptTracker ? scriptTracker.items() : team?.scriptItems ?? [];
   if (items.length < 2) return; // 沒有分步驟的腳本:不顯示打勾清單
-  const current = Math.max(1, Math.min(items.length, Number(team.scriptStep) || 1));
-  const done = allDone ? items.length : Math.max(scriptProgress?.done ?? 0, current - 1);
+  const current = scriptTracker
+    ? scriptTracker.current
+    : Math.max(1, Math.min(items.length, Number(team.scriptStep) || 1));
+  const done = allDone ? items.length : Math.max(scriptProgress?.done ?? 0, scriptTracker ? scriptTracker.done : current - 1);
   scriptProgress = { items: items.slice(0, 40).map((t) => String(t).slice(0, 300)), current, done };
 }
 const BOOT_MSG = {
@@ -718,6 +724,11 @@ async function main() {
   // 操作行為:允許的動作集合(null = 未指定,不限定)。
   const allowedActions = controls ? new Set(controls.allowedActions) : null;
   if (controls) console.log('操作行為', controls.ids.join(','), `(${controls.source})`, '可用動作', controls.allowedActions.join('/'));
+  // 測項為主:視覺 Agent 逐項判定完成、每項有時間盒(PA_ITEM_STEPS 可覆寫,預設 20 次操作)。
+  scriptTracker = scripted
+    ? createScriptTracker({ items: scriptSteps(TASK), itemBudget: Math.max(3, Number(process.env.PA_ITEM_STEPS) || DEFAULT_ITEM_BUDGET) })
+    : null;
+  if (scriptTracker) console.log(`[測項為主] ${scriptTracker.total} 項,由視覺 Agent 逐項判定完成;每項上限 ${Math.max(3, Number(process.env.PA_ITEM_STEPS) || DEFAULT_ITEM_BUDGET)} 次操作(長時間測項不限)`);
 
   // 效能監測(Android:adb shell 收 FPS/CPU/GPU/記憶體/溫度/耗電;不可用時退回 getPerformanceData)。
   let perfMon = PLATFORM === 'android' && effectivePkg && PERF_EVERY > 0 ? new PerfMonitor(client, effectivePkg) : null;
@@ -799,7 +810,8 @@ async function main() {
   // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
-    + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
+    + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
+    + (scriptTracker ? scriptTracker.promptSection() : '');
   // 記憶命中追蹤:以「本次開始前的記憶」為基準,每步記錄 AI 有沒有用到記憶、記憶的預測有沒有應驗。
   const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 9000 });
   console.log(memTrace.startupLog());
@@ -868,11 +880,12 @@ async function main() {
     ? createAgentTeam({
       bedrock, ConverseCommand, agentModel: AGENT_MODEL, subagentModel: SUBAGENT_MODEL, task: TASK,
       controlsPrompt: controls?.prompt ?? '', knowledge, scripted, put: s3put, prefix: PREFIX, log: (m) => console.log(m),
+      externalProgress: Boolean(scriptTracker),
     })
     : null;
   console.log('Agent 協作', team ? `決策=${AGENT_MODEL || '停用'} 輔助=${SUBAGENT_MODEL || '停用'}` : '停用(只用視覺 Agent)');
   // 腳本清單一開始就給前端(全部未完成);決策 Agent 每步更新進度。
-  if (team?.enabled.agent) updateScriptProgress(team);
+  if (team?.enabled.agent || scriptTracker) updateScriptProgress(team);
   let teamPending = null; // 進行中的輔助 Agent 核對(在動作後等待畫面穩定時跑)
   let teamDoneRejects = 0;
   let agentDoneOverrides = 0; // 決策 Agent 下 done、但視覺 Agent 判斷要繼續 → 被駁回的次數
@@ -1002,6 +1015,7 @@ async function main() {
         w = dim.w; h = dim.h;
         system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
           + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
+          + (scriptTracker ? scriptTracker.promptSection() : '')
           + (team?.enabled.agent && !USE_UITARS ? VISION_ELEMENTS_NOTE : '');
       }
     } catch { /* 用原尺寸 */ }
@@ -1219,6 +1233,7 @@ async function main() {
       : '';
     const memoNote = progressMemo ? `\n【你的進度筆記(上一步寫的,照它延續,不要重新開始)】${progressMemo}` : '';
     const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + memoNote + controlNote
+      + (scriptTracker ? scriptTracker.turnNote() : '')
       + memoryNote + routeTurnNote(appMemory.edits?.routes, prevPageId, routePageName) + operatorTurnNote(newCmds, operator.active);
     controlNote = '';
     messages.push(makeUserTurn([visionShot], turnText, visionFmt));
@@ -1327,10 +1342,27 @@ async function main() {
       }
     }
     const vlmMs = Date.now() - tVlm;
+    // 【測項為主】看得到畫面的視覺 Agent 回報「已完成到第幾項」→ 推進進度(決策 Agent 只讀這個數字)。
+    // 宣告全部完成:這一步停手,下一張畫面再確認一次;兩次都成立才結束(見 scriptTracker.mjs)。
+    let scriptEvent = null;
+    if (scriptTracker && !USE_UITARS && !pointCmd && !cmd.parseFailed && trace?.ok !== false) {
+      const before = scriptTracker.done;
+      // 視覺 Agent 給 done 卻沒填 scriptDone → 視同宣告全部完成(確認回合說 done = 確認)。
+      const claim = cmd.scriptDone ?? (String(cmd.action || '').trim().toLowerCase() === 'done' ? scriptTracker.total : undefined);
+      scriptEvent = scriptTracker.observe(claim, typeof cmd.scriptEvidence === 'string' ? cmd.scriptEvidence : '');
+      if (scriptEvent.advanced) console.log(`[測項為主] 第 ${i} 步:完成 ${before} → ${scriptTracker.done}/${scriptTracker.total}(${scriptTracker.evidence || '—'})`);
+      if (scriptEvent.confirm) console.log(`[測項為主] 第 ${i} 步:視覺 Agent 回報全部完成,停手確認`);
+      if (scriptEvent.retracted) console.log(`[測項為主] 第 ${i} 步:確認未成立,繼續做第 ${scriptTracker.current} 項`);
+      if (scriptEvent.complete) console.log(`[測項為主] 第 ${i} 步:再次確認全部完成 → 結束`);
+      team?.setScriptStep(scriptTracker.current);
+      updateScriptProgress(team);
+    }
+    const scriptStops = Boolean(scriptEvent && (scriptEvent.complete || scriptEvent.confirm));
     // 【決策 Agent】看視覺 Agent 的描述與元件清單,決定這一步的動作(座標取自元件清單)。
     // 測試人員在畫面上直接點的位置、UI-TARS、視覺回應無法解析時不經決策。決策失敗 → 採用視覺 Agent 的建議。
+    // 測項已宣告完成 / 正在確認時不再問決策 Agent(不用再操作,省一次呼叫)。
     let decisionMs;
-    if (team?.enabled.agent && !USE_UITARS && !pointCmd && !cmd.parseFailed && trace?.ok !== false) {
+    if (team?.enabled.agent && !USE_UITARS && !pointCmd && !cmd.parseFailed && trace?.ok !== false && !scriptStops) {
       // 等輔助 Agent 對上一步的核對(多半已在上一步的等待時間做完;戰鬥走位中不等)。
       if (teamPending) {
         const settled = await Promise.race([teamPending.then(() => true), sleep(lastBattleMove ? 0 : 5000).then(() => false)]);
@@ -1600,6 +1632,26 @@ async function main() {
       controlNote = `【操作方式提醒】上一步你用了「${bad}」,但本遊戲的操作方式只允許:${controls.allowedActions.join(' / ')}。請改用允許的動作(依系統提示的操作方式說明)。`;
     }
 
+    // 【測項為主】任何「done」都要經視覺 Agent 確認:還沒確認全部完成就想結束 → 當成完成宣告,停手再看一張畫面。
+    // (例如決策 Agent 自認做完了,或視覺 Agent 給 done 卻沒填 scriptDone。)
+    if (scriptTracker && cmd.action === 'done' && !scriptEvent?.complete && !scriptEvent?.confirm && trace?.ok !== false && !operatorDirected && !wrapUpAsked) {
+      const ev = scriptTracker.observe(scriptTracker.total, typeof cmd.scriptEvidence === 'string' ? cmd.scriptEvidence : '');
+      scriptEvent = { ...(scriptEvent ?? {}), ...ev };
+      team?.setScriptStep(scriptTracker.current);
+      updateScriptProgress(team);
+    }
+    if (scriptEvent?.complete) {
+      cmd.action = 'done';
+      cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.tx = undefined; cmd.ty = undefined;
+      cmd.thinking = `[測項全部完成] 視覺 Agent 兩次確認 ${scriptTracker.total} 項測項都已達成(${scriptTracker.evidence || '見畫面'}),結束測試。` + String(cmd.thinking || '');
+      cmd.override = 'script_complete';
+    } else if (scriptEvent?.confirm) {
+      cmd.action = 'wait'; cmd.duration = 1;
+      cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.tx = undefined; cmd.ty = undefined;
+      cmd.thinking = `[測項確認] 回報 ${scriptTracker.total} 項全部完成(${scriptTracker.evidence || '—'}),停手再看一張畫面確認。` + String(cmd.thinking || '');
+      cmd.override = 'script_confirm';
+    }
+
     let snappedFrom = null;
     if (process.env.PA_YSNAP === '1' && MAGICK && !escapeOverride && cmd.action === 'tap' && cmd.x != null && cmd.y != null) {
       const bands = findButtonBands(ds.b64, ssDim);
@@ -1823,6 +1875,19 @@ async function main() {
       break;
     }
 
+    // 【測項時間盒】小測項有操作次數上限(預設 20 次;wait 不算)。超過 → 判 Blocked 並指出卡在哪一項,
+    // 不再無止盡地繞(job-mv95w48j:第 4 項早就達成,卻又玩了 2 小時)。測試人員正在指揮時不計。
+    if (scriptTracker && !operatorDirected && cmd.action !== 'wait' && cmd.action !== 'done') {
+      const blocked = scriptTracker.tick();
+      if (blocked) {
+        finalState = 'fail';
+        finalMsg = `測項卡住(Blocked):第 ${blocked.item}/${scriptTracker.total} 項「${String(blocked.text).slice(0, 120)}」已操作 ${blocked.steps} 次仍未完成,已停止(每項上限 ${blocked.budget} 次)。` +
+          `已完成 ${scriptTracker.done}/${scriptTracker.total} 項。最後畫面「${screenName}」:${String(cmd.thinking || '').slice(0, 200)}`;
+        console.log(`[測項為主] ${finalMsg}`);
+        break;
+      }
+    }
+
     // 偵測第5關證據(畫面或 thinking 出現 stage/wave/level 5 或 第5關/5. Zone)。
     const lvl5Hint = /stage\s*5|wave\s*5|level\s*5|lv\.?\s*5|第\s*5\s*[關关波]|\b5\.\s|5\s*[關关波]/i;
     if (lvl5Hint.test(String(cmd.thinking || '')) || lvl5Hint.test(String(cmd.screen || ''))) seenLevel5 = true;
@@ -1840,7 +1905,10 @@ async function main() {
     // 上限 60 次:避免視覺 Agent 一直誤判「還要繼續」時永遠結束不了(步數 / 預算 / 時數上限仍然有效)。
     // 測項為主:使用者有明確測項、且已走到最後一項並宣告 done → 不讓視覺 Agent 推翻,
     // 直接進入下方的「權威完成」判定(否則弱視覺模型如 Nova 會一直要求繼續 tap,測不完)。
-    const scriptAllDone = scripted && team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
+    // 測項為主:以視覺 Agent 兩次確認的進度為準(scriptTracker);沒有 tracker 才看決策 Agent 的 scriptStep。
+    const scriptAllDone = scriptTracker
+      ? scriptTracker.total >= 1 && scriptTracker.done >= scriptTracker.total
+      : scripted && team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
     if (cmd.action === 'done' && cmd.decidedBy === 'agent' && cmd.visionSuggested && cmd.visionSuggested !== 'done' && agentDoneOverrides < 60 && !scriptAllDone) {
       agentDoneOverrides++;
       let back = cmd.visionSuggested;
@@ -1871,7 +1939,9 @@ async function main() {
         // 【以測項為主】案例帶結構化測項(scripted)且已走到最後一項並宣告完成 → 權威完成:
         // 直接通過,不讓輔助 Agent(靠知識庫 / 弱模型)用錯誤理由或知識庫延伸項目逼測試繼續。
         // 這是客戶「我只叫它進畫面就結束」卻被硬測到玩 slot、最後誤判 FAIL 的根因修正。
-        const reachedAllItems = team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
+        const reachedAllItems = scriptTracker
+          ? scriptAllDone
+          : team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
         const authoritativeDone = scripted && reachedAllItems;
         // 輔助 Agent 核對「完成」宣告:證據不足就退回繼續。
         // scripted(測項為主)時最多核對 1 次就放行,避免弱模型反覆否決;一般探索維持 3 次。
@@ -1895,7 +1965,10 @@ async function main() {
           if (vd) step.doneCheck = vd;
           finalState = 'pass';
           finalMsg = cmd.thinking || (authoritativeDone ? '所有測項完成,任務結束' : '流程完成');
-          if (authoritativeDone) console.log(`[測項為主] 已走完所有測項(${team.scriptStep}/${team.scriptTotal})且宣告完成 → 直接通過,不經輔助 Agent 推翻。`);
+          if (authoritativeDone) {
+            const n = scriptTracker ? `${scriptTracker.done}/${scriptTracker.total}` : `${team?.scriptStep}/${team?.scriptTotal}`;
+            console.log(`[測項為主] 已走完所有測項(${n})且宣告完成 → 直接通過,不經輔助 Agent 推翻。`);
+          }
           break;
         }
       }

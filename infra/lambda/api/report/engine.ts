@@ -345,6 +345,18 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
   if (state === 'budget_exceeded') return { blocked: true, reason: L('達預算上限,測試未完成', 'Budget limit reached; test incomplete') };
   if (/執行時間上限/.test(msg)) return { blocked: true, reason: L('達執行時間上限(Device Farm 單次連線最長 150 分鐘),已提前收尾,測試未完成', 'Run-time limit reached (Device Farm sessions last at most 150 minutes); wrapped up early, test incomplete') };
   if (/達步數上限/.test(msg)) return { blocked: true, reason: L('達步數上限仍未完成目標,無法判定遊戲是否有問題', 'Step limit reached before goal; inconclusive') };
+  // 測項時間盒(runner 測項為主):某一項在上限次數內做不到 → Blocked,指出卡在哪一項,交給人判斷。
+  if (/測項卡住\(Blocked\)/.test(msg)) {
+    const item = /第 (\d+)\/(\d+) 項「([^」]*)」/.exec(msg);
+    const where = item ? `第 ${item[1]}/${item[2]} 項「${item[3]}」` : '某個測項';
+    const whereEn = item ? `item ${item[1]}/${item[2]} "${item[3]}"` : 'a test item';
+    return {
+      blocked: true,
+      classification: 'NEEDS_TRIAGE',
+      reason: L(`${where}在操作上限內沒有完成,測試已停止(Blocked),需人工判讀是遊戲問題還是 AI 找不到做法`, `${whereEn} was not completed within its step budget; stopped as Blocked — needs triage (game issue or AI could not find a way)`),
+      finding: { ...base, title: L(`測項卡住:${where}`, `Blocked: ${whereEn}`), description: L(msg, msg), severity: 'medium', category: 'functional', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
+    };
+  }
   if (/VLM 連續 \d+ 次回應無法解析/.test(msg) || last?.modelError) {
     return {
       blocked: true,

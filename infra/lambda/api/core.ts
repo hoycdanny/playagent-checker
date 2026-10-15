@@ -168,6 +168,7 @@ import { genreBuiltinKbId, explorationGoalForGenre, isBuiltinKbId } from './buil
 import { buildStructuredReport, type EngineJob, type EngineKb } from './report/engine.js';
 import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } from './kbRefs.js';
 import { defaultControlsFor, describeControlCatalog, parseCaseControls, parseCaseKeys, reconcileControlsWithText, sanitizeControls } from './controlSchemes.js';
+import { isScriptedCase } from './scriptedCase.js';
 import { ASK_MODELS, AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
 import { describeProfile } from './report/profiles.js';
 import type { ReportInsights, StructuredReport } from './report/types.js';
@@ -2393,9 +2394,10 @@ async function handleSubmitTask(
   const pkg = appRecord?.identifier;
   // 任務目標取自「本次使用的版本」內容(不是 head,避免提交瞬間被改)。
   const caseYamlText = caseRecord.yaml;
-  // 「以測項為主」:案例含結構化測項時標記 scripted,交給引擎 → runner 作為權威停止條件。
-  const scripted = caseHasItems(caseYamlText);
   let caseTask: string | undefined = extractCaseTask(caseYamlText);
+  // 「以測項為主」:結構化測項(items:)、分步驟的 task 或有驗收條件(assertions:)→ 標記 scripted,
+  // 交給引擎 → runner 逐項判定、全部達成就結束,知識庫只用來看懂畫面(見 scriptedCase.ts)。
+  const scripted = isScriptedCase(caseYamlText, caseTask);
   // exploration 任務且案例未指定 task 時,依 App 類型組出「自主探索目標」,
   // 讓探索有語意(走遍該類型關鍵畫面)而非泛用亂逛。
   if (!caseTask && input.category === 'exploration') {

@@ -281,6 +281,8 @@ const SUMMARY_SYSTEM = `你是遊戲自動化測試的「輔助 Agent」。把�
 export function createAgentTeam({
   bedrock, ConverseCommand, agentModel, subagentModel, task, controlsPrompt = '', knowledge = '',
   scripted = false, put, prefix, log = () => {}, timeoutMs = CALL_TIMEOUT_MS,
+  // true = 腳本進度由 runner 依「看得到畫面的視覺 Agent」回報設定(setScriptStep),決策 Agent 只讀不改。
+  externalProgress = false,
 }) {
   const steps = scriptSteps(task);
   const tokens = { agent: { input: 0, output: 0 }, subagent: { input: 0, output: 0 } };
@@ -379,6 +381,11 @@ export function createAgentTeam({
     get scriptTotal() { return steps.length; },
     /** 腳本步驟原文(runner 寫進 status.json,前端即時打勾用同一份編號)。 */
     get scriptItems() { return steps.slice(); },
+    /** runner 依視覺 Agent 的回報設定目前在第幾項(externalProgress 時唯一的進度來源)。 */
+    setScriptStep(n) {
+      const v = Math.round(Number(n));
+      if (Number.isFinite(v) && v >= 1) scriptStep = Math.min(v, Math.max(1, steps.length));
+    },
     tokens,
     /** 依實際模型的 token(含快取)→ report.tokensByModel。 */
     tokensByModel: () => ledger.byModel(),
@@ -407,7 +414,8 @@ export function createAgentTeam({
       const user = [
         scripted ? '【最高原則|測項為主】只做下面測試腳本列出的測項,逐項對照預期結果判定通過或失敗。知識庫只是幫你看懂畫面,嚴禁主動延伸去測知識庫提到、但腳本沒列的玩法或功能(例如多轉幾局、刷任務、逛其他頁面)。所有測項都判定完成後,立刻用 done 結束,不要多做。' : '',
         `【測試腳本】\n${scriptText()}`,
-        `【目前進度】腳本第 ${scriptStep} / ${Math.max(1, steps.length)} 步`,
+        `【目前進度】腳本第 ${scriptStep} / ${Math.max(1, steps.length)} 步` +
+          (externalProgress ? '(由看得到畫面的視覺 Agent 判定;scriptStep 照填這個數字,只做這一項需要的操作)' : ''),
         plan ? `【上一步】動作:${plan.actionText || '—'};目標:${plan.goal}(預期:${plan.expect || '—'})` : '',
         `【像素比對】這張截圖跟上一步${screenChanged === false ? '幾乎沒有變化' : screenChanged === true ? '有可見變化' : '無法比對'}`,
         lastReview ? `【輔助 Agent 判斷(較早一步)】效果:${lastReview.effect}${lastReview.note ? `(${lastReview.note})` : ''}${lastReview.issues?.length ? `;疑點:${lastReview.issues.join(';')}` : ''}` : '',
@@ -428,7 +436,8 @@ export function createAgentTeam({
       let cmd = decisionToCommand(r, elements, dims);
       if (cmd && allowedActions?.length && !allowedActions.includes(cmd.action)) cmd = null;
       const n = Number(r.scriptStep);
-      if (Number.isFinite(n) && n >= 1) scriptStep = Math.min(Math.round(n), Math.max(1, steps.length));
+      // 決策 Agent 看不到畫面:測項為主時進度以視覺 Agent 為準(job-mv95w48j:它在 1 和 4 之間亂跳、從沒判定第 4 項完成)。
+      if (!externalProgress && Number.isFinite(n) && n >= 1) scriptStep = Math.min(Math.round(n), Math.max(1, steps.length));
       const goal = str(r.goal, 160) || (cmd?.target ? `${cmd.action} ${cmd.target}` : '');
       plan = {
         forStep: index,
