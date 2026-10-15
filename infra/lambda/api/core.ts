@@ -2201,12 +2201,21 @@ async function handleSubmitTask(
   ] as const) {
     if (!modelId) continue;
     const entry = CATALOG.find((e) => e.modelId === modelId);
-    if (!entry) return json(400, { error: `${seat} 模型不在目錄中:${modelId}` });
-    if (!entry.seats.includes(seat)) {
-      return json(400, { error: `${entry.displayName} 不能坐 ${seat} 座位` });
+    if (entry) {
+      if (!entry.seats.includes(seat)) {
+        return json(400, { error: `${entry.displayName} 不能坐 ${seat} 座位` });
+      }
+      if (entry.unavailable) {
+        return json(400, { error: `${entry.displayName} 目前無法使用:${entry.unavailable}` });
+      }
+      continue;
     }
-    if (entry.unavailable) {
-      return json(400, { error: `${entry.displayName} 目前無法使用:${entry.unavailable}` });
+    // 不在靜態目錄:可能是「模型管理」從 Bedrock 掃描啟用的新模型(如 Nova 2 Lite、GPT、Grok)。
+    // 以掃描結果確認帳號真的叫得到,並檢查能力(vlm 要能看圖,agent/subagent 要能輸出文字)。
+    const scanned = deps.modelAdmin ? (await deps.modelAdmin.scan()).find((m) => m.modelId === modelId) : undefined;
+    if (!scanned) return json(400, { error: `${seat} 模型不在目錄中:${modelId}` });
+    if (seat === 'vlm' ? !scanned.image : !scanned.text) {
+      return json(400, { error: `${scanned.displayName} 不能坐 ${seat} 座位` });
     }
   }
 
