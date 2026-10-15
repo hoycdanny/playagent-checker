@@ -168,7 +168,7 @@ import { genreBuiltinKbId, explorationGoalForGenre, isBuiltinKbId } from './buil
 import { buildStructuredReport, type EngineJob, type EngineKb } from './report/engine.js';
 import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } from './kbRefs.js';
 import { defaultControlsForGenre, describeControlCatalog, parseCaseControls, reconcileControlsWithText } from './controlSchemes.js';
-import { AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
+import { ASK_MODELS, AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
 import { describeProfile } from './report/profiles.js';
 import type { ReportInsights, StructuredReport } from './report/types.js';
 import {
@@ -363,12 +363,24 @@ function entryToListItem(e: ModelAdminEntry, seat?: ModelSeat): ModelListItem {
 async function effectiveSeatModels(deps: ApiDeps, seat: ModelSeat): Promise<ModelListItem[]> {
   const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
   if (cfg && cfg.entries.length) {
-    return cfg.entries
+    const picked = cfg.entries
       .filter((e) => e.seats.includes(seat) && isPriceable(e.modelId))
       .map((e) => entryToListItem(e, seat));
+    // AI 問答是後來加的座位:舊設定裡沒人勾過時,先沿用預設模型,不讓問答整個不能用。
+    if (picked.length || seat !== 'ask') return picked;
   }
+  return staticSeatModels(seat);
+}
+
+/** 沒有模型管理設定時的預設清單(靜態目錄)。draft 用 agent 的清單;ask 用問答預設模型。 */
+function staticSeatModels(seat: ModelSeat): ModelListItem[] {
+  if (seat === 'ask') return CATALOG.filter((m) => ASK_MODELS.includes(m.modelId)).map(catalogToListItem);
   const base: Seat = seat === 'draft' ? 'agent' : seat;
-  return modelsForSeat(base).map((m) => ({
+  return modelsForSeat(base).map(catalogToListItem);
+}
+
+function catalogToListItem(m: (typeof CATALOG)[number]): ModelListItem {
+  return {
     modelId: m.modelId,
     displayName: m.displayName,
     channel: m.channel,
@@ -376,7 +388,7 @@ async function effectiveSeatModels(deps: ApiDeps, seat: ModelSeat): Promise<Mode
     coordSystem: m.coordSystem,
     seats: m.seats,
     ...(m.unavailable ? { unavailable: m.unavailable } : {}),
-  }));
+  };
 }
 
 /** UI-TARS 合成一筆(非 Bedrock,掃描不會回),讓管理頁能一併開關;座標像素、僅 vlm。 */
@@ -770,24 +782,14 @@ export async function handleRequest(
         const seat = (MODEL_SEATS as string[]).includes(seatRaw ?? '') ? (seatRaw as ModelSeat) : undefined;
         // 下拉一律依模型管理頁的勾選(管理員與一般成員都一樣),讓「勾什麼就出現什麼」;
         // 有標推薦(金勾勾)的帶 recommended:true,前端置頂並加 ★。沒設定則退回靜態目錄。
-        const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
         let all: ModelListItem[];
-        if (cfg && cfg.entries.length) {
-          all = cfg.entries
-            .filter((e) => !seat || e.seats.includes(seat))
-            .filter((e) => isPriceable(e.modelId)) // 只呈現查得到單價的(Fail Closed)
-            .map((e) => entryToListItem(e, seat));
+        if (seat) {
+          all = await effectiveSeatModels(deps, seat);
         } else {
-          const base: Seat | undefined = seat === 'draft' ? 'agent' : seat;
-          all = (base ? modelsForSeat(base) : CATALOG).map((m) => ({
-            modelId: m.modelId,
-            displayName: m.displayName,
-            channel: m.channel,
-            regions: m.regions,
-            coordSystem: m.coordSystem,
-            seats: m.seats,
-            ...(m.unavailable ? { unavailable: m.unavailable } : {}),
-          }));
+          const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
+          all = cfg && cfg.entries.length
+            ? cfg.entries.filter((e) => isPriceable(e.modelId)).map((e) => entryToListItem(e))
+            : CATALOG.map(catalogToListItem);
         }
         // UI-TARS 只有在系統管理頁開啟(endpoint InService)時才列出;關閉時選了也不能用。
         const hasUitars = all.some((m) => m.modelId === 'uitars');
@@ -1708,10 +1710,28 @@ export async function handleRequest(
             await clearAskHistory(s3, deps.bucket, tenant.tenantId, jobId);
             return json(200, { items: [] });
           }
-          const body = (req.body ?? {}) as { question?: unknown; lang?: unknown };
+          const body = (req.body ?? {}) as { question?: unknown; lang?: unknown; modelId?: unknown };
           const question = cleanQuestion(body.question);
+          // 指定問答模型:管理員可用任何查得到單價、能輸出文字的模型;一般成員限管理員在「AI 問答」開放的清單。
+          const askModel = typeof body.modelId === 'string' && body.modelId.trim() ? body.modelId.trim() : undefined;
+          if (askModel) {
+            if (!isPriceable(askModel)) return json(400, { error: `問答模型查無單價(Fail Closed): ${askModel}` });
+            if (isAdmin(req.claims)) {
+              const inCatalog = CATALOG.some((m) => m.modelId === askModel && m.seats.includes('agent'));
+              const scanned = !inCatalog && deps.modelAdmin ? (await deps.modelAdmin.scan()).find((m) => m.modelId === askModel) : undefined;
+              if (!inCatalog && !scanned?.text) return json(400, { error: `問答模型不在可選清單: ${askModel}` });
+            } else {
+              const allowed = await effectiveSeatModels(deps, 'ask');
+              if (!allowed.some((m) => m.modelId === askModel)) {
+                return json(400, { error: `問答模型未開放給一般成員,請洽管理員: ${askModel}` });
+              }
+            }
+          }
           try {
-            return json(200, await askTask(s3, deps.bucket, tenant.tenantId, jobId, question, body.lang === 'en' ? 'en' : 'zh', deps.askBedrock ? { bedrock: deps.askBedrock } : {}));
+            return json(200, await askTask(s3, deps.bucket, tenant.tenantId, jobId, question, body.lang === 'en' ? 'en' : 'zh', {
+              ...(deps.askBedrock ? { bedrock: deps.askBedrock } : {}),
+              ...(askModel ? { modelId: askModel } : {}),
+            }));
           } catch (err) {
             if (err instanceof AskValidationError) throw err;
             console.warn('[ask] failed', err);

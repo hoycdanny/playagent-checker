@@ -1,7 +1,8 @@
 /**
  * 測試中的「測試人員即時指令」:前端聊天室送出 → 寫 jobs/<id>/commands/<cmdId>.json,
- * runner 下一步輪詢取用並注入 AI(最高優先),回寫 jobs/<id>/commands-ack/<cmdId>.json:
- *   received(已送進 AI,第 N 步)→ applied(AI 當步的回應與動作)。
+ * runner 輪詢取用,回寫 jobs/<id>/commands-ack/<cmdId>.json:
+ *   - 點擊/拖曳:runner 直接在裝置上執行(不經 AI),applied + direct + 裝置座標,並把座標告知控制遊戲 Agent。
+ *   - 文字:注入控制遊戲 Agent(最高優先),received(第 N 步)→ applied(Agent 當步的回應與動作)。
  * runner 角色不能刪檔,所以狀態以 ack 檔表示,指令檔本身不修改。
  */
 import { randomBytes } from 'node:crypto';
@@ -38,6 +39,10 @@ export interface CommandAck {
   action?: string;
   screen?: string;
   at?: string;
+  /** 測試人員的點擊/拖曳已由 runner 直接在裝置上執行(不經 AI)。 */
+  direct?: boolean;
+  /** 直接執行時實際送到裝置的像素座標。 */
+  device?: { x: number; y: number; x2?: number; y2?: number };
 }
 
 export type CommandView = OperatorCommand & { ack?: CommandAck };

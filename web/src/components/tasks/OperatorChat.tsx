@@ -22,32 +22,36 @@ interface CommandView {
   /** 拖曳終點(有就代表「從 point 拖到 to」)。 */
   to?: { x: number; y: number };
   dragMs?: number;
-  ack?: { status: 'received' | 'applied'; step?: number; reply?: string; action?: string; screen?: string; at?: string };
+  ack?: { status: 'received' | 'applied'; step?: number; reply?: string; action?: string; screen?: string; at?: string; direct?: boolean; device?: { x: number; y: number; x2?: number; y2?: number } };
 }
 
 const T = {
-  title: ['對 AI 下指令', 'Guide the AI'],
-  hint: ['看到 AI 卡住或撞牆時,直接告訴它該怎麼做,例如「點右下方的 SPIN 按鈕開始轉」。AI 會在下一步照做。', 'When the AI is stuck, tell it what to do, e.g. “tap the SPIN button at the bottom right”. It follows on the next step.'],
+  title: ['與控制遊戲 Agent 互動', 'Interact with the game-control Agent'],
+  hint: ['在即時畫面上點一下 / 拖一下 = 直接在裝置上操作(不經 AI,馬上執行),並把座標告訴控制遊戲 Agent。打字 = 告訴 Agent 該怎麼做(例如「點右下方的 SPIN 按鈕開始轉」),它下一步照做。', 'Click or drag on the live screen = operate the device directly (no AI, runs right away); the coordinates are passed to the game-control Agent. Type = tell the Agent what to do (e.g. “tap the SPIN button at the bottom right”); it follows on its next step.'],
   placeholder: ['輸入指令… (Enter 送出,Shift+Enter 換行)', 'Type an instruction… (Enter to send, Shift+Enter for a new line)'],
   send: ['送出', 'Send'],
   sending: ['送出中…', 'Sending…'],
   remember: ['記住到這個應用的記憶(下次測試 AI 一開始就知道)', 'Remember for this app (the AI will know it on future runs)'],
   remembered: ['已記住', 'Remembered'],
-  pending: ['等待 AI 下一步讀取…', 'Waiting for the AI’s next step…'],
-  received: ['AI 已收到(第 {n} 步)', 'Received by the AI (step {n})'],
-  applied: ['AI 第 {n} 步回應', 'AI response at step {n}'],
+  pending: ['等待控制遊戲 Agent 讀取…', 'Waiting for the Agent’s next step…'],
+  pendingGesture: ['等待執行…', 'Running…'],
+  received: ['Agent 已收到(第 {n} 步)', 'Received by the Agent (step {n})'],
+  applied: ['Agent 第 {n} 步回應', 'Agent response at step {n}'],
+  direct: ['已直接在裝置上執行', 'Executed directly on the device'],
+  deviceAt: ['裝置座標 {p}', 'device {p}'],
   ended: ['測試已結束,無法再下指令。', 'The run has ended; no more instructions.'],
   empty: ['還沒有指令。', 'No instructions yet.'],
   you: ['你', 'You'],
-  ai: ['AI', 'AI'],
+  ai: ['Agent', 'Agent'],
+  engine: ['裝置', 'Device'],
   error: ['送出失敗:', 'Failed to send: '],
   onScreen: ['畫面', 'screen'],
   memoryLink: ['管理應用記憶', 'Manage app memory'],
   examples: ['範例', 'Examples'],
-  pointChip: ['已選畫面位置 {p} · 送出後 AI 會直接點這裡', 'Screen position {p} selected · the AI taps it when you send'],
+  pointChip: ['已選畫面位置 {p} · 送出後直接在裝置上點這裡', 'Screen position {p} selected · tapped on the device right away when you send'],
   pointPlaceholder: ['說明這個位置(可留空),例如「這是 SPIN,以後都點這」', 'Describe this spot (optional), e.g. “this is SPIN”'],
   pointOnly: ['點這個位置', 'Tap this spot'],
-  dragChip: ['已選拖曳路徑 {p} · 送出後 AI 會照這樣拖', 'Drag path {p} selected · the AI drags it when you send'],
+  dragChip: ['已選拖曳路徑 {p} · 送出後直接在裝置上照這樣拖', 'Drag path {p} selected · dragged on the device right away when you send'],
   dragPlaceholder: ['說明這個拖曳(可留空),例如「把寶石拖到右邊的格子」', 'Describe this drag (optional), e.g. “drag the gem to the right slot”'],
   dragOnly: ['照這條路徑拖曳', 'Drag along this path'],
   clearPoint: ['取消選取的位置', 'Clear the selected position'],
@@ -168,17 +172,21 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
             </div>
             <div className={`opchat__msg opchat__msg--ai ${c.ack?.status === 'applied' ? 'is-done' : 'is-wait'}`}>
               <div className="opchat__meta">
-                <span>{tx('ai', lang)}</span>
+                <span>{c.ack?.direct ? tx('engine', lang) : tx('ai', lang)}</span>
                 {c.ack?.at && <span>{time(c.ack.at)}</span>}
                 {c.ack?.action && <span className="opchat__tag opchat__tag--action">{c.ack.action}</span>}
               </div>
               {!c.ack ? (
-                <p className="opchat__status"><span className="opchat__dots" aria-hidden="true" />{tx('pending', lang)}</p>
+                <p className="opchat__status"><span className="opchat__dots" aria-hidden="true" />{tx(c.point ? 'pendingGesture' : 'pending', lang)}</p>
               ) : c.ack.status === 'received' ? (
                 <p className="opchat__status"><span className="opchat__dots" aria-hidden="true" />{tx('received', lang).replace('{n}', String(c.ack.step ?? '?'))}</p>
               ) : (
                 <>
-                  <p className="opchat__status">{tx('applied', lang).replace('{n}', String(c.ack.step ?? '?'))}{c.ack.screen ? ` · ${c.ack.screen}` : ''}</p>
+                  <p className="opchat__status">
+                    {c.ack.direct
+                      ? `${tx('direct', lang)}${c.ack.device ? ` · ${tx('deviceAt', lang).replace('{p}', c.ack.device.x2 !== undefined ? `(${c.ack.device.x}, ${c.ack.device.y}) → (${c.ack.device.x2}, ${c.ack.device.y2})` : `(${c.ack.device.x}, ${c.ack.device.y})`)}` : ''}`
+                      : `${tx('applied', lang).replace('{n}', String(c.ack.step ?? '?'))}${c.ack.screen ? ` · ${c.ack.screen}` : ''}`}
+                  </p>
                   {c.ack.reply && <p className="opchat__reply">{c.ack.reply}</p>}
                 </>
               )}

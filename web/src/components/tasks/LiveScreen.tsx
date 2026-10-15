@@ -14,12 +14,12 @@ const T = {
   pickHint: ['點一下 = 指定點擊位置;按住拖曳 = 指定拖曳路徑', 'Click to set a tap · press and drag to set a drag path'],
   pickTitle: ['指定點擊位置', 'Tap position'],
   dragTitle: ['指定拖曳路徑', 'Drag path'],
-  tapHere: ['讓 AI 點這裡', 'Tap here'],
-  dragHere: ['讓 AI 照這樣拖', 'Drag like this'],
+  tapHere: ['直接點這裡', 'Tap here now'],
+  dragHere: ['直接照這樣拖', 'Drag like this now'],
   sending: ['送出中…', 'Sending…'],
   cancel: ['取消', 'Cancel'],
-  pointSent: ['已送出,AI 下一步會點這裡', 'Sent — the AI taps it next step'],
-  dragSent: ['已送出,AI 下一步會照這條路徑拖曳', 'Sent — the AI drags this path next step'],
+  pointSent: ['已送出,馬上在裝置上點擊', 'Sent — tapping on the device now'],
+  dragSent: ['已送出,馬上在裝置上拖曳', 'Sent — dragging on the device now'],
   dragTime: ['拖曳 {s} 秒', '{s}s drag'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
@@ -88,7 +88,7 @@ export function LiveScreen({
   /** 目前選取的畫面位置(由外層保管,聊天室可附加說明一起送)。 */
   point?: PickPoint | null;
   onPoint?: (p: PickPoint | null) => void;
-  /** 「讓 AI 點這裡」:只送位置。 */
+  /** 「直接點這裡」:只送位置,runner 直接在裝置上執行(不經 AI)。 */
   onSendPoint?: (p: PickPoint) => Promise<void>;
 }) {
   const [ps, setPs] = useState<LivePlayerState>({ playing: false });

@@ -8,9 +8,9 @@
 import { GetObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import type { Channel, CoordSystem } from './modelCatalog.js';
 
-/** 四個下拉(座位):agent=控制遊戲、vlm=分析畫面、subagent=子代理、draft=產生測試腳本。 */
-export type ModelSeat = 'agent' | 'vlm' | 'subagent' | 'draft';
-export const MODEL_SEATS: ModelSeat[] = ['agent', 'vlm', 'subagent', 'draft'];
+/** 五個下拉(座位):agent=控制遊戲、vlm=分析畫面、subagent=子代理、draft=測試腳本、ask=任務詳情的 AI 問答。 */
+export type ModelSeat = 'agent' | 'vlm' | 'subagent' | 'draft' | 'ask';
+export const MODEL_SEATS: ModelSeat[] = ['agent', 'vlm', 'subagent', 'draft', 'ask'];
 
 export interface ModelAdminEntry {
   modelId: string;
@@ -70,7 +70,7 @@ export function validSeatsFor(image: boolean, text: boolean, seats: unknown): Mo
   const set = new Set<ModelSeat>();
   for (const s of seats) {
     if (s === 'vlm' && image) set.add('vlm');
-    else if ((s === 'agent' || s === 'subagent' || s === 'draft') && text) set.add(s);
+    else if ((s === 'agent' || s === 'subagent' || s === 'draft' || s === 'ask') && text) set.add(s);
   }
   return [...set];
 }

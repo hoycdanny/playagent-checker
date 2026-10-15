@@ -48,6 +48,18 @@ export const DRAG_PRESS_MS: number;
 export function validPoint(p: unknown): { x: number; y: number } | null;
 export function validDragMs(v: unknown): number;
 /** 手勢 → 截圖空間動作:有 to → swipe(拖曳);只有 point → tap;沒有手勢 → null。 */
+/** 測試人員直接操作裝置後,下一回合告訴控制遊戲 Agent 的說明(Agent 座標 + 裝置像素)。 */
+export function operatorDirectNote(
+  op: {
+    kind: 'tap' | 'drag' | string;
+    shot: { x: number; y: number; x2?: number; y2?: number };
+    device: { x: number; y: number; x2?: number; y2?: number };
+    space?: { shot: number[]; device?: number[] };
+    said?: string;
+  },
+  normCoord: boolean,
+): string;
+
 export function operatorGestureCmd(
   c: { point?: { x: number; y: number }; to?: { x: number; y: number }; dragMs?: number } | null | undefined,
   cw: number,

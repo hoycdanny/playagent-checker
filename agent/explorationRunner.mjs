@@ -30,7 +30,7 @@ import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
-import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
+import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, operatorDirectNote, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
 import { foldSystemIntoFirstUser, isRoleAlternationError } from './converseShape.mjs';
 import { accumulate, addUsage, createUsageLedger, mergeByModel, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
 import {
@@ -1026,23 +1026,72 @@ async function main() {
     return null;
   }
 
-  // 可被即時點擊打斷的等待:等待期間每 ~0.4 秒輪詢一次操作員指令;一偵測到點擊就提早結束,
-  // 讓下一步馬上執行你的手勢(新指令先暫存進 pendingCmds,不會遺失)。純 S3 輪詢,不碰裝置。
+  // 【與控制遊戲 Agent 互動】測試人員在即時畫面上的點擊/拖曳 = 直接操作裝置(不經 AI,不等下一步截圖)。
+  // 用最近一步的座標空間換算成裝置像素立刻執行,再把「你的座標 + 裝置像素」告訴 Agent(下一回合注入)。
+  let lastSpace = null; // { cw, ch, origW, origH }:最近一步的截圖(給模型)與裝置座標空間
+  let directOps = []; // 步驟之間直接執行的手勢(附到下一步的 step 紀錄,執行軌跡看得到)
+  let curStep = 0;
+  const runOperatorGesture = async (c) => {
+    if (!lastSpace) return false;
+    const { cw: scw, ch: sch, origW: sW, origH: sH } = lastSpace;
+    const g = operatorGestureCmd(c, scw, sch);
+    if (!g) return false;
+    const dev = (v, span, max) => Math.max(0, Math.min(max, Math.round((v / span) * max)));
+    const device = {
+      x: dev(g.x, scw, sW), y: dev(g.y, sch, sH),
+      ...(g.operatorDrag ? { x2: dev(g.x2, scw, sW), y2: dev(g.y2, sch, sH) } : {}),
+    };
+    try {
+      await client.act({ ...g, ...device });
+    } catch (e) {
+      console.warn('[operator] 直接執行失敗,改由下一步執行', e?.message || e);
+      return false;
+    }
+    const said = c.text && c.text !== POINT_ONLY_TEXT && c.text !== DRAG_ONLY_TEXT ? c.text : '';
+    const op = {
+      id: c.id, kind: g.operatorDrag ? 'drag' : 'tap',
+      shot: { x: g.x, y: g.y, ...(g.operatorDrag ? { x2: g.x2, y2: g.y2 } : {}) },
+      device, space: { shot: [scw, sch], device: [sW, sH] },
+      ...(said ? { said } : {}), at: new Date().toISOString(),
+    };
+    directOps.push(op);
+    controlNote += operatorDirectNote(op, normCoord);
+    await operator.ack(c, {
+      status: 'applied', step: curStep, action: g.operatorDrag ? 'swipe' : 'tap', direct: true, device,
+      reply: g.operatorDrag
+        ? `已直接在裝置上拖曳:(${device.x}, ${device.y}) → (${device.x2}, ${device.y2}),並把座標告知控制遊戲 Agent。`
+        : `已直接在裝置上點擊 (${device.x}, ${device.y}),並把座標告知控制遊戲 Agent。`,
+    }).catch(() => {});
+    console.log(`[operator] 直接執行 ${op.kind} 裝置 (${device.x},${device.y})${g.operatorDrag ? ` → (${device.x2},${device.y2})` : ''}`);
+    return true;
+  };
+
+  // 可被即時操作打斷的等待:每 ~0.4 秒輪詢測試人員指令。點擊/拖曳當下直接在裝置上執行,
+  // 執行後再多等 1.5 秒讓畫面反應(期間連續點也都馬上執行);文字指令暫存,下一步交給 Agent。
   const sleepOrOperator = async (ms) => {
     const chunk = 400;
-    for (let w = 0; w < ms; w += chunk) {
-      await sleep(Math.min(chunk, ms - w));
+    let deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+      await sleep(Math.min(chunk, Math.max(0, deadline - Date.now())));
       let fresh = [];
       try { fresh = await operator.poll(); } catch { fresh = []; }
-      if (fresh.length) {
-        for (const c of fresh) await operator.ack(c, { status: 'received' }).catch(() => {});
-        pendingCmds.push(...fresh);
-        if (fresh.some((c) => c.point)) return;
+      if (!fresh.length) continue;
+      let deferred = false;
+      for (const c of fresh) {
+        if (c.point && await runOperatorGesture(c)) {
+          deadline = Math.max(deadline, Date.now() + 1500);
+          continue;
+        }
+        await operator.ack(c, { status: 'received' }).catch(() => {});
+        pendingCmds.push(c);
+        if (c.point) deferred = true; // 沒辦法直接執行(例:還沒有第一張截圖)→ 下一步照舊執行
       }
+      if (deferred) return;
     }
   };
 
   for (let i = 0; i < MAX_STEPS; i++) {
+    curStep = i;
     // 取消旗標檢查。
     if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
 
@@ -1134,6 +1183,7 @@ async function main() {
     const visionFmt = ds.format; // 'jpeg' | 'png'
     // 點擊仍換算到裝置截圖空間(origW×origH == Appium 點擊空間);setCoordinateSpace 傳原圖尺寸。
     const space = await client.setCoordinateSpace(origW, origH).catch(() => null);
+    lastSpace = { cw, ch, origW, origH };
     if (i === 0 && space) console.log('座標空間 裝置=', space.shot, 'window=', space.win, 'smart-resize(給模型)=', `${cw}x${ch}`, ds.format, `${Math.round(ds.bytes / 1024)}KB`);
     // 方向偵測(僅用於提示模型重新評估版面;不影響座標換算)。
     const isLandscape = origW > origH;
@@ -1626,7 +1676,10 @@ async function main() {
       ...(trace && trace.ok === false ? { modelError: true } : {}),
       ...(foregroundLost ? { foregroundLost: true, ...(appState !== undefined ? { appState } : {}) } : {}),
       ...(perf ? { perf } : {}),
-      ...(newCmds.length && !cmd.parseFailed ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}) };
+      ...(newCmds.length && !cmd.parseFailed ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}),
+      // 上一步之後、這張截圖之前,測試人員直接在裝置上做的點擊/拖曳(不經 AI)。
+      ...(directOps.length ? { operatorDirect: directOps } : {}) };
+    directOps = [];
     // 決策 Agent 給這一步的目標(執行軌跡顯示「🎯 目標」;報告與除錯用)。
     const usedPlan = stepPlans.get(i);
     if (cmd.decidedBy) step.decidedBy = cmd.decidedBy;
@@ -1656,8 +1709,29 @@ async function main() {
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     // 指令回執:AI 這一步怎麼回應(聊天室顯示)。回應無法解析 → 不算已處理,留到下一步再送。
     if (cmd.parseFailed && newCmds.length) pendingCmds = newCmds;
+    // 這一步本身就是測試人員的手勢(不經 AI):回執標成「直接執行」並附裝置座標,
+    // 下一回合告訴 Agent 人點在哪(它自己的座標 + 裝置像素)。
+    const stepDirect = cmd.operatorTap && cmd.x != null
+      ? {
+        kind: cmd.operatorDrag ? 'drag' : 'tap',
+        shot: { x: cmd.x, y: cmd.y, ...(cmd.operatorDrag ? { x2: cmd.x2, y2: cmd.y2 } : {}) },
+        device: { x: toDeviceX(cmd.x), y: toDeviceY(cmd.y), ...(cmd.operatorDrag ? { x2: toDeviceX(cmd.x2), y2: toDeviceY(cmd.y2) } : {}) },
+        space: { shot: [cw, ch], device: [origW, origH] },
+        ...(pointCmd && pointCmd.text !== POINT_ONLY_TEXT && pointCmd.text !== DRAG_ONLY_TEXT ? { said: pointCmd.text } : {}),
+      }
+      : null;
+    if (stepDirect) controlNote += operatorDirectNote(stepDirect, normCoord);
     for (const c of cmd.parseFailed ? [] : newCmds) {
-      await operator.ack(c, { status: 'applied', step: i, action: cmd.action, screen: screenName, reply: String(cmd.thinking || '').slice(0, 400) });
+      const isGesture = stepDirect && pointCmd && c.id === pointCmd.id;
+      await operator.ack(c, {
+        status: 'applied', step: i, action: cmd.action, screen: screenName,
+        ...(isGesture ? { direct: true, device: stepDirect.device } : {}),
+        reply: isGesture
+          ? (stepDirect.kind === 'drag'
+            ? `已直接在裝置上拖曳:(${stepDirect.device.x}, ${stepDirect.device.y}) → (${stepDirect.device.x2}, ${stepDirect.device.y2}),並把座標告知控制遊戲 Agent。`
+            : `已直接在裝置上點擊 (${stepDirect.device.x}, ${stepDirect.device.y}),並把座標告知控制遊戲 Agent。`)
+          : String(cmd.thinking || '').slice(0, 400),
+      });
     }
 
     // 增量記憶地圖:建/更新當前畫面節點 + 從上一畫面的轉移邊,即時寫回供前端重繪。

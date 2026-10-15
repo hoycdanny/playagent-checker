@@ -95,6 +95,45 @@ describe('task AI Q&A', () => {
     expect((await readAskHistory(s3, 'b', 't1', 'job-abc')).length).toBe(4);
   });
 
+  test('chosen non-Claude model uses Converse; temperature rejection is retried without it', async () => {
+    const { s3 } = fakeS3({
+      [`${P}job.json`]: JSON.stringify({ jobId: 'job-abc', backend: 'devicefarm', caseTask: 'x' }),
+      [`${P}status.json`]: JSON.stringify({ state: 'running' }),
+    });
+    const calls: Array<{ name: string; input: Record<string, any> }> = [];
+    const bedrock = {
+      send: async (cmd: { constructor: { name: string }; input: Record<string, any> }) => {
+        calls.push({ name: cmd.constructor.name, input: cmd.input });
+        if (cmd.input['inferenceConfig']?.temperature !== undefined) {
+          throw Object.assign(new Error("This model doesn't support the temperature field."), { name: 'ValidationException' });
+        }
+        return { output: { message: { content: [{ text: '**重點** #3 卡住' }] } }, stopReason: 'end_turn' };
+      },
+    };
+    const r = await askTask(s3, 'b', 't1', 'job-abc', '為什麼卡住?', 'zh', { bedrock: bedrock as never, modelId: 'us.openai.gpt-5.6-luna' });
+    expect(calls.map((c) => c.name)).toEqual(['ConverseCommand', 'ConverseCommand']);
+    expect(calls[0]!.input['modelId']).toBe('us.openai.gpt-5.6-luna');
+    expect(calls[0]!.input['messages'].at(-1).content[0].text).toContain('為什麼卡住?');
+    expect(r.answer.text).toBe('重點 #3 卡住');
+    expect(r.answer.model).toBe('us.openai.gpt-5.6-luna');
+  });
+
+  test('an explicitly chosen model that fails is reported, not silently replaced', async () => {
+    const { s3 } = fakeS3({
+      [`${P}job.json`]: JSON.stringify({ jobId: 'job-abc', backend: 'devicefarm', caseTask: 'x' }),
+      [`${P}status.json`]: JSON.stringify({ state: 'running' }),
+    });
+    const seen: string[] = [];
+    const bedrock = {
+      send: async (cmd: { input: { modelId: string } }) => {
+        seen.push(cmd.input.modelId);
+        throw Object.assign(new Error('no access'), { name: 'AccessDeniedException' });
+      },
+    };
+    await expect(askTask(s3, 'b', 't1', 'job-abc', 'q', 'zh', { bedrock: bedrock as never, modelId: 'us.amazon.nova-lite-v1:0' })).rejects.toThrow('no access');
+    expect(seen).toEqual(['us.amazon.nova-lite-v1:0']);
+  });
+
   test('unknown job → validation error (404)', async () => {
     const { s3 } = fakeS3({});
     await expect(askTask(s3, 'b', 't1', 'job-x', 'q', 'zh', { bedrock: { send: async () => ({}) } as never })).rejects.toThrow('找不到任務');
