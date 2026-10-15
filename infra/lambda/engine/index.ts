@@ -19,6 +19,7 @@ import { retrieveFromKb } from '../api/bedrockKb.js';
 import { applyExclude, mergeProfiles } from '../api/report/profiles.js';
 import { mergeSpecs, specFromKb } from '../api/report/reportSpec.js';
 import { buildControlsProtocol, sanitizeControls, sanitizeKeys, type CaseKey } from '../api/controlSchemes.js';
+import { stripTestFocus } from '../api/scriptedCase.js';
 import { findEntry, defaultCoordSystem } from '../api/modelCatalog.js';
 import {
   defaultSeatSelection,
@@ -247,8 +248,10 @@ async function assembleAgentContext(
     .join('\n\n');
   let context = composeContext(knowledge, memoryWithNav);
   // 注入順序/優先序:手寫 App 知識 > 知識庫 Markdown > KB 檢索片段 > 記憶。
-  if (kbMarkdown.trim()) {
-    const kbBlock = `# KNOWLEDGE BASES (selected reusable knowledge)\n${kbMarkdown.trim()}`;
+  // 測項為主:知識庫只用來看懂畫面 —— 拿掉「測試重點」段落,AI 才不會照它延伸腳本沒列的測試。
+  const kbText = scripted ? stripTestFocus(kbMarkdown) : kbMarkdown;
+  if (kbText.trim()) {
+    const kbBlock = `# KNOWLEDGE BASES (selected reusable knowledge${scripted ? ' — 只用來看懂畫面,不要照它延伸測試' : ''})\n${kbText.trim()}`;
     context = context.trim() ? `${context}\n\n${kbBlock}` : kbBlock;
   }
   if (kbReference.trim()) {
