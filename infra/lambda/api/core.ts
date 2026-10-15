@@ -73,8 +73,10 @@ import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { listMediaSegments, readAudioLevels, withRecordingUrls } from './liveMedia.js';
 import { DEVICE_LOG_KINDS, readDeviceLogs, type DeviceLogKind } from './deviceLogs.js';
 import { generateInsights } from './report/insights.js';
-import { CATALOG, modelsForSeat, type Seat } from './modelCatalog.js';
+import { CATALOG, modelsForSeat, type Seat, type Channel, type CoordSystem } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
+import type { ScannedModel } from './modelScan.js';
+import { MODEL_SEATS, validSeatsFor, type ModelSeat, type ModelAdminConfig, type ModelAdminEntry } from './modelAdminStore.js';
 import type { DraftAcceptanceItem, DraftOptions } from './draft.js';
 import {
   readKnowledge,
@@ -251,6 +253,15 @@ export interface ApiDeps {
   systemLogs?: { ports: SystemLogsPorts };
   /** 任務 AI 問答用的 Bedrock client(測試注入;未注入時 taskAsk 自建)。 */
   askBedrock?: Pick<import('@aws-sdk/client-bedrock-runtime').BedrockRuntimeClient, 'send'>;
+  /**
+   * 模型管理(admin 專用,模型管理頁):掃描 Bedrock 可用模型 + 讀寫「哪些模型出現在哪個下拉」設定。
+   * 選填;未注入時 /model-admin 回 501,且 GET /models 退回靜態目錄行為。
+   */
+  modelAdmin?: {
+    scan: () => Promise<ScannedModel[]>;
+    readConfig: () => Promise<ModelAdminConfig | null>;
+    writeConfig: (cfg: ModelAdminConfig) => Promise<void>;
+  };
 }
 
 /** Device Farm 真機池的精簡呈現(供裝置管理頁顯示 + 提交任務時挑機)。 */
@@ -316,6 +327,68 @@ export interface RuntimeInfra {
 
 function json(status: number, body: unknown): ApiResponse {
   return { status, body };
+}
+
+/** 前端下拉用的模型項目(對齊 CatalogEntry + pricing)。 */
+interface ModelListItem {
+  modelId: string;
+  displayName: string;
+  channel: Channel;
+  regions: string[];
+  coordSystem: CoordSystem;
+  seats: Seat[];
+  unavailable?: string;
+}
+
+/** 把管理頁設定的 entry 轉成下拉項目形狀(座位含 draft,這裡回傳 catalog 的三座位子集供前端)。 */
+function entryToListItem(e: ModelAdminEntry): ModelListItem {
+  const seats = e.seats.filter((s): s is Seat => s === 'agent' || s === 'vlm' || s === 'subagent');
+  return {
+    modelId: e.modelId,
+    displayName: e.displayName,
+    channel: e.channel,
+    regions: ['us-west-2'],
+    coordSystem: e.coordSystem,
+    seats,
+  };
+}
+
+/**
+ * 某座位「實際可選」的模型清單:有管理頁設定就用設定(且必須查得到單價),
+ * 沒設定則退回靜態目錄(draft 併用 agent 的靜態清單)。供下拉、提交校驗、草擬校驗共用。
+ */
+async function effectiveSeatModels(deps: ApiDeps, seat: ModelSeat): Promise<ModelListItem[]> {
+  const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
+  if (cfg && cfg.entries.length) {
+    return cfg.entries
+      .filter((e) => e.seats.includes(seat) && isPriceable(e.modelId))
+      .map(entryToListItem);
+  }
+  const base: Seat = seat === 'draft' ? 'agent' : seat;
+  return modelsForSeat(base).map((m) => ({
+    modelId: m.modelId,
+    displayName: m.displayName,
+    channel: m.channel,
+    regions: m.regions,
+    coordSystem: m.coordSystem,
+    seats: m.seats,
+    ...(m.unavailable ? { unavailable: m.unavailable } : {}),
+  }));
+}
+
+/** UI-TARS 合成一筆(非 Bedrock,掃描不會回),讓管理頁能一併開關;座標像素、僅 vlm。 */
+function uitarsScanned(): ScannedModel {
+  return {
+    modelId: 'uitars',
+    baseId: 'uitars',
+    displayName: 'UI-TARS 1.5 7B(SageMaker · 定位專用)',
+    provider: 'ByteDance',
+    channel: 'sagemaker',
+    coordSystem: 'pixel',
+    image: true,
+    text: false, // 僅定位(vlm),不坐 agent/subagent/draft
+    onDemand: true,
+  };
 }
 
 /**
@@ -588,11 +661,116 @@ export async function handleRequest(
         return json(200, { items: app ? items.filter((x) => x.appId === app) : items });
       }
 
+      // ── 模型管理(admin 專用,模型管理頁)──────────────────────────────
+      // 掃描 Bedrock 當前可用模型 + 當前勾選設定。只「呈現」查得到單價的(Fail Closed);
+      // 查無單價的放 unpriced,前端另區提示(偵測到但尚未定價,已隱藏)。
+      case 'GET /model-admin': {
+        requireAdmin(req.claims);
+        if (!deps.modelAdmin) return json(501, { error: '模型管理未設定' });
+        const [scanned, cfg] = await Promise.all([
+          deps.modelAdmin.scan(),
+          deps.modelAdmin.readConfig(),
+        ]);
+        const all = [...scanned, uitarsScanned()];
+        const enabledBy = new Map<string, ModelSeat[]>();
+        for (const e of cfg?.entries ?? []) enabledBy.set(e.modelId, e.seats);
+        const uitarsOn = deps.uitars ? await uitarsAvailable(deps.uitars.ports) : false;
+        const models: unknown[] = [];
+        const unpriced: unknown[] = [];
+        for (const m of all) {
+          if (m.modelId === 'uitars' && !uitarsOn) continue; // UI-TARS 關閉時不列(開了才可選)
+          let pricing: { inputPerM: number; outputPerM: number; estimated?: boolean } | null = null;
+          try {
+            const p = resolvePrice(m.modelId);
+            pricing = { inputPerM: p.inputPerM, outputPerM: p.outputPerM, ...(p.estimated ? { estimated: true } : {}) };
+          } catch { pricing = null; }
+          const row = {
+            modelId: m.modelId,
+            displayName: m.displayName,
+            provider: m.provider,
+            channel: m.channel,
+            coordSystem: m.coordSystem,
+            image: m.image,
+            text: m.text,
+            onDemand: m.onDemand,
+          };
+          if (pricing) {
+            models.push({ ...row, pricing, seats: enabledBy.get(m.modelId) ?? [] });
+          } else {
+            unpriced.push(row);
+          }
+        }
+        return json(200, {
+          models,
+          unpriced,
+          ...(cfg ? { config: { updatedAt: cfg.updatedAt, updatedBy: cfg.updatedBy } } : { config: null }),
+        });
+      }
+
+      case 'PUT /model-admin': {
+        requireAdmin(req.claims);
+        if (!deps.modelAdmin) return json(501, { error: '模型管理未設定' });
+        const body = (req.body ?? {}) as { selections?: Record<string, unknown> };
+        const selections = body.selections;
+        if (!selections || typeof selections !== 'object') {
+          throw new BadRequestError('selections 必須是物件 { modelId: ["vlm","agent",...] }');
+        }
+        const scanned = [...(await deps.modelAdmin.scan()), uitarsScanned()];
+        const byId = new Map(scanned.map((m) => [m.modelId, m]));
+        const entries: ModelAdminEntry[] = [];
+        for (const [modelId, rawSeats] of Object.entries(selections)) {
+          const m = byId.get(modelId);
+          if (!m) continue; // 未知/已下架的忽略
+          const seats = validSeatsFor(m.image, m.text, rawSeats);
+          if (seats.length === 0) continue; // 沒勾任何座位 = 不納入設定
+          if (!isPriceable(m.modelId)) {
+            return json(400, { error: `模型查無單價,無法啟用(Fail Closed): ${m.modelId}` });
+          }
+          entries.push({
+            modelId: m.modelId,
+            displayName: m.displayName,
+            provider: m.provider,
+            channel: m.channel,
+            coordSystem: m.coordSystem,
+            image: m.image,
+            text: m.text,
+            seats,
+          });
+        }
+        const config: ModelAdminConfig = {
+          updatedAt: new Date().toISOString(),
+          updatedBy: tenant.email ?? tenant.tenantId,
+          entries,
+        };
+        await deps.modelAdmin.writeConfig(config);
+        return json(200, { ok: true, count: entries.length });
+      }
+
       case 'GET /models': {
-        // 模型目錄(Req 8):可依 seat 過濾。不需租戶 S3。
+        // 模型目錄(Req 8):可依 seat 過濾(agent/vlm/subagent/draft)。不需租戶 S3。
+        // 有「模型管理」設定就以設定為準(管理員勾選的清單),否則退回靜態目錄。
         // 附上每模型的當前有效單價(input/output 每百萬 token),供前端下拉呈現費用。
-        const seat = req.query?.['seat'] as Seat | undefined;
-        const all = seat ? modelsForSeat(seat) : CATALOG;
+        const seatRaw = req.query?.['seat'];
+        const seat = (MODEL_SEATS as string[]).includes(seatRaw ?? '') ? (seatRaw as ModelSeat) : undefined;
+        const cfg = deps.modelAdmin ? await deps.modelAdmin.readConfig() : null;
+        let all: ModelListItem[];
+        if (cfg && cfg.entries.length) {
+          all = cfg.entries
+            .filter((e) => !seat || e.seats.includes(seat))
+            .filter((e) => isPriceable(e.modelId)) // 只呈現查得到單價的(Fail Closed)
+            .map(entryToListItem);
+        } else {
+          const base: Seat | undefined = seat === 'draft' ? 'agent' : seat;
+          all = (base ? modelsForSeat(base) : CATALOG).map((m) => ({
+            modelId: m.modelId,
+            displayName: m.displayName,
+            channel: m.channel,
+            regions: m.regions,
+            coordSystem: m.coordSystem,
+            seats: m.seats,
+            ...(m.unavailable ? { unavailable: m.unavailable } : {}),
+          }));
+        }
         // UI-TARS 只有在系統管理頁開啟(endpoint InService)時才列出;關閉時選了也不能用。
         const hasUitars = all.some((m) => m.modelId === 'uitars');
         const uitarsOn = hasUitars && deps.uitars ? await uitarsAvailable(deps.uitars.ports) : false;
@@ -893,7 +1071,7 @@ export async function handleRequest(
         const parsed = parseDraftBody(req.body);
         // 指定草擬模型時驗證:必須在 agent seat 可選清單內且查得到單價(Fail Closed)。
         if (parsed.model) {
-          const allowed = modelsForSeat('agent');
+          const allowed = await effectiveSeatModels(deps, 'draft');
           if (!allowed.find((m) => m.modelId === parsed.model)) {
             return json(400, { error: `草擬模型不在可選清單: ${parsed.model}` });
           }
@@ -2045,7 +2223,7 @@ async function handleSubmitTask(
   ];
   for (const [seat, modelId, label] of seatChecks) {
     if (!modelId) continue;
-    const allowed = modelsForSeat(seat);
+    const allowed = await effectiveSeatModels(deps, seat);
     if (!allowed.find((m) => m.modelId === modelId)) {
       return json(400, { error: `${label} 模型不在可選清單: ${modelId}` });
     }

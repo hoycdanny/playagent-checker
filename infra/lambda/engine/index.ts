@@ -19,7 +19,7 @@ import { retrieveFromKb } from '../api/bedrockKb.js';
 import { applyExclude, mergeProfiles } from '../api/report/profiles.js';
 import { mergeSpecs, specFromKb } from '../api/report/reportSpec.js';
 import { buildControlsProtocol, sanitizeControls } from '../api/controlSchemes.js';
-import { findEntry } from '../api/modelCatalog.js';
+import { findEntry, defaultCoordSystem } from '../api/modelCatalog.js';
 import {
   defaultSeatSelection,
   resolveExecutionConfig,
@@ -221,7 +221,8 @@ async function assembleAgentContext(
   if (!appId) return;
   // VLM 的座標系(pixel vs norm1000):讓 runner 依模型母語下座標契約並換算,
   // 像素模型(Claude/K3/UI-TARS)維持絕對像素;norm1000 模型(Nova/Qwen/Gemma…)改用 0~1000 再換算。
-  const vlmCoordSystem = vlmModel ? (findEntry(vlmModel)?.coordSystem ?? 'pixel') : 'pixel';
+  // 靜態目錄有該模型 → 用目錄實測值;否則(管理頁啟用的掃描模型)用預設推斷(非 Claude/K3 → 千分制)。
+  const vlmCoordSystem = vlmModel ? (findEntry(vlmModel)?.coordSystem ?? defaultCoordSystem(vlmModel)) : 'pixel';
   const [knowledge, memory, kbMarkdown, kbReference, credInfo] = await Promise.all([
     readKnowledge(s3, bucket, tenantId, appId),
     readMemory(s3, bucket, tenantId, appId, locality),

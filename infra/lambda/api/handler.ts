@@ -31,6 +31,8 @@ import { makeSecretWriter } from './secretValueStore.js';
 import { makeSystemUpdatePorts, systemUpdateConfigFromEnv } from './systemUpdatePorts.js';
 import { makeSystemLogsPorts, systemLogsConfigFromEnv } from './systemLogsPorts.js';
 import { makeUitarsPorts, uitarsConfigFromEnv } from './uitarsSwitch.js';
+import { makeBedrockControl, scanBedrockModels } from './modelScan.js';
+import { makeModelAdminStore } from './modelAdminStore.js';
 
 const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const BUCKET = process.env.DATA_BUCKET ?? '';
@@ -75,6 +77,14 @@ const uitars = uitarsCfg
 // 集中式日誌(admin 專用):CDK 注入 LOG_STAGE_PREFIX 才啟用;未設定時 /system/logs/* 回 501。
 const logsCfg = systemLogsConfigFromEnv(process.env, REGION);
 const systemLogs = logsCfg ? { ports: makeSystemLogsPorts(logsCfg) } : undefined;
+// 模型管理(admin 專用):Bedrock 控制面掃描 + 設定存 shared/model-admin.json(自身角色)。
+const bedrockControl = makeBedrockControl(REGION);
+const modelAdminStore = makeModelAdminStore(sharedS3, BUCKET);
+const modelAdmin = {
+  scan: () => scanBedrockModels(bedrockControl),
+  readConfig: () => modelAdminStore.readConfig(),
+  writeConfig: (c: Parameters<typeof modelAdminStore.writeConfig>[0]) => modelAdminStore.writeConfig(c),
+};
 
 // 真機池不常變動,快取 5 分鐘,避免每次開頁都打 Device Farm API。
 let cloudDeviceCache: { at: number; items: CloudDevice[] } | null = null;
@@ -334,6 +344,7 @@ const deps: ApiDeps = {
   ...(uitars ? { uitars } : {}),
   ...(systemLogs ? { systemLogs } : {}),
   secretWriter,
+  modelAdmin,
 };
 
 const CORS_HEADERS: Record<string, string> = {

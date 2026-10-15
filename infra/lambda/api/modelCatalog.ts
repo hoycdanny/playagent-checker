@@ -170,6 +170,19 @@ export function channelFromModelId(modelId: string): Channel {
   return 'bedrock-converse';
 }
 
+/**
+ * 預設座標系推斷(供「掃描到但不在靜態目錄」的模型與 engine fallback 共用):
+ * Anthropic Claude 與 Kimi K3、UI-TARS 實測為像素;其餘(Nova / Qwen / Gemma / GPT / Grok…)
+ * 母語為千分制(0~1000)。靜態目錄若有該模型,一律以目錄的實測值為準(此函式只在查無目錄時用)。
+ */
+export function defaultCoordSystem(modelId: string): CoordSystem {
+  const base = stripRegionPrefix(modelId);
+  if (base === 'uitars') return 'pixel';
+  if (base.startsWith('anthropic.')) return 'pixel';
+  if (base === 'moonshotai.kimi-k3') return 'pixel';
+  return 'norm1000';
+}
+
 /** 某 Seat 可選的模型(下拉清單來源)。 */
 export function modelsForSeat(seat: Seat): CatalogEntry[] {
   return CATALOG.filter((e) => e.seats.includes(seat));

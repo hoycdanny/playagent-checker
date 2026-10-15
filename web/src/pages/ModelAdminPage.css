@@ -1,0 +1,75 @@
+.modeladmin__head-actions { display: flex; gap: 0.5rem; }
+.modeladmin__refresh,
+.modeladmin__save {
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #ccc);
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+}
+.modeladmin__save {
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border-color: transparent;
+}
+.modeladmin__save:disabled,
+.modeladmin__refresh:disabled { opacity: 0.5; cursor: default; }
+
+.modeladmin__intro { margin: 0.25rem 0 0.5rem; max-width: 70ch; line-height: 1.5; }
+.modeladmin__muted { color: var(--muted, #6b7280); font-size: 0.85rem; }
+.modeladmin__error { color: #b91c1c; }
+.modeladmin__ok { color: #15803d; }
+
+.modeladmin__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0.75rem 0;
+}
+.modeladmin__search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid var(--border, #ccc);
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.modeladmin__only { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.9rem; }
+.modeladmin__counts { color: var(--muted, #6b7280); font-size: 0.85rem; margin-left: auto; }
+
+.modeladmin__tablewrap { overflow-x: auto; }
+.modeladmin__table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.modeladmin__table th,
+.modeladmin__table td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  text-align: left;
+  vertical-align: top;
+}
+.modeladmin__table th.modeladmin__c,
+.modeladmin__table td.modeladmin__c { text-align: center; width: 5.5rem; }
+.modeladmin__name { font-weight: 600; }
+.modeladmin__id { color: var(--muted, #6b7280); font-size: 0.78rem; margin-top: 0.15rem; }
+.modeladmin__id code { font-size: 0.78rem; }
+.modeladmin__price { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.modeladmin__tag {
+  display: inline-block;
+  padding: 0.05rem 0.4rem;
+  margin: 0 0.2rem 0.2rem 0;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  background: var(--chip, #eef2ff);
+  color: var(--chip-fg, #3730a3);
+}
+.modeladmin__tag--img { background: #dcfce7; color: #166534; }
+.modeladmin__tag--muted { background: transparent; color: var(--muted, #6b7280); border: 1px solid var(--border, #d1d5db); }
+
+.modeladmin__unpriced { margin-top: 1.25rem; }
+.modeladmin__unpriced summary { cursor: pointer; font-weight: 600; }
+.modeladmin__unpriced ul { margin: 0.5rem 0; padding-left: 1.1rem; }
+.modeladmin__unpriced li { margin: 0.25rem 0; }
+.modeladmin__unpriced code { font-size: 0.78rem; }

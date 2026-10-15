@@ -36,6 +36,7 @@ export type MessageKey =
   | 'nav.cost'
   | 'nav.members'
   | 'nav.system'
+  | 'nav.modelAdmin'
   | 'nav.guide'
   | 'shell.emptyContent'
   | 'page.cost.title'
@@ -716,6 +717,7 @@ const zhHant: Catalog = {
   'nav.cost': '費用分析',
   'nav.members': '成員管理',
   'nav.system': '系統管理',
+  'nav.modelAdmin': '模型管理',
   'page.members.title': '成員管理',
   'members.intro': '管理可登入本平台的成員(僅管理員可見)。新增使用者需指定租戶與初始密碼;可停用/啟用帳號。',
   'members.adminOnly': '僅管理員可存取成員管理。',
@@ -1399,6 +1401,7 @@ const en: Catalog = {
   'nav.cost': 'Cost Analysis',
   'nav.members': 'Members',
   'nav.system': 'System admin',
+  'nav.modelAdmin': 'Model admin',
   'page.members.title': 'Member management',
   'members.intro': 'Manage who can sign in to this platform (admins only). New users need a tenant and an initial password; accounts can be disabled/enabled.',
   'members.adminOnly': 'Member management is available to admins only.',
@@ -2086,6 +2089,7 @@ const zhHans: Catalog = {
   'nav.cost': '费用分析',
   'nav.members': '成员管理',
   'nav.system': '系统管理',
+  'nav.modelAdmin': '模型管理',
   'page.members.title': '成员管理',
   'members.intro': '管理可登录本平台的成员(仅管理员可见)。新增用户需指定租户与初始密码;可停用/启用账号。',
   'members.adminOnly': '仅管理员可访问成员管理。',
@@ -2768,6 +2772,7 @@ const ja: Catalog = {
   'nav.cost': 'コスト分析',
   'nav.members': 'メンバー管理',
   'nav.system': 'システム管理',
+  'nav.modelAdmin': 'モデル管理',
   'page.members.title': 'メンバー管理',
   'members.intro': '本プラットフォームにサインインできるメンバーを管理します(管理者のみ)。新規ユーザーにはテナントと初期パスワードが必要;アカウントは無効化/有効化できます。',
   'members.adminOnly': 'メンバー管理は管理者のみ利用できます。',
@@ -3451,6 +3456,7 @@ const ko: Catalog = {
   'nav.cost': '비용 분석',
   'nav.members': '멤버 관리',
   'nav.system': '시스템 관리',
+  'nav.modelAdmin': '모델 관리',
   'page.members.title': '멤버 관리',
   'members.intro': '이 플랫폼에 로그인할 수 있는 멤버를 관리합니다(관리자 전용). 새 사용자는 테넌트와 초기 비밀번호가 필요하며, 계정은 비활성화/활성화할 수 있습니다.',
   'members.adminOnly': '멤버 관리는 관리자만 이용할 수 있습니다.',

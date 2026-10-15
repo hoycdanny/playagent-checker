@@ -25,6 +25,7 @@ export function TopBar() {
     ? [
       ...BASE_NAV_KEYS,
       { key: 'nav.members' as const, path: '/members' },
+      { key: 'nav.modelAdmin' as const, path: '/model-admin' },
       { key: 'nav.system' as const, path: '/system' },
     ]
     : BASE_NAV_KEYS;
