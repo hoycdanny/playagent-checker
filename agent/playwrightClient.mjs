@@ -16,6 +16,7 @@
  * 故 setCoordinateSpace/#toWindow 為恆等(保留同介面以相容 runner 呼叫)。
  */
 import { chromium } from 'playwright';
+import { normalizeKey } from './keyNames.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -28,17 +29,18 @@ const KEY_HOLD_MS = Math.max(50, Math.min(1000, Number(process.env.PA_KEY_HOLD_M
 const KEY_GAP_MS = 150;
 
 /**
- * 模型可用的按鍵名 → Playwright 的鍵名。
+ * 標準按鍵名(見 keyNames.mjs)→ Playwright 的鍵名。
  * 只開放遊戲常用的鍵,避免模型亂送組合鍵(如 F5 重整、Ctrl+W 關頁)把測試環境弄壞。
+ * 模型或測試腳本寫 ArrowUp / ↑ / PgDn / KeyZ / Shift 都會先正規化成標準名。
  */
 const KEYS = {
   up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight',
-  enter: 'Enter', escape: 'Escape', esc: 'Escape', space: 'Space', tab: 'Tab',
+  enter: 'Enter', escape: 'Escape', space: 'Space', tab: 'Tab',
+  shift: 'Shift', ctrl: 'Control', alt: 'Alt',
   backspace: 'Backspace', delete: 'Delete', home: 'Home', end: 'End',
   pageup: 'PageUp', pagedown: 'PageDown',
-  w: 'KeyW', a: 'KeyA', s: 'KeyS', d: 'KeyD',
-  q: 'KeyQ', e: 'KeyE', r: 'KeyR', f: 'KeyF', z: 'KeyZ', x: 'KeyX', c: 'KeyC',
-  '1': 'Digit1', '2': 'Digit2', '3': 'Digit3', '4': 'Digit4', '5': 'Digit5',
+  ...Object.fromEntries('abcdefghijklmnopqrstuvwxyz'.split('').map((c) => [c, `Key${c.toUpperCase()}`])),
+  ...Object.fromEntries('0123456789'.split('').map((d) => [d, `Digit${d}`])),
 };
 
 export class PlaywrightClient {
@@ -122,7 +124,18 @@ export class PlaywrightClient {
   async act(cmd) {
     switch (cmd.action) {
       case 'tap': {
-        await this.#page.mouse.click(Math.round(cmd.x), Math.round(cmd.y));
+        // 預設左鍵;測試腳本把滑鼠右鍵/中鍵定義了用途時,模型可給 "button":"right"|"middle"。
+        const button = cmd.button === 'right' || cmd.button === 'middle' ? cmd.button : 'left';
+        await this.#page.mouse.click(Math.round(cmd.x), Math.round(cmd.y), { button });
+        break;
+      }
+      case 'hold': {
+        // 滑鼠左鍵在 x,y 按住一段時間再放(蓄力、長按按鈕;測試腳本勾「長按」時開放)。
+        const holdMs = Math.max(100, Math.min(5000, Math.round(Number(cmd.holdMs) || 1000)));
+        await this.#page.mouse.move(Math.round(cmd.x), Math.round(cmd.y));
+        await this.#page.mouse.down();
+        await sleep(holdMs);
+        await this.#page.mouse.up();
         break;
       }
       case 'swipe': {
@@ -176,7 +189,7 @@ export class PlaywrightClient {
         // 實測(job-mv97uocw-hdzi6d 的 Silver Thread,遊戲迴圈壓到 ~7 fps):
         //   press() 連按 5 次標題畫面都沒反應;按住 250 ms 再放,第 1 次就進入遊戲。
         // 人用實體鍵盤時自然會按住約 100 ms,所以人按 Enter 可以玩、AI 按卻「沒反應」。
-        const name = KEYS[String(cmd.key ?? '').toLowerCase()];
+        const name = KEYS[normalizeKey(cmd.key) ?? ''];
         if (!name) throw new Error(`不支援的按鍵:${cmd.key}`);
         const times = Math.max(1, Math.min(20, Number(cmd.repeat) || 1));
         const holdMs = Number.isFinite(Number(cmd.holdMs)) && Number(cmd.holdMs) > 0

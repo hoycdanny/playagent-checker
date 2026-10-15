@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useRef, useState, type DragEvent } from 'react';
 import { apiPost } from '../../api/client.ts';
 import { applyControls } from '../controls/controlsYaml.ts';
+import { applyKeys, type CaseKey } from '../controls/keysYaml.ts';
 import type { RLang } from '../report/reportText.ts';
 import {
   IMPORT_FIELDS,
@@ -99,12 +100,15 @@ const MAX_CASES = 500;
 export function ExcelImport({
   appId,
   controls,
+  keys = [],
   lang,
   onCreated,
 }: {
   appId: string;
   /** 套用到每個匯入案例的操作行為(與表單上的勾選一致)。 */
   controls: string[] | undefined;
+  /** 套用到每個匯入案例的按鍵對應(鍵盤 / 滑鼠用途)。 */
+  keys?: CaseKey[];
   lang: RLang;
   /** 建立完成(至少一筆成功)後通知外層重新整理清單;allOk = 全部成功。 */
   onCreated: (allOk: boolean) => void;
@@ -150,7 +154,7 @@ export function ExcelImport({
   );
   const selected = cases.filter((c) => !excluded.has(c.row));
   const yamlOf = (c: (typeof cases)[number]) =>
-    applyControls(caseToYaml(c, appId || '<app>', { lang, source: `${book?.fileName ?? ''}#${c.row}` }), controls);
+    applyKeys(applyControls(caseToYaml(c, appId || '<app>', { lang, source: `${book?.fileName ?? ''}#${c.row}` }), controls), keys);
 
   function applySheet(b: Book, idx: number) {
     const r = b.sheets[idx]?.rows ?? [];
@@ -252,9 +256,9 @@ export function ExcelImport({
     setProgress({ done: 0, total: 1 });
     try {
       const name = suiteName.trim() || baseName;
-      const yaml = applyControls(
-        suiteToYaml(selected, appId, { name, lang, source: book?.fileName ?? '' }),
-        controls,
+      const yaml = applyKeys(
+        applyControls(suiteToYaml(selected, appId, { name, lang, source: book?.fileName ?? '' }), controls),
+        keys,
       );
       await apiPost('/cases', { app: appId, name, yaml });
       setResult({ ok: selected.length, failed: [] });
