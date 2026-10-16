@@ -13,6 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { GetObjectCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
+import { sanitizeOp, type GraphOp } from '../../../agent/memoryGraph.mjs';
 
 export class HintValidationError extends Error {}
 export class HintNotFoundError extends Error {}
@@ -56,8 +57,23 @@ export interface MemoryEdits {
   merges?: Record<string, string>;
   /** 使用者在關係圖上畫的順序路線(整個應用共用,每次測試注入 AI)。 */
   routes?: MemoryRoute[];
+  /**
+   * 記憶腳本:每條路徑 / 同畫面操作(edgeKey,同畫面為 from===to)的人工修正。
+   * op = 修正後的點擊位置等(0~1 相對座標);verified = 確認可直接執行;disabled = 不要自動執行。
+   */
+  opEdits?: Record<string, OpEdit>;
   updatedAt?: string;
 }
+
+export interface OpEdit {
+  op?: GraphOp;
+  verified?: boolean;
+  disabled?: boolean;
+  updatedAt?: string;
+}
+export const MAX_OP_EDITS = 500;
+/** 路徑 / 同畫面操作的識別鍵:page_x>page_y>動作>目標(目標 ≤ 40 字)。 */
+const OP_KEY_RE = /^page_[a-f0-9]{8,32}>page_[a-f0-9]{8,32}>[a-z]{2,8}>[^\n]{0,40}$/;
 
 /** 路線的一步:到某個畫面、在那裡做什麼。 */
 export interface RouteStep { id: string; pageId: string; action: string }
@@ -259,7 +275,9 @@ export type EditOp =
   | { op: 'addEdge'; edge: ManualEdge }
   | { op: 'mergePage'; pageId: string; intoPageId: string }
   | { op: 'saveRoute'; route: MemoryRoute }
-  | { op: 'deleteRoute'; routeId: string };
+  | { op: 'deleteRoute'; routeId: string }
+  | { op: 'setOp'; key: string; patch: { op?: GraphOp | null; verified?: boolean; disabled?: boolean } }
+  | { op: 'clearOp'; key: string };
 
 function cleanAction(v: unknown): string {
   return typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, 200) : '';
@@ -383,6 +401,25 @@ export function parseEditOp(body: unknown): EditOp {
       if (!routeId) throw new HintValidationError('deleteRoute 需要 routeId');
       return { op, routeId };
     }
+    case 'setOp':
+    case 'clearOp': {
+      const key = typeof b['key'] === 'string' && OP_KEY_RE.test(b['key']) ? b['key'] : undefined;
+      if (!key) throw new HintValidationError(`${op} 需要有效的 key`);
+      if (op === 'clearOp') return { op, key };
+      const patch: { op?: GraphOp | null; verified?: boolean; disabled?: boolean } = {};
+      if (b['opData'] === null) patch.op = null;
+      else if (b['opData'] !== undefined) {
+        const clean = sanitizeOp(b['opData']);
+        if (!clean) throw new HintValidationError('操作格式不正確(座標需為 0~1)');
+        // 動作種類必須與路徑一致(不能把「點擊」路徑改成「滑動」)。
+        if (clean.a !== key.split('>')[2]) throw new HintValidationError('操作的動作與路徑不一致');
+        patch.op = clean;
+      }
+      if (typeof b['verified'] === 'boolean') patch.verified = b['verified'];
+      if (typeof b['disabled'] === 'boolean') patch.disabled = b['disabled'];
+      if (Object.keys(patch).length === 0) throw new HintValidationError('setOp 沒有要修改的內容');
+      return { op, key, patch };
+    }
     default:
       throw new HintValidationError('op 不支援');
   }
@@ -474,6 +511,27 @@ export async function applyEdit(s3: S3Client, bucket: string, tenantId: string, 
       case 'deleteRoute':
         doc.routes = (doc.routes ?? []).filter((r) => r.id !== e.routeId);
         break;
+      case 'setOp': {
+        const opEdits = { ...(doc.opEdits ?? {}) };
+        const cur: OpEdit = { ...(opEdits[e.key] ?? {}) };
+        if (e.patch.op === null) delete cur.op;
+        else if (e.patch.op) cur.op = e.patch.op;
+        if (e.patch.verified !== undefined) cur.verified = e.patch.verified;
+        if (e.patch.disabled !== undefined) cur.disabled = e.patch.disabled;
+        // 確認與停用互斥:最後一個動作為準。
+        if (e.patch.verified === true) cur.disabled = false;
+        if (e.patch.disabled === true) cur.verified = false;
+        if (!opEdits[e.key] && Object.keys(opEdits).length >= MAX_OP_EDITS) throw new HintValidationError(`操作修正最多 ${MAX_OP_EDITS} 筆`);
+        opEdits[e.key] = { ...cur, updatedAt: new Date().toISOString() };
+        doc.opEdits = opEdits;
+        break;
+      }
+      case 'clearOp': {
+        const opEdits = { ...(doc.opEdits ?? {}) };
+        delete opEdits[e.key];
+        doc.opEdits = opEdits;
+        break;
+      }
     }
     doc.addedEdges = added;
     doc.deletedPages = [...del].slice(-500);

@@ -28,7 +28,8 @@ import { normalizeKey, KEY_IDS } from './keyNames.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
-import { upsertPage, recordTransition, recordMiss, compactStructure } from './memoryGraph.mjs';
+import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure } from './memoryGraph.mjs';
+import { opFromCmd } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
 
 const START_URL = process.env.PA_URL || 'https://example.com';
@@ -298,6 +299,7 @@ async function main() {
   const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 4000 });
   console.log(memTrace.startupLog());
   let prevPageId = null, prevAction = null, navAction = null, prevTarget = '';
+  let navOp = null; // 上一步實際執行的操作細節(0~1 座標),記進記憶地圖供記憶腳本重播 / 匯出
   let prevScreen = '';
   let pendingCmds = []; // 尚未得到有效回應的測試人員指令
   let consecFail = 0;
@@ -494,8 +496,9 @@ async function main() {
     console.log(memTrace.formatLog(i, memHit));
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     if (prevPageId && pid) {
-      if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget });
+      if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget, op: navOp });
       else if (!screenChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
+      else if (navOp) recordSelfOp(struct, pid, { action: navAction, target: prevTarget, op: navOp });
     }
     struct.lastUpdatedAt = new Date().toISOString();
     await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
@@ -561,12 +564,16 @@ async function main() {
         break;
       }
     }
-    try { await client.act(deviceCmd); consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
+    let actOk = false;
+    try { await client.act(deviceCmd); actOk = true; consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
     // 導覽圖:AI 沒給畫面名時沿用上一個已知畫面;該步只是 wait 則不覆蓋真正造成轉場的動作。
     prevAction = cmd.action; // 給 prompt 用
     if (cmd.screen) prevScreen = screenName;
-    if (pid) { prevPageId = pid; navAction = cmd.action; prevTarget = typeof cmd.target === 'string' ? cmd.target : ''; }
-    else if (cmd.action !== 'wait') { navAction = cmd.action; prevTarget = ''; }
+    if (pid) {
+      prevPageId = pid; navAction = cmd.action; prevTarget = typeof cmd.target === 'string' ? cmd.target : '';
+      navOp = actOk && !cmd.override ? opFromCmd(cmd, cw, ch) : null;
+    }
+    else if (cmd.action !== 'wait') { navAction = cmd.action; prevTarget = ''; navOp = null; }
     await sleep(2500);
   }
 

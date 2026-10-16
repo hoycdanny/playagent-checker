@@ -1,6 +1,6 @@
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
-import { compactStructure, summarizeForAgent } from '../../../agent/memoryGraph.mjs';
+import { compactStructure, summarizeForAgent, type GraphOp, type GraphSelfOp } from '../../../agent/memoryGraph.mjs';
 import { applyEdits, edgeKey, type EditsLike } from '../../../agent/operatorMemory.mjs';
 
 /** 讀某 App 的導覽圖並轉成給 agent 的精簡文字(已知畫面 + 可靠路徑)。無資料回空字串。 */
@@ -43,6 +43,8 @@ export interface MemPage {
   hitCount: number;
   firstSeenAt: string;
   lastSeenAt: string;
+  /** 同一畫面上的操作(例如 SPIN),SPIN 迴圈與記憶腳本用。 */
+  selfOps?: GraphSelfOp[];
 }
 export interface MemEdge {
   fromPageId: string;
@@ -53,6 +55,8 @@ export interface MemEdge {
   missCount: number;
   /** 使用者在記憶關係圖手動標註的路徑(對 AI 視為可靠)。 */
   manual?: boolean;
+  /** 最近一次造成這個轉場的操作(可重播,座標 0~1)。 */
+  op?: GraphOp;
 }
 export interface MemStructure {
   schemaVersion: number;
@@ -110,6 +114,7 @@ export async function readMemoryOverview(
     addedEdges: editsRaw?.addedEdges ?? [],
     merges: editsRaw?.merges ?? {},
     routes: editsRaw?.routes ?? [],
+    opEdits: editsRaw?.opEdits ?? {},
   };
   // 讀取時以新規則收斂(合併 AI 不同命名的同一畫面、去自環/wait 邊、合併重複邊),
   // 舊資料也能直接顯示成乾淨的畫面流程圖;runner 下次執行會把收斂結果寫回。

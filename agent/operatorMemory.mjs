@@ -44,6 +44,16 @@ function applyMerges(struct, merges) {
     t.pHashes = hashes.slice(0, MAX_MERGED_HASHES);
     if (!t.pHash && t.pHashes[0]) t.pHash = t.pHashes[0];
     t.knownControlLabels = [...new Set([...(t.knownControlLabels ?? []), ...(s.knownControlLabels ?? [])])].slice(-30);
+    // 同畫面操作(SPIN 等)一併併入;同動作 + 目標的次數相加。
+    if (Array.isArray(s.selfOps) && s.selfOps.length) {
+      const list = (t.selfOps ?? []).map((x) => ({ ...x }));
+      for (const so of s.selfOps) {
+        const hit = list.find((x) => x.kind === so.kind && String(x.target ?? '').trim() === String(so.target ?? '').trim());
+        if (hit) { hit.hitCount = (hit.hitCount ?? 0) + (so.hitCount ?? 0); hit.missCount = (hit.missCount ?? 0) + (so.missCount ?? 0); if (!hit.op && so.op) hit.op = so.op; }
+        else list.push({ ...so });
+      }
+      t.selfOps = list.sort((a, b) => (b.hitCount ?? 0) - (a.hitCount ?? 0)).slice(0, 12);
+    }
     if (s.firstSeenAt && (!t.firstSeenAt || s.firstSeenAt < t.firstSeenAt)) t.firstSeenAt = s.firstSeenAt;
     if (s.lastSeenAt && (!t.lastSeenAt || s.lastSeenAt > t.lastSeenAt)) t.lastSeenAt = s.lastSeenAt;
     delete struct.pages[from];

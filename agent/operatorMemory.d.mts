@@ -21,6 +21,14 @@ export interface EditsLike {
   addedEdges?: EdgeLike[];
   merges?: Record<string, string>;
   routes?: RouteLike[];
+  /** 記憶腳本:每條路徑 / 同畫面操作(edgeKey)的人工修正、確認或停用。 */
+  opEdits?: Record<string, OpEditLike>;
+}
+export interface OpEditLike {
+  op?: Record<string, unknown>;
+  verified?: boolean;
+  disabled?: boolean;
+  updatedAt?: string;
 }
 export function edgeKey(e: EdgeLike): string;
 /** renames:false = 不套改名;addedEdges:false = 不加入手動路徑(runner 用,避免寫回 structure.json)。 */

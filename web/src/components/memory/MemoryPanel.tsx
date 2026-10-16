@@ -14,6 +14,7 @@ import {
   useMemoryHints,
   type DeletedInfo,
 } from './MemoryEditor.tsx';
+import type { MemOp, OpEdit, SelfOp } from './memoryScript.ts';
 
 const ScreenGraph = lazy(() =>
   import('../ScreenGraph.tsx').then((m) => ({ default: m.ScreenGraph })),
@@ -34,6 +35,11 @@ export interface MemPage {
   autoName?: string;
   /** 第一次在測試中出現的時間(記憶地圖依此由左到右排)。 */
   firstSeenAt?: string;
+  /** 畫面指紋(匯出 Appium 腳本時用來確認在對的畫面)。 */
+  pHash?: string;
+  pHashes?: string[];
+  /** 同一畫面上的操作(例如 SPIN)。 */
+  selfOps?: SelfOp[];
 }
 export interface MemEdge {
   fromPageId: string;
@@ -43,12 +49,15 @@ export interface MemEdge {
   missCount: number;
   /** 使用者在關係圖手動標註的路徑。 */
   manual?: boolean;
+  /** 最近一次造成這個轉場的操作(記憶腳本,座標 0~1)。 */
+  op?: MemOp;
 }
 export interface MemOverview {
   structure: {
     pages: Record<string, MemPage>;
     edges: MemEdge[];
     rootPageId?: string | null;
+    appName?: string;
     lastUpdatedAt: string | null;
   };
   stats: { pages: number; edges: number; controls: number; totalRuns: number };
@@ -60,6 +69,8 @@ export interface MemOverview {
     addedEdges?: MemEdge[];
     merges?: Record<string, string>;
     routes?: MemoryRoute[];
+    /** 使用者對記憶操作的修正 / 確認 / 停用。 */
+    opEdits?: Record<string, OpEdit>;
   };
   deleted?: DeletedInfo;
 }
@@ -341,6 +352,12 @@ export default function MemoryPanel({
           api={hintsApi}
           onClose={() => setOpenPageId(null)}
           onEdited={refreshQuiet}
+          script={{
+            pages: overview?.structure.pages ?? {},
+            rootPageId: overview?.structure.rootPageId ?? null,
+            opEdits: overview?.edits?.opEdits ?? {},
+            ...(overview?.structure.appName ? { appName: overview.structure.appName } : {}),
+          }}
         />
       )}
     </div>
