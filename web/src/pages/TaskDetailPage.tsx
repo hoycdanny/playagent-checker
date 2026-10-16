@@ -79,7 +79,7 @@ const PT = {
   segment: ['第 {n} 段連線', 'Session {n}'],
   replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
   seekStep: ['在時間軸上跳到這一步', 'Jump to this step on the timeline'],
-  tabMoment: ['這一刻', 'This moment'],
+  tabMoment: ['即時訊息', 'Live feed'],
   tabTrace: ['執行軌跡', 'Steps'],
   tabLogs: ['完整日誌', 'Full logs'],
   tabAsk: ['AI 問答', 'Ask AI'],
