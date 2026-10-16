@@ -1,5 +1,6 @@
 import {
   BedrockRuntimeClient,
+  ConverseCommand,
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime';
 
@@ -172,13 +173,37 @@ export async function draftCaseYaml(
     ? opts.model.trim()
     : DRAFT_MODEL_ID;
 
+  // Claude 走 InvokeModel(Anthropic 原生格式);其他模型(Nova / Kimi / GPT / Qwen…)的請求格式各不相同,
+  // 一律走 Converse 統一格式。先前全部送 Anthropic 格式,選到非 Claude 模型就會被 Bedrock 以
+  // ValidationException(extraneous key max_tokens / Unknown parameter anthropic_version)拒絕。
+  const raw = isAnthropicModel(modelId)
+    ? await invokeAnthropic(deps.bedrock, modelId, system, userContent)
+    : await invokeConverse(deps.bedrock, modelId, system, userContent);
+  // 去除模型偶爾加上的 ``` 圍欄
+  const yaml = raw.replace(/^```(?:ya?ml)?\n?/, '').replace(/\n?```$/, '').trim();
+  // 結構化流程:把驗收項目與備註逐字附加,確保精準不走樣。
+  return structured ? appendStructuredBlocks(yaml, acceptance, opts?.note) : yaml;
+}
+
+/** 結構化草擬的 YAML 可能含很多驗收項目,1500 會被截斷。 */
+const DRAFT_MAX_TOKENS = 4000;
+
+const isAnthropicModel = (modelId: string): boolean =>
+  /^(?:(?:us|eu|apac|jp|au|global)\.)?anthropic\./.test(modelId);
+
+async function invokeAnthropic(
+  bedrock: DraftDeps['bedrock'],
+  modelId: string,
+  system: string,
+  userContent: string,
+): Promise<string> {
   const body = {
     anthropic_version: 'bedrock-2023-05-31',
-    max_tokens: 1500,
+    max_tokens: DRAFT_MAX_TOKENS,
     system,
     messages: [{ role: 'user', content: userContent }],
   };
-  const res = await deps.bedrock.send(
+  const res = await bedrock.send(
     new InvokeModelCommand({
       modelId,
       contentType: 'application/json',
@@ -186,15 +211,46 @@ export async function draftCaseYaml(
       body: JSON.stringify(body),
     }),
   );
-  const text = new TextDecoder().decode(res.body as Uint8Array);
-  const parsed = JSON.parse(text) as {
+  const parsed = JSON.parse(new TextDecoder().decode(res.body as Uint8Array)) as {
     content?: Array<{ type: string; text?: string }>;
   };
-  const raw = parsed.content?.find((c) => c.type === 'text')?.text?.trim() ?? '';
-  // 去除模型偶爾加上的 ``` 圍欄
-  const yaml = raw.replace(/^```(?:ya?ml)?\n?/, '').replace(/\n?```$/, '').trim();
-  // 結構化流程:把驗收項目與備註逐字附加,確保精準不走樣。
-  return structured ? appendStructuredBlocks(yaml, acceptance, opts?.note) : yaml;
+  return parsed.content?.find((c) => c.type === 'text')?.text?.trim() ?? '';
+}
+
+/**
+ * Converse 統一格式。有些模型不收 temperature、有些不收獨立 system 欄位,
+ * 被拒就拿掉重送(同 taskAsk / runner 的處理方式)。
+ */
+async function invokeConverse(
+  bedrock: DraftDeps['bedrock'],
+  modelId: string,
+  system: string,
+  userContent: string,
+): Promise<string> {
+  const send = (withTemp: boolean, withSystem: boolean) =>
+    bedrock.send(
+      new ConverseCommand({
+        modelId,
+        ...(withSystem ? { system: [{ text: system }] } : {}),
+        messages: [{ role: 'user', content: [{ text: withSystem ? userContent : `${system}\n\n${userContent}` }] }],
+        inferenceConfig: withTemp
+          ? { maxTokens: DRAFT_MAX_TOKENS, temperature: 0.2 }
+          : { maxTokens: DRAFT_MAX_TOKENS },
+      }),
+    ) as Promise<{ output?: { message?: { content?: Array<{ text?: string }> } } }>;
+  let withTemp = true;
+  let withSystem = true;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await send(withTemp, withSystem);
+      return (res.output?.message?.content ?? []).map((c) => c.text ?? '').join('').trim();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (attempt < 2 && withTemp && /temperature|top_?p/i.test(msg)) { withTemp = false; continue; }
+      if (attempt < 2 && withSystem && /system|alternate/i.test(msg)) { withSystem = false; continue; }
+      throw err;
+    }
+  }
 }
 
 export function makeBedrockClient(region: string): BedrockRuntimeClient {

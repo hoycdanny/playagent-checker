@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { uploadIconImage } from '../api/iconUpload.ts';
 import {
   apiGet,
   apiPost,
@@ -301,9 +302,8 @@ export default function AppsPage() {
     // 本地即時預覽(不必等雲端)。
     setIconPreview(URL.createObjectURL(file));
     try {
-      const target = await apiPost<UploadTarget>('/uploads', { kind: 'png' });
-      await uploadToS3(target.url, file, setIconPct);
-      setForm((f) => (f ? { ...f, iconArtifactId: target.artifactId } : f));
+      const artifactId = await uploadIconImage(file, setIconPct);
+      setForm((f) => (f ? { ...f, iconArtifactId: artifactId } : f));
       setIconState('done');
     } catch {
       setIconState('failed');
@@ -501,6 +501,8 @@ export default function AppsPage() {
                     className="visually-hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
+                      // 清空 value:選同一個檔案(例如上次失敗後重選)才會再觸發 onChange。
+                      e.target.value = '';
                       if (f) void onUploadIcon(f);
                     }}
                   />

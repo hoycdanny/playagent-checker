@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { apiGet, apiPut, apiDelete, ApiError, type ListResponse } from '../api/client.ts';
+import { uploadIconImage } from '../api/iconUpload.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
@@ -87,6 +88,8 @@ export default function AppWorkspacePage() {
 
   const [app, setApp] = useState<AppRecord | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [iconBusy, setIconBusy] = useState(false);
+  const [iconError, setIconError] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [cases, setCases] = useState<CaseSummary[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -204,6 +207,22 @@ export default function AppWorkspacePage() {
     }
   }
 
+  async function onChangeIcon(file: File) {
+    setIconBusy(true);
+    setIconError(false);
+    try {
+      const iconArtifactId = await uploadIconImage(file);
+      const next = await apiPut<AppRecord>(`/apps/${encodeURIComponent(appId)}`, { iconArtifactId });
+      setApp(next);
+      // PUT 回傳的是原始記錄(沒有簽好的 iconUrl),重抓一次才拿得到新圖網址。
+      loadApp();
+    } catch {
+      setIconError(true);
+    } finally {
+      setIconBusy(false);
+    }
+  }
+
   async function onSaveDefaultKbs() {
     setKbSaving(true);
     setKbSaved(false);
@@ -238,7 +257,20 @@ export default function AppWorkspacePage() {
 
       {/* App 身份區 */}
       <header className="ws__identity">
-        <div className="ws__thumb">
+        {/* 點圖示就能換:選圖 → 轉 PNG 直傳 → 立刻存回應用,不必再進編輯表單。 */}
+        <label className="ws__thumb ws__thumb--editable" title={t('apps.iconChange')}>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="visually-hidden"
+            disabled={iconBusy}
+            aria-label={t('apps.iconChange')}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = '';
+              if (f) void onChangeIcon(f);
+            }}
+          />
           {app?.iconUrl ? (
             <img src={app.iconUrl} alt={app.name} />
           ) : (
@@ -246,7 +278,13 @@ export default function AppWorkspacePage() {
               {(app?.name ?? '?').slice(0, 1).toUpperCase()}
             </span>
           )}
-        </div>
+          <span className="ws__thumb-cta" aria-hidden="true">
+            {iconBusy ? '…' : t('apps.iconChange')}
+          </span>
+        </label>
+        {iconError && (
+          <span className="ws__icon-error" role="alert">{t('apps.uploadFailed')}</span>
+        )}
         <div className="ws__identity-main">
           <h1 className="ws__title">{app?.name ?? appId}</h1>
           <div className="ws__badges">

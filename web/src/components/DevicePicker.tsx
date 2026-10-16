@@ -35,6 +35,8 @@ export default function DevicePicker({ devices, value, onSelect, onClose }: Devi
   const [osFilter, setOsFilter] = useState('');
   // 暫存挑選(按「選定」才提交),初始為傳入的 value。
   const [picked, setPicked] = useState(value);
+  // 清單內若全是 iOS 就標 iOS,否則標 Android(版本篩選下拉用)。
+  const platformName = devices.length > 0 && devices.every((d) => d.platform === 'ios') ? 'iOS' : 'Android';
 
   // Esc 關閉。
   useEffect(() => {
@@ -107,7 +109,7 @@ export default function DevicePicker({ devices, value, onSelect, onClose }: Devi
             <option value="">{t('device.allOs')}</option>
             {osOptions.map((os) => (
               <option key={os} value={os}>
-                Android {os}
+                {platformName} {os}
               </option>
             ))}
           </select>
@@ -144,7 +146,7 @@ export default function DevicePicker({ devices, value, onSelect, onClose }: Devi
               >
                 <span className="devpick__card-name">{d.name}</span>
                 <span className="devpick__card-badges">
-                  <span className="devpick__badge">Android {d.os}</span>
+                  <span className="devpick__badge">{d.platform === 'ios' ? 'iOS' : 'Android'} {d.os}</span>
                   {d.arch && <span className="devpick__badge">{d.arch}</span>}
                   {d.availability === 'HIGHLY_AVAILABLE' && (
                     <span className="devpick__badge devpick__badge--ok">{t('device.highlyAvailable')}</span>

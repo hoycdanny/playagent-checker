@@ -270,6 +270,8 @@ export interface CloudDevice {
   /** 裝置 ARN(提交任務時當 deviceArn 明確指定要跑哪台)。 */
   arn?: string;
   name: string;
+  /** 裝置平台(任務頁依 App 平台篩選)。 */
+  platform?: 'android' | 'ios';
   os: string;
   arch: string;
   manufacturer: string;
@@ -2112,8 +2114,12 @@ async function buildReportForJob(
         : (job?.knowledgeBaseIds ?? []).map((id) => getKnowledgeBase(deps.sharedS3, deps.bucket, id).catch(() => null)),
     ),
   ]);
+  // Load the runner's slot-board-v1 capture manifest (best-effort; must not break report.json).
+  const slotCaptureManifest = await readJsonObject<Record<string, unknown>>(
+    s3, deps.bucket, `${tenantPrefix(tenantId)}jobs/${jobId}/spins/manifest.json`,
+  ).catch(() => null);
   const structured = buildStructuredReport({
-    raw,
+    raw: slotCaptureManifest ? { ...raw, slotCaptureManifest } : raw,
     job: job ?? null,
     app: app ?? null,
     testCase: testCase ?? null,
@@ -2131,6 +2137,15 @@ async function buildReportForJob(
   };
   if (opts.sign !== false) {
     await Promise.all([...structured.evidence, ...structured.findings, ...structured.aiFailures].map(withUrls));
+    if (structured.slotCapture) {
+      // Presign up to 30 spin board/context URLs (manifest already persisted to S3; cap stays within Lambda limits).
+      structured.slotCapture.spins = structured.slotCapture.spins.slice(0, 30);
+      await Promise.all(structured.slotCapture.spins.map(async (spin) => {
+        const [board, context] = await Promise.all([sign(spin.boardKey), sign(spin.contextKey)]);
+        if (board) spin.boardUrl = board;
+        if (context) spin.contextUrl = context;
+      }));
+    }
   }
   return structured;
 }

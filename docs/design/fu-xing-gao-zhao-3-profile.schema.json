@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://playagent.local/schemas/fu-xing-gao-zhao-3-profile.schema.json",
+  "title": "Fu Xing Gao Zhao 3 Machine Profile",
+  "description": "Fu Xing Gao Zhao 3 的待核准機台設定 schema。校準任務 job-mv4wirbq-q0p8h0 已取得部分規則與倍率頁；在所有頁面、投注基準、totalWays 與符號模板完成人工核准前，profile 必須維持 pending。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "machineId", "appId", "appVersion", "layout", "symbols", "paytable", "rules", "provenance"],
+  "properties": {
+    "schemaVersion": { "type": "string", "minLength": 1, "default": "1.0.0" },
+    "machineId": { "const": "fu-xing-gao-zhao-3" },
+    "appId": { "type": "string", "minLength": 1, "description": "須由來源截圖或安裝包核准，不在 schema 中猜值。" },
+    "appVersion": { "type": "string", "minLength": 1, "description": "須由來源證據核准，不在 schema 中猜值。" },
+    "layout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reels", "variableRows", "ways"],
+      "properties": {
+        "reels": { "const": 5 },
+        "variableRows": { "const": true },
+        "ways": { "enum": [true, "all-ways"], "description": "All-Ways，不使用固定 payline。" },
+        "roi": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "w", "h"],
+          "properties": {
+            "x": { "type": "number", "minimum": 0, "maximum": 1 },
+            "y": { "type": "number", "minimum": 0, "maximum": 1 },
+            "w": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "h": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "default": [],
+      "description": "只可加入校準截圖已確認的 symbol ID；不可以由遊戲名稱推測。",
+      "items": { "$ref": "#/$defs/symbol" }
+    },
+    "paytable": {
+      "type": "array",
+      "default": [],
+      "description": "不得由遊戲名稱推測派彩；待逐項證據核准。",
+      "items": { "$ref": "#/$defs/pay" }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["consecutiveFromLeft", "wildSubstitutes", "betBasis"],
+      "properties": {
+        "consecutiveFromLeft": { "const": true },
+        "wildSubstitutes": { "const": true },
+        "scatterAnywhere": { "const": true },
+        "betBasis": { "enum": ["total", "perWay"] },
+        "totalWays": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "provenance": { "$ref": "#/$defs/provenance" },
+    "features": { "type": "object", "additionalProperties": true }
+  },
+  "$defs": {
+    "symbol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "aliases": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "wild": { "type": "boolean" },
+        "scatter": { "type": "boolean" }
+      }
+    },
+    "pay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["symbol", "count", "multiplier"],
+      "properties": {
+        "symbol": { "type": "string", "minLength": 1 },
+        "count": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "multiplier": { "type": "number", "minimum": 0 }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sourceScreenshots", "approved", "approvalStatus"],
+      "properties": {
+        "sourceScreenshots": { "type": "array", "items": { "type": "string", "minLength": 1 }, "default": [] },
+        "approved": { "const": false, "description": "初始 profile 不得在缺少證據時標成已核准。" },
+        "approvalStatus": { "const": "pending" },
+        "approvedBy": { "type": "string", "minLength": 1 },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "calibrationCase": { "type": "string" },
+        "calibrationVersion": { "type": "string" },
+        "calibrationJob": { "type": "string" },
+        "pendingReasons": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "examples": [
+    {
+      "schemaVersion": "1.0.0",
+      "machineId": "fu-xing-gao-zhao-3",
+      "appId": "pending-evidence",
+      "appVersion": "pending-evidence",
+      "layout": { "reels": 5, "variableRows": true, "ways": true },
+      "symbols": [],
+      "paytable": [],
+      "rules": { "consecutiveFromLeft": true, "wildSubstitutes": true, "betBasis": "total" },
+      "provenance": { "sourceScreenshots": [], "approved": false, "approvalStatus": "pending" }
+    }
+  ]
+}

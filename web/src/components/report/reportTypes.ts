@@ -246,6 +246,8 @@ export interface StructuredReport {
     excluded: Array<{ step: number; key: string; value: number; reason: L10n; prev?: { step: number; value: number }; next?: { step: number; value: number } }>;
     betChanges: Array<{ step: number; prevStep: number; key: string; from: number; to: number }>;
   };
+  /** 逐局盤面影片證據(slot-board-v1)。 */
+  slotCapture?: SlotCaptureManifest;
   notes: L10n[];
 }
 
@@ -326,4 +328,39 @@ export interface Acceptance {
   rtp?: RtpLedger;
   references: Array<{ id: string; title: string; url: string; use: L10n }>;
   rules: L10n[];
+}
+
+// ───────── 逐局盤面影片證據(slot-board-v1)─────────
+export interface SlotCaptureSpin {
+  sequence: number;
+  session: number;
+  kind: 'paid' | 'free' | 'unknown';
+  modeReason?: string;
+  startedAt: number;
+  capturedAt: number;
+  sourceSegment: string;
+  sourceOffsetMs: number;
+  busyMs: number;
+  stableMs: number;
+  confidence: number;
+  boardKey: string;
+  contextKey: string;
+  status: 'captured' | 'capture_failed';
+  error?: string;
+  boardUrl?: string;
+  contextUrl?: string;
+}
+export interface SlotCaptureManifest {
+  schemaVersion: number;
+  machineId: string;
+  appVersion: string;
+  state: string;
+  capture: { fps: number; roi: { x: number; y: number; w: number; h: number }; grid: [number, number]; source: string };
+  summary: { detectedSpins: number; paidSpins: number; freeSpins: number; unknownSpins: number; capturedBoards: number; captureFailures: number; segmentCount: number; gapCount: number; gapMs: number; analysisFailures: number };
+  spins: SlotCaptureSpin[];
+  gaps: Array<{ after: string; before: string; from: number; to: number; ms: number }>;
+  segments: Array<{ name: string; session: number; startedAt: number; durationMs: number; frameCount: number; bytes: number }>;
+  startedAt: string;
+  updatedAt: string;
+  finishedAt?: string;
 }

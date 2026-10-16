@@ -71,6 +71,8 @@ export interface CloudDevice {
   /** 裝置 ARN(提交任務時明確指定要跑哪台真機)。 */
   arn?: string;
   name: string;
+  /** 裝置平台(舊後端沒帶時視為 android)。 */
+  platform?: 'android' | 'ios';
   os: string;
   arch: string;
   manufacturer: string;
