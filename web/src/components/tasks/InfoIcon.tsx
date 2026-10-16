@@ -17,7 +17,8 @@ export type InfoIconName =
   | 'clock'
   | 'check'
   | 'x'
-  | 'rocket';
+  | 'rocket'
+  | 'user';
 
 const PATHS: Record<InfoIconName, string[]> = {
   target: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', 'M12 12h.01'],
@@ -37,6 +38,7 @@ const PATHS: Record<InfoIconName, string[]> = {
   clock: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M12 7v5l3 2'],
   check: ['M5 12.5l4.5 4.5L19 7.5'],
   x: ['M6 6l12 12M18 6 6 18'],
+  user: ['M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', 'M4 21a8 8 0 0 1 16 0'],
   rocket: ['M5 15c-1.5 1.3-2 4-2 6 2 0 4.7-.5 6-2', 'M9 15l-3-3c1.5-4.5 5-9 12-9 0 7-4.5 10.5-9 12Z', 'M14.5 9.5h.01', 'M6 12H3l2-4h4', 'M12 18v3l4-2v-4'],
 };
 

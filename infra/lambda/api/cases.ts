@@ -233,7 +233,8 @@ export async function ensureCaseVersion(
     ...(h.version ? { basedOn: h.version } : {}),
     ...(at !== undefined && Number.isFinite(at) && !h.version ? { at } : {}),
   });
-  await putHead(s3, bucket, tenantId, app, caseId, h.name, h.yaml, v.version);
+  // 補建版本不是使用者的修改:沿用 head 原本記的修改者。
+  await putHead(s3, bucket, tenantId, app, caseId, h.name, h.yaml, v.version, h.updatedBy);
   return v.version;
 }
 
@@ -245,11 +246,13 @@ export async function activateCaseVersion(
   app: string,
   caseId: string,
   version: string,
+  /** 切換版本的使用者(記在 head;版本本身不變)。 */
+  updatedBy?: string,
 ): Promise<CaseDetail> {
   const v = await getCaseVersion(s3, bucket, tenantId, app, caseId, version);
   if (!v) throw new NotFoundError(`找不到案例版本: ${version}`);
-  await putHead(s3, bucket, tenantId, app, caseId, v.name, v.yaml, v.version);
-  return { id: caseId, app, name: v.name, yaml: v.yaml, version: v.version };
+  await putHead(s3, bucket, tenantId, app, caseId, v.name, v.yaml, v.version, updatedBy);
+  return { id: caseId, app, name: v.name, yaml: v.yaml, version: v.version, ...(updatedBy ? { updatedBy } : {}) };
 }
 
 // ───────────────────────── 案例 head ─────────────────────────
@@ -263,14 +266,14 @@ function caseKey(tenantId: string, app: string, caseId: string): string {
 }
 
 /** 寫「目前使用中」的案例 head(正文逐字保存;名稱/app/版本號記於 metadata)。 */
-async function putHead(s3: S3Client, bucket: string, tenantId: string, app: string, caseId: string, name: string, yaml: string, version: string): Promise<void> {
+async function putHead(s3: S3Client, bucket: string, tenantId: string, app: string, caseId: string, name: string, yaml: string, version: string, updatedBy?: string): Promise<void> {
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: caseKey(tenantId, app, caseId),
       Body: yaml,
       ContentType: 'application/yaml',
-      Metadata: { name: encodeURIComponent(name), app, version },
+      Metadata: { name: encodeURIComponent(name), app, version, ...encodeUser(updatedBy) },
     }),
   );
 }
@@ -314,7 +317,7 @@ export async function createCase(
   const v = await writeCaseVersion(s3, bucket, tenantId, {
     app: input.app, caseId: id, name: input.name, yaml: input.yaml, source: 'create', ...(createdBy ? { createdBy } : {}),
   });
-  await putHead(s3, bucket, tenantId, input.app, id, input.name, input.yaml, v.version);
+  await putHead(s3, bucket, tenantId, input.app, id, input.name, input.yaml, v.version, createdBy);
   return { id, app: input.app, name: input.name, version: v.version };
 }
 
@@ -324,6 +327,8 @@ export interface CaseSummary {
   name: string;
   /** 目前使用中的版本號(舊案例尚未建立版本時無此欄位)。 */
   version?: string;
+  /** 最後新增 / 修改 / 切換版本的使用者。 */
+  updatedBy?: string;
 }
 
 /** 列出某租戶(可選某 app)的案例。 */
@@ -354,7 +359,7 @@ export async function listCases(
       const rawName = head.Metadata?.['name'];
       const name = rawName ? decodeURIComponent(rawName) : fileId;
       const version = head.Metadata?.['version'];
-      return { id: fileId, app: appName, name, ...(version && CASE_VERSION_RE.test(version) ? { version } : {}) };
+      return { id: fileId, app: appName, name, ...(version && CASE_VERSION_RE.test(version) ? { version } : {}), ...decodeUser(head.Metadata) };
     }),
   );
   return summaries;
@@ -398,6 +403,18 @@ export interface CaseDetail {
   version?: string;
   /** head 最後寫入時間。 */
   updatedAt?: string;
+  /** 最後新增 / 修改 / 切換版本的使用者(email 或 sub;功能上線前的案例沒有)。 */
+  updatedBy?: string;
+}
+
+/** 使用者識別寫進 S3 metadata(只能 ASCII)/ 從 metadata 讀回。 */
+function encodeUser(u: string | undefined): Record<string, string> {
+  return u ? { updatedby: encodeURIComponent(u.slice(0, 200)) } : {};
+}
+function decodeUser(meta: Record<string, string> | undefined): { updatedBy?: string } {
+  const raw = meta?.['updatedby'];
+  if (!raw) return {};
+  try { return { updatedBy: decodeURIComponent(raw) }; } catch { return {}; }
 }
 
 /** 讀單一案例(目前使用中的 head:YAML 正文、名稱、版本號)。不存在回 null。 */
@@ -423,6 +440,7 @@ export async function getCase(
       yaml,
       ...(version && CASE_VERSION_RE.test(version) ? { version } : {}),
       ...(res.LastModified ? { updatedAt: res.LastModified.toISOString() } : {}),
+      ...decodeUser(res.Metadata),
     };
   } catch (err) {
     if (err instanceof Error && (err.name === 'NoSuchKey' || err.name === 'NotFound')) {
@@ -465,8 +483,8 @@ export async function updateCase(
     ...(createdBy ? { createdBy } : {}),
     ...(baseVersion ? { basedOn: baseVersion } : {}),
   });
-  await putHead(s3, bucket, tenantId, app, caseId, name, yaml, v.version);
-  return { id: caseId, app, name, yaml, version: v.version, created: true };
+  await putHead(s3, bucket, tenantId, app, caseId, name, yaml, v.version, createdBy);
+  return { id: caseId, app, name, yaml, version: v.version, ...(createdBy ? { updatedBy: createdBy } : {}), created: true };
 }
 
 /** 刪除案例(幂等;不存在視為已刪)。只刪使用中的 head,歷史版本保留供溯源。 */

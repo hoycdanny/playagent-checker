@@ -5,6 +5,7 @@ import AppBadge, { type AppRef } from '../AppRef.tsx';
 import { modelLabel } from '../modelProvider.ts';
 import { reportLang, type RLang } from '../report/reportText.ts';
 import { CaseVersionBadge } from './CaseVersions.tsx';
+import UserTag from '../UserTag.tsx';
 import './CaseOverviewTable.css';
 
 /** 後端 GET /cases/overview 的一列(infra/lambda/api/caseOverview.ts)。 */
@@ -26,6 +27,8 @@ export interface CaseOverviewItem {
   name: string;
   version?: string;
   updatedAt?: string;
+  /** 最後新增 / 修改 / 切換版本的使用者。 */
+  updatedBy?: string;
   versionCount: number;
   parsed: {
     task?: string;
@@ -105,6 +108,7 @@ const T = {
   version: ['目前版本', 'Current version'],
   versions: ['共 {n} 個版本', '{n} versions'],
   updated: ['最後更新', 'Last updated'],
+  updatedBy: ['最後修改', 'Last edited by'],
   onVersion: ['此版本已跑 {n} 次', '{n} run(s) on this version'],
   versionsRun: ['跑過 {n} 個版本', 'Ran on {n} version(s)'],
   noSteps: ['案例未寫步驟(task)。', 'No steps (task) written.'],
@@ -274,6 +278,7 @@ export function CaseOverviewTable({
                         <div className="cov__sub">
                           <AppBadge app={appLookup(c.app)} fallbackId={c.app} />
                           <CaseVersionBadge version={c.version} />
+                          {c.updatedBy && <UserTag user={c.updatedBy} prefix={tx('updatedBy', lang)} />}
                           {c.parsed.priority && <span className="cov__chip cov__chip--prio">{c.parsed.priority}</span>}
                           {(c.parsed.controls ?? []).map((ctl) => <span key={ctl} className="cov__chip">{ctl}</span>)}
                           {c.parsed.tags.map((tg) => <span key={tg} className="cov__chip cov__chip--tag">#{tg}</span>)}
@@ -338,7 +343,7 @@ export function CaseOverviewTable({
                               <h4>{tx('settings', lang)}</h4>
                               <dl className="cov__dl">
                                 <div><dt>{tx('version', lang)}</dt><dd><CaseVersionBadge version={c.version} /> <span className="cov__muted">{tx('versions', lang).replace('{n}', String(c.versionCount))}</span></dd></div>
-                                <div><dt>{tx('updated', lang)}</dt><dd>{c.updatedAt ? new Date(c.updatedAt).toLocaleString(locale) : '—'}</dd></div>
+                                <div><dt>{tx('updated', lang)}</dt><dd>{c.updatedAt ? new Date(c.updatedAt).toLocaleString(locale) : '—'}{c.updatedBy && <> · <UserTag user={c.updatedBy} prefix={tx('updatedBy', lang)} /></>}</dd></div>
                                 <div><dt>{tx('controls', lang)}</dt><dd>{c.parsed.controls?.length ? c.parsed.controls.join(', ') : tx('controlsDefault', lang)}</dd></div>
                                 {c.parsed.priority && <div><dt>{tx('priority', lang)}</dt><dd>{c.parsed.priority}</dd></div>}
                                 {c.parsed.severity && <div><dt>{tx('severity', lang)}</dt><dd>{c.parsed.severity}</dd></div>}

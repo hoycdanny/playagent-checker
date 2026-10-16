@@ -78,6 +78,10 @@ export interface JobRecord {
   caseName?: string;
   /** 案例帶結構化測項(items:)—— 執行時以測項為主、作為權威停止條件。 */
   scripted?: boolean;
+  /** 送出任務的使用者(email;沒有 email 時為 Cognito sub)。舊任務沒有。 */
+  submittedBy?: string;
+  /** 送出者的 Cognito sub(email 改了也追得到同一個人)。 */
+  submittedBySub?: string;
   createdAt: string;
 }
 
@@ -329,7 +333,7 @@ export async function createJob(
   tenantId: string,
   input: SubmitInput,
   artifactVersion?: string,
-  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string; scripted?: boolean },
+  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string; scripted?: boolean; submittedBy?: string; submittedBySub?: string },
 ): Promise<JobRecord> {
   const jobId = newJobId();
   const record: JobRecord = {
@@ -364,6 +368,8 @@ export async function createJob(
     ...(extra?.caseVersion ? { caseVersion: extra.caseVersion } : {}),
     ...(extra?.caseName ? { caseName: extra.caseName } : {}),
     ...(extra?.scripted ? { scripted: true } : {}),
+    ...(extra?.submittedBy ? { submittedBy: extra.submittedBy } : {}),
+    ...(extra?.submittedBySub ? { submittedBySub: extra.submittedBySub } : {}),
     ...(input.knowledgeBaseIds && input.knowledgeBaseIds.length > 0
       ? { knowledgeBaseIds: input.knowledgeBaseIds }
       : {}),
@@ -412,6 +418,8 @@ export interface TaskListItem {
   caseVersion?: string;
   /** 執行時的案例名稱快照。 */
   caseName?: string;
+  /** 送出任務的使用者(email 或 sub;舊任務沒有)。 */
+  submittedBy?: string;
   /** Device Farm 段數(未帶 = 單段;0 = 不限段數;>1 = 長時)。 */
   maxSegments?: number;
   /** token 用量(三個 seat 合計);費用分析頁的明細用。舊報告可能缺欄位。 */
@@ -600,6 +608,7 @@ export async function listJobs(
         ...((report?.generatedAt ?? status?.updatedAt) ? { finishedAt: report?.generatedAt ?? status?.updatedAt } : {}),
         ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
         ...(job.caseName ? { caseName: job.caseName } : {}),
+        ...(job.submittedBy ? { submittedBy: job.submittedBy } : {}),
         // Device Farm 長時(多段接續):列表用不同圖示標出。
         ...(typeof job.maxSegments === 'number' ? { maxSegments: job.maxSegments } : {}),
         // token 用量照原樣帶出(不另外讀 S3,report 已經在手上),費用頁的逐筆明細要用。
@@ -841,6 +850,8 @@ export interface TaskMeta {
   /** 案例名稱 / 版本快照。 */
   caseName?: string;
   caseVersion?: string;
+  /** 送出任務的使用者(email 或 sub)。 */
+  submittedBy?: string;
   /** 步數上限(未設 = 無上限)。 */
   maxSteps?: number;
   /**
@@ -941,6 +952,7 @@ async function buildTaskMeta(
     ...((job.caseTask ?? report?.task) ? { script: String(job.caseTask ?? report?.task).slice(0, 8000) } : {}),
     ...(job.caseName ? { caseName: job.caseName } : {}),
     ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
+    ...(job.submittedBy ? { submittedBy: job.submittedBy } : {}),
     ...(typeof job.maxSteps === 'number' && job.maxSteps > 0 ? { maxSteps: job.maxSteps } : {}),
     prices: priceMap([
       ...seats.map((s) => s.modelId),

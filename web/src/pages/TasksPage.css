@@ -192,6 +192,11 @@
   color: var(--text-tertiary);
   font-size: 13px;
 }
+/* 送出者(建立時間下方一行小字;完整 email 在提示裡) */
+.tasks__by {
+  margin-left: -4px;
+  max-width: 14em;
+}
 
 /* 狀態徽章:文字 + 顏色 + 形狀(圓點)三重編碼,不只靠顏色(Req 11.4) */
 .task-state {

@@ -45,6 +45,8 @@ interface TaskItem {
   stepCount?: number;
   /** 測試結論(驗收標準;與報告封面同一個值)。 */
   verdict?: VerdictInfo;
+  /** 送出任務的使用者。 */
+  submittedBy?: string;
 }
 
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。

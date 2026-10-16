@@ -13,6 +13,7 @@ import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
 import { usd4 } from '../components/money.ts';
+import UserTag from '../components/UserTag.tsx';
 
 /** GET /reports 回傳的列(對齊後端 TaskListItem)。 */
 interface ReportItem {
@@ -41,6 +42,8 @@ interface ReportItem {
   maxSegments?: number;
   /** 測試結論(驗收標準;與報告封面同一個值)。 */
   verdict?: VerdictInfo;
+  /** 送出任務的使用者。 */
+  submittedBy?: string;
 }
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
@@ -425,6 +428,11 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                         <Link to={`/reports/${x.jobId}`} className="tasks__row-link" aria-label={`${t('report.open')} ${formatDateTime(x.createdAt)}`}>
                           <time dateTime={x.createdAt}>{formatDateTime(x.createdAt)}</time>
                         </Link>
+                        {x.submittedBy && (
+                          <div className="tasks__by">
+                            <UserTag user={x.submittedBy} prefix={t('tasks.submittedBy')} />
+                          </div>
+                        )}
                       </td>
                       <td><AppBadge app={lookup(x.appId)} fallbackId={x.appId} /></td>
                       <td className="tasks__col-case" title={[x.caseName, x.message].filter(Boolean).join('\n')}>

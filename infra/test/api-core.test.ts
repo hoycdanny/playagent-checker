@@ -604,6 +604,37 @@ describe('API 核心 — 共用知識庫', () => {
     expect(job.knowledgeBaseIds).toEqual(['kb-a', 'kb-b']);
   });
 
+  test('提交任務記下送出者(email + sub),任務列表也帶出來', async () => {
+    const deps = fakeDeps();
+    deps.store.set('tenants/t-001/apps/app-1.json', JSON.stringify({ id: 'app-1' }));
+    deps.store.set('tenants/t-001/cases/app-1/case-1.yaml', 'task: x');
+    const created = await handleRequest(
+      { method: 'POST', path: '/tasks', claims, body: { backend: 'web', appId: 'app-1', caseId: 'case-1' } },
+      deps,
+    );
+    const jobId = (created.body as { jobId: string }).jobId;
+    const job = JSON.parse(deps.store.get(`tenants/t-001/jobs/${jobId}/job.json`)!);
+    expect(job.submittedBy).toBe('a@example.com');
+    expect(job.submittedBySub).toBe('u-1');
+    const list = await handleRequest({ method: 'GET', path: '/tasks', claims }, deps);
+    const item = (list.body as { items: Array<{ jobId: string; submittedBy?: string }> }).items.find((x) => x.jobId === jobId);
+    expect(item?.submittedBy).toBe('a@example.com');
+  });
+
+  test('沒有 email 的帳號 → 送出者記 sub', async () => {
+    const deps = fakeDeps();
+    deps.store.set('tenants/t-001/apps/app-1.json', JSON.stringify({ id: 'app-1' }));
+    deps.store.set('tenants/t-001/cases/app-1/case-1.yaml', 'task: x');
+    const noEmail = { 'custom:tenantId': 't-001', sub: 'u-9' };
+    const created = await handleRequest(
+      { method: 'POST', path: '/tasks', claims: noEmail, body: { backend: 'web', appId: 'app-1', caseId: 'case-1' } },
+      deps,
+    );
+    const jobId = (created.body as { jobId: string }).jobId;
+    const job = JSON.parse(deps.store.get(`tenants/t-001/jobs/${jobId}/job.json`)!);
+    expect(job.submittedBy).toBe('u-9');
+  });
+
   test('提交未帶 knowledgeBaseIds 時套用 App 預設', async () => {
     const deps = fakeDeps();
     deps.store.set(

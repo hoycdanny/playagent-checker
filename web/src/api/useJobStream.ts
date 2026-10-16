@@ -47,6 +47,8 @@ export interface TaskMeta {
   script?: string;
   caseName?: string;
   caseVersion?: string;
+  /** 送出任務的使用者(email 或 sub)。 */
+  submittedBy?: string;
   maxSteps?: number;
   /** 這次可能用到的各模型目前單價(含快取寫入/讀取)。 */
   prices?: Record<string, { inputPerM: number; outputPerM: number; cacheWritePerM: number; cacheReadPerM: number }>;

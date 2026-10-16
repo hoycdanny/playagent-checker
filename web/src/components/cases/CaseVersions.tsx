@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { reportLang, type RLang } from '../report/reportText.ts';
+import UserTag from '../UserTag.tsx';
 import './CaseVersions.css';
 
 /** 案例版本(後端 infra/lambda/api/cases.ts CaseVersion;清單不含 yaml)。 */
@@ -167,7 +168,7 @@ export function CaseVersions({
                   {isActive && <span className="cver__active">{tx('active', lang)}</span>}
                   <span className="cver__meta">
                     {sourceText(v.source)} · {time(v.createdAt)}
-                    {v.createdBy ? ` · ${v.createdBy}` : ''}
+                    {v.createdBy && <> · <UserTag user={v.createdBy} prefix={sourceText(v.source)} /></>}
                     {v.basedOn ? ` · ${tx('basedOn', lang)} ${v.basedOn}` : ''}
                   </span>
                   <span className="cver__name" title={v.name}>{v.name}</span>
