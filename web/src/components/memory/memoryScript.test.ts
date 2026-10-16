@@ -1,10 +1,15 @@
 import { describe, expect, test } from 'vitest';
 import {
+  cleanTarget,
+  defaultOp,
   edgeOpKey,
   exportFileName,
   findScriptPath,
   generateAppiumScript,
+  opKey,
   opTrust,
+  pageOps,
+  parseOpKey,
   popupHandlers,
   selfOpKey,
   spinOpOf,
@@ -112,6 +117,44 @@ describe('popupHandlers / spinOpOf', () => {
     expect(spinOpOf(p, {})?.target).toBe('SPIN');
     const off = { [selfOpKey('slot', p.selfOps![1]!)]: { disabled: true } };
     expect(spinOpOf(p, off)).toBeNull();
+  });
+});
+
+describe('pageOps (online script editing)', () => {
+  const pages: Record<string, ScriptPage> = {
+    slot: page('slot', '老虎機', {
+      selfOps: [{ kind: 'tap', target: 'AUTO SPIN', hitCount: 3, missCount: 0, op: { a: 'tap', x: 0.7, y: 0.9 } }],
+    }),
+    lobby: page('lobby', '大廳'),
+  };
+  const edges = [edge('slot', 'lobby', '返回大廳', 1, 0), edge('lobby', 'slot', 'Play')];
+
+  test('lists outgoing paths, recorded same-screen ops and ops added by the tester', () => {
+    const manualKey = opKey('slot', 'slot', 'tap', 'SPIN');
+    const edits: Record<string, OpEdit> = { [manualKey]: { op: { a: 'tap', x: 0.9, y: 0.88 }, verified: true } };
+    const ops = pageOps('slot', pages, edges, edits);
+    expect(ops.map((o) => [o.target, o.toPageId, o.trust, o.manual])).toEqual([
+      ['SPIN', null, 'verified', true],
+      ['AUTO SPIN', null, 'auto', false],
+      ['返回大廳', 'lobby', 'learning', false],
+    ]);
+    expect(spinOpOf(pages.slot, edits)).toEqual({ target: 'SPIN', op: { a: 'tap', x: 0.9, y: 0.88 } });
+    // 只有旗標、沒有操作內容的不算新增的操作
+    expect(pageOps('slot', pages, edges, { [opKey('slot', 'slot', 'tap', 'X')]: { disabled: true } })).toHaveLength(2);
+  });
+
+  test('parseOpKey / cleanTarget / defaultOp', () => {
+    expect(parseOpKey('page_a>page_b>tap>A > B')).toEqual({ from: 'page_a', to: 'page_b', kind: 'tap', target: 'A > B' });
+    expect(parseOpKey('bad')).toBeNull();
+    expect(cleanTarget('  關閉 > X \n')).toBe('關閉 X');
+    expect(defaultOp('swipe', 0.5, 0.8)).toEqual({ a: 'swipe', x: 0.5, y: 0.8, x2: 0.5, y2: 0.55, ms: 300 });
+    expect(defaultOp('back', 0.2, 0.2)).toEqual({ a: 'back' });
+  });
+
+  test('script steps carry the key used to edit them', () => {
+    const steps = findScriptPath(pages, edges, {}, 'slot', 'lobby')!;
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatchObject({ key: edgeOpKey(edges[1]!), kind: 'tap', target: 'Play' });
   });
 });
 

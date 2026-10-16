@@ -1,5 +1,5 @@
 .sg-canvas {
-  height: 70vh;
+  height: 62vh;
   min-height: 420px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -426,3 +426,10 @@
 }
 .sg-guide__badge--order { background: color-mix(in srgb, #000 70%, transparent); }
 .sg-guide__badge--root { background: #ff2d95; }
+
+/* 下方工作區正打開的畫面 */
+.sg-node--focused {
+  outline: 3px solid var(--brand, #ff2d95);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand, #ff2d95) 25%, transparent);
+}

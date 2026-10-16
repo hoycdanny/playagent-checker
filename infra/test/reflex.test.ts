@@ -17,6 +17,7 @@ import {
   createReflexState,
   opFromCmd,
   opTrust,
+  pageSelfOps,
   parseSpinCount,
   rtpSummary,
   selfOpKey,
@@ -202,6 +203,19 @@ describe('SPIN loop and RTP', () => {
     expect(pick.target).toBe('SPIN');
     expect(pick.key).toBe(selfOpKey(slot, { kind: 'tap', target: 'SPIN' }));
     expect(chooseSpinOp({ struct: s, edits: { opEdits: { [pick.key]: { disabled: true } } }, pageId: slot, state: createReflexState() })).toBeNull();
+  });
+
+  test('a SPIN the tester added on the memory map (opEdits only) is used by the SPIN loop', () => {
+    const s = learnedGame(1);
+    const slot = idOf(s, 'Desert Legend 轉軸');
+    s.pages[slot]!.selfOps = [];
+    const key = `${slot}>${slot}>tap>開始旋轉`;
+    const edits = { opEdits: { [key]: { op: { a: 'tap', x: 0.9, y: 0.85 }, verified: true } } };
+    expect(pageSelfOps(s.pages[slot], slot, edits.opEdits).map((x) => x.target)).toEqual(['開始旋轉']);
+    const pick = chooseSpinOp({ struct: s, edits, pageId: slot, state: createReflexState() })!;
+    expect(pick).toMatchObject({ key, target: '開始旋轉', trust: 'verified', op: { a: 'tap', x: 0.9, y: 0.85 } });
+    // 只有確認 / 停用旗標、沒有操作內容的不算新增
+    expect(pageSelfOps(s.pages[slot], slot, { [`${slot}>${slot}>tap>X`]: { disabled: true } })).toHaveLength(0);
   });
 
   test('rtpSummary: totals, hit rate, 95% CI and the balance cross-check', () => {

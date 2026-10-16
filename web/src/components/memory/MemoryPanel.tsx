@@ -1,20 +1,21 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { GraphEditOp, Positions } from '../ScreenGraph.tsx';
 import type { MemoryRoute } from './RoutesPanel.tsx';
 import { distinctAliases } from './graphView.ts';
 import { useNavigate } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
-import { reportLang } from '../report/reportText.ts';
+import { reportLang, type RLang } from '../report/reportText.ts';
 import {
   DeletedPanel,
   HintsPanel,
-  PageDrawer,
   mt,
   useMemoryHints,
   type DeletedInfo,
 } from './MemoryEditor.tsx';
+import { ScreenStudio } from './ScreenStudio.tsx';
 import type { MemOp, OpEdit, SelfOp } from './memoryScript.ts';
+import './ScreenStudio.css';
 
 const ScreenGraph = lazy(() =>
   import('../ScreenGraph.tsx').then((m) => ({ default: m.ScreenGraph })),
@@ -87,12 +88,22 @@ export interface ScenarioTemplate {
 
 type ViewMode = 'grid' | 'graph';
 
+const L = {
+  mapTitle: ['畫面關係圖', 'Screen map'],
+  pickHint: ['👆 點上面任一個畫面,這裡會打開它的腳本、操作位置與說明。', '👆 Click any screen above to open its script, action positions and details here.'],
+  more: ['其他記憶設定(應用記憶、場景範本、已刪除)', 'More memory settings (app memory, scenario templates, deleted)'],
+} as const;
+const lt = (k: keyof typeof L, lang: RLang) => L[k][lang === 'zh' ? 0 : 1];
+
 /**
- * MemoryPanel —— 記憶地圖本體(統計、應用記憶、場景範本、樣片本/關係圖、編修抽屜)。
+ * MemoryPanel —— 記憶地圖本體。
  *
- * 從 MemoryPage 抽出來,讓「記憶地圖」頁與「應用工作區」的記憶分頁共用同一份實作:
- * 兩邊唯一的差別是 appId 怎麼來(獨立頁用下拉選、工作區由路由鎖定),所以 appId 用 prop 傳入,
- * 這裡不碰 App 清單也不碰網址。
+ * 版面(由上到下):
+ *   1. 畫面關係圖(或畫面清單)+ 統計
+ *   2. 點了某個畫面 → 下方展開「畫面工作區」(ScreenStudio):大張截圖 + 腳本 / 操作編修 / Appium 程式碼 / 說明
+ *   3. 其他記憶設定(應用記憶、場景範本、已刪除)收在最下面
+ *
+ * 「記憶地圖」頁與「應用工作區」的記憶分頁共用同一份實作,appId 由外層傳入。
  */
 export default function MemoryPanel({
   appId,
@@ -109,11 +120,13 @@ export default function MemoryPanel({
 
   const [overview, setOverview] = useState<MemOverview | null>(null);
   const [shots, setShots] = useState<Record<string, string>>({});
-  const [view, setView] = useState<ViewMode>('grid');
+  const [view, setView] = useState<ViewMode>('graph');
   const [loading, setLoading] = useState(false);
   const [templates, setTemplates] = useState<ScenarioTemplate[]>([]);
   const [openPageId, setOpenPageId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const mapRef = useRef<HTMLElement>(null);
+  const studioRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setOpenPageId(null);
@@ -177,6 +190,7 @@ export default function MemoryPanel({
     setClearing(true);
     try {
       await apiPost('/memory/clear', { app: appId, locality: 'cloud' });
+      setOpenPageId(null);
       loadOverview();
       setTemplates([]);
       onCleared?.();
@@ -194,6 +208,8 @@ export default function MemoryPanel({
     [pages, shots],
   );
   const edges = useMemo(() => overview?.structure.edges ?? [], [overview]);
+  const pageMap = useMemo(() => overview?.structure.pages ?? {}, [overview]);
+  const opEdits = useMemo(() => overview?.edits?.opEdits ?? {}, [overview]);
   const onGraphEdit = useCallback(async (op: GraphEditOp) => {
     await apiPost('/memory/edit', { app: appId, ...op });
     loadOverview(true);
@@ -203,8 +219,6 @@ export default function MemoryPanel({
   const pageOptions = [...pages]
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((p) => ({ id: p.id, name: p.name }));
-  const pageName = (id: string) => overview?.structure.pages[id]?.name ?? id;
-  const openPage = openPageId ? pagesWithShots.find((p) => p.id === openPageId) : undefined;
   const hintCount = (p: MemPage) => {
     const names = new Set([p.name, p.autoName, ...Object.keys(p.aliases ?? {})].filter(Boolean));
     return hintsApi.hints.filter(
@@ -212,85 +226,80 @@ export default function MemoryPanel({
     ).length;
   };
 
+  // 點畫面 → 打開下方工作區並捲過去;被刪掉的畫面自動關閉。
+  const openPage = useCallback((id: string) => {
+    setOpenPageId(id);
+    requestAnimationFrame(() => studioRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, []);
+  const openExists = openPageId ? Boolean(pageMap[openPageId]) : false;
+  useEffect(() => {
+    if (openPageId && overview && !openExists) setOpenPageId(null);
+  }, [openPageId, overview, openExists]);
+
   return (
-    <div className="memory">
-      {stats && (
-        <div className="memory__vitals">
-          <div className="memory__vital"><b>{stats.pages}</b><span>{t('memory.statPages')}</span></div>
-          <div className="memory__vital"><b>{stats.edges}</b><span>{t('memory.statEdges')}</span></div>
-          <div className="memory__vital"><b>{stats.controls}</b><span>{t('memory.statControls')}</span></div>
-          <div className="memory__vital"><b>{stats.totalRuns}</b><span>{t('memory.statRuns')}</span></div>
-          {pages.length > 0 && (
-            <button
-              type="button"
-              className="memory__clear-btn"
-              onClick={onClearMemory}
-              disabled={clearing}
-              title={t('memory.clearHint')}
-            >
-              {clearing ? t('memory.clearing') : t('memory.clear')}
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* 應用記憶:使用者教 AI 的經驗(即時指令勾「記住」或手動新增),每次測試注入 prompt */}
-      {appId && <HintsPanel lang={lang} api={hintsApi} pages={pageOptions} />}
-
-      {/* 場景範本:由記憶地圖可達路徑生成,供一鍵建立測試案例 */}
-      {templates.length > 0 && (
-        <section className="memory__templates">
-          <div className="memory__templates-head">
-            <h2 className="memory__templates-title">{t('memory.templatesTitle')}</h2>
-            <span className="memory__templates-hint">{t('memory.templatesHint')}</span>
-          </div>
-          <ul className="memory__tpl-list">
-            {templates.map((tpl) => (
-              <li key={tpl.id} className="memory__tpl-card">
-                <div className="memory__tpl-body">
-                  <span className="memory__tpl-title">{tpl.title}</span>
-                  <span className="memory__tpl-path">
-                    {tpl.steps.map((s) => s.screen).join(' → ')}
-                  </span>
-                </div>
-                <button type="button" className="memory__tpl-btn" onClick={() => useTemplate(tpl)}>
-                  {t('memory.tplUse')}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
+    <div className="memory memory--v2">
       {loading ? (
         <div className="listpage__skeleton" aria-hidden="true"><div className="listpage__skeleton-row" /></div>
       ) : pages.length === 0 ? (
         <div className="listpage__empty"><p>{t('page.memory.empty')}</p></div>
       ) : (
         <>
-          <div className="memory__tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={view === 'grid'}
-              className={`memory__tab ${view === 'grid' ? 'memory__tab--active' : ''}`}
-              onClick={() => setView('grid')}>{t('memory.tabGrid')}</button>
-            <button type="button" role="tab" aria-selected={view === 'graph'}
-              className={`memory__tab ${view === 'graph' ? 'memory__tab--active' : ''}`}
-              onClick={() => setView('graph')}>{t('memory.tabGraph')}</button>
-          </div>
+          {/* 1. 關係圖(最上面) */}
+          <section ref={mapRef} className="memmap" aria-labelledby="memmap-title">
+            <div className="memmap__head">
+              <h2 id="memmap-title" className="memmap__title">{lt('mapTitle', lang)}</h2>
+              {stats && (
+                <span className="memmap__stats">
+                  <span><b>{stats.pages}</b> {t('memory.statPages')}</span>
+                  <span><b>{stats.edges}</b> {t('memory.statEdges')}</span>
+                  <span><b>{stats.controls}</b> {t('memory.statControls')}</span>
+                  <span><b>{stats.totalRuns}</b> {t('memory.statRuns')}</span>
+                </span>
+              )}
+              <span className="memmap__spacer" />
+              <div className="memory__tabs" role="tablist">
+                <button type="button" role="tab" aria-selected={view === 'graph'}
+                  className={`memory__tab ${view === 'graph' ? 'memory__tab--active' : ''}`}
+                  onClick={() => setView('graph')}>{t('memory.tabGraph')}</button>
+                <button type="button" role="tab" aria-selected={view === 'grid'}
+                  className={`memory__tab ${view === 'grid' ? 'memory__tab--active' : ''}`}
+                  onClick={() => setView('grid')}>{t('memory.tabGrid')}</button>
+              </div>
+              <button
+                type="button"
+                className="memory__clear-btn"
+                onClick={onClearMemory}
+                disabled={clearing}
+                title={t('memory.clearHint')}
+              >
+                {clearing ? t('memory.clearing') : t('memory.clear')}
+              </button>
+            </div>
 
-          {view === 'grid' ? (
-            <>
-              <p className="memory__hint">{mt('gridHint', lang)}</p>
+            {view === 'graph' ? (
+              <Suspense fallback={<div className="listpage__skeleton" aria-hidden="true"><div className="listpage__skeleton-row" /></div>}>
+                <ScreenGraph
+                  pages={pagesWithShots}
+                  edges={edges}
+                  rootPageId={overview?.structure.rootPageId ?? null}
+                  {...(overview?.edits?.positions ? { positions: overview.edits.positions } : {})}
+                  {...(appId ? { onEdit: onGraphEdit, onOpenPage: openPage } : {})}
+                  {...(overview?.edits?.routes ? { routes: overview.edits.routes } : {})}
+                  {...(openPageId ? { focusedPageId: openPageId } : {})}
+                />
+              </Suspense>
+            ) : (
               <div className="memory__grid">
                 {pagesWithShots.map((p) => {
                   const nHints = hintCount(p);
                   const aliasNames = distinctAliases(p);
                   return (
-                    <figure key={p.id} className="memory__card">
+                    <figure key={p.id} className={`memory__card${openPageId === p.id ? ' is-selected' : ''}`}>
                       <button
                         type="button"
                         className="memory__card-btn"
-                        onClick={() => setOpenPageId(p.id)}
-                        aria-haspopup="dialog"
+                        onClick={() => openPage(p.id)}
+                        aria-pressed={openPageId === p.id}
                         aria-label={`${mt('edit', lang)}: ${p.name}`}
                       >
                         <div
@@ -317,48 +326,68 @@ export default function MemoryPanel({
                   );
                 })}
               </div>
-            </>
-          ) : (
-            <>
-              <p className="memory__hint">{t('memory.graphHint')}</p>
-              <Suspense fallback={<div className="listpage__skeleton" aria-hidden="true"><div className="listpage__skeleton-row" /></div>}>
-                <ScreenGraph
-                  pages={pagesWithShots}
-                  edges={edges}
-                  rootPageId={overview?.structure.rootPageId ?? null}
-                  {...(overview?.edits?.positions ? { positions: overview.edits.positions } : {})}
-                  {...(appId ? { onEdit: onGraphEdit, onOpenPage: setOpenPageId } : {})}
-                  {...(overview?.edits?.routes ? { routes: overview.edits.routes } : {})}
-                />
-              </Suspense>
-            </>
-          )}
+            )}
+          </section>
+
+          {/* 2. 選到的畫面:腳本 / 操作 / Appium 程式碼 / 說明 */}
+          <div ref={studioRef} className="memmap__studio-anchor">
+            {appId && openPageId && openExists ? (
+              <ScreenStudio
+                key={openPageId}
+                lang={lang}
+                appId={appId}
+                {...(overview?.structure.appName ? { appName: overview.structure.appName } : {})}
+                pageId={openPageId}
+                pages={pageMap}
+                edges={edges}
+                rootPageId={overview?.structure.rootPageId ?? null}
+                opEdits={opEdits}
+                shots={shots}
+                hintsApi={hintsApi}
+                onEdited={refreshQuiet}
+                onOpenPage={openPage}
+                onClose={() => setOpenPageId(null)}
+                onBackToMap={() => mapRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+              />
+            ) : (
+              <p className="memmap__pick">{lt('pickHint', lang)}</p>
+            )}
+          </div>
         </>
       )}
 
-      {/* 已刪除的畫面/路徑(可還原) */}
-      {appId && overview?.deleted && (
-        <DeletedPanel lang={lang} appId={appId} deleted={overview.deleted} onEdited={refreshQuiet} />
-      )}
-
-      {/* 單一畫面編修抽屜 */}
-      {appId && openPage && (
-        <PageDrawer
-          lang={lang}
-          appId={appId}
-          page={openPage}
-          edges={edges}
-          pageName={pageName}
-          api={hintsApi}
-          onClose={() => setOpenPageId(null)}
-          onEdited={refreshQuiet}
-          script={{
-            pages: overview?.structure.pages ?? {},
-            rootPageId: overview?.structure.rootPageId ?? null,
-            opEdits: overview?.edits?.opEdits ?? {},
-            ...(overview?.structure.appName ? { appName: overview.structure.appName } : {}),
-          }}
-        />
+      {/* 3. 其他記憶設定 */}
+      {appId && (
+        <details className="memmap__more" open={pages.length === 0}>
+          <summary>{lt('more', lang)}</summary>
+          <HintsPanel lang={lang} api={hintsApi} pages={pageOptions} />
+          {templates.length > 0 && (
+            <section className="memory__templates">
+              <div className="memory__templates-head">
+                <h2 className="memory__templates-title">{t('memory.templatesTitle')}</h2>
+                <span className="memory__templates-hint">{t('memory.templatesHint')}</span>
+              </div>
+              <ul className="memory__tpl-list">
+                {templates.map((tpl) => (
+                  <li key={tpl.id} className="memory__tpl-card">
+                    <div className="memory__tpl-body">
+                      <span className="memory__tpl-title">{tpl.title}</span>
+                      <span className="memory__tpl-path">
+                        {tpl.steps.map((s) => s.screen).join(' → ')}
+                      </span>
+                    </div>
+                    <button type="button" className="memory__tpl-btn" onClick={() => useTemplate(tpl)}>
+                      {t('memory.tplUse')}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          {overview?.deleted && (
+            <DeletedPanel lang={lang} appId={appId} deleted={overview.deleted} onEdited={refreshQuiet} />
+          )}
+        </details>
       )}
     </div>
   );
