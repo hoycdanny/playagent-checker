@@ -500,3 +500,48 @@
   outline: 2px solid var(--brand);
   outline-offset: 1px;
 }
+
+/* ── 一行工具列:類別 icon(滑過看名稱 / 筆數)· 關鍵字 · 範圍 · 篩選 ── */
+.mfeed__bar {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.mfeed__bar .mfeed__kinds {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+}
+.mfeed__bar .mfeed__kind {
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+}
+.mfeed__bar .mfeed__search {
+  flex: 1 1 180px;
+}
+.mfeed__bar .mfeed__more {
+  margin-left: 0;
+  height: 30px;
+}
+
+/* ── Log 不自動換行:每筆一行,太長往右捲 ── */
+.mfeed__list {
+  overflow: auto;
+}
+.mfeed__row {
+  flex-wrap: wrap;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+.mfeed__row .mfeed__title {
+  flex: 0 0 auto;
+  overflow-wrap: normal;
+  white-space: pre;
+}
+.mfeed__detail {
+  white-space: pre;
+}

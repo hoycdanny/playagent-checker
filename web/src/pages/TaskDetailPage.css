@@ -1571,3 +1571,43 @@
     grid-template-areas: 'phone' 'feed' 'tl';
   }
 }
+
+/* 標題列一行:任務詳情 + 結論 + 資訊晶片 + 版面 / 報告;晶片太多時自己縮(文字省略,滑過看全文) */
+@media (min-width: 1000px) {
+  .detail__head-row {
+    flex-wrap: nowrap;
+  }
+  .detail__head-row > * {
+    flex-shrink: 0;
+  }
+  .detail__head-row > .dchips {
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    min-width: 0;
+  }
+  .dchips > .dchip {
+    flex: 0 1 auto;
+    min-width: 34px;
+  }
+  /* 短的晶片(送出者、花費、token)不縮;機型、模型名稱這類長的才省略 */
+  .dchips > .dchip[data-chip='by'],
+  .dchips > .dchip[data-chip='cost'],
+  .dchips > .dchip[data-chip='tokens'] {
+    flex-shrink: 0;
+  }
+  .dchips > .dchip[data-chip='device'] {
+    flex-shrink: 2;
+  }
+  .dchips .dchip__body {
+    max-width: min(220px, 100%);
+    min-width: 0;
+    overflow: hidden;
+  }
+  .dchips .dchip__text {
+    min-width: 0;
+  }
+  .detail__title,
+  .detail__exec {
+    white-space: nowrap;
+  }
+}

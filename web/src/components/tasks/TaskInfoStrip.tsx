@@ -13,7 +13,7 @@ import { shortUser } from '../userLabel.ts';
 function Chip({ id, icon, tone, children, tip }: { id: string; icon: InfoIconName; tone?: string; children: ReactNode; tip: ReactNode }) {
   const tipId = `chip-tip-${id}`;
   return (
-    <li className="dchip">
+    <li className="dchip" data-chip={id}>
       <span className="dchip__body" tabIndex={0} aria-describedby={tipId}>
         <span className={`dchip__icon ${tone ? `dchip__icon--${tone}` : ''}`}>
           <InfoIcon name={icon} size={14} />
