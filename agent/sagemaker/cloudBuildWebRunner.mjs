@@ -13,8 +13,8 @@ import {
   CodeBuildClient, CreateProjectCommand, UpdateProjectCommand, BatchGetProjectsCommand,
   StartBuildCommand, BatchGetBuildsCommand,
 } from '@aws-sdk/client-codebuild';
-import { IAMClient, GetRoleCommand } from '@aws-sdk/client-iam';
 import { packSource } from './packSource.mjs';
+import { resolveImageBuildRoleArn } from './imageBuildRole.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const AGENT_DIR = join(HERE, '..');           // agent/
@@ -25,17 +25,16 @@ const BUCKET = (process.env.PA_SM_BUCKET || process.env.PA_DATA_BUCKET || '').tr
 if (!BUCKET) throw new Error('PA_SM_BUCKET or PA_DATA_BUCKET is required');
 const IMAGE_REPO = 'playagent-web-runner';
 const PROJECT = 'playagent-web-runner-build';
-const ROLE_NAME = 'PlayAgentCodeBuildUitarsRole';
 const SRC_KEY = 'codebuild/web-runner-src.zip';
 
 const cb = new CodeBuildClient({ region: REGION });
-const iam = new IAMClient({ region: REGION });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { encoding: 'utf-8', ...opts });
 
 async function main() {
-  const roleArn = (await iam.send(new GetRoleCommand({ RoleName: ROLE_NAME }))).Role.Arn;
+  const roleArn = await resolveImageBuildRoleArn(REGION);
+  log('build 角色', roleArn);
 
   // 打包 agent/ 需要的檔(buildspec 放最上層當 CodeBuild source root)。
   // buildspec.web.yml 放 zip 根並改名 buildspec.yml(跨平台打包,Windows 無 zip/bash 也可)。

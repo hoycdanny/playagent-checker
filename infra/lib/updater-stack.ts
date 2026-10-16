@@ -38,8 +38,8 @@ export interface UpdaterStackProps extends StackProps {
   stateParamName: string;
   /** runner 映像的 CodeBuild 專案名(agent/ 有變更時觸發)。 */
   imageBuildProjects: string[];
-  /** 映像建置專案所用的既有角色名(更新器需要 PassRole 給它)。 */
-  imageBuildRoleName: string;
+  /** runner 映像推上的 ECR repo 名(映像建置角色只能推這些)。 */
+  imageRepos: string[];
   /**
    * 前端建置期設定(web/.env)的來源 stack。web/.env 不進版控,乾淨 clone 沒有它,
    * 直接 build 會產出沒有 Cognito / API 位址的前端(整站壞掉),所以 buildspec 從這兩個
@@ -55,9 +55,47 @@ export const UPDATE_HISTORY_KEY = '_system/update-history.json';
 
 export class UpdaterStack extends Stack {
   readonly project: codebuild.Project;
+  readonly imageBuildRole: iam.Role;
 
   constructor(scope: Construct, id: string, props: UpdaterStackProps) {
     super(scope, id, props);
+
+    // runner 映像建置專案(cloudBuildRunner / cloudBuildWebRunner 會 upsert)用的角色。
+    // 由本 stack 建立:新帳號安裝就有、資料桶換名(重裝)會自動跟著更新、解除安裝一起刪。
+    // 以前用的是手動建的 PlayAgentCodeBuildUitarsRole(新帳號沒有,重裝後還指著舊桶)。
+    // 權限只到:兩個 build 專案的 log、兩個 runner ECR repo、資料桶 codebuild/ 下的來源 zip。
+    this.imageBuildRole = new iam.Role(this, 'ImageBuildRole', {
+      assumedBy: new iam.ServicePrincipal('codebuild.amazonaws.com'),
+      description: 'PlayAgent runner image builds (CodeBuild): source zip in the data bucket -> docker build -> push to the runner ECR repos',
+    });
+    const buildLogArns = props.imageBuildProjects.flatMap((p) => [
+      `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/codebuild/${p}`,
+      `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/codebuild/${p}:*`,
+    ]);
+    this.imageBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
+      resources: buildLogArns,
+    }));
+    this.imageBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['ecr:GetAuthorizationToken'],
+      resources: ['*'], // 這個動作不支援資源層級限制
+    }));
+    this.imageBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: [
+        'ecr:DescribeRepositories', 'ecr:CreateRepository', 'ecr:PutImageScanningConfiguration',
+        'ecr:BatchCheckLayerAvailability', 'ecr:InitiateLayerUpload', 'ecr:UploadLayerPart', 'ecr:CompleteLayerUpload',
+        'ecr:PutImage', 'ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer',
+      ],
+      resources: props.imageRepos.map((r) => `arn:aws:ecr:${this.region}:${this.account}:repository/${r}`),
+    }));
+    this.imageBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetObject', 's3:GetObjectVersion'],
+      resources: [`${props.dataBucket.bucketArn}/codebuild/*`],
+    }));
+    this.imageBuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:GetBucketLocation', 's3:GetBucketAcl'],
+      resources: [props.dataBucket.bucketArn],
+    }));
 
     const logGroup = new logs.LogGroup(this, 'UpdateLogs', {
       logGroupName: props.logGroupName,
@@ -84,6 +122,8 @@ export class UpdaterStack extends Stack {
         // runner 映像重建(cloudBuildRunner/cloudBuildWebRunner)上傳來源 zip 用的暫存桶。
         // 不設的話腳本會退回 PA_DATA_BUCKET,但明確帶上較清楚,避免未來誰改了退回邏輯又踩雷。
         PA_SM_BUCKET: { value: props.dataBucket.bucketName },
+        // 映像建置專案用的角色(本 stack 建的);沒帶時腳本才退回舊的手動角色名。
+        PA_IMAGE_BUILD_ROLE_ARN: { value: this.imageBuildRole.roleArn },
         PA_HISTORY_KEY: { value: UPDATE_HISTORY_KEY },
         PA_STATE_PARAM: { value: props.stateParamName },
         PA_NODE_VERSION: { value: NODE_VERSION },
@@ -134,15 +174,18 @@ export class UpdaterStack extends Stack {
         (name) => `arn:aws:cloudformation:${this.region}:${this.account}:stack/${name}/*`,
       ),
     }));
+    // 只能把映像建置角色交給 CodeBuild(UpdateProject 設 serviceRole 需要)。
     role.addToPrincipalPolicy(new iam.PolicyStatement({
-      actions: ['iam:GetRole', 'iam:PassRole'],
-      resources: [`arn:aws:iam::${this.account}:role/${props.imageBuildRoleName}`],
+      actions: ['iam:PassRole'],
+      resources: [this.imageBuildRole.roleArn],
+      conditions: { StringEquals: { 'iam:PassedToService': 'codebuild.amazonaws.com' } },
     }));
 
     new CfnOutput(this, 'UpdateProjectName', { value: this.project.projectName });
     new CfnOutput(this, 'UpdateLogGroup', { value: logGroup.logGroupName });
     new CfnOutput(this, 'GithubSecretName', { value: props.githubSecretName });
     new CfnOutput(this, 'DeployedVersionParam', { value: props.stateParamName });
+    new CfnOutput(this, 'ImageBuildRoleArn', { value: this.imageBuildRole.roleArn });
   }
 }
 
