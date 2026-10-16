@@ -178,6 +178,8 @@ export interface CaseOverviewItem {
   name: string;
   version?: string;
   updatedAt?: string;
+  /** 最後新增 / 修改 / 切換版本的使用者。 */
+  updatedBy?: string;
   versionCount: number;
   parsed: ParsedCase;
   stats: CaseRunStats;

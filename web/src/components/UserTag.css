@@ -1,0 +1,35 @@
+.usertag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  padding: 0 4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  cursor: copy;
+  vertical-align: middle;
+}
+.usertag:hover {
+  color: var(--text-secondary);
+  background: var(--surface-raised);
+}
+.usertag:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.usertag__icon {
+  font-size: 10px;
+}
+.usertag__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.usertag__ok {
+  color: var(--status-pass);
+}

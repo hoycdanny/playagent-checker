@@ -81,6 +81,19 @@ describe('case versions', () => {
     expect([...store.keys()].filter((k) => k.includes('case-versions/'))).toHaveLength(2);
   });
 
+  test('head records who created / edited / switched the case (version authors stay)', async () => {
+    const { s3 } = fakeS3();
+    const c = await createCase(s3, 'b', 't1', { app: 'app1', name: 'Spin', yaml: 'task: spin 10' }, 'qa@example.com');
+    expect((await getCase(s3, 'b', 't1', 'app1', c.id))?.updatedBy).toBe('qa@example.com');
+    const e1 = await updateCase(s3, 'b', 't1', 'app1', c.id, { yaml: 'task: spin 20' }, 'lead+qa@example.com');
+    expect(e1.updatedBy).toBe('lead+qa@example.com');
+    expect((await getCase(s3, 'b', 't1', 'app1', c.id))?.updatedBy).toBe('lead+qa@example.com');
+    await activateCaseVersion(s3, 'b', 't1', 'app1', c.id, c.version, 'pm@example.com');
+    expect((await getCase(s3, 'b', 't1', 'app1', c.id))?.updatedBy).toBe('pm@example.com');
+    const versions = await listCaseVersions(s3, 'b', 't1', 'app1', c.id);
+    expect(versions.items.map((v) => v.createdBy)).toEqual(['lead+qa@example.com', 'qa@example.com']);
+  });
+
   test('same-centisecond collisions get distinct, ordered ids', async () => {
     const { s3 } = fakeS3();
     const at = Date.UTC(2027, 5, 6, 3, 24, 33, 990);

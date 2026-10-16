@@ -7,6 +7,7 @@ import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome.ts';
 import { usd4 } from './money.ts';
+import UserTag from './UserTag.tsx';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
 export interface TaskRow {
@@ -28,6 +29,8 @@ export interface TaskRow {
   maxSegments?: number;
   /** 測試結論(驗收標準;終局且有報告才有)。 */
   verdict?: VerdictInfo;
+  /** 送出任務的使用者(email;舊任務沒有)。 */
+  submittedBy?: string;
 }
 
 /** 終局狀態(不再變動):決定顯示「取消」或「刪除」。 */
@@ -155,6 +158,11 @@ export default function TasksTable({
                 <Link to={`/tasks/${x.jobId}`} className="tasks__row-link" aria-label={`${t('tasks.view')} ${formatCreated(x.createdAt)}`}>
                   {formatCreated(x.createdAt)}
                 </Link>
+                {x.submittedBy && (
+                  <div className="tasks__by">
+                    <UserTag user={x.submittedBy} prefix={t('tasks.submittedBy')} />
+                  </div>
+                )}
               </td>
               <td>
                 <AppBadge app={appById(x.appId)} fallbackId={x.appId} />

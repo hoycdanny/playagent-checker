@@ -421,6 +421,7 @@ export type MessageKey =
   | 'tasks.colBackend'
   | 'tasks.colLocality'
   | 'tasks.colCreated'
+  | 'tasks.submittedBy'
   | 'tasks.colSteps'
   | 'tasks.colCost'
   | 'tasks.colModel'
@@ -1105,6 +1106,7 @@ const zhHant: Catalog = {
   'tasks.colBackend': '環境',
   'tasks.colLocality': '位置',
   'tasks.colCreated': '建立時間',
+  'tasks.submittedBy': '送出者',
   'tasks.colSteps': '步數',
   'tasks.colCost': '花費',
   'tasks.colModel': '模型',
@@ -1789,6 +1791,7 @@ const en: Catalog = {
   'tasks.colBackend': 'Env',
   'tasks.colLocality': 'Location',
   'tasks.colCreated': 'Created',
+  'tasks.submittedBy': 'Submitted by',
   'tasks.colSteps': 'Steps',
   'tasks.colCost': 'Cost',
   'tasks.colModel': 'Model',
@@ -2477,6 +2480,7 @@ const zhHans: Catalog = {
   'tasks.colBackend': '环境',
   'tasks.colLocality': '位置',
   'tasks.colCreated': '创建时间',
+  'tasks.submittedBy': '提交者',
   'tasks.colSteps': '步数',
   'tasks.colCost': '花费',
   'tasks.colModel': '模型',
@@ -3160,6 +3164,7 @@ const ja: Catalog = {
   'tasks.colBackend': '環境',
   'tasks.colLocality': '位置',
   'tasks.colCreated': '作成日時',
+  'tasks.submittedBy': '送信者',
   'tasks.colSteps': 'ステップ',
   'tasks.colCost': '費用',
   'tasks.colModel': 'モデル',
@@ -3844,6 +3849,7 @@ const ko: Catalog = {
   'tasks.colBackend': '환경',
   'tasks.colLocality': '위치',
   'tasks.colCreated': '생성 시간',
+  'tasks.submittedBy': '제출자',
   'tasks.colSteps': '단계',
   'tasks.colCost': '비용',
   'tasks.colModel': '모델',

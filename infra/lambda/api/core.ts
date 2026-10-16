@@ -653,6 +653,7 @@ export async function handleRequest(
           name: c.name,
           ...(c.version ? { version: c.version } : {}),
           ...(c.updatedAt ? { updatedAt: c.updatedAt } : {}),
+          ...(c.updatedBy ? { updatedBy: c.updatedBy } : {}),
           versionCount: c.versionCount,
           parsed: parseCase(c.yaml),
           stats: runStats(byCase.get(`${c.app}/${c.id}`) ?? [], c.version, costOf),
@@ -1135,7 +1136,7 @@ export async function handleRequest(
       }
 
       case 'POST /tasks': {
-        return await handleSubmitTask(req, deps, tenant.tenantId);
+        return await handleSubmitTask(req, deps, tenant.tenantId, { by: tenant.email ?? tenant.sub, sub: tenant.sub });
       }
 
       default: {
@@ -1479,7 +1480,7 @@ export async function handleRequest(
         if (caseVersionActivate) {
           if (!CASE_VERSION_RE.test(caseVersionActivate[3]!)) return json(400, { error: '版本號格式不正確' });
           const s3 = await deps.getTenantS3(tenant.tenantId);
-          const detail = await activateCaseVersion(s3, deps.bucket, tenant.tenantId, caseVersionActivate[1]!, caseVersionActivate[2]!, caseVersionActivate[3]!);
+          const detail = await activateCaseVersion(s3, deps.bucket, tenant.tenantId, caseVersionActivate[1]!, caseVersionActivate[2]!, caseVersionActivate[3]!, tenant.email ?? tenant.sub);
           return json(200, detail);
         }
         // 動態路由:DELETE /cases/{app}/{id}(刪除案例)
@@ -2208,6 +2209,8 @@ async function handleSubmitTask(
   req: ApiRequest,
   deps: ApiDeps,
   tenantId: string,
+  /** 送出者(記進 job.json,任務列表 / 詳情顯示「誰送出的」)。 */
+  submitter?: { by: string; sub: string },
 ): Promise<ApiResponse> {
   const input = validateSubmit(req.body);
   const s3 = await deps.getTenantS3(tenantId);
@@ -2437,6 +2440,7 @@ async function handleSubmitTask(
       ...(scripted ? { scripted: true } : {}),
       caseVersion: caseRecord.version,
       caseName: caseRecord.name,
+      ...(submitter ? { submittedBy: submitter.by, submittedBySub: submitter.sub } : {}),
     },
   );
   // 知識庫引用索引(刪除防呆);失敗不擋提交。
