@@ -55,7 +55,8 @@ import { isAutoSpinWait, watchAutoSpin, watchNote } from './spinWatch.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
-import { upsertPage, recordTransition, recordMiss, compactStructure } from './memoryGraph.mjs';
+import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure, identifyPage } from './memoryGraph.mjs';
+import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, createReflexState, opFromCmd, parseSpinCount, rtpSummary } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
 
@@ -525,6 +526,13 @@ async function decide(system, messages, modelId = VLM) {
  * 唯一可行的資料來源。擷取結果的準確性取決於模型描述的一致性,無法保證 100% 精確,但能
  * 提供一個遠優於「完全沒有」的估算與視覺化。
  */
+/** SPIN 迴圈的讀數字提示:只看、不操作,輸出越短越快。 */
+const SPIN_READER_SYSTEM = '你只負責讀拉霸機畫面上的數字,不要操作、不要推理玩法。只輸出 JSON:' +
+  '{"screen":"畫面名稱","balance":<目前餘額,讀不到填 null>,"bet":<這一局的總投注,讀不到填 null>,' +
+  '"win":<這一局的贏分,沒中獎填 0>,"free_spins_left":<剩餘免費次數,沒有填 0>,' +
+  '"bonus":<是否正在免費遊戲 / Bonus 中 true|false>,"popup":<是否有彈窗、大獎動畫或公告擋住盤面 true|false>}。' +
+  '數字去掉逗號與貨幣符號,只填畫面上看得到的數字,不要估算。';
+
 function isRtpTask(task) {
   return /RTP|Return\s*To\s*Player|派彩率|回報率/i.test(String(task || ''));
 }
@@ -607,10 +615,13 @@ async function main() {
   let effectivePkg = PKG;
   // 執行時長(job.json maxSegments):1 = 單段(第 ${WRAP_MIN} 分鐘收尾);N = 最多 N 段連線;0 = 不限段數。
   let maxSegments = 1;
+  // 這次測試的 App 版本(產物 id):記憶腳本的操作記著錄製時的版本,遊戲改版時據此降級。
+  let appVersion = '';
   try {
     const jm = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/job.json` }))).Body.transformToString());
     const n = Number(jm?.maxSegments);
     if (Number.isInteger(n) && n >= 0 && n <= 50) maxSegments = n;
+    if (typeof jm?.artifactVersion === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(jm.artifactVersion)) appVersion = jm.artifactVersion;
   } catch { /* 沒有就單段 */ }
   let segment = 1;
   let segStartedAt = 0; // 這一段 Device Farm 連線開始建立的時間
@@ -809,6 +820,18 @@ async function main() {
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
   // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
+  // 【記憶腳本 / 反射層】認得的畫面直接照記憶操作,不問 AI(見 reflex.mjs)。PA_REFLEX=0 關閉。
+  const REFLEX_ON = process.env.PA_REFLEX !== '0';
+  const reflexState = createReflexState();
+  let reflexPending = null; // 上一步反射操作的預期結果 { key, from, to, cross, waits }
+  let reflexNotes = []; // 這串反射做了什麼(AI 下一次看畫面時告訴它)
+  let navOp = null; // 上一步實際執行的操作細節(0~1 座標),寫進記憶地圖供下次重播
+  // 【SPIN 迴圈】RTP 任務且畫面有可信的 SPIN 操作 → runner 自己按 SPIN、等盤面停、只讀數字。
+  const rtpLoop = {
+    target: isRtpTask(TASK) ? parseSpinCount(TASK) : 0,
+    paid: 0, rounds: [], misses: 0, handBack: false, done: false, startBalance: undefined, endBalance: undefined,
+  };
+  if (REFLEX_ON) console.log(`[記憶腳本] 啟用(App 版本 ${appVersion || '未知'})${rtpLoop.target ? `;SPIN 迴圈目標 ${rtpLoop.target} 局` : ''}`);
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
     + (scriptTracker ? scriptTracker.promptSection() : '');
@@ -1232,11 +1255,82 @@ async function main() {
       ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
       : '';
     const memoNote = progressMemo ? `\n【你的進度筆記(上一步寫的,照它延續,不要重新開始)】${progressMemo}` : '';
+
+    // ── 【記憶腳本 / 反射層】先用畫面指紋認畫面:認得、而且記憶裡有可信的操作 → 這一步直接照做,不問 AI。
+    // 測試人員正在下指令、收尾、測項確認中、戰鬥走位中都不用反射(交給 AI 看)。
+    let reflexCmd = null;
+    if (REFLEX_ON && MAGICK && curPhash && !newCmds.length && !wrapUpAsked && !scriptTracker?.pendingFinal && !lastBattleMove) {
+      const here = identifyPage(struct, curPhash);
+      const nameOf = (id) => struct.pages?.[id]?.name ?? '';
+      // 1) 確認上一步反射的結果:到了預期畫面才繼續;載入中就等;沒反應記失敗並交回 AI。
+      if (reflexPending) {
+        const p = reflexPending;
+        if (here?.pageId === p.to) {
+          reflexPending = null;
+          reflexState.recent = [...reflexState.recent, p.to].slice(-6);
+        } else if (here?.transient && p.waits < 6) {
+          p.waits++;
+          reflexCmd = { action: 'wait', duration: 1, screen: nameOf(here.pageId), reflex: { kind: 'wait', to: p.to },
+            thinking: `[記憶腳本] 等「${nameOf(p.to)}」載入(${p.waits}/6)。` };
+        } else if (here?.pageId === p.from && !screenChanged && p.waits < 1) {
+          p.waits++;
+          reflexCmd = { action: 'wait', duration: 1, screen: nameOf(here.pageId), reflex: { kind: 'wait', to: p.to },
+            thinking: `[記憶腳本] 畫面還沒反應,再等一下。` };
+        } else {
+          if (here?.pageId === p.from) {
+            // 照記憶點了卻沒反應:這條本次不再用;跨版本的操作失敗 → 本次不再用任何跨版本操作(遊戲可能改版)。
+            reflexState.demoted.add(p.key);
+            if (p.cross) reflexState.crossVersionFailed = true;
+            console.log(`[記憶腳本] 第 ${i} 步:照記憶操作後畫面沒有變化,停用這條並交回 AI(${p.key})`);
+            reflexNotes.push(`在「${nameOf(p.from)}」照記憶操作沒有反應,已交回你判斷`);
+          } else {
+            console.log(`[記憶腳本] 第 ${i} 步:到了預期外的畫面(預期「${nameOf(p.to)}」),交回 AI`);
+          }
+          reflexPending = null;
+        }
+      }
+      // 2) SPIN 迴圈:RTP 任務、還沒轉完、目前在有可信 SPIN 操作的畫面。
+      if (!reflexCmd && !reflexPending && rtpLoop.target > 0 && !rtpLoop.done && !rtpLoop.handBack && here && !here.transient) {
+        const spin = chooseSpinOp({ struct, edits: appMemory.edits, pageId: here.pageId, version: appVersion, state: reflexState });
+        const c = spin ? cmdFromOp(spin.op, cw, ch) : null;
+        if (c) {
+          reflexCmd = { ...c, target: spin.target, screen: nameOf(here.pageId),
+            reflex: { kind: 'spin', key: spin.key, round: rtpLoop.paid + 1, of: rtpLoop.target },
+            thinking: `[SPIN 迴圈] 第 ${rtpLoop.paid + 1}/${rtpLoop.target} 局:照記憶點「${spin.target}」。` };
+        }
+      }
+      // 3) 導航:這個畫面有可信、通往目標的出路 → 直接走。
+      if (!reflexCmd && !reflexPending && here && !here.transient && reflexState.chain < REFLEX_MAX_CHAIN) {
+        const focus = scriptTracker ? (scriptTracker.items()[scriptTracker.current - 1] ?? '') : '';
+        const d = chooseReflex({ struct, edits: appMemory.edits, pageId: here.pageId, task: TASK, focus, version: appVersion, state: reflexState });
+        const c = d ? cmdFromOp(d.op, cw, ch) : null;
+        if (d && c) {
+          const how = { route: '照路線', named: '目標點名', popup: '關彈窗', verified: '人工確認', dominant: '主要出口' }[d.reason] ?? d.reason;
+          const trustTxt = d.trust === 'verified' ? '人工確認' : `成功 ${d.hits} / 失敗 ${d.misses}`;
+          reflexCmd = { ...c, target: d.target, screen: nameOf(here.pageId),
+            reflex: { kind: 'nav', key: d.key, from: here.pageId, to: d.toPageId, reason: d.reason, trust: d.trust },
+            thinking: `[記憶腳本] 認出「${nameOf(here.pageId)}」→ ${c.action}「${d.target}」前往「${nameOf(d.toPageId) || '?'}」(${how};${trustTxt})。` };
+          reflexPending = { key: d.key, from: here.pageId, to: d.toPageId, cross: d.cross, waits: 0 };
+          reflexState.chain++;
+          reflexNotes.push(`在「${nameOf(here.pageId)}」${c.action}「${d.target}」`);
+        }
+      }
+    }
+    if (!reflexCmd) { reflexState.chain = 0; reflexState.recent = []; }
+    const reflexNote = !reflexCmd && reflexNotes.length
+      ? `\n【記憶腳本】上一張畫面之前,系統已依記憶自動執行:${reflexNotes.slice(-8).join(' → ')}。這張就是執行後的畫面,從這裡接著做,不要重做這些步驟。`
+      : '';
+    if (!reflexCmd) reflexNotes = [];
+
     const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + memoNote + controlNote
+      + reflexNote
       + (scriptTracker ? scriptTracker.turnNote() : '')
       + memoryNote + routeTurnNote(appMemory.edits?.routes, prevPageId, routePageName) + operatorTurnNote(newCmds, operator.active);
-    controlNote = '';
-    messages.push(makeUserTurn([visionShot], turnText, visionFmt));
+    // 反射步不問 AI:不清掉要告訴 AI 的提醒、也不把這張圖放進對話(下次 AI 看畫面時一併交代)。
+    if (!reflexCmd) {
+      controlNote = '';
+      messages.push(makeUserTurn([visionShot], turnText, visionFmt));
+    }
     // UI-TARS(SageMaker):單幀 GUI grounding,座標直接落在 cw×ch smart-resize 幀;否則走 Bedrock 通用 VLM。
     const tVlm = Date.now();
     // 【戰鬥自動走位】割草類(下方中央搖桿):上一步是戰鬥中的走位時,AI 思考期間(數秒)角色
@@ -1275,7 +1369,9 @@ async function main() {
     };
     let pointCmd = [...newCmds].reverse().find((c) => c.point);
     let decided;
-    if (pointCmd) {
+    if (reflexCmd) {
+      decided = { cmd: reflexCmd, usage: null, rawText: JSON.stringify(reflexCmd), trace: { modelId: 'reflex', channel: 'reflex', ok: true, request: {} } };
+    } else if (pointCmd) {
       decided = buildOperatorDecided(pointCmd);
     } else if (USE_UITARS) {
       decided = await decideUitars(uitarsInstr, messages, cw, ch);
@@ -1329,7 +1425,7 @@ async function main() {
     // 【座標換算】norm1000 模型(Nova 等)回 0~1000 相對座標 → 換算成本張圖(cw×ch)的像素,
     // 之後所有下游(元件正規化、落點標記、裝置換算)都在像素空間,與 pixel 模型一致。
     // operator 直接點選(pointCmd)已是像素,不換算。
-    if (normCoord && !pointCmd) {
+    if (normCoord && !pointCmd && !reflexCmd) {
       const toPx = (v, span) => { const n = Number(v); return Number.isFinite(n) ? Math.round((n / 1000) * span) : v; };
       for (const [k, span] of [['x', cw], ['y', ch], ['x2', cw], ['y2', ch], ['tx', cw], ['ty', ch]]) {
         if (cmd[k] != null) cmd[k] = toPx(cmd[k], span);
@@ -1345,7 +1441,7 @@ async function main() {
     // 【測項為主】看得到畫面的視覺 Agent 回報「已完成到第幾項」→ 推進進度(決策 Agent 只讀這個數字)。
     // 宣告全部完成:這一步停手,下一張畫面再確認一次;兩次都成立才結束(見 scriptTracker.mjs)。
     let scriptEvent = null;
-    if (scriptTracker && !USE_UITARS && !pointCmd && !cmd.parseFailed && trace?.ok !== false) {
+    if (scriptTracker && !USE_UITARS && !pointCmd && !reflexCmd && !cmd.parseFailed && trace?.ok !== false) {
       const before = scriptTracker.done;
       // 視覺 Agent 給 done 卻沒填 scriptDone → 視同宣告全部完成(確認回合說 done = 確認)。
       const claim = cmd.scriptDone ?? (String(cmd.action || '').trim().toLowerCase() === 'done' ? scriptTracker.total : undefined);
@@ -1362,7 +1458,7 @@ async function main() {
     // 測試人員在畫面上直接點的位置、UI-TARS、視覺回應無法解析時不經決策。決策失敗 → 採用視覺 Agent 的建議。
     // 測項已宣告完成 / 正在確認時不再問決策 Agent(不用再操作,省一次呼叫)。
     let decisionMs;
-    if (team?.enabled.agent && !USE_UITARS && !pointCmd && !cmd.parseFailed && trace?.ok !== false && !scriptStops) {
+    if (team?.enabled.agent && !USE_UITARS && !pointCmd && !reflexCmd && !cmd.parseFailed && trace?.ok !== false && !scriptStops) {
       // 等輔助 Agent 對上一步的核對(多半已在上一步的等待時間做完;戰鬥走位中不等)。
       if (teamPending) {
         const settled = await Promise.race([teamPending.then(() => true), sleep(lastBattleMove ? 0 : 5000).then(() => false)]);
@@ -1405,7 +1501,8 @@ async function main() {
     if (autopilotPromise) await autopilotPromise;
     // AI 原始動作(runner 若覆寫,原始 expect 不再代表實際動作,報告不據以判定 assertion)。
     const aiAction = cmd.action;
-    messages.push(makeAssistantTurn(rawText));
+    // 反射步沒有送出 user 回合,也就不加 assistant 回合(對話必須 user/assistant 交替)。
+    if (!reflexCmd) messages.push(makeAssistantTurn(rawText));
     if (usage) accumulate(tok, usage);
     // 完整互動 log:每步落一份 traces/<i>.json(模型/channel/請求摘要/原始回應/token/錯誤)。
     // 供任務詳情頁「Log」呈現;失敗步(如請求 body 太大)也會完整記錄錯誤,便於除錯。
@@ -1735,6 +1832,7 @@ async function main() {
     // 決策 Agent 給這一步的目標(執行軌跡顯示「🎯 目標」;報告與除錯用)。
     const usedPlan = stepPlans.get(i);
     if (cmd.decidedBy) step.decidedBy = cmd.decidedBy;
+    if (cmd.reflex) { step.decidedBy = 'reflex'; step.reflex = cmd.reflex; }
     if (cmd.visionSuggested) step.visionSuggested = cmd.visionSuggested;
     if (decisionMs !== undefined) step.decisionMs = decisionMs;
     if (usedPlan) {
@@ -1800,8 +1898,11 @@ async function main() {
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     if (prevPageId && pid) {
       // 畫面真的換了才建邊(觸發 = 上一步實際執行的動作 + 目標元件);同畫面且無變化 = 該操作失效一次。
-      if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget });
+      // navOp = 上一步實際執行的操作細節(相對座標),一起記下來,下次就能照記憶重播。
+      if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget, op: navOp });
       else if (!screenChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
+      // 同一畫面、畫面有變(例如按 SPIN 轉輪):記成這個畫面上的操作(SPIN 迴圈靠它)。
+      else if (navOp) recordSelfOp(struct, pid, { action: navAction, target: prevTarget, op: navOp });
     }
     struct.lastUpdatedAt = new Date().toISOString();
     await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
@@ -1830,7 +1931,8 @@ async function main() {
     const screenLoopExempt = loopLoadingHint.test(screenNameLower) || slotHint.test(screenNameLower);
     // done 不是對畫面的操作:被駁回的 done(例如 AutoSpin 中想提早結束)不能算「操作了沒反應」。
     // 實測 job-mv1oqkmk:Free Spins 畫面 8 次被駁回的 done 被當成死循環 → 重啟遊戲 → 離開機台、累計局數全丟。
-    const countsForLoop = cmd.action !== 'wait' && cmd.action !== 'done' && !screenLoopExempt;
+    // SPIN 迴圈每局都停在同一個畫面,是預期行為,不算死循環。
+    const countsForLoop = cmd.action !== 'wait' && cmd.action !== 'done' && !screenLoopExempt && cmd.reflex?.kind !== 'spin';
     const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
     if (countsForLoop) screenSeen.set(screenName, seen);
     // 2026-10-05(job-muv712gs-pvg7ow):NEWBIE MISSION 彈窗在動畫還沒播完時被點了寶箱,之後整個
@@ -1877,7 +1979,7 @@ async function main() {
 
     // 【測項時間盒】小測項有操作次數上限(預設 20 次;wait 不算)。超過 → 判 Blocked 並指出卡在哪一項,
     // 不再無止盡地繞(job-mv95w48j:第 4 項早就達成,卻又玩了 2 小時)。測試人員正在指揮時不計。
-    if (scriptTracker && !operatorDirected && cmd.action !== 'wait' && cmd.action !== 'done') {
+    if (scriptTracker && !operatorDirected && !cmd.reflex && cmd.action !== 'wait' && cmd.action !== 'done') {
       const blocked = scriptTracker.tick();
       if (blocked) {
         finalState = 'fail';
@@ -2031,6 +2133,7 @@ async function main() {
     if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
     const deviceCmd = { ...cmd };
     let spinWatched = null; // 這一步有跑 AutoSpin 看守 → 結束後不再額外等 3 秒(看守本身就是等待)
+    let actOk = false; // 動作真的送到裝置了(才把它記成可重播的操作)
     if (cmd.tx != null && Number.isFinite(cmd.tx)) deviceCmd.tx = toDeviceX(cmd.tx);
     if (cmd.ty != null && Number.isFinite(cmd.ty)) deviceCmd.ty = toDeviceY(cmd.ty);
     if (cmd.x != null && Number.isFinite(cmd.x)) deviceCmd.x = toDeviceX(cmd.x);
@@ -2109,6 +2212,7 @@ async function main() {
         if (res.reason === 'error') throw new Error(`AutoSpin 看守截圖失敗:${res.detail?.error ?? ''}`);
       } else
       await client.act(deviceCmd);
+      actOk = true;
       consecFail = 0;
       // 記下這次走位(方向 + 走位前的背景),下一步比對背景有沒有捲動。
       const moved = cmd.action === 'move' || (cmd.action === 'combo' && cmd.dir);
@@ -2121,6 +2225,78 @@ async function main() {
       consecFail++;
       if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = `連續動作失敗(${consecFail} 次):${why}`; break; }
     }
+    // 【SPIN 迴圈】這一步是照記憶按的 SPIN:runner 自己等盤面停下,再只讀數字(不做決策,快又省)。
+    if (cmd.reflex?.kind === 'spin' && actOk) {
+      const t1 = Date.now();
+      let last = null;
+      let lastB64 = null;
+      let moved = false;
+      let stable = 0;
+      for (let k = 0; k < 30 && Date.now() - t1 < 20_000; k++) {
+        await sleep(700);
+        let b64;
+        try { b64 = await client.takeScreenshot(); } catch { break; }
+        const h = MAGICK ? pHashHex(b64) : null;
+        if (curPhash && h && pHashHamming(curPhash, h) > 40) moved = true;
+        stable = last && h && pHashHamming(last, h) <= 8 ? stable + 1 : 0;
+        last = h;
+        lastB64 = b64;
+        // 轉完 = 轉動過、且連續 2 張幾乎不變(約 1.4 秒);3 秒都沒動 → 多半沒按到。
+        if (stable >= 2 && (moved || Date.now() - t1 > 3000)) break;
+      }
+      let reading = null;
+      if (lastB64) {
+        pendingShot = lastB64; // 下一步直接用這張(不再多等 3 秒)
+        const d2 = pngSize(Buffer.from(lastB64, 'base64'));
+        const r2 = MAGICK ? resizeToSmartB64(lastB64, d2?.w ?? origW, d2?.h ?? origH) : { b64: lastB64, format: 'png' };
+        const rd = await decide(SPIN_READER_SYSTEM, [makeUserTurn([r2.b64], '讀出這張畫面上的數字。', r2.format)]).catch(() => null);
+        if (rd?.usage) accumulate(tok, rd.usage);
+        if (rd && rd.trace?.ok !== false && !rd.cmd?.parseFailed) reading = rd.cmd;
+      }
+      const num = (v) => {
+        if (v === null || v === undefined || v === '') return undefined;
+        const x = Number(String(v).replace(/[^\d.-]/g, ''));
+        return Number.isFinite(x) ? x : undefined;
+      };
+      const freeLeft = num(reading?.free_spins_left) ?? 0;
+      const bonusNow = reading?.bonus === true || freeLeft > 0;
+      // 已經在免費遊戲中又讀到免費遊戲 → 這不是付費局(觸發免費遊戲的那一局才算)。
+      const paidRound = moved && !(rtpLoop.lastBonus && bonusNow);
+      const round = { n: rtpLoop.paid + (paidRound ? 1 : 0), bet: num(reading?.bet), win: num(reading?.win) ?? 0, balance: num(reading?.balance), free: freeLeft, bonus: bonusNow };
+      rtpLoop.lastBonus = bonusNow;
+      if (paidRound) {
+        rtpLoop.paid++;
+        rtpLoop.misses = 0;
+        rtpLoop.rounds.push(round);
+        if (rtpLoop.startBalance === undefined && Number.isFinite(round.balance) && Number.isFinite(round.bet)) rtpLoop.startBalance = round.balance - round.win + round.bet;
+      } else if (!moved) {
+        rtpLoop.misses++;
+        if (rtpLoop.misses >= 2) { reflexState.demoted.add(cmd.reflex.key); rtpLoop.handBack = true; }
+      }
+      if (Number.isFinite(round.balance)) rtpLoop.endBalance = round.balance;
+      step.rtpRound = { ...round, paid: paidRound, moved, ms: Date.now() - t1 };
+      if (reading) {
+        step.obs = { ...(step.obs ?? {}),
+          ...(Number.isFinite(round.balance) ? { balance: round.balance } : {}),
+          ...(Number.isFinite(round.bet) ? { bet: round.bet } : {}),
+          ...(moved ? { win: round.win } : {}) };
+      }
+      step.thinking = moved
+        ? `[SPIN 迴圈] 第 ${rtpLoop.paid}/${rtpLoop.target} 局${paidRound ? '' : '(免費遊戲中,不算付費局)'}:下注 ${round.bet ?? '?'}、贏分 ${round.win ?? '?'}、餘額 ${round.balance ?? '?'}${bonusNow ? '(免費遊戲 / Bonus)' : ''}。`
+        : `[SPIN 迴圈] 點了「${cmd.target}」但盤面沒有轉動(第 ${rtpLoop.misses} 次)。`;
+      if (reading && (reading.popup === true || bonusNow)) {
+        rtpLoop.handBack = true;
+        controlNote += `【SPIN 迴圈】第 ${rtpLoop.paid} 局後出現${bonusNow ? '免費遊戲 / Bonus' : '彈窗'},請處理到回到主盤面;回到主盤面後系統會自動繼續轉(已完成 ${rtpLoop.paid}/${rtpLoop.target} 局)。`;
+      }
+      if (rtpLoop.paid >= rtpLoop.target) {
+        rtpLoop.done = true;
+        const s = rtpSummary(rtpLoop.rounds, { startBalance: rtpLoop.startBalance, endBalance: rtpLoop.endBalance });
+        controlNote += `【SPIN 迴圈完成】已轉完 ${rtpLoop.target} 局付費 SPIN,RTP 已由系統統計(${s?.rtpPercent ?? '?'}%,95% 信賴區間 ${s?.ci95?.join('–') ?? '?'}%)。不用再轉;完成測試腳本其餘項目,沒有其他項目就 done。`;
+        console.log(`[SPIN 迴圈] 完成 ${rtpLoop.target} 局:RTP ${s?.rtpPercent ?? '?'}%`);
+      }
+      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+      console.log(`[SPIN 迴圈] 第 ${i} 步:${step.thinking}(${Math.round((Date.now() - t1) / 100) / 10}s)`);
+    }
     prevOrient = isLandscape;
     // 導覽圖用的「上一畫面/上一動作」:AI 沒給畫面名(pid=null,如解析失敗)時沿用上一個已知畫面,
     // 且該步若只是 wait 不覆蓋真正造成轉場的動作(如先 tap Slots → 解析失敗 wait → 機台選擇)。
@@ -2130,11 +2306,15 @@ async function main() {
       prevPageId = pid; navAction = cmd.action;
       // runner 覆寫了動作時,AI 的 target 不代表實際操作的元件。
       prevTarget = cmd.override ? '' : (typeof cmd.target === 'string' ? cmd.target : '');
+      // 可重播的操作細節(runner 自己的脫困 / 改寫不算;記憶腳本自己的操作照樣記,累積成功次數)。
+      navOp = actOk && !cmd.override ? opFromCmd(cmd, cw, ch, { version: appVersion }) : null;
     } else if (cmd.action !== 'wait') {
-      navAction = cmd.action; prevTarget = '';
+      navAction = cmd.action; prevTarget = ''; navOp = null;
     }
+    // AI 看過一次畫面後,被打斷的 SPIN 迴圈可以再接著轉。
+    if (!cmd.reflex) rtpLoop.handBack = false;
     // 輔助 Agent 核對上一步 + 決策 Agent 規劃下一步:在等待畫面穩定的這段時間背景進行(依序串接,不交錯)。
-    if (team) {
+    if (team && !cmd.reflex) {
       const idx = i;
       const observation = { screen: screenName, thinking: String(cmd.thinking || ''), ...(guardedObs ? { obs: guardedObs } : {}) };
       const actionText = [cmd.action, cmd.dir ? `dir=${cmd.dir}` : '', cmd.target ? `→ ${cmd.target}` : '', cmd.override ? `(runner 改寫:${cmd.override})` : '']
@@ -2170,7 +2350,9 @@ async function main() {
     }
     // 戰鬥走位中不額外等待(站著不動就會被包圍);其餘維持 3 秒讓畫面穩定。
     // AutoSpin 看守剛結束:事件幀已備好,立刻交回 AI(再等 3 秒,自動關閉的彈窗就消失了)。
-    if (!spinWatched) { if (lastBattleMove) await sleep(300); else await sleepOrOperator(3000); }
+    // 記憶腳本:SPIN 迴圈已在上面等過盤面;導航操作只等 1.5 秒(下一步會確認是否到了預期畫面,載入中會再等)。
+    if (cmd.reflex?.kind === 'spin') { /* 已等過 */ }
+    else if (!spinWatched) { if (lastBattleMove) await sleep(300); else await sleepOrOperator(cmd.reflex ? 1500 : 3000); }
   }
 
   // 收尾(停止並上傳整場錄影、收 log、產生報告)可能要十幾秒到一兩分鐘;先更新狀態訊息,讓前端不是乾等。
@@ -2206,7 +2388,23 @@ async function main() {
   // 結束前才按停止(例如最後一步正好卡住/出錯):以使用者的「停止」為準;真的完成(pass)則保留。
   if (finalState !== 'pass' && finalState !== 'cancelled' && await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; }
   if (finalState === 'pass') updateScriptProgress(team, { allDone: true });
-  const rtp = isRtpTask(TASK) ? computeRtpStats(steps) : null;
+  // SPIN 迴圈有逐局數字 → 以它為準(含餘額交叉驗算與 95% 信賴區間);否則照舊從 thinking 文字估。
+  const loopRtp = rtpLoop.rounds.length ? rtpSummary(rtpLoop.rounds, { startBalance: rtpLoop.startBalance, endBalance: rtpLoop.endBalance }) : null;
+  const rtp = loopRtp
+    ? {
+      method: 'spin-loop',
+      target: rtpLoop.target,
+      sampleCount: loopRtp.rounds,
+      ...loopRtp,
+      series: rtpLoop.rounds.filter((r) => Number.isFinite(r.bet) && r.bet > 0).reduce((acc, r) => {
+        const prev = acc[acc.length - 1] ?? { bet: 0, win: 0 };
+        const bet = prev.bet + r.bet;
+        const win = prev.win + (r.win ?? 0);
+        acc.push({ n: acc.length + 1, bet, win, rtp: Number(((win / bet) * 100).toFixed(2)) });
+        return acc;
+      }, []).map(({ n, rtp: v }) => ({ n, rtp: v })),
+    }
+    : (isRtpTask(TASK) ? computeRtpStats(steps) : null);
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w, h }, vlmModel: VLM,
     runnerVersion: RUNNER_VERSION,
     ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}),

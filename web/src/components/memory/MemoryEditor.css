@@ -324,3 +324,98 @@
   border-color: #3fb6ff;
   color: #3fb6ff;
 }
+
+/* 記憶腳本:截圖上標出操作位置、修正位置、匯出 */
+.memops__shot {
+  position: relative;
+  width: 100%;
+  margin: 0 0 var(--space-2);
+  background: #000;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  line-height: 0;
+}
+.memops__shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.memops__shot.is-picking {
+  cursor: crosshair;
+  outline: 2px dashed var(--brand);
+  outline-offset: 2px;
+}
+.memops__dot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--status-cancelled);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+}
+.memops__dot--verified {
+  background: var(--status-pass);
+}
+.memops__dot--auto {
+  background: var(--status-running);
+}
+.memops__dot--learning {
+  background: var(--status-error);
+}
+.memops__dot--disabled {
+  background: var(--status-cancelled);
+  opacity: 0.6;
+}
+.memops__dot--end {
+  background: rgb(0 0 0 / 0.55);
+}
+.memops__dot.is-active {
+  outline: 3px solid var(--brand);
+}
+.memops__item--verified {
+  border-left: 3px solid var(--status-pass);
+}
+.memops__item--auto {
+  border-left: 3px solid var(--status-running);
+}
+.memops__item--disabled {
+  opacity: 0.65;
+}
+.memops__btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1) var(--space-2);
+  flex-shrink: 0;
+  max-width: 45%;
+}
+.memops__fix {
+  flex-wrap: wrap;
+  margin-top: var(--space-1);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.memops__fix input {
+  width: 4.5em;
+  margin-left: 2px;
+}
+.memops__export {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+.memops__export .memedit__muted {
+  margin: 0;
+}

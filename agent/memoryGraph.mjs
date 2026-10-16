@@ -26,7 +26,12 @@ const STRONG_MATCH = 48;
 const WEAK_MATCH = 110;
 /** 每個節點保留的 pHash 樣本數(動態畫面需要多個樣本)。 */
 const MAX_HASH_SAMPLES = 6;
-const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch']);
+const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch', 'hold', 'key']);
+/** 可以由記憶直接重播的動作(launch 會重開遊戲,不重播)。 */
+const REPLAYABLE = new Set(['tap', 'swipe', 'hold', 'back', 'type', 'key', 'move']);
+const OP_DIRS = new Set(['up', 'down', 'left', 'right', 'upleft', 'upright', 'downleft', 'downright']);
+/** 同一畫面上的操作(例如 SPIN)最多記幾種。 */
+const MAX_SELF_OPS = 12;
 
 const TRANSIENT_RE = /loading|載入|载入|請稍候|请稍候|連線中|连接中|connecting|進場|进场|過場|过场|splash|logo|品牌動畫|品牌动画|config\s*ready|installing|安裝中|安装中/i;
 /** 沒有描述是哪一種載入時的預設名稱。 */
@@ -246,10 +251,62 @@ export function edgeKind(action) {
 }
 
 /**
+ * 操作細節(可重播):座標用 0~1 相對比例(不綁解析度),ms = 滑動 / 按住毫秒。
+ * { a:動作, x, y, x2?, y2?, ms?, dir?, key?, n?(連按), text?, ar?(錄製時寬高比), v?(App 版本), at? }
+ * 格式不對回 null(API 驗證使用者編修也用這個)。
+ */
+export function sanitizeOp(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const a = String(raw.a ?? '').trim().toLowerCase();
+  if (!REPLAYABLE.has(a)) return null;
+  const unit = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 1 ? Math.round(n * 10000) / 10000 : undefined;
+  };
+  const op = { a };
+  const x = unit(raw.x);
+  const y = unit(raw.y);
+  const needsXY = a === 'tap' || a === 'swipe' || a === 'hold';
+  if (needsXY && (x === undefined || y === undefined)) return null;
+  if (x !== undefined && y !== undefined) { op.x = x; op.y = y; }
+  if (a === 'swipe') {
+    const x2 = unit(raw.x2);
+    const y2 = unit(raw.y2);
+    if (x2 === undefined || y2 === undefined) return null;
+    op.x2 = x2; op.y2 = y2;
+  }
+  const ms = Number(raw.ms);
+  if ((a === 'swipe' || a === 'hold' || a === 'move' || a === 'key') && Number.isFinite(ms) && ms > 0) op.ms = Math.min(10_000, Math.round(ms));
+  if (a === 'move') {
+    const dir = String(raw.dir ?? '').toLowerCase();
+    if (!OP_DIRS.has(dir)) return null;
+    op.dir = dir;
+  }
+  if (a === 'key') {
+    const key = String(raw.key ?? '').trim().toLowerCase();
+    if (!/^[a-z0-9_]{1,16}$/.test(key)) return null;
+    op.key = key;
+    const n = Number(raw.n);
+    if (Number.isInteger(n) && n > 1 && n <= 20) op.n = n;
+  }
+  if (a === 'type') {
+    const text = typeof raw.text === 'string' ? raw.text.slice(0, 200) : '';
+    if (!text) return null;
+    op.text = text;
+  }
+  const ar = Number(raw.ar);
+  if (Number.isFinite(ar) && ar > 0.1 && ar < 10) op.ar = Math.round(ar * 1000) / 1000;
+  if (typeof raw.v === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(raw.v)) op.v = raw.v;
+  if (typeof raw.at === 'string' && raw.at.length <= 40) op.at = raw.at;
+  return op;
+}
+
+/**
  * 記錄一次轉場。action = 上一步動作(tap/swipe/back/move/type/launch/wait…),target = 上一步目標元件文字。
  * 只有 from !== to 才建邊;上一步非互動動作 → kind='auto'(自動轉場,如載入完成)。
+ * op = 上一步實際執行的操作細節(sanitizeOp 格式);有的話記在邊上(最新一次),供記憶腳本重播。
  */
-export function recordTransition(struct, fromId, toId, { action, target } = {}) {
+export function recordTransition(struct, fromId, toId, { action, target, op } = {}) {
   if (!fromId || !toId || fromId === toId) return;
   if (!struct.pages[fromId] || !struct.pages[toId]) return;
   const kind = INTERACTIVE.has(action) ? action : 'auto';
@@ -261,6 +318,8 @@ export function recordTransition(struct, fromId, toId, { action, target } = {}) 
     struct.edges.push(edge);
   }
   edge.hitCount += 1;
+  const clean = kind !== 'auto' ? sanitizeOp(op) : null;
+  if (clean && clean.a === kind) edge.op = clean;
   if (tgt && !struct.pages[fromId].knownControlLabels.includes(tgt)) {
     struct.pages[fromId].knownControlLabels = [...struct.pages[fromId].knownControlLabels, tgt].slice(-30);
   }
@@ -273,6 +332,51 @@ export function recordMiss(struct, pageId, { action, target } = {}) {
   for (const e of struct.edges) {
     if (e.fromPageId === pageId && e.trigger?.kind === action && normTarget(e.trigger?.target) === tgt) e.missCount += 1;
   }
+  for (const s of struct.pages[pageId].selfOps ?? []) {
+    if (s.kind === action && normTarget(s.target) === tgt) s.missCount = (s.missCount ?? 0) + 1;
+  }
+}
+
+/**
+ * 同一畫面上「畫面有變、但還是同一個畫面」的操作(例如拉霸機按 SPIN 轉輪、切換分頁)。
+ * 記在 page.selfOps(以動作 + 目標去重,最多 12 種),SPIN 迴圈靠它知道要點哪裡。
+ */
+export function recordSelfOp(struct, pageId, { action, target, op } = {}) {
+  const page = struct.pages?.[pageId];
+  if (!page || !REPLAYABLE.has(action)) return;
+  const tgt = normTarget(target);
+  if (!tgt) return; // 沒有目標名稱的點擊無法辨識是哪個按鈕
+  const clean = sanitizeOp(op);
+  const list = Array.isArray(page.selfOps) ? page.selfOps : [];
+  let s = list.find((x) => x.kind === action && normTarget(x.target) === tgt);
+  if (!s) {
+    s = { kind: action, target: tgt, hitCount: 0, missCount: 0 };
+    list.push(s);
+  }
+  s.hitCount += 1;
+  if (clean && clean.a === action) s.op = clean;
+  page.selfOps = list.sort((a, b) => b.hitCount - a.hitCount).slice(0, MAX_SELF_OPS);
+}
+
+/**
+ * 只用畫面指紋判斷「目前是記憶裡的哪個畫面」(不用 AI 命名)。
+ * 最近的頁要夠近(≤ maxDist),且比第二近的「別的頁」明顯更近(差距 ≥ margin),否則回 null(寧可交給 AI)。
+ * 回 { pageId, dist, transient }。
+ */
+export function identifyPage(struct, pHash, { maxDist = 40, margin = 12 } = {}) {
+  if (!pHash || !struct?.pages) return null;
+  let best = null;
+  let second = Infinity;
+  for (const p of Object.values(struct.pages)) {
+    const d = Math.min(Infinity, ...pageHashes(p).map((h) => hamming(pHash, h)));
+    if (!best || d < best.dist) {
+      if (best) second = Math.min(second, best.dist);
+      best = { pageId: p.id, dist: d, transient: Boolean(p.transient) };
+    } else if (d < second) second = d;
+  }
+  if (!best || best.dist > maxDist) return null;
+  if (second - best.dist < margin) return null;
+  return best;
 }
 
 /**
@@ -307,6 +411,7 @@ export function compactStructure(input) {
       for (const [n, c] of Object.entries(aliases)) if (!isPlaceholderName(n)) t.aliases[n] = (t.aliases[n] ?? 0) + c;
       refreshName(t);
       t.knownControlLabels = [...new Set([...(t.knownControlLabels ?? []), ...(p.knownControlLabels ?? [])])].slice(-30);
+      if (Array.isArray(p.selfOps) && p.selfOps.length) t.selfOps = mergeSelfOps(t.selfOps, p.selfOps);
       remap.set(p.id, match);
       continue;
     }
@@ -347,10 +452,27 @@ export function compactStructure(input) {
     }
     edge.hitCount += e.hitCount ?? 1;
     edge.missCount += e.missCount ?? 0;
+    // 操作細節:保留最新的一次(合併重複邊時以錄製時間較新者為準)。
+    const op = sanitizeOp(e.op);
+    if (op && op.a === kind && (!edge.op || String(op.at ?? '') >= String(edge.op.at ?? ''))) edge.op = op;
     // 人工標註(只出現在套過 edits 的讀取結果;runner 寫回的 structure.json 不含)。
     if (e.manual) edge.manual = true;
   }
   return out;
+}
+
+/** 合併兩份同畫面操作清單(次數相加、操作細節取較新)。 */
+function mergeSelfOps(a, b) {
+  const out = (Array.isArray(a) ? a : []).map((s) => ({ ...s }));
+  for (const s of Array.isArray(b) ? b : []) {
+    if (!s || !REPLAYABLE.has(s.kind)) continue;
+    const t = out.find((x) => x.kind === s.kind && normTarget(x.target) === normTarget(s.target));
+    if (!t) { out.push({ ...s }); continue; }
+    t.hitCount = (t.hitCount ?? 0) + (s.hitCount ?? 0);
+    t.missCount = (t.missCount ?? 0) + (s.missCount ?? 0);
+    if (s.op && (!t.op || String(s.op.at ?? '') >= String(t.op.at ?? ''))) t.op = s.op;
+  }
+  return out.sort((x, y) => (y.hitCount ?? 0) - (x.hitCount ?? 0)).slice(0, MAX_SELF_OPS);
 }
 
 /**

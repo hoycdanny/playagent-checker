@@ -14,6 +14,7 @@ export interface GraphPage {
   hitCount: number;
   firstSeenAt: string;
   lastSeenAt: string;
+  selfOps?: GraphSelfOp[];
 }
 export interface GraphEdge {
   fromPageId: string;
@@ -21,6 +22,32 @@ export interface GraphEdge {
   trigger: { kind: string; label?: string; target?: string };
   hitCount: number;
   missCount: number;
+  /** 最近一次造成這個轉場的操作細節(可重播)。 */
+  op?: GraphOp;
+}
+/** 可重播的操作:座標為 0~1 相對比例;ms = 滑動 / 按住毫秒。 */
+export interface GraphOp {
+  a: 'tap' | 'swipe' | 'hold' | 'back' | 'type' | 'key' | 'move';
+  x?: number;
+  y?: number;
+  x2?: number;
+  y2?: number;
+  ms?: number;
+  dir?: string;
+  key?: string;
+  n?: number;
+  text?: string;
+  ar?: number;
+  v?: string;
+  at?: string;
+}
+/** 同一畫面上的操作(例如 SPIN)。 */
+export interface GraphSelfOp {
+  kind: string;
+  target: string;
+  hitCount: number;
+  missCount: number;
+  op?: GraphOp;
 }
 export interface GraphStructure {
   schemaVersion: number;
@@ -44,8 +71,16 @@ export declare function recordTransition(
   struct: GraphStructure,
   fromId: string | null,
   toId: string | null,
-  opts?: { action?: string; target?: string },
+  opts?: { action?: string; target?: string; op?: unknown },
 ): void;
 export declare function recordMiss(struct: GraphStructure, pageId: string, opts?: { action?: string; target?: string }): void;
+export declare function recordSelfOp(struct: GraphStructure, pageId: string, opts?: { action?: string; target?: string; op?: unknown }): void;
+export declare function sanitizeOp(raw: unknown): GraphOp | null;
+export declare function identifyPage(
+  struct: GraphStructure,
+  pHash: string | null | undefined,
+  opts?: { maxDist?: number; margin?: number },
+): { pageId: string; dist: number; transient: boolean } | null;
+export declare function normTarget(t: unknown): string;
 export declare function compactStructure(input: unknown): GraphStructure;
 export declare function summarizeForAgent(struct: unknown, maxChars?: number): string;

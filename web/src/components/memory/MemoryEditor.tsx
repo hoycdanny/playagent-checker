@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { apiDelete, apiGet, apiPost, apiPut } from '../../api/client.ts';
 import type { RLang } from '../report/reportText.ts';
+import { MemoryOpsSection } from './MemoryOps.tsx';
+import type { MemOp, OpEdit, ScriptPage } from './memoryScript.ts';
 import './MemoryEditor.css';
 
 /**
@@ -42,6 +44,8 @@ export interface EditEdge {
   missCount: number;
   /** 使用者在記憶關係圖手動標註的路徑。 */
   manual?: boolean;
+  /** 最近一次造成這個轉場的操作(記憶腳本)。 */
+  op?: MemOp;
 }
 
 /** 刪除路徑的編修指令:純手動(AI 沒走過)的只移除標註,不進「已刪除」清單。 */
@@ -316,8 +320,8 @@ export function HintsPanel({ lang, api, pages }: { lang: RLang; api: HintsApi; p
   );
 }
 
-/** 單一畫面的編修抽屜(改名 / 畫面提示 / 路徑 / 刪除)。 */
-export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, onEdited }: {
+/** 單一畫面的編修抽屜(改名 / 記憶腳本 / 畫面提示 / 路徑 / 刪除)。 */
+export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, onEdited, script }: {
   lang: RLang;
   appId: string;
   page: EditPage;
@@ -326,6 +330,8 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
   api: HintsApi;
   onClose: () => void;
   onEdited: () => void;
+  /** 記憶腳本(操作位置編修 / 匯出 Appium)需要的整張地圖。 */
+  script?: { pages: Record<string, ScriptPage>; rootPageId?: string | null; opEdits: Record<string, OpEdit>; appName?: string };
 }) {
   const [name, setName] = useState(page.name);
   const [busy, setBusy] = useState(false);
@@ -396,7 +402,8 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
           <h2 id="memedit-drawer-title" className="memedit__title">{page.name}</h2>
           <button ref={closeRef} type="button" className="memedit__close" aria-label={mt('close', lang)} onClick={onClose}>×</button>
         </header>
-        {page.screenshotUrl && <img className="memedit__shot" src={page.screenshotUrl} alt={page.name} />}
+        {/* 有記憶腳本區塊時,截圖由它顯示(上面標出操作位置) */}
+        {page.screenshotUrl && !script && <img className="memedit__shot" src={page.screenshotUrl} alt={page.name} />}
         <p className="memedit__muted">{page.visitCount} {mt('visits', lang)}{aliasList.length ? ` · ${mt('aliases', lang)}: ${aliasList.slice(0, 5).join('、')}` : ''}</p>
 
         <form
@@ -419,6 +426,22 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
             </p>
           )}
         </form>
+
+        {script && (
+          <MemoryOpsSection
+            lang={lang}
+            appId={appId}
+            {...(script.appName ? { appName: script.appName } : {})}
+            pageId={page.id}
+            {...(page.screenshotUrl ? { screenshotUrl: page.screenshotUrl } : {})}
+            pages={script.pages}
+            edges={edges}
+            rootPageId={script.rootPageId ?? null}
+            opEdits={script.opEdits}
+            pageName={pageName}
+            onEdited={onEdited}
+          />
+        )}
 
         <section className="memedit__section">
           <h3 className="memedit__subtitle">{mt('pageNotes', lang)}</h3>
