@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiDelete, apiGet, apiPost, apiPut } from '../../api/client.ts';
 import type { RLang } from '../report/reportText.ts';
-import { MemoryOpsSection } from './MemoryOps.tsx';
-import type { MemOp, OpEdit, ScriptPage } from './memoryScript.ts';
+import type { MemOp } from './memoryScript.ts';
 import './MemoryEditor.css';
 
 /**
  * 記憶地圖的手動編修:
  * - HintsPanel:應用記憶(使用者教 AI 的經驗;來自測試中的即時指令或手動新增)。
- * - PageDrawer:單一畫面的改名 / 畫面專屬提示 / 路徑刪除 / 刪除畫面。
+ * - PageInfo:單一畫面的改名 / 畫面專屬提示 / 路徑刪除 / 刪除畫面(畫面工作區的「畫面說明」分頁)。
  * - DeletedPanel:已刪除的畫面與路徑,可還原。
  * 後端:infra/lambda/api/memoryHints.ts(hints.json / edits.json 覆寫層,不會被下次執行洗掉)。
  */
@@ -320,31 +319,28 @@ export function HintsPanel({ lang, api, pages }: { lang: RLang; api: HintsApi; p
   );
 }
 
-/** 單一畫面的編修抽屜(改名 / 記憶腳本 / 畫面提示 / 路徑 / 刪除)。 */
-export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, onEdited, script }: {
+/**
+ * 單一畫面的說明與設定(改名 / 畫面提示 / 進出路徑 / 刪除)。
+ * 嵌在記憶地圖的「畫面工作區」說明分頁裡(不是彈出視窗)。
+ */
+export function PageInfo({ lang, appId, page, edges, pageName, api, onDeleted, onEdited, onOpenPage }: {
   lang: RLang;
   appId: string;
   page: EditPage;
   edges: EditEdge[];
   pageName: (id: string) => string;
   api: HintsApi;
-  onClose: () => void;
+  /** 畫面被刪除後(外層取消選取)。 */
+  onDeleted: () => void;
   onEdited: () => void;
-  /** 記憶腳本(操作位置編修 / 匯出 Appium)需要的整張地圖。 */
-  script?: { pages: Record<string, ScriptPage>; rootPageId?: string | null; opEdits: Record<string, OpEdit>; appName?: string };
+  /** 點路徑另一端的畫面 → 切換到那個畫面。 */
+  onOpenPage?: (pageId: string) => void;
 }) {
   const [name, setName] = useState(page.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { setName(page.name); }, [page.id, page.name]);
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   async function edit(body: Record<string, unknown>, after?: () => void) {
     setBusy(true);
@@ -366,13 +362,18 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
   const inc = edges.filter((e) => e.toPageId === page.id && e.fromPageId !== page.id);
   const aliasList = Object.keys(page.aliases ?? {}).filter((n) => n !== page.name);
 
-  const edgeRow = (e: EditEdge, other: string) => {
+  const edgeRow = (e: EditEdge, otherId: string, arrow: 'in' | 'out') => {
     const k = edgeKey(e);
     const act = [e.trigger?.kind, e.trigger?.label ?? e.trigger?.target].filter(Boolean).join(' · ');
+    const other = arrow === 'out' ? `→ ${pageName(otherId)}` : `${pageName(otherId)} →`;
     return (
       <li key={k} className="memedit__edge">
         <div className="memedit__edge-body">
-          <span className="memedit__edge-to">{other}</span>
+          {onOpenPage ? (
+            <button type="button" className="memedit__edge-to memedit__edge-link" onClick={() => onOpenPage(otherId)}>{other}</button>
+          ) : (
+            <span className="memedit__edge-to">{other}</span>
+          )}
           {act && <span className="memedit__muted">{act}</span>}
           {e.manual && <span className="memedit__chip memedit__chip--handedge">{mt('manualEdge', lang)}</span>}
           <span className="memedit__muted">{mt('hit', lang)} {e.hitCount} · {mt('miss', lang)} {e.missCount}</span>
@@ -390,21 +391,8 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
   };
 
   return (
-    <div className="memedit__backdrop" role="presentation" onMouseDown={onClose}>
-      <aside
-        className="memedit memedit__drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="memedit-drawer-title"
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <header className="memedit__drawer-head">
-          <h2 id="memedit-drawer-title" className="memedit__title">{page.name}</h2>
-          <button ref={closeRef} type="button" className="memedit__close" aria-label={mt('close', lang)} onClick={onClose}>×</button>
-        </header>
-        {/* 有記憶腳本區塊時,截圖由它顯示(上面標出操作位置) */}
-        {page.screenshotUrl && !script && <img className="memedit__shot" src={page.screenshotUrl} alt={page.name} />}
-        <p className="memedit__muted">{page.visitCount} {mt('visits', lang)}{aliasList.length ? ` · ${mt('aliases', lang)}: ${aliasList.slice(0, 5).join('、')}` : ''}</p>
+    <div className="memedit memedit__info">
+        <p className="memedit__muted">{page.visitCount} {mt('visits', lang)}{aliasList.length ? ` · ${mt('aliases', lang)}: ${aliasList.slice(0, 8).join('、')}` : ''}</p>
 
         <form
           className="memedit__rename"
@@ -427,22 +415,6 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
           )}
         </form>
 
-        {script && (
-          <MemoryOpsSection
-            lang={lang}
-            appId={appId}
-            {...(script.appName ? { appName: script.appName } : {})}
-            pageId={page.id}
-            {...(page.screenshotUrl ? { screenshotUrl: page.screenshotUrl } : {})}
-            pages={script.pages}
-            edges={edges}
-            rootPageId={script.rootPageId ?? null}
-            opEdits={script.opEdits}
-            pageName={pageName}
-            onEdited={onEdited}
-          />
-        )}
-
         <section className="memedit__section">
           <h3 className="memedit__subtitle">{mt('pageNotes', lang)}</h3>
           {notes.length === 0 ? (
@@ -459,24 +431,23 @@ export function PageDrawer({ lang, appId, page, edges, pageName, api, onClose, o
 
         <section className="memedit__section">
           <h3 className="memedit__subtitle">{mt('outgoing', lang)}</h3>
-          {out.length === 0 ? <p className="memedit__empty">{mt('noEdges', lang)}</p> : <ul className="memedit__edges">{out.map((e) => edgeRow(e, `→ ${pageName(e.toPageId)}`))}</ul>}
+          {out.length === 0 ? <p className="memedit__empty">{mt('noEdges', lang)}</p> : <ul className="memedit__edges">{out.map((e) => edgeRow(e, e.toPageId, 'out'))}</ul>}
           <h3 className="memedit__subtitle">{mt('incoming', lang)}</h3>
-          {inc.length === 0 ? <p className="memedit__empty">{mt('noEdges', lang)}</p> : <ul className="memedit__edges">{inc.map((e) => edgeRow(e, `${pageName(e.fromPageId)} →`))}</ul>}
+          {inc.length === 0 ? <p className="memedit__empty">{mt('noEdges', lang)}</p> : <ul className="memedit__edges">{inc.map((e) => edgeRow(e, e.fromPageId, 'in'))}</ul>}
         </section>
 
         {error && <p className="memedit__error" role="alert">{error}</p>}
 
-        <footer className="memedit__drawer-foot">
+        <footer className="memedit__info-foot">
           <button
             type="button"
             className="memedit__btn memedit__btn--danger"
             disabled={busy}
-            onClick={() => { if (window.confirm(mt('delPageConfirm', lang))) void edit({ op: 'deletePage', pageId: page.id }, onClose); }}
+            onClick={() => { if (window.confirm(mt('delPageConfirm', lang))) void edit({ op: 'deletePage', pageId: page.id }, onDeleted); }}
           >
             {mt('delPage', lang)}
           </button>
         </footer>
-      </aside>
     </div>
   );
 }

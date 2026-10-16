@@ -96,7 +96,8 @@ export const MAX_ROUTE_BRANCHES = 40;
 const ROUTE_ID_RE = /^route-[a-z0-9]{6,24}$/;
 const STEP_ID_RE = /^[sb]-[a-z0-9]{4,24}$/;
 
-export const EDGE_KINDS = ['tap', 'swipe', 'back', 'auto'] as const;
+// hold / type / key:在記憶地圖「新增操作」到另一個畫面時用(長按、輸入帳密、按鍵)。
+export const EDGE_KINDS = ['tap', 'swipe', 'back', 'auto', 'hold', 'type', 'key'] as const;
 export type EdgeKind = (typeof EDGE_KINDS)[number];
 export interface ManualEdge {
   fromPageId: string;

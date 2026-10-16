@@ -206,13 +206,29 @@ export function chooseReflex({ struct, edits, pageId, task = '', focus = '', ver
 }
 
 /**
+ * 同一畫面的操作:AI 錄到的(page.selfOps)+ 測試人員在記憶地圖手動加的(只存在 opEdits,
+ * 識別鍵 pid>pid>kind>target 且有操作內容)。手動加的視為 manual(有操作內容即為已確認)。
+ */
+export function pageSelfOps(page, pageId, opEdits = {}) {
+  const list = [...(page?.selfOps ?? [])];
+  const have = new Set(list.map((s) => selfOpKey(pageId, s)));
+  for (const [key, edit] of Object.entries(opEdits ?? {})) {
+    if (have.has(key) || !edit?.op) continue;
+    const [from, to, kind, ...rest] = key.split('>');
+    if (from !== pageId || to !== pageId || !kind) continue;
+    list.push({ kind, target: rest.join('>'), hitCount: 0, missCount: 0, manual: true });
+  }
+  return list;
+}
+
+/**
  * SPIN 迴圈:這個畫面有沒有可信的 SPIN 操作。回 { key, op, target, trust } 或 null。
  */
 export function chooseSpinOp({ struct, edits, pageId, version, state }) {
   const page = struct?.pages?.[pageId];
   if (!page || page.transient) return null;
   const opEdits = edits?.opEdits ?? {};
-  const list = (page.selfOps ?? [])
+  const list = pageSelfOps(page, pageId, opEdits)
     // AutoSpin / 免費遊戲的按鈕不是「付費一局」,不放進迴圈。
     .filter((s) => s && (s.kind === 'tap' || s.kind === 'hold') && SPIN_RE.test(String(s.target ?? '')) && !/auto|free|免費|免费/i.test(String(s.target ?? '')))
     .map((s) => {

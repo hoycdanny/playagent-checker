@@ -97,6 +97,8 @@ interface ScreenNodeData extends Record<string, unknown> {
   /** 顯示中的路線經過這個畫面的步驟編號(支線畫面為「支」)。 */
   routeBadges?: string[];
   picking?: boolean;
+  /** 下方工作區正打開這個畫面。 */
+  focused?: boolean;
 }
 
 /** 節點上的路線步驟徽章。 */
@@ -115,7 +117,7 @@ interface FlowEdgeData extends Record<string, unknown> {
 /** 節點:截圖縮圖 + 熱度 + 名稱 + 別名數 + 到訪次數;載入/過場節點縮成小膠囊。 */
 function ScreenFlowNode({ data }: NodeProps) {
   const d = data as ScreenNodeData;
-  const drop = (d.dropTarget ? ' sg-node--drop' : '') + (d.picking ? ' sg-node--picking' : '') + (d.routeBadges?.length ? ' sg-node--onroute' : '');
+  const drop = (d.dropTarget ? ' sg-node--drop' : '') + (d.picking ? ' sg-node--picking' : '') + (d.routeBadges?.length ? ' sg-node--onroute' : '') + (d.focused ? ' sg-node--focused' : '');
   // 載入/過場畫面也是獨立節點(各自載入不同東西),一樣顯示截圖,只用虛線框 + 「載入」標籤區分。
   const transientCls = d.transient ? ' sg-node--loading' : '';
   const fullName = d.subtitle ? `${d.name} · ${d.subtitle}` : d.name;
@@ -423,6 +425,8 @@ export interface ScreenGraphProps {
   onOpenPage?: (pageId: string) => void;
   /** 已存的操作路線(edits.json routes)。 */
   routes?: MemoryRoute[];
+  /** 目前在下方工作區打開的畫面(圖上加外框標示)。 */
+  focusedPageId?: string;
 }
 
 export function ScreenGraph(props: ScreenGraphProps) {
@@ -436,7 +440,7 @@ export function ScreenGraph(props: ScreenGraphProps) {
 
 const NO_POSITIONS: Positions = {};
 
-function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSITIONS, onEdit, onOpenPage, routes = NO_ROUTES }: ScreenGraphProps) {
+function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSITIONS, onEdit, onOpenPage, routes = NO_ROUTES, focusedPageId }: ScreenGraphProps) {
   const { t, locale } = useI18n();
   const lang: RLang = reportLang(locale);
   const editable = Boolean(onEdit);
@@ -478,10 +482,11 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
   const [shownId, setShownId] = useState<string | null>(null);
   const shownRoute = draft ?? routes.find((r) => r.id === shownId) ?? null;
   const picking = Boolean(draft && pick);
-  const base = useMemo(
-    () => overlayRoute(laid, shownRoute, picking, lang === 'zh' ? '支' : 'B'),
-    [laid, shownRoute, picking, lang],
-  );
+  const base = useMemo(() => {
+    const b = overlayRoute(laid, shownRoute, picking, lang === 'zh' ? '支' : 'B');
+    if (!focusedPageId) return b;
+    return { ...b, nodes: b.nodes.map((n) => (n.id === focusedPageId ? { ...n, data: { ...n.data, focused: true } } : n)) };
+  }, [laid, shownRoute, picking, lang, focusedPageId]);
 
   // 受控狀態(拖曳、選取);資料重新載入時同步,保留選取。
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>(base.nodes);
@@ -743,7 +748,8 @@ function gt(key: keyof typeof GUIDE, lang: RLang): string {
 /** 圖例 + 看圖說明(預設展開;收合狀態記在本機)。 */
 function GraphGuide({ lang }: { lang: RLang }) {
   const [open, setOpen] = useState(() => {
-    try { return localStorage.getItem('pa.memoryGuide') !== 'closed'; } catch { return true; }
+    // 預設收合:關係圖要在最上面一眼看到;需要時再展開說明。
+    try { return localStorage.getItem('pa.memoryGuide') === 'open'; } catch { return false; }
   });
   const toggle = (next: boolean) => {
     setOpen(next);

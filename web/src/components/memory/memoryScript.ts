@@ -81,12 +81,109 @@ const POPUP_RE = /彈窗|弹窗|公告|popup|pop-up|獎勵|奖励|簽到|签到|
 const SPIN_RE = /spin|旋轉|旋转|轉動|转动/i;
 
 export interface ScriptStep {
+  /** 這一步的操作識別鍵(編修用)。 */
+  key: string;
   from: { id: string; name: string; hashes: string[] };
   to: { id: string; name: string; hashes: string[] };
+  /** 動作種類(路徑的 kind)。 */
+  kind: string;
   target: string;
   op: MemOp;
   trust: Trust;
 }
+
+/** 解析操作識別鍵 from>to>kind>target。格式不對回 null。 */
+export function parseOpKey(key: string): { from: string; to: string; kind: string; target: string } | null {
+  const parts = key.split('>');
+  if (parts.length < 4) return null;
+  const [from, to, kind, ...rest] = parts;
+  if (!from || !to || !kind) return null;
+  return { from, to, kind, target: rest.join('>') };
+}
+
+/** 操作名稱清理:不可含 >(識別鍵的分隔符號),最多 40 字。 */
+export function cleanTarget(s: string): string {
+  return s.replace(/[>\n\r]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+}
+
+/** 一個畫面上的一個操作(去別的畫面的路徑,或留在同一畫面的動作)。 */
+export interface PageOpItem {
+  key: string;
+  kind: string;
+  target: string;
+  /** 會到哪個畫面;null = 同一畫面(例如 SPIN)。 */
+  toPageId: string | null;
+  hitCount: number;
+  missCount: number;
+  /** 測試人員手動加的(不是 AI 錄到的)。 */
+  manual: boolean;
+  /** AI 最近一次錄到的操作。 */
+  recorded?: MemOp;
+  edit?: OpEdit;
+  /** 實際要用的操作(修正過的優先)。 */
+  op?: MemOp;
+  trust: Trust;
+}
+
+/** 動作種類可以重播、可以在記憶地圖編修。 */
+export const EDITABLE_KINDS = ['tap', 'hold', 'swipe', 'back', 'type', 'key'] as const;
+
+/**
+ * 這個畫面上所有可編修的操作:出去的路徑(不含自動切換)+ 同一畫面的操作(AI 錄到的 + 測試人員手動加的)。
+ * 排序:可直接執行的在前,其次成功次數多的。
+ */
+export function pageOps(pageId: string, pages: Record<string, ScriptPage>, edges: ScriptEdge[], opEdits: Record<string, OpEdit>): PageOpItem[] {
+  const out: PageOpItem[] = [];
+  const seen = new Set<string>();
+  const push = (it: Omit<PageOpItem, 'op' | 'trust'>) => {
+    if (seen.has(it.key)) return;
+    seen.add(it.key);
+    const op = effectiveOp(it.recorded, it.edit);
+    out.push({ ...it, ...(op ? { op } : {}), trust: opTrust({ hitCount: it.hitCount, missCount: it.missCount, manual: it.manual }, it.edit) });
+  };
+  for (const e of edges) {
+    if (e.fromPageId !== pageId || e.toPageId === pageId || !e.trigger?.kind || e.trigger.kind === 'auto' || e.trigger.kind === 'launch') continue;
+    const key = edgeOpKey(e);
+    const edit = opEdits[key];
+    push({
+      key, kind: e.trigger.kind, target: e.trigger.target ?? '', toPageId: e.toPageId,
+      hitCount: e.hitCount, missCount: e.missCount, manual: Boolean(e.manual),
+      ...(e.op ? { recorded: e.op } : {}), ...(edit ? { edit } : {}),
+    });
+  }
+  for (const s of pages[pageId]?.selfOps ?? []) {
+    const key = selfOpKey(pageId, s);
+    const edit = opEdits[key];
+    push({
+      key, kind: s.kind, target: s.target, toPageId: null, hitCount: s.hitCount, missCount: s.missCount, manual: false,
+      ...(s.op ? { recorded: s.op } : {}), ...(edit ? { edit } : {}),
+    });
+  }
+  // 測試人員在這個畫面手動加的同畫面操作(只存在 edits.json)。
+  for (const [key, edit] of Object.entries(opEdits)) {
+    const k = parseOpKey(key);
+    if (!k || k.from !== pageId || k.to !== pageId || !edit.op) continue;
+    push({ key, kind: k.kind, target: k.target, toPageId: null, hitCount: 0, missCount: 0, manual: true, edit });
+  }
+  const rank = (t: Trust) => (t === 'verified' ? 0 : t === 'auto' ? 1 : t === 'learning' ? 2 : 3);
+  return out.sort((a, b) => rank(a.trust) - rank(b.trust) || b.hitCount - a.hitCount);
+}
+
+/** 預設操作內容(新增時在截圖上點的位置)。 */
+export function defaultOp(kind: string, x: number, y: number): MemOp {
+  const r = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 10000) / 10000;
+  switch (kind) {
+    case 'swipe': return { a: 'swipe', x: r(x), y: r(y), x2: r(x), y2: r(Math.max(0, y - 0.25)), ms: 300 };
+    case 'hold': return { a: 'hold', x: r(x), y: r(y), ms: 1000 };
+    case 'back': return { a: 'back' };
+    case 'type': return { a: 'type', text: '' };
+    case 'key': return { a: 'key', key: 'enter' };
+    default: return { a: 'tap', x: r(x), y: r(y) };
+  }
+}
+
+/** 需要在截圖上指定位置的動作。 */
+export const needsPoint = (kind: string) => kind === 'tap' || kind === 'hold' || kind === 'swipe';
 
 const hashesOf = (p: ScriptPage | undefined) => [...new Set([p?.pHash, ...(p?.pHashes ?? [])].filter((h): h is string => Boolean(h)))];
 
@@ -137,8 +234,10 @@ export function findScriptPath(
     const from = pages[x.e.fromPageId];
     const to = pages[x.e.toPageId];
     path.unshift({
+      key: edgeOpKey(x.e),
       from: { id: x.e.fromPageId, name: from?.name ?? x.e.fromPageId, hashes: hashesOf(from) },
       to: { id: x.e.toPageId, name: to?.name ?? x.e.toPageId, hashes: hashesOf(to) },
+      kind: x.e.trigger?.kind ?? x.op!.a,
       target: x.e.trigger?.target ?? '',
       op: x.op!,
       trust: x.trust,
@@ -164,11 +263,10 @@ export function popupHandlers(pages: Record<string, ScriptPage>, edges: ScriptEd
 /** 目標畫面上的 SPIN 操作(匯出腳本的 --spins 用)。 */
 export function spinOpOf(page: ScriptPage | undefined, opEdits: Record<string, OpEdit>) {
   if (!page) return null;
-  for (const s of page.selfOps ?? []) {
-    if (!SPIN_RE.test(s.target) || /auto|free|免費|免费/i.test(s.target)) continue;
-    const edit = opEdits[selfOpKey(page.id, s)];
-    const op = effectiveOp(s.op, edit);
-    if (op && opTrust(s, edit) !== 'disabled') return { target: s.target, op };
+  // 同一畫面的操作(AI 錄到的 + 測試人員手動加的);確認過的優先。
+  for (const it of pageOps(page.id, { [page.id]: page }, [], opEdits)) {
+    if (it.toPageId !== null || !SPIN_RE.test(it.target) || /auto|free|免費|免费/i.test(it.target)) continue;
+    if (it.op && it.trust !== 'disabled') return { target: it.target, op: it.op };
   }
   return null;
 }
@@ -272,6 +370,11 @@ async function perform(op, label) {
       await driver.back(); break;
     case 'type':
       await driver.keys(resolveText(op.text).split('')); break;
+    case 'key': {
+      const KEY = { enter: 'Enter', tab: 'Tab', space: ' ', escape: 'Escape', esc: 'Escape', backspace: 'Backspace', up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' };
+      for (let i = 0; i < (op.n ?? 1); i++) await driver.keys([KEY[op.key] ?? op.key]);
+      break;
+    }
     default:
       console.warn(\`  (略過不支援的動作 \${op.a})\`);
   }

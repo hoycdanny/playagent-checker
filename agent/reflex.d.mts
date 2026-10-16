@@ -40,6 +40,11 @@ export declare function chooseReflex(c: {
   version?: string;
   state: ReflexState;
 }): ReflexDecision | null;
+export declare function pageSelfOps(
+  page: { selfOps?: Array<{ kind: string; target: string; hitCount: number; missCount: number; op?: unknown }> } | null | undefined,
+  pageId: string,
+  opEdits?: Record<string, { op?: unknown; verified?: boolean; disabled?: boolean } | undefined>,
+): Array<{ kind: string; target: string; hitCount: number; missCount: number; op?: unknown; manual?: boolean }>;
 export declare function chooseSpinOp(c: {
   struct: GraphStructure;
   edits: (EditsLike & { opEdits?: Record<string, unknown> }) | null;

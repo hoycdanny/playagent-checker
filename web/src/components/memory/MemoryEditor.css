@@ -237,59 +237,10 @@
   overflow-wrap: anywhere;
 }
 
-/* 畫面抽屜 */
-.memedit__backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  background: rgb(0 0 0 / 0.45);
-  display: flex;
-  justify-content: flex-end;
-}
-.memedit__drawer {
-  width: min(460px, 100vw);
-  height: 100%;
-  overflow-y: auto;
-  box-sizing: border-box;
-  padding: var(--space-4);
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-.memedit__drawer-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-.memedit__close {
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  font-size: 18px;
-  line-height: 1;
-  cursor: pointer;
-}
-.memedit__shot {
-  width: 100%;
-  max-height: 260px;
-  object-fit: contain;
-  background: #000;
-  border-radius: var(--radius-sm);
-}
+/* 畫面說明的區塊 */
 .memedit__section {
   border-top: 1px solid var(--border);
   padding-top: var(--space-2);
-}
-.memedit__drawer-foot {
-  margin-top: auto;
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
 }
 
 /* 已刪除 */
@@ -325,97 +276,27 @@
   color: #3fb6ff;
 }
 
-/* 記憶腳本:截圖上標出操作位置、修正位置、匯出 */
-.memops__shot {
-  position: relative;
-  width: 100%;
-  margin: 0 0 var(--space-2);
-  background: #000;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  line-height: 0;
-}
-.memops__shot img {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-.memops__shot.is-picking {
-  cursor: crosshair;
-  outline: 2px dashed var(--brand);
-  outline-offset: 2px;
-}
-.memops__dot {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  min-width: 20px;
-  height: 20px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  border: 2px solid #fff;
-  border-radius: 999px;
-  background: var(--status-cancelled);
-  color: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  text-align: center;
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.5);
-  pointer-events: none;
-}
-.memops__dot--verified {
-  background: var(--status-pass);
-}
-.memops__dot--auto {
-  background: var(--status-running);
-}
-.memops__dot--learning {
-  background: var(--status-error);
-}
-.memops__dot--disabled {
-  background: var(--status-cancelled);
-  opacity: 0.6;
-}
-.memops__dot--end {
-  background: rgb(0 0 0 / 0.55);
-}
-.memops__dot.is-active {
-  outline: 3px solid var(--brand);
-}
-.memops__item--verified {
-  border-left: 3px solid var(--status-pass);
-}
-.memops__item--auto {
-  border-left: 3px solid var(--status-running);
-}
-.memops__item--disabled {
-  opacity: 0.65;
-}
-.memops__btns {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: var(--space-1) var(--space-2);
-  flex-shrink: 0;
-  max-width: 45%;
-}
-.memops__fix {
-  flex-wrap: wrap;
-  margin-top: var(--space-1);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.memops__fix input {
-  width: 4.5em;
-  margin-left: 2px;
-}
-.memops__export {
+/* 畫面說明(嵌在畫面工作區的「畫面說明」分頁) */
+.memedit__info {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-1);
-  margin-top: var(--space-2);
+  gap: var(--space-3);
 }
-.memops__export .memedit__muted {
-  margin: 0;
+.memedit__info-foot {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+.memedit__edge-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--brand);
+  cursor: pointer;
+}
+.memedit__edge-link:hover {
+  text-decoration: underline;
 }
