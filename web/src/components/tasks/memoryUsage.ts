@@ -23,20 +23,20 @@ export interface StepMemory {
 }
 
 const L = {
-  known: ['🧠 已知畫面', '🧠 Known screen'],
+  known: ['已知畫面', 'Known screen'],
   knownTip: ['這個畫面在本次測試開始前就已在記憶中(先前到訪 {n} 次)', 'This screen was already in memory before this run ({n} earlier visits)'],
   learned: ['本次稍早見過', 'Seen earlier this run'],
   learnedTip: ['這個畫面是本次測試才第一次記住的,不算命中舊記憶', 'First learned during this run; not a hit on earlier memory'],
-  newScreen: ['✨ 新畫面', '✨ New screen'],
+  newScreen: ['新畫面', 'New screen'],
   newTip: ['記憶中沒有這個畫面,本次會把它記下來', 'Not in memory yet; it is being recorded now'],
-  followed: ['🧠 記憶預測應驗', '🧠 Memory prediction held'],
-  diverged: ['⚠ 與記憶不符', '⚠ Differs from memory'],
-  noEffect: ['⚠ 記憶路徑這次沒反應', '⚠ Remembered path had no effect'],
+  followed: ['記憶預測應驗', 'Memory prediction held'],
+  diverged: ['與記憶不符', 'Differs from memory'],
+  noEffect: ['記憶路徑這次沒反應', 'Remembered path had no effect'],
   arrivalTip: ['記憶說:在「{from}」{how} 會到「{to}」(先前 {rec})', 'Memory says: {how} on "{from}" leads to "{to}" ({rec} before)'],
-  plan: ['🧭 照已驗證路徑', '🧭 Following a verified path'],
+  plan: ['照已驗證路徑', 'Following a verified path'],
   planTip: ['AI 這一步選的操作,正是記憶中這個畫面已驗證的路徑(先前 {rec})', 'The AI chose a path already verified on this screen ({rec} before)'],
-  hints: ['📌 套用教學 {n} 條', '📌 {n} tester tip(s) applied'],
-  route: ['🗺 路線 {r}', '🗺 Route {r}'],
+  hints: ['套用教學 {n} 條', '{n} tester tip(s) applied'],
+  route: ['路線 {r}', 'Route {r}'],
   branch: ['支線', 'branch'],
   manual: ['人工標註', 'marked by a tester'],
   rec: ['成功 {h} / 失敗 {m}', '{h} worked / {m} failed'],
@@ -60,18 +60,19 @@ function rec(x: { hit?: number; miss?: number; manual?: boolean }, lang: RLang):
   return x.manual ? tx('manual', lang) : tx('rec', lang).replace('{h}', String(x.hit ?? 0)).replace('{m}', String(x.miss ?? 0));
 }
 
-export interface MemoryChip { text: string; tip: string; tone: 'hit' | 'info' | 'warn' | 'new' }
+/** icon = InfoIcon 名稱(畫面記憶 / 新畫面 / 不符 / 已驗證路徑 / 教學 / 路線)。 */
+export interface MemoryChip { text: string; tip: string; tone: 'hit' | 'info' | 'warn' | 'new'; icon: 'db' | 'sparkle' | 'alert' | 'compass' | 'pin' | 'route' }
 
 /** 一步的記憶標籤。 */
 export function memoryChips(m: StepMemory | undefined, lang: RLang): MemoryChip[] {
   if (!m) return [];
   const out: MemoryChip[] = [];
   if (m.screen === 'known') {
-    out.push({ text: tx('known', lang), tip: tx('knownTip', lang).replace('{n}', String(m.page?.priorVisits ?? 0)), tone: 'hit' });
+    out.push({ text: tx('known', lang), tip: tx('knownTip', lang).replace('{n}', String(m.page?.priorVisits ?? 0)), tone: 'hit', icon: 'db' });
   } else if (m.screen === 'learned') {
-    out.push({ text: tx('learned', lang), tip: tx('learnedTip', lang), tone: 'info' });
+    out.push({ text: tx('learned', lang), tip: tx('learnedTip', lang), tone: 'info', icon: 'db' });
   } else if (m.screen === 'new') {
-    out.push({ text: tx('newScreen', lang), tip: tx('newTip', lang), tone: 'new' });
+    out.push({ text: tx('newScreen', lang), tip: tx('newTip', lang), tone: 'new', icon: 'sparkle' });
   }
   if (m.arrival) {
     const a = m.arrival;
@@ -81,6 +82,7 @@ export function memoryChips(m: StepMemory | undefined, lang: RLang): MemoryChip[
       text: tx(key, lang),
       tip: tx('arrivalTip', lang).replace('{from}', a.from ?? '').replace('{how}', how(a.kind, a.target, lang)).replace('{to}', to).replace('{rec}', rec(a, lang)),
       tone: a.result === 'followed' ? 'hit' : 'warn',
+      icon: a.result === 'followed' ? 'db' : 'alert',
     });
   }
   if (m.plan) {
@@ -88,6 +90,7 @@ export function memoryChips(m: StepMemory | undefined, lang: RLang): MemoryChip[
       text: `${tx('plan', lang)}:${how(m.plan.kind, m.plan.target, lang)} → ${m.plan.to ?? ''}`,
       tip: tx('planTip', lang).replace('{rec}', rec(m.plan, lang)),
       tone: 'hit',
+      icon: 'compass',
     });
   }
   if (m.hints?.length) {
@@ -95,11 +98,12 @@ export function memoryChips(m: StepMemory | undefined, lang: RLang): MemoryChip[
       text: tx('hints', lang).replace('{n}', String(m.hints.length)),
       tip: m.hints.map((h) => `${h.matched ? '✓' : '·'} ${h.text ?? ''}`).join('\n'),
       tone: m.hints.some((h) => h.matched) ? 'hit' : 'info',
+      icon: 'pin',
     });
   }
   if (m.route?.length) {
     const r = m.route.map((x) => (x.branch ? `${x.name} ${tx('branch', lang)}` : `${x.name} ${x.step}/${x.total}`)).join('、');
-    out.push({ text: tx('route', lang).replace('{r}', r), tip: r, tone: 'hit' });
+    out.push({ text: tx('route', lang).replace('{r}', r), tip: r, tone: 'hit', icon: 'route' });
   }
   return out;
 }

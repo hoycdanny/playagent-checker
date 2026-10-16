@@ -111,3 +111,101 @@
 .taskask__modelpick { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; font-size: 0.8rem; color: var(--muted, #6b7280); }
 .taskask__modelpick select { flex: 1 1 auto; min-width: 0; max-width: 100%; padding: 0.2rem 0.35rem; border-radius: 5px; border: 1px solid var(--border, #d1d5db); background: var(--surface, #fff); color: inherit; font-size: 0.8rem; }
 .taskask__model { font-weight: 400; color: var(--muted, #6b7280); font-size: 0.75rem; }
+
+/* ── 對話泡泡 + AI 頭像(線條 icon) ── */
+.taskask__toggle h3 { display: inline-flex; align-items: center; gap: 6px; }
+.taskask__msg { display: flex; gap: 8px; align-items: flex-start; padding: 0; border: 0; background: none; max-width: 100%; }
+.taskask__msg--user { align-self: flex-end; max-width: 86%; background: none; }
+.taskask__msg--assistant { align-self: stretch; border: 0; background: none; }
+.taskask__bubble {
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.taskask__msg--user .taskask__bubble {
+  border: 1px solid color-mix(in srgb, var(--brand) 45%, transparent);
+  background: color-mix(in srgb, var(--brand) 18%, var(--surface));
+  border-bottom-right-radius: 4px;
+}
+.taskask__msg--assistant .taskask__bubble {
+  flex: 1 1 auto;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+  border-top-left-radius: 4px;
+}
+.taskask__msg--user .taskask__who { display: none; }
+.taskask__avatar {
+  flex: 0 0 auto;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: #a78bfa;
+}
+.taskask__intro { display: flex; align-items: center; gap: 8px; }
+.taskask__ref {
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, #a78bfa 50%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, #a78bfa 14%, transparent);
+  color: #c4b5fd;
+  font: inherit;
+  cursor: pointer;
+}
+.taskask__ref:hover { background: color-mix(in srgb, #a78bfa 28%, transparent); }
+.taskask__ref:focus-visible,
+.taskask__chip:focus-visible,
+.taskask__send:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* ── 放在任務詳情分頁裡(embedded) ── */
+.taskask--embedded {
+  flex: 1 1 0;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.taskask--embedded .taskask__empty { flex: 1 1 auto; }
+.taskask__suggest {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.taskask__suggest-k { flex: 0 0 auto; font-size: 12px; color: var(--text-tertiary); margin-right: 2px; white-space: nowrap; }
+.taskask__chip { padding: 5px 12px; border-radius: 999px; font-size: 12.5px; color: var(--text-secondary); }
+.taskask__chip:disabled { opacity: 0.5; cursor: default; }
+.taskask--embedded .taskask__form {
+  align-items: center;
+  padding: 4px 4px 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface-sunken, color-mix(in srgb, var(--surface) 60%, #000));
+}
+.taskask--embedded .taskask__form:focus-within { border-color: var(--brand); }
+.taskask--embedded .taskask__form textarea {
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  outline: none;
+  max-height: 6em;
+  font-size: 13px;
+}
+.taskask--embedded .taskask__send {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 50%;
+}
+.taskask__foot { display: flex; align-items: center; gap: 10px; }
+.taskask--embedded .taskask__modelpick { flex: 1 1 auto; margin: 0; color: var(--text-tertiary); font-size: 12px; }
+.taskask--embedded .taskask__modelpick select { flex: 0 1 auto; max-width: 320px; border-radius: 7px; font-size: 12px; }
+.taskask--embedded .taskask__clear { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }

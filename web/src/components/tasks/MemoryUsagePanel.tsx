@@ -1,5 +1,6 @@
 import type { RLang } from '../report/reportText.ts';
 import { memoryChips, memoryVerdict, summarizeMemory, type StepMemory } from './memoryUsage.ts';
+import { InfoIcon } from './InfoIcon.tsx';
 import './MemoryUsagePanel.css';
 
 const T = {
@@ -34,7 +35,7 @@ export function MemoryUsagePanel({ steps, lang }: { steps: ReadonlyArray<Record<
   return (
     <section className="memuse" aria-label={t('title', lang)}>
       <div className="memuse__head">
-        <h3 className="memuse__title">🧠 {t('title', lang)}</h3>
+        <h3 className="memuse__title"><InfoIcon name="db" size={15} className="memuse__ico" /> {t('title', lang)}</h3>
         {b && (
           <span className="memuse__baseline">
             {t('baseline', lang)}:{t('pages', lang).replace('{n}', String(b.pages))} · {t('paths', lang).replace('{n}', String(b.verifiedPaths))}
@@ -66,7 +67,7 @@ export function StepMemoryChips({ memory, lang }: { memory: unknown; lang: RLang
   return (
     <div className="memuse__chips">
       {chips.map((c, i) => (
-        <span key={i} className={`memuse__chip is-${c.tone}`} title={c.tip}>{c.text}</span>
+        <span key={i} className={`memuse__chip is-${c.tone}`} title={c.tip}><InfoIcon name={c.icon} size={12} className="memuse__ico" />{c.text}</span>
       ))}
     </div>
   );

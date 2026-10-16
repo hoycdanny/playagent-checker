@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { InfoIcon } from './InfoIcon.tsx';
 import type { RLang } from '../report/reportText.ts';
 import { formatPick, LivePlayer, type LivePlayerState, type PickPoint } from './LivePlayer.tsx';
 import './LiveScreen.css';
@@ -161,7 +162,7 @@ export function LiveScreen({
         {pickable && point && (
           <div className="livescreen__pick" role="group" aria-label={tx(point.to ? 'dragTitle' : 'pickTitle', lang)}>
             <span className="livescreen__pick-pos">
-              {point.to ? '↗' : '📍'} {formatPick(point)}
+              {point.to ? '↗' : <InfoIcon name="pin" size={13} />} {formatPick(point)}
               {point.to && point.ms ? ` · ${tx('dragTime', lang).replace('{s}', (point.ms / 1000).toFixed(1))}` : ''}
             </span>
             {onSendPoint && (

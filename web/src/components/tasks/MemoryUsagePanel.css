@@ -47,3 +47,14 @@
 .memuse__chip.is-hit { border-color: color-mix(in srgb, var(--status-pass) 45%, var(--border)); color: var(--status-pass); }
 .memuse__chip.is-warn { border-color: color-mix(in srgb, var(--status-error) 45%, var(--border)); color: var(--status-error); }
 .memuse__chip.is-new { border-style: dashed; }
+
+/* 線條 icon(取代 emoji) */
+.memuse__ico {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+.memuse__chip {
+  display: inline-flex;
+  align-items: center;
+}

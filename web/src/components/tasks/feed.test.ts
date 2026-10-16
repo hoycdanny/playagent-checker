@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_FILTER, applyFilter, buildFeed, deciderOf, feedCounts, type FeedFilter } from './feed.ts';
-import { orientationAt, stepOrientation } from './orientation.ts';
+import { aspectAt, contentCrop, orientationAt, stepOrientation } from './orientation.ts';
 import { buildTimeline } from './timeline.ts';
 
 const T0 = Date.UTC(2026, 9, 16, 10, 35, 43, 0);
@@ -64,5 +64,21 @@ describe('app orientation', () => {
     expect(orientationAt(steps, null)).toBe('portrait');
     expect(orientationAt([{ index: 0 }, { index: 1, space: { device: [400, 800] } }], 0)).toBe('portrait'); // 開頭沒有 → 往後找
     expect(orientationAt([{ index: 0 }], null)).toBeNull();
+  });
+
+  it('crops the letterbox of a fixed-size recording to the app screen', () => {
+    expect(aspectAt([{ index: 0, space: { shot: [3088, 1440] } }, { index: 1 }], 1)).toBeCloseTo(3088 / 1440);
+    // 480×720 錄影裡的橫向 App(3088×1440):App 畫面 480×224 → 影片寬 = 框寬,影片高 = 框高 × 3.2(上下黑邊裁掉)
+    const land = contentCrop({ w: 480, h: 720 }, 3088 / 1440)!;
+    expect(land.aspect).toBeCloseTo(3088 / 1440);
+    expect(land.wPct).toBeCloseTo(100);
+    expect(land.hPct).toBeCloseTo((720 / (480 / (3088 / 1440))) * 100);
+    // 同一支錄影裡的直向 App(1440×3088):App 畫面 336×720 → 高度貼齊,左右黑邊裁掉
+    const port = contentCrop({ w: 480, h: 720 }, 1440 / 3088)!;
+    expect(port.hPct).toBeCloseTo(100);
+    expect(port.wPct).toBeCloseTo((480 / (720 * (1440 / 3088))) * 100);
+    // 不知道比例 → 照影片本身比例(不裁)
+    expect(contentCrop({ w: 480, h: 720 }, null)).toEqual({ aspect: 480 / 720, wPct: 100, hPct: 100 });
+    expect(contentCrop({ w: 0, h: 0 }, 2)).toBeNull();
   });
 });

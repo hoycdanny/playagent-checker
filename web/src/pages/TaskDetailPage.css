@@ -1281,28 +1281,30 @@
 }
 
 /* ───────────── 任務詳情版面(依被測 App 方向切換) ─────────────
-   直向 App:手機畫面 | 這一刻 | AI 互動,下方時間軸(≤ 1/4 高)。
-   橫向 App:手機畫面(左中上)、這一刻(左中下)、AI 互動(右上右中),下方時間軸整頁寬。 */
+   直向 App:手機畫面 | AI 互動 | 這一刻(最寬),下方時間軸(≤ 1/4 高)。
+   橫向 App:左 60% = 手機畫面(上)+ AI 互動(下),右 40% = 這一刻;時間軸整頁寬。
+   每一塊都是獨立卡片,彼此留 16px。 */
 .dstage {
   display: grid;
-  gap: var(--space-2) var(--space-3);
-  height: calc(100vh - 175px);
-  min-height: 560px;
-  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 16px;
+  height: calc(100vh - 168px);
+  min-height: 600px;
+  margin-top: 4px;
 }
 .dstage--portrait {
-  grid-template-columns: minmax(240px, 0.8fr) minmax(340px, 1.35fr) minmax(300px, 1fr);
+  grid-template-columns: minmax(250px, 0.68fr) minmax(340px, 1.05fr) minmax(420px, 1.45fr);
+  grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
-    'phone feed chat'
+    'phone chat feed'
     'tl tl tl';
 }
 .dstage--landscape {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(300px, 0.75fr);
-  grid-template-rows: minmax(0, 1.15fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 3fr) minmax(400px, 2fr);
+  grid-template-rows: minmax(0, 1.9fr) minmax(190px, 1fr) auto;
   grid-template-areas:
-    'phone phone chat'
-    'feed feed chat'
-    'tl tl tl';
+    'phone feed'
+    'chat feed'
+    'tl tl';
 }
 .dstage__phone { grid-area: phone; position: relative; }
 .dstage__feed { grid-area: feed; }
@@ -1312,6 +1314,7 @@
   max-height: 25vh;
   min-height: 0;
   overflow-y: auto;
+  border-radius: 12px;
 }
 .dstage__tl .ttl {
   margin: 0;
@@ -1319,11 +1322,14 @@
 .dstage > .detail__col {
   min-height: 0;
   overflow: hidden;
+  padding: 12px 14px;
+  border-radius: 12px;
 }
 /* 手機畫面:只放畫面,置中、盡量大 */
-.dstage__phone {
+.dstage > .dstage__phone {
   align-items: stretch;
   justify-content: center;
+  padding: 10px;
 }
 .dstage__phone .detail__screen,
 .dstage__phone .recplayer,
@@ -1331,38 +1337,42 @@
   flex: 1 1 0;
   min-height: 0;
 }
-.dstage__phone .recplayer--bare .recplayer__video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  background: #000;
+.dstage__phone .detail__screen img {
   border-radius: 14px;
 }
 .dstage__badge {
   position: absolute;
-  top: 6px;
-  left: 8px;
+  top: 16px;
+  left: 16px;
   z-index: 2;
 }
-/* 分頁(中欄 / 右欄) */
+/* 分頁(AI 互動 / 這一刻) */
 .dstage__tabs {
   display: flex;
   flex: 0 0 auto;
-  gap: 2px;
-  margin-bottom: var(--space-2);
+  align-items: center;
+  gap: 4px;
+  margin: -2px -2px 12px;
   border-bottom: 1px solid var(--border);
 }
 .dstage__tab {
   position: relative;
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px 10px;
   border: none;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
   background: none;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   font-size: 13px;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
+}
+.dstage__tab:hover {
+  color: var(--text-secondary);
 }
 .dstage__tab small {
   color: var(--text-tertiary);
@@ -1380,10 +1390,8 @@
   display: inline-block;
   width: 7px;
   height: 7px;
-  margin-left: 5px;
   border-radius: 50%;
   background: var(--status-fail);
-  vertical-align: middle;
 }
 .dstage__feed > .mfeed,
 .dstage__trace,
@@ -1408,6 +1416,7 @@
 .dstage__chat .taskask {
   flex: 1 1 0;
   min-height: 0;
+  margin: 0;
   border-top: none;
   padding-top: 0;
 }
@@ -1422,7 +1431,7 @@
 }
 .dstage__chat .opchat__list {
   flex: 1 1 0;
-  min-height: 80px;
+  min-height: 60px;
   max-height: none;
 }
 .dstage__script {
@@ -1433,28 +1442,91 @@
   flex-direction: column;
   gap: var(--space-3);
 }
-.detail__orient {
+/* 橫向:AI 互動在手機畫面下方,高度較矮 → 建議問題排成一行(可橫向捲動),說明文字收起來 */
+.dstage--landscape .taskask__suggest {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.dstage--landscape .taskask__chip {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.dstage--landscape .taskask--embedded {
+  gap: 8px;
+}
+.dstage--landscape .taskask--embedded .taskask__empty {
+  flex: 0 1 auto;
+}
+/* 橫向:模型選擇 + 清空對話放到分頁列右邊,多留一行給對話 */
+.dstage--landscape .dstage__chat {
+  position: relative;
+}
+.dstage--landscape .dstage__chat .taskask__foot {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  max-width: 50%;
+}
+@media (max-width: 1180px) {
+  .dstage--landscape .dstage__chat .taskask__foot { position: static; max-width: none; }
+}
+/* 已經有對話:橫向高度有限,建議問題收起來,把空間留給對話 */
+.dstage--landscape .taskask--embedded.has-items .taskask__suggest {
+  display: none;
+}
+.dstage--landscape .dstage__chat .dstage__tabs {
+  margin-bottom: 8px;
+}
+/* 標題列:返回鍵 + 版面選擇 + 報告連結的 icon 對齊 */
+.detail__back--icon {
+  display: inline-grid;
+  place-items: center;
+}
+.detail__report-link {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+.detail__step-goal,
+.detail__step-opcmd,
+.detail__step-replay {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.detail__orient {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
   font-size: 12px;
   color: var(--text-secondary);
 }
+.detail__orient-ico {
+  color: #a78bfa;
+}
 .detail__orient select {
   padding: 2px 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
+  border: none;
+  background: none;
   color: var(--text-primary);
   font-size: 12px;
+}
+.detail__orient:focus-within {
+  border-color: var(--brand);
 }
 /* 中寬:手機畫面 + 這一刻並排,AI 互動在下面;時間軸最下 */
 @media (max-width: 1180px) {
   .dstage--portrait,
   .dstage--landscape {
     height: auto;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
-    grid-template-rows: 62vh 46vh auto;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    grid-template-rows: 64vh 46vh auto;
     grid-template-areas:
       'phone feed'
       'chat chat'
@@ -1462,8 +1534,8 @@
   }
   .dstage--landscape {
     grid-template-columns: 1fr;
-    grid-template-rows: 46vh 52vh 46vh auto;
-    grid-template-areas: 'phone' 'feed' 'chat' 'tl';
+    grid-template-rows: 46vh 40vh 56vh auto;
+    grid-template-areas: 'phone' 'chat' 'feed' 'tl';
   }
   .dstage__tl { max-height: none; }
 }
@@ -1472,7 +1544,7 @@
   .dstage--portrait,
   .dstage--landscape {
     grid-template-columns: 1fr;
-    grid-template-rows: 70vh 60vh 50vh auto;
-    grid-template-areas: 'phone' 'feed' 'chat' 'tl';
+    grid-template-rows: 70vh 50vh 60vh auto;
+    grid-template-areas: 'phone' 'chat' 'feed' 'tl';
   }
 }

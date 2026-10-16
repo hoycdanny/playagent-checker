@@ -20,7 +20,7 @@ import { buildTimeline, stepAt } from '../components/tasks/timeline.ts';
 import { MomentFeed } from '../components/tasks/MomentFeed.tsx';
 import { buildFeed } from '../components/tasks/feed.ts';
 import { buildSoundEvents } from '../components/tasks/soundEvents.ts';
-import { orientationAt, type Orientation } from '../components/tasks/orientation.ts';
+import { aspectAt, orientationAt, type Orientation } from '../components/tasks/orientation.ts';
 import { TaskAskPanel } from '../components/tasks/TaskAskPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
@@ -315,6 +315,8 @@ export default function TaskDetailPage() {
   useEffect(() => { try { localStorage.setItem('pa.detailOrient', orientPref); } catch { /* 無痕模式 */ } }, [orientPref]);
   const appOrient = orientationAt(steps, cursorStep) ?? 'portrait';
   const orient: Orientation = orientPref === 'auto' ? appOrient : orientPref;
+  // 錄影是固定大小(App 轉向會加黑邊):用播放頭那一步的畫面比例把 App 畫面放大填滿。
+  const appAspect = aspectAt(steps, cursorStep);
   const rightTab = rightPicked ?? (isLive ? 'agent' : 'ask');
   // 在畫面上點了位置:切到「與 Agent 互動」補一句說明再送出。
   useEffect(() => { if (pickPoint) setRightTab('agent'); }, [pickPoint]);
@@ -331,7 +333,7 @@ export default function TaskDetailPage() {
             aria-label={t('detail.back')}
             title={t('detail.back')}
           >
-            <span aria-hidden="true">←</span>
+            <InfoIcon name="back" size={16} />
           </Link>
           <h1 className="detail__title">{t('detail.title')}</h1>
           {/* 測試結論(與報告封面同一個值);沒有結論(執行中 / 舊任務)才顯示執行狀態。 */}
@@ -362,7 +364,7 @@ export default function TaskDetailPage() {
           <span className="detail__head-end">
             {/* 版面:自動跟著被測 App 的直 / 橫向切換;也可以手動固定。 */}
             <label className="detail__orient" title={pt('layout', lang)}>
-              <span aria-hidden="true">{orient === 'landscape' ? '▭' : '▯'}</span>
+              <InfoIcon name={orient === 'landscape' ? 'phoneL' : 'phone'} size={14} className="detail__orient-ico" />
               <span className="visually-hidden">{pt('layout', lang)}</span>
               <select value={orientPref} onChange={(e) => setOrientPref(e.target.value as 'auto' | Orientation)}>
                 <option value="auto">{pt('layoutAuto', lang)}</option>
@@ -380,7 +382,7 @@ export default function TaskDetailPage() {
             {/* 任務結束後直接進結構化測試報告(判定明細、截圖、修正建議)。 */}
             {jobId && TERMINAL_STATES.has(state) && state !== 'cancelled' && (
               <Link to={`/reports/${jobId}`} className="detail__report-link">
-                {t('detail.viewReport')} →
+                {t('detail.viewReport')}<InfoIcon name="chevRight" size={14} />
               </Link>
             )}
             {/* 即時連線狀態:只用圖示(滑過 / 讀屏顯示文字) */}
@@ -419,8 +421,9 @@ export default function TaskDetailPage() {
 
       {/*
         主區依被測 App 方向換版面:
-        直向:左 = 手機畫面、中 = 這一刻(log / 記憶 / 過濾)、右 = AI 互動;下 = 時間軸(含聲音,不超過 1/4 高)。
-        橫向:左中上 = 手機畫面、左中下 = 這一刻、右 = AI 互動;下 = 時間軸(整頁寬)。
+        直向:左 = 手機畫面、中 = AI 互動、右(最寬)= 這一刻(log / 記憶 / 過濾);下 = 時間軸(含聲音,不超過 1/4 高)。
+        橫向:左 60% = 手機畫面(上)+ AI 互動(下),右 40% = 這一刻;下 = 時間軸(整頁寬)。
+        DOM 順序 = 手機 → AI 互動 → 這一刻(鍵盤 Tab 順序與畫面一致)。
       */}
       <div className={`dstage dstage--${orient}`}>
         {/* 手機畫面:執行中顯示即時影片 / 串流幀;結束後播整場錄影;沒有錄影顯示播放頭那一步的截圖。 */}
@@ -463,6 +466,7 @@ export default function TaskDetailPage() {
               control={playCtl}
               onPlayingChange={setVideoPlaying}
               bare
+              aspect={appAspect}
             />
           ) : (cursorShotUrl ?? liveUrl) ? (
             // 沒有錄影:顯示播放頭那一步的截圖(沒選時間 = 最新一步)。
@@ -484,6 +488,69 @@ export default function TaskDetailPage() {
           )}
         </section>
 
+        {/* AI 互動:AI 問答 · 與控制遊戲 Agent 互動(即時指令)· 測試腳本與執行資訊 */}
+        <section className="detail__col dstage__chat" aria-label={pt('tabAsk', lang)}>
+          <div className="dstage__tabs" role="tablist">
+            {(['ask', 'agent', 'script'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={rightTab === k}
+                className={`dstage__tab${rightTab === k ? ' is-on' : ''}`}
+                onClick={() => setRightTab(k)}
+              >
+                <InfoIcon name={k === 'ask' ? 'sparkle' : k === 'agent' ? 'msg' : 'script'} size={15} />
+                {pt(k === 'ask' ? 'tabAsk' : k === 'agent' ? 'tabAgent' : 'tabScript', lang)}
+                {k === 'agent' && isLive && <span className="dstage__dot" aria-hidden="true" />}
+              </button>
+            ))}
+          </div>
+          {rightTab === 'ask' ? (
+            jobId ? (
+              <TaskAskPanel
+                jobId={jobId}
+                lang={lang}
+                embedded
+                onStep={(n) => { const s = timeline.steps.find((x) => x.index === n); if (s) seekTo(s.t, false); }}
+              />
+            ) : null
+          ) : rightTab === 'agent' ? (
+            jobId && (showChat || !!pickPoint) ? (
+              <OperatorChat
+                jobId={jobId}
+                isLive={isLive}
+                {...(latestScreen ? { currentScreen: latestScreen } : {})}
+                {...(appId ? { appId } : {})}
+                point={pickPoint}
+                onClearPoint={() => setPickPoint(null)}
+                refreshKey={chatRefresh}
+              />
+            ) : (
+              <p className="detail__no-steps">{pt('agentEnded', lang)}</p>
+            )
+          ) : (
+            <div className="dstage__script">
+              <BootTimeline
+                state={state}
+                lang={lang}
+                {...(boot ? { boot } : {})}
+                {...(createdAt ? { createdAt } : {})}
+                {...(updatedAt ? { updatedAt } : {})}
+                {...(backend ? { backend } : {})}
+              />
+              <ScriptPanel
+                lang={lang}
+                live={isLive}
+                {...(script ? { progress: script } : {})}
+                {...(meta?.script ?? meta?.task ? { script: meta?.script ?? meta?.task } : {})}
+                {...(meta?.caseName ? { caseName: meta.caseName } : {})}
+                {...(meta?.caseVersion ? { caseVersion: meta.caseVersion } : {})}
+              />
+            </div>
+          )}
+        </section>
+
         {/* 這一刻:播放頭當下的 log / 記憶 / 腳本 / AI(可層層過濾)· 執行軌跡 · 完整日誌 */}
         <section className="detail__col dstage__feed" aria-label={pt('tabMoment', lang)}>
           <div className="dstage__tabs" role="tablist">
@@ -496,6 +563,7 @@ export default function TaskDetailPage() {
                 className={`dstage__tab${midTab === k ? ' is-on' : ''}`}
                 onClick={() => setMidTab(k)}
               >
+                <InfoIcon name={k === 'moment' ? 'pulse' : k === 'trace' ? 'list' : 'term'} size={15} />
                 {pt(k === 'moment' ? 'tabMoment' : k === 'trace' ? 'tabTrace' : 'tabLogs', lang)}
                 {k === 'trace' && steps.length > 0 && <small> {steps.length}</small>}
               </button>
@@ -596,7 +664,7 @@ export default function TaskDetailPage() {
                             onClick={() => seekTo(Date.parse(s.at as string), true)}
                             aria-label={pt('replayStep', lang).replace('{n}', String(s.index))}
                           >
-                            ▶ {pt('replay', lang)}
+                            <InfoIcon name="playFill" size={11} /> {pt('replay', lang)}
                           </button>
                         )}
                       </div>
@@ -626,7 +694,7 @@ export default function TaskDetailPage() {
                             {warnText.map((w, j) => <span key={j} className="detail__step-effect is-unexpected">{w}</span>)}
                             {goal && (
                               <span className="detail__step-goal" title={pt('goalHint', lang)}>
-                                🎯 {typeof plan?.scriptStep === 'number' && typeof plan?.scriptTotal === 'number' && (plan.scriptTotal as number) > 1
+                                <InfoIcon name="target" size={12} /> {typeof plan?.scriptStep === 'number' && typeof plan?.scriptTotal === 'number' && (plan.scriptTotal as number) > 1
                                   ? `${pt('scriptStep', lang).replace('{n}', String(plan.scriptStep)).replace('{m}', String(plan.scriptTotal))} · `
                                   : ''}
                                 {goal}
@@ -643,7 +711,7 @@ export default function TaskDetailPage() {
                       <StepMemoryChips memory={s.memory} lang={lang} />
                       {opCmds.map((txt, j) => (
                         <div key={j} className="detail__step-opcmd">
-                          <span aria-hidden="true">💬</span> {txt}
+                          <InfoIcon name="msg" size={12} /> {txt}
                         </div>
                       ))}
                       {thinkingText && <div className="detail__step-think">{thinkingText}</div>}
@@ -658,61 +726,6 @@ export default function TaskDetailPage() {
             </>
           )}
           </div>
-          )}
-        </section>
-
-        {/* AI 互動:AI 問答 · 與控制遊戲 Agent 互動(即時指令)· 測試腳本與執行資訊 */}
-        <section className="detail__col dstage__chat" aria-label={pt('tabAsk', lang)}>
-          <div className="dstage__tabs" role="tablist">
-            {(['ask', 'agent', 'script'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={rightTab === k}
-                className={`dstage__tab${rightTab === k ? ' is-on' : ''}`}
-                onClick={() => setRightTab(k)}
-              >
-                {pt(k === 'ask' ? 'tabAsk' : k === 'agent' ? 'tabAgent' : 'tabScript', lang)}
-                {k === 'agent' && isLive && <span className="dstage__dot" aria-hidden="true" />}
-              </button>
-            ))}
-          </div>
-          {rightTab === 'ask' ? (
-            jobId ? <TaskAskPanel jobId={jobId} lang={lang} /> : null
-          ) : rightTab === 'agent' ? (
-            jobId && (showChat || !!pickPoint) ? (
-              <OperatorChat
-                jobId={jobId}
-                isLive={isLive}
-                {...(latestScreen ? { currentScreen: latestScreen } : {})}
-                {...(appId ? { appId } : {})}
-                point={pickPoint}
-                onClearPoint={() => setPickPoint(null)}
-                refreshKey={chatRefresh}
-              />
-            ) : (
-              <p className="detail__no-steps">{pt('agentEnded', lang)}</p>
-            )
-          ) : (
-            <div className="dstage__script">
-              <BootTimeline
-                state={state}
-                lang={lang}
-                {...(boot ? { boot } : {})}
-                {...(createdAt ? { createdAt } : {})}
-                {...(updatedAt ? { updatedAt } : {})}
-                {...(backend ? { backend } : {})}
-              />
-              <ScriptPanel
-                lang={lang}
-                live={isLive}
-                {...(script ? { progress: script } : {})}
-                {...(meta?.script ?? meta?.task ? { script: meta?.script ?? meta?.task } : {})}
-                {...(meta?.caseName ? { caseName: meta.caseName } : {})}
-                {...(meta?.caseVersion ? { caseVersion: meta.caseVersion } : {})}
-              />
-            </div>
           )}
         </section>
 

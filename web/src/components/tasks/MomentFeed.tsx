@@ -1,30 +1,28 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RLang } from '../report/reportText.ts';
 import { SILENT_DB } from './audioLevels.ts';
+import { DECIDER_ICON, KIND_ICON, SEAT_ICON, eventHue, eventIcon } from './eventIcons.ts';
 import { DEFAULT_FILTER, FEED_KINDS, applyFilter, feedCounts, type FeedEvent, type FeedFilter, type FeedKind } from './feed.ts';
+import { InfoIcon } from './InfoIcon.tsx';
 import { memoryChips, type StepMemory } from './memoryUsage.ts';
 import { fmtClock, lastAtOrBefore, levelAt, stepAt, tracesAt, type Timeline } from './timeline.ts';
 import './MomentFeed.css';
 
 /**
- * 中欄「這一刻」:播放頭當下發生了什麼(步驟 / AI / 記憶 / 腳本 / 裝置 log / 音效 / 指令),
- * 用類別 → 類型 → tag → 關鍵字一層一層過濾。點時間 = 時間軸跳到那一刻;點 tag / 類型 = 再往下過濾。
+ * 「這一刻」:播放頭當下發生了什麼(步驟 / AI / 記憶 / 腳本 / 裝置 log / 音效 / 指令),
+ * 用類別 → 類型 → tag → 關鍵字 → 範圍一層一層過濾。點時間 = 時間軸跳到那一刻;點 tag / 類型 = 再往下過濾。
+ * icon 與顏色跟時間軸同一套(eventIcons.ts)。
  */
-
-export const KIND_ICON: Record<FeedKind, string> = { step: '🤖', ai: '✨', memory: '🧠', script: '📜', log: '📟', sound: '🔊', operator: '💬' };
-export const DECIDER_ICON: Record<string, string> = { agent: '🧭', vision: '👁', reflex: '⚡', operator: '👆' };
-export const SEAT_ICON: Record<string, string> = { vlm: '👁', agent: '🧭', subagent: '🛠' };
 
 const T = {
   now: ['這一刻', 'This moment'],
   noCursor: ['在下方時間軸點一下或拖曳,這裡會顯示那一刻發生的事。', 'Click or drag on the timeline below to see what happened at that moment.'],
   beforeFirst: ['第一步之前', 'Before the first step'],
-  aiNow: ['進行中的 AI', 'AI in progress'],
-  sound: ['聲音', 'Sound'],
-  silent: ['靜音', 'silent'],
-  noRec: ['沒有錄音', 'no recording'],
+  rel: ['第 {n} 步開始後 +{s} 秒', '+{s} s into step {n}'],
+  silent: ['靜音', 'Silent'],
+  noRec: ['沒有錄音', 'No recording'],
   k_step: ['步驟', 'Steps'],
-  k_ai: ['AI 呼叫', 'AI calls'],
+  k_ai: ['AI', 'AI'],
   k_memory: ['記憶', 'Memory'],
   k_script: ['腳本', 'Script'],
   k_log: ['裝置 Log', 'Device log'],
@@ -58,25 +56,28 @@ const T = {
   s_I: ['資訊', 'Info'],
   s_W: ['警告', 'Warning'],
   s_E: ['錯誤', 'Error'],
-  types: ['類型', 'Types'],
-  search: ['關鍵字(空白分隔 = 都要有)', 'Keywords (space = all must match)'],
+  kinds: ['事件類別', 'Event kinds'],
+  filters: ['篩選', 'Filters'],
+  filtersHint: ['細部類型與 tag', 'Sub-types and tags'],
+  search: ['搜尋關鍵字,空白分隔 = 都要符合', 'Search, space = all words must match'],
   window: ['範圍', 'Range'],
-  w5: ['前後 5 秒', '±5 s'],
-  w30: ['前後 30 秒', '±30 s'],
-  w120: ['前後 2 分', '±2 min'],
-  wAll: ['整場', 'Whole run'],
-  thisStep: ['只看這一步', 'This step only'],
-  tagPick: ['+ 只看 tag…', '+ Only tag…'],
+  w5: ['±5 秒', '±5 s'],
+  w30: ['±30 秒', '±30 s'],
+  w120: ['±2 分', '±2 min'],
+  wAll: ['整場', 'All'],
+  wStep: ['這一步', 'This step'],
+  tagPick: ['只看某個 tag…', 'Only a tag…'],
   onlyTag: ['只看這個 tag', 'Only this tag'],
   hideTag: ['隱藏這個 tag', 'Hide this tag'],
   onlySub: ['只看這個類型', 'Only this type'],
-  hidden: ['隱藏', 'hidden'],
-  only: ['只看', 'only'],
-  clearAll: ['清除全部過濾', 'Clear all filters'],
-  count: ['{n} 筆', '{n} items'],
+  hidden: ['隱藏', 'Hidden'],
+  only: ['只看', 'Only'],
+  remove: ['移除這個過濾', 'Remove this filter'],
+  clearAll: ['清除全部', 'Clear all'],
+  count: ['共 {n} 筆', '{n} items'],
   capped: ['只顯示播放頭附近 {n} 筆,縮小範圍或加過濾看更多', 'Showing {n} items near the playhead; narrow the range or filter to see more'],
   empty: ['這個範圍沒有符合過濾條件的事件。', 'Nothing matches the filters in this range.'],
-  follow: ['跟著時間軸', 'Follow timeline'],
+  follow: ['跟著播放頭', 'Follow playhead'],
   seek: ['跳到這一刻', 'Jump to this moment'],
 } as const;
 type K = keyof typeof T;
@@ -94,8 +95,16 @@ const SUB_ORDER: Record<FeedKind, string[]> = {
   sound: ['game', 'fail', 'onset', 'stream'],
   operator: ['command', 'gesture'],
 };
+const RANGES: Array<{ k: K; ms: number; step?: true }> = [
+  { k: 'w5', ms: 5000 },
+  { k: 'w30', ms: 30_000 },
+  { k: 'w120', ms: 120_000 },
+  { k: 'wAll', ms: 0 },
+  { k: 'wStep', ms: 0, step: true },
+];
 const MAX_ROWS = 1500;
 const STORE = 'pa.feedFilter.v1';
+const FOLLOW_STORE = 'pa.feedFollow';
 
 function loadFilter(): FeedFilter {
   try {
@@ -104,6 +113,7 @@ function loadFilter(): FeedFilter {
   } catch { /* 無痕模式 */ }
   return DEFAULT_FILTER;
 }
+const sameFilter = (a: FeedFilter, b: FeedFilter) => JSON.stringify({ ...a, step: a.step === null ? null : -1 }) === JSON.stringify({ ...b, step: b.step === null ? null : -1 });
 
 export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
   tl: Timeline;
@@ -114,12 +124,17 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
   lang: RLang;
 }) {
   const [f, setF] = useState<FeedFilter>(loadFilter);
-  const [follow, setFollow] = useState(true);
+  const [follow, setFollow] = useState(() => {
+    try { return localStorage.getItem(FOLLOW_STORE) !== '0'; } catch { return true; }
+  });
   const [open, setOpen] = useState<string | null>(null);
   const [typesOpen, setTypesOpen] = useState(false);
   useEffect(() => {
     try { localStorage.setItem(STORE, JSON.stringify({ ...f, step: null })); } catch { /* 無痕模式 */ }
   }, [f]);
+  useEffect(() => {
+    try { localStorage.setItem(FOLLOW_STORE, follow ? '1' : '0'); } catch { /* 無痕模式 */ }
+  }, [follow]);
 
   const step = cursor === null ? null : stepAt(tl, cursor);
   const stepRec = step ? steps.find((s) => s.index === step.index) : undefined;
@@ -128,6 +143,8 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
   const bucket = cursor === null ? null : Math.floor(cursor / 2000) * 2000 + 1000;
   const filtered = useMemo(() => applyFilter(events, eff, bucket), [events, eff.kinds, eff.subs, eff.tags, eff.excludeTags, eff.query, eff.windowMs, eff.step, bucket]); // eslint-disable-line react-hooks/exhaustive-deps
   const counts = useMemo(() => feedCounts(events, bucket, f.windowMs), [events, bucket, f.windowMs]);
+  // 這場有出現過的類別才顯示(播放頭移動時按鈕不會一下有一下沒有)。
+  const present = useMemo(() => new Set(events.map((e) => e.kind)), [events]);
   const shown = useMemo(() => {
     if (filtered.length <= MAX_ROWS) return filtered;
     const i = bucket === null ? filtered.length - 1 : Math.max(0, lastAtOrBefore(filtered, bucket, (e) => e.t));
@@ -166,7 +183,9 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
   const onlySub = (k: FeedKind, sub: string) => setF((p) => ({ ...p, kinds: p.kinds.includes(k) ? p.kinds : [...p.kinds, k], subs: { ...p.subs, [k]: [sub] } }));
   const onlyTag = (tag: string) => setF((p) => ({ ...p, tags: p.tags.includes(tag) ? p.tags : [...p.tags, tag] }));
   const hideTag = (tag: string) => setF((p) => ({ ...p, excludeTags: p.excludeTags.includes(tag) ? p.excludeTags : [...p.excludeTags, tag] }));
-  const isFiltered = JSON.stringify({ ...f, step: null }) !== JSON.stringify(DEFAULT_FILTER) || f.step !== null;
+  const isFiltered = !sameFilter(f, DEFAULT_FILTER);
+  const advCount = Object.keys(f.subs).length + f.tags.length + f.excludeTags.length;
+  const rangeOn = (r: (typeof RANGES)[number]) => (r.step ? f.step !== null : f.step === null && f.windowMs === r.ms);
 
   const rows = useMemo(() => shown.map((e, i) => (
     <FeedRow
@@ -185,18 +204,23 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
   )), [shown, lang, tl.origin, open, onSeek]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 這一刻的摘要。
-  const by = stepRec ? String(stepRec.decidedBy ?? 'agent') : null;
+  const by = stepRec ? String(stepRec.decidedBy ?? 'agent') : 'agent';
+  const byKey = step?.decidedBy ?? by;
   const memChips = memoryChips(stepRec?.memory as StepMemory | undefined, lang);
   const plan = stepRec?.plan as { scriptStep?: number; scriptTotal?: number; goal?: string } | undefined;
   const calls = cursor === null ? [] : tracesAt(tl, cursor);
   const db = cursor === null ? null : levelAt(tl, cursor);
+  const quiet = db === null || db <= SILENT_DB;
 
   return (
     <div className="mfeed">
       <div className="mfeed__now" aria-live="polite">
         <div className="mfeed__now-head">
-          <strong>{tx('now', lang)}</strong>
+          <span className="mfeed__now-k">{tx('now', lang)}</span>
           {cursor !== null && <span className="mfeed__clock">{fmtClock(cursor - tl.origin)}</span>}
+          {cursor !== null && step && (
+            <span className="mfeed__now-rel">{tx('rel', lang, { n: step.index, s: ((cursor - step.t) / 1000).toFixed(2) })}</span>
+          )}
         </div>
         {cursor === null ? (
           <p className="mfeed__muted">{tx('noCursor', lang)}</p>
@@ -205,53 +229,76 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
         ) : (
           <>
             <p className="mfeed__step">
-              <span className="mfeed__icon" title={subText(by ?? 'agent', lang)}>{DECIDER_ICON[by ?? 'agent'] ?? '🤖'}</span>
-              <b>#{step.index}</b> {step.screen ?? ''} · {step.action ?? ''}{step.target ? `「${step.target}」` : ''}
-              <span className="mfeed__muted"> · {subText(by ?? 'agent', lang)} · +{((cursor - step.t) / 1000).toFixed(2)}s</span>
+              <span className={`mfeed__tile hue-${DECIDER_ICON[byKey] ? byKey : 'agent'}`} title={subText(byKey, lang)}>
+                <InfoIcon name={DECIDER_ICON[byKey] ?? 'compass'} size={14} />
+              </span>
+              <b>#{step.index} {step.screen ?? ''}</b>
+              <span className="mfeed__muted">· {step.action ?? ''}{step.target ? `「${step.target}」` : ''}</span>
+              <span className={`mfeed__by hue-${DECIDER_ICON[byKey] ? byKey : 'agent'}`}>{subText(byKey, lang)}</span>
             </p>
             <div className="mfeed__chips">
               {typeof plan?.scriptStep === 'number' && typeof plan.scriptTotal === 'number' && (
-                <span className="mfeed__chip is-script">📜 {plan.scriptStep}/{plan.scriptTotal}{plan.goal ? ` · ${plan.goal}` : ''}</span>
+                <span className="mfeed__chip hue-script">
+                  <InfoIcon name="script" size={13} />{tx('k_script', lang)} {plan.scriptStep}/{plan.scriptTotal}{plan.goal ? ` · ${plan.goal}` : ''}
+                </span>
               )}
-              {memChips.map((c, k) => <span key={k} className={`mfeed__chip is-${c.tone}`} title={c.tip}>{c.text}</span>)}
-              {calls.map((c) => (
-                <span key={`${c.seat}-${c.start}`} className={`mfeed__chip is-ai${c.ok ? '' : ' is-bad'}`} title={c.modelId}>{SEAT_ICON[c.seat] ?? '✨'} {subText(c.seat, lang)}</span>
+              {memChips.map((c, k) => (
+                <span key={k} className={`mfeed__chip ${c.tone === 'warn' ? 'hue-warn' : c.tone === 'new' ? 'hue-vision' : 'hue-memory'}`} title={c.tip}>
+                  <InfoIcon name={c.icon} size={13} />{c.text}
+                </span>
               ))}
-              <span className="mfeed__chip">🔊 {db === null ? tx('noRec', lang) : db <= SILENT_DB ? tx('silent', lang) : `${Math.round(db)} dB`}</span>
+              {calls.map((c) => (
+                <span key={`${c.seat}-${c.start}`} className={`mfeed__chip ${c.ok ? (c.seat === 'agent' ? 'hue-agent' : 'hue-vision') : 'hue-warn'}`} title={c.modelId}>
+                  <InfoIcon name={SEAT_ICON[c.seat] ?? 'sparkle'} size={13} />{subText(c.seat, lang)}
+                </span>
+              ))}
+              <span className="mfeed__chip">
+                <InfoIcon name={quiet ? 'mute' : 'volume'} size={13} />
+                {db === null ? tx('noRec', lang) : db <= SILENT_DB ? tx('silent', lang) : `${Math.round(db)} dB`}
+              </span>
             </div>
             {step.thinking && <p className="mfeed__think">{step.thinking}</p>}
           </>
         )}
       </div>
 
-      <div className="mfeed__filters" role="group" aria-label={tx('types', lang)}>
-        <div className="mfeed__kinds">
-          {FEED_KINDS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              className={`mfeed__kind${f.kinds.includes(k) ? ' is-on' : ''}`}
-              aria-pressed={f.kinds.includes(k)}
-              onClick={() => toggleKind(k)}
-            >
-              {KIND_ICON[k]} {kindText(k, lang)} <small>{counts.kinds[k] ?? 0}</small>
-            </button>
-          ))}
-          <button type="button" className={`mfeed__more${typesOpen ? ' is-on' : ''}`} aria-expanded={typesOpen} onClick={() => setTypesOpen((v) => !v)}>
-            {tx('types', lang)} ▾
+      <div className="mfeed__filters">
+        <div className="mfeed__kinds" role="group" aria-label={tx('kinds', lang)}>
+          {FEED_KINDS.filter((k) => present.has(k) || !f.kinds.includes(k)).map((k) => {
+            const on = f.kinds.includes(k);
+            return (
+              <button key={k} type="button" className={`mfeed__kind${on ? ' is-on' : ''}`} aria-pressed={on} onClick={() => toggleKind(k)}>
+                <InfoIcon name={KIND_ICON[k]} size={14} />
+                {kindText(k, lang)}
+                <small>{(counts.kinds[k] ?? 0).toLocaleString()}</small>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className={`mfeed__more${typesOpen ? ' is-open' : ''}${advCount ? ' is-active' : ''}`}
+            aria-expanded={typesOpen}
+            title={tx('filtersHint', lang)}
+            onClick={() => setTypesOpen((v) => !v)}
+          >
+            <InfoIcon name="filter" size={14} />
+            {tx('filters', lang)}
+            {advCount > 0 && <small>+{advCount}</small>}
+            <InfoIcon name={typesOpen ? 'chevUp' : 'chevDown'} size={12} />
           </button>
         </div>
         {typesOpen && (
           <div className="mfeed__types">
-            {FEED_KINDS.filter((k) => f.kinds.includes(k)).map((k) => (
+            {FEED_KINDS.filter((k) => f.kinds.includes(k) && present.has(k)).map((k) => (
               <div key={k} className="mfeed__type-row">
-                <span className="mfeed__type-k">{KIND_ICON[k]} {kindText(k, lang)}</span>
+                <span className="mfeed__type-k"><InfoIcon name={KIND_ICON[k]} size={13} />{kindText(k, lang)}</span>
                 {SUB_ORDER[k].filter((s) => counts.subs[`${k}:${s}`] || f.subs[k]?.includes(s)).map((s) => {
                   const on = !f.subs[k]?.length || f.subs[k]!.includes(s);
                   return (
-                    <label key={s} className={`mfeed__sub${on ? ' is-on' : ''}`}>
+                    <label key={s} className={`mfeed__sub hue-${eventHue(k, s)}${on ? ' is-on' : ''}`}>
                       <input type="checkbox" checked={on} onChange={() => toggleSub(k, s)} />
-                      {(k === 'step' ? DECIDER_ICON[s] : k === 'ai' ? SEAT_ICON[s] : '') ?? ''} {subText(s, lang)} <small>{counts.subs[`${k}:${s}`] ?? 0}</small>
+                      <InfoIcon name={eventIcon(k, s)} size={12} />
+                      {subText(s, lang)} <small>{counts.subs[`${k}:${s}`] ?? 0}</small>
                     </label>
                   );
                 })}
@@ -271,54 +318,58 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
           </div>
         )}
         <div className="mfeed__bar">
-          <input
-            type="search"
-            className="mfeed__search"
-            value={f.query}
-            placeholder={tx('search', lang)}
-            aria-label={tx('search', lang)}
-            onChange={(e) => setF((p) => ({ ...p, query: e.target.value }))}
-          />
-          <label className="mfeed__inline">
-            <span>{tx('window', lang)}</span>
-            <select value={f.windowMs} onChange={(e) => setF((p) => ({ ...p, windowMs: Number(e.target.value) }))}>
-              <option value={5000}>{tx('w5', lang)}</option>
-              <option value={30_000}>{tx('w30', lang)}</option>
-              <option value={120_000}>{tx('w120', lang)}</option>
-              <option value={0}>{tx('wAll', lang)}</option>
-            </select>
+          <label className="mfeed__search">
+            <InfoIcon name="search" size={14} />
+            <input
+              type="search"
+              value={f.query}
+              placeholder={tx('search', lang)}
+              aria-label={tx('search', lang)}
+              onChange={(e) => setF((p) => ({ ...p, query: e.target.value }))}
+            />
           </label>
-          <label className="mfeed__inline">
-            <input type="checkbox" checked={f.step !== null} onChange={(e) => setF((p) => ({ ...p, step: e.target.checked ? -1 : null }))} />
-            <span>{tx('thisStep', lang)}</span>
-          </label>
-          <label className="mfeed__inline">
-            <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+          <div className="mfeed__seg" role="radiogroup" aria-label={tx('window', lang)}>
+            {RANGES.map((r) => (
+              <button
+                key={r.k}
+                type="button"
+                role="radio"
+                aria-checked={rangeOn(r)}
+                className={rangeOn(r) ? 'is-on' : ''}
+                onClick={() => setF((p) => (r.step ? { ...p, step: -1, windowMs: 0 } : { ...p, step: null, windowMs: r.ms }))}
+              >
+                {tx(r.k, lang)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mfeed__active">
+          {Object.entries(f.subs).map(([k, list]) => (list?.length ? (
+            <button key={k} type="button" className="mfeed__pill" title={tx('remove', lang)} onClick={() => setF((p) => { const subs = { ...p.subs }; delete subs[k as FeedKind]; return { ...p, subs }; })}>
+              <InfoIcon name={KIND_ICON[k as FeedKind]} size={12} />
+              {kindText(k as FeedKind, lang)}:{list.map((s) => subText(s, lang)).join('、')}
+              <InfoIcon name="x" size={11} />
+            </button>
+          ) : null))}
+          {f.tags.map((tag) => (
+            <button key={`t-${tag}`} type="button" className="mfeed__pill" title={tx('remove', lang)} onClick={() => setF((p) => ({ ...p, tags: p.tags.filter((x) => x !== tag) }))}>
+              {tx('only', lang)} {tag}<InfoIcon name="x" size={11} />
+            </button>
+          ))}
+          {f.excludeTags.map((tag) => (
+            <button key={`x-${tag}`} type="button" className="mfeed__pill is-ex" title={tx('remove', lang)} onClick={() => setF((p) => ({ ...p, excludeTags: p.excludeTags.filter((x) => x !== tag) }))}>
+              {tx('hidden', lang)} {tag}<InfoIcon name="x" size={11} />
+            </button>
+          ))}
+          {isFiltered && <button type="button" className="mfeed__clear" onClick={() => setF(DEFAULT_FILTER)}>{tx('clearAll', lang)}</button>}
+          <span className="mfeed__spacer" />
+          <span className="mfeed__count">{tx('count', lang, { n: filtered.length.toLocaleString() })}</span>
+          <label className="mfeed__switch">
+            <input type="checkbox" role="switch" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+            <span className="mfeed__switch-ui" aria-hidden="true" />
             <span>{tx('follow', lang)}</span>
           </label>
         </div>
-        {/* 已套用的細部過濾(可一個一個拿掉) */}
-        {(f.tags.length > 0 || f.excludeTags.length > 0 || Object.keys(f.subs).length > 0 || isFiltered) && (
-          <div className="mfeed__active">
-            {Object.entries(f.subs).map(([k, list]) => (list?.length ? (
-              <button key={k} type="button" className="mfeed__pill" onClick={() => setF((p) => { const subs = { ...p.subs }; delete subs[k as FeedKind]; return { ...p, subs }; })}>
-                {KIND_ICON[k as FeedKind]} {list.map((s) => subText(s, lang)).join('、')} ×
-              </button>
-            ) : null))}
-            {f.tags.map((tag) => (
-              <button key={`t-${tag}`} type="button" className="mfeed__pill" onClick={() => setF((p) => ({ ...p, tags: p.tags.filter((x) => x !== tag) }))}>
-                {tx('only', lang)} {tag} ×
-              </button>
-            ))}
-            {f.excludeTags.map((tag) => (
-              <button key={`x-${tag}`} type="button" className="mfeed__pill is-ex" onClick={() => setF((p) => ({ ...p, excludeTags: p.excludeTags.filter((x) => x !== tag) }))}>
-                {tx('hidden', lang)} {tag} ×
-              </button>
-            ))}
-            {isFiltered && <button type="button" className="mfeed__clear" onClick={() => setF(DEFAULT_FILTER)}>{tx('clearAll', lang)}</button>}
-            <span className="mfeed__muted">{tx('count', lang, { n: filtered.length })}</span>
-          </div>
-        )}
       </div>
 
       {filtered.length > MAX_ROWS && <p className="mfeed__muted">{tx('capped', lang, { n: MAX_ROWS })}</p>}
@@ -341,18 +392,20 @@ function FeedRow({ i, e, lang, origin, open, onOpen, onSeek, onOnlySub, onOnlyTa
   onOnlyTag: (tag: string) => void;
   onHideTag: (tag: string) => void;
 }) {
-  const icon = e.kind === 'step' ? DECIDER_ICON[e.sub] ?? KIND_ICON.step : e.kind === 'ai' ? SEAT_ICON[e.sub] ?? KIND_ICON.ai : KIND_ICON[e.kind];
+  const hue = eventHue(e.kind, e.sub);
   return (
-    <div data-i={i} className={`mfeed__row is-${e.kind}${e.tone ? ` tone-${e.tone}` : ''}`}>
+    <div data-i={i} className={`mfeed__row is-${e.kind} hue-${hue}${e.tone ? ` tone-${e.tone}` : ''}`}>
       <button type="button" className="mfeed__t" title={tx('seek', lang)} onClick={() => onSeek(e.t)}>{fmtClock(e.t - origin)}</button>
-      <span className="mfeed__ico" aria-hidden="true">{icon}</span>
+      <span className="mfeed__ico"><InfoIcon name={eventIcon(e.kind, e.sub)} size={13} /></span>
       <button type="button" className="mfeed__badge" title={tx('onlySub', lang)} onClick={() => onOnlySub(e.kind, e.sub)}>
         {e.kind === 'log' ? e.sub : subText(e.sub, lang)}
       </button>
       {e.tag && e.kind === 'log' && (
         <span className="mfeed__tag">
           <button type="button" title={tx('onlyTag', lang)} onClick={() => onOnlyTag(e.tag!)}>{e.tag}</button>
-          <button type="button" className="mfeed__tag-x" title={tx('hideTag', lang)} aria-label={`${tx('hideTag', lang)} ${e.tag}`} onClick={() => onHideTag(e.tag!)}>⊘</button>
+          <button type="button" className="mfeed__tag-x" title={tx('hideTag', lang)} aria-label={`${tx('hideTag', lang)} ${e.tag}`} onClick={() => onHideTag(e.tag!)}>
+            <InfoIcon name="x" size={10} />
+          </button>
         </span>
       )}
       {e.detail ? (

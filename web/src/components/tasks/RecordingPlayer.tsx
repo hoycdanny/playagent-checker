@@ -1,10 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import type { RLang } from '../report/reportText.ts';
 import { downsampleBars, type AudioLevels } from './audioLevels.ts';
+import { InfoIcon } from './InfoIcon.tsx';
+import { contentCrop } from './orientation.ts';
 import './RecordingPlayer.css';
 
 const T = {
   title: ['測試錄影(含聲音)', 'Test recording (with sound)'],
+  mute: ['靜音', 'Mute'],
+  unmute: ['開啟聲音', 'Unmute'],
+  full: ['全螢幕', 'Full screen'],
+  exitFull: ['離開全螢幕', 'Exit full screen'],
+  playHint: ['點畫面播放 / 暫停', 'Click to play / pause'],
   part: ['第 {n} 段', 'Part {n}'],
   wave: ['聲音波形:點一下跳到該時間', 'Sound waveform: click to jump to that time'],
   step: ['第 {n} 步', 'Step {n}'],
@@ -42,6 +49,7 @@ export function RecordingPlayer({
   control,
   onPlayingChange,
   bare = false,
+  aspect = null,
 }: {
   levels: AudioLevels;
   steps: StepMark[];
@@ -59,11 +67,21 @@ export function RecordingPlayer({
   onPlayingChange?: (playing: boolean) => void;
   /** 只顯示影片(標題、波形、時間交給下方的任務時間軸)。 */
   bare?: boolean;
+  /**
+   * bare 模式:目前 App 畫面的寬 / 高比。錄影是固定大小,App 轉向後畫面會縮在中間加黑邊;
+   * 給了這個比例就把 App 畫面放大填滿、裁掉黑邊。
+   */
+  aspect?: number | null;
 }) {
   const chunks = useMemo(() => levels.chunks.filter((c): c is Chunk => typeof c.url === 'string' && c.dur > 0), [levels.chunks]);
   const [part, setPart] = useState(0);
   const [time, setTime] = useState(0);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [natural, setNatural] = useState({ w: 0, h: 0 });
+  const [muted, setMuted] = useState(false);
+  const [isFull, setIsFull] = useState(false);
+  const [paused, setPaused] = useState(true);
   const pendingSeek = useRef<number | null>(null);
   const pendingPlay = useRef(false);
   const chunk = chunks[Math.min(part, chunks.length - 1)];
@@ -116,8 +134,8 @@ export function RecordingPlayer({
     if (!v) return;
     let raf = 0;
     const loop = () => { setTime(v.currentTime); report(v.currentTime); raf = requestAnimationFrame(loop); };
-    const onPlay = () => { raf = requestAnimationFrame(loop); playingRef.current?.(true); };
-    const onPause = () => { cancelAnimationFrame(raf); setTime(v.currentTime); playingRef.current?.(false); };
+    const onPlay = () => { raf = requestAnimationFrame(loop); setPaused(false); playingRef.current?.(true); };
+    const onPause = () => { cancelAnimationFrame(raf); setTime(v.currentTime); setPaused(true); playingRef.current?.(false); };
     const onSeeked = () => { setTime(v.currentTime); report(v.currentTime, true); };
     v.addEventListener('play', onPlay);
     v.addEventListener('pause', onPause);
@@ -170,6 +188,26 @@ export function RecordingPlayer({
     else v.pause();
   }, [control?.n]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const on = () => setIsFull(document.fullscreenElement === stageRef.current && !!stageRef.current);
+    document.addEventListener('fullscreenchange', on);
+    return () => document.removeEventListener('fullscreenchange', on);
+  }, []);
+  const toggleFull = () => {
+    const el = stageRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) void document.exitFullscreen?.().catch(() => {});
+    else void el.requestFullscreen?.().catch(() => {});
+  };
+  const togglePlay = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (v.paused) void v.play().catch(() => {});
+    else v.pause();
+  };
+  // bare:框 = App 畫面比例(CSS container 單位算出最大尺寸),影片按比例放大、置中,黑邊裁掉。
+  const fit = bare ? contentCrop(natural, aspect ?? null) : null;
+
   function onWaveClick(e: MouseEvent<HTMLDivElement>) {
     const r = e.currentTarget.getBoundingClientRect();
     seekToSec(((e.clientX - r.left) / r.width) * dur);
@@ -199,17 +237,23 @@ export function RecordingPlayer({
           </span>
         )}
       </div>}
+      {(() => {
+        const video = (
       <video
         key={chunk.url}
         ref={videoRef}
         className="recplayer__video"
         src={chunk.url}
-        controls
+        controls={!bare}
+        muted={bare ? muted : undefined}
         playsInline
         preload="metadata"
+        {...(fit ? { style: { width: `${fit.wPct}%`, height: `${fit.hPct}%` } } : {})}
+        {...(bare ? { onClick: togglePlay, title: tx('playHint', lang) } : {})}
         onLoadedMetadata={() => {
           const v = videoRef.current;
           if (!v) return;
+          if (v.videoWidth > 0 && v.videoHeight > 0) setNatural({ w: v.videoWidth, h: v.videoHeight });
           if (Number.isFinite(v.duration) && v.duration > 0) onDuration?.(chunk.name, v.duration);
           if (pendingSeek.current !== null) {
             v.currentTime = pendingSeek.current;
@@ -221,6 +265,33 @@ export function RecordingPlayer({
           }
         }}
       />
+        );
+        if (!bare) return video;
+        // bare:影片放在裁切框裡(App 畫面填滿、黑邊裁掉),右上角聲音 / 全螢幕,點畫面播放 / 暫停。
+        return (
+          <div ref={stageRef} className={`recplayer__stage${fit ? ' is-fit' : ''}`}>
+            <div
+              className="recplayer__frame"
+              {...(fit ? { style: { aspectRatio: String(fit.aspect), width: `min(100cqw, calc(100cqh * ${fit.aspect.toFixed(5)}))`, height: 'auto' } } : {})}
+            >
+              {video}
+            </div>
+            {paused && (
+              <button type="button" className="recplayer__bigplay" onClick={togglePlay} aria-label={tx('playHint', lang)}>
+                <InfoIcon name="playFill" size={26} />
+              </button>
+            )}
+            <div className="recplayer__tools">
+              <button type="button" onClick={() => setMuted((m) => !m)} title={muted ? tx('unmute', lang) : tx('mute', lang)} aria-label={muted ? tx('unmute', lang) : tx('mute', lang)} aria-pressed={muted}>
+                <InfoIcon name={muted ? 'mute' : 'volume'} size={15} />
+              </button>
+              <button type="button" onClick={toggleFull} title={isFull ? tx('exitFull', lang) : tx('full', lang)} aria-label={isFull ? tx('exitFull', lang) : tx('full', lang)}>
+                <InfoIcon name={isFull ? 'min' : 'max'} size={15} />
+              </button>
+            </div>
+          </div>
+        );
+      })()}
       {!bare && <div
         className="recplayer__wave"
         role="slider"

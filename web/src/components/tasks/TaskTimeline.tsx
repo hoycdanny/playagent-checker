@@ -13,6 +13,8 @@ import {
   type Timeline,
   type TlStep,
 } from './timeline.ts';
+import { InfoIcon } from './InfoIcon.tsx';
+import { DECIDER_ICON } from './eventIcons.ts';
 import './TaskTimeline.css';
 
 /**
@@ -28,7 +30,13 @@ const T = {
   laneRec: ['錄影 / 聲音', 'Video / sound'],
   laneMarks: ['觸發', 'Triggers'],
   laneSteps: ['步驟', 'Steps'],
-  legend: ['🧭 決策 Agent · 👁 視覺 Agent · ⚡ 照記憶直接做 · 👆 測試人員 · 🧠 記憶打到 · 📜 腳本換項', '🧭 Decision agent · 👁 Vision agent · ⚡ Replayed from memory · 👆 Tester · 🧠 Memory hit · 📜 Script item'],
+  legend: ['決策 Agent · 視覺 Agent · 照記憶直接做 · 測試人員 · 記憶打到 · 腳本換項', 'Decision agent · Vision agent · Replayed from memory · Tester · Memory hit · Script item'],
+  lgAgent: ['決策 Agent', 'Decision agent'],
+  lgVision: ['視覺', 'Vision'],
+  lgReflex: ['照記憶', 'From memory'],
+  lgOperator: ['測試人員', 'Tester'],
+  lgMem: ['記憶命中', 'Memory hit'],
+  lgScript: ['腳本項目', 'Script item'],
   memHit: ['記憶打到', 'memory hit'],
   scriptAt: ['腳本第 {s} 項', 'script item {s}'],
   byOperator: ['測試人員直接操作', 'Tester gesture'],
@@ -69,9 +77,6 @@ const MIN_SPAN = 200;
 const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const byText = (by: string | undefined, lang: RLang) =>
   by === 'reflex' ? tx('byReflex', lang) : by === 'vision' ? tx('byVision', lang) : by === 'operator' ? tx('byOperator', lang) : tx('byAgent', lang);
-/** 誰觸發這一步 / 哪個 Agent 的小圖示(時間軸與「這一刻」共用)。 */
-const DECIDER: Record<string, string> = { agent: '🧭', vision: '👁', reflex: '⚡', operator: '👆' };
-const SEAT: Record<string, string> = { vlm: '👁', agent: '🧭', subagent: '🛠' };
 /** 標記之間至少隔多少(% 寬),太密就略過(滑過步驟仍看得到)。 */
 const MARK_GAP = 1.6;
 const seatText = (seat: string, lang: RLang) =>
@@ -221,7 +226,7 @@ export function TaskTimeline({
   const step = stepAt(tl, at);
   const stepTip = (s: TlStep) =>
     `#${s.index} ${s.screen ?? ''} · ${s.action ?? ''}${s.target ? ` ${s.target}` : ''} · ${fmtClock(s.t - tl.origin)} · ${byText(s.decidedBy, lang)}`
-    + `${s.memHit ? ` · 🧠 ${tx('memHit', lang)}` : ''}${s.script ? ` · 📜 ${tx('scriptAt', lang, { s: s.script })}` : ''}`;
+    + `${s.memHit ? ` · ${tx('memHit', lang)}` : ''}${s.script ? ` · ${tx('scriptAt', lang, { s: s.script })}` : ''}`;
   // 觸發標記:誰觸發、記憶有沒有打到、腳本換項;太密的略過(腳本換項 / 記憶打到優先保留)。
   const marks = useMemo(() => {
     const out: Array<{ index: number; t: number; by: string; memHit: boolean; script?: string; tip: string }> = [];
@@ -244,13 +249,13 @@ export function TaskTimeline({
       <div className="ttl__bar">
         <h2 id="ttl-title" className="ttl__title" title={tx('legend', lang)}>{tx('title', lang)}</h2>
         <div className="ttl__transport" role="group" aria-label={tx('title', lang)}>
-          <button type="button" className="ttl__btn" title={tx('prevStep', lang)} aria-label={tx('prevStep', lang)} onClick={() => { const s = adjacentStep(tl, at, -1); if (s) onSeek(s.t, false); }}>⏮</button>
-          <button type="button" className="ttl__btn" title={tx('back', lang)} aria-label={tx('back', lang)} onClick={() => onSeek(clampN(at - 100, tl.origin, tl.end), false)}>‹</button>
+          <button type="button" className="ttl__btn" title={tx('prevStep', lang)} aria-label={tx('prevStep', lang)} onClick={() => { const s = adjacentStep(tl, at, -1); if (s) onSeek(s.t, false); }}><InfoIcon name="first" size={14} /></button>
+          <button type="button" className="ttl__btn" title={tx('back', lang)} aria-label={tx('back', lang)} onClick={() => onSeek(clampN(at - 100, tl.origin, tl.end), false)}><InfoIcon name="prev" size={14} /></button>
           <button type="button" className="ttl__btn ttl__btn--play" disabled={!hasVideo} title={playing ? tx('pause', lang) : tx('play', lang)} aria-label={playing ? tx('pause', lang) : tx('play', lang)} onClick={onTogglePlay}>
-            {playing ? '❚❚' : '▶'}
+            <InfoIcon name={playing ? 'pauseFill' : 'playFill'} size={16} />
           </button>
-          <button type="button" className="ttl__btn" title={tx('fwd', lang)} aria-label={tx('fwd', lang)} onClick={() => onSeek(clampN(at + 100, tl.origin, tl.end), false)}>›</button>
-          <button type="button" className="ttl__btn" title={tx('nextStep', lang)} aria-label={tx('nextStep', lang)} onClick={() => { const s = adjacentStep(tl, at, 1); if (s) onSeek(s.t, false); }}>⏭</button>
+          <button type="button" className="ttl__btn" title={tx('fwd', lang)} aria-label={tx('fwd', lang)} onClick={() => onSeek(clampN(at + 100, tl.origin, tl.end), false)}><InfoIcon name="next" size={14} /></button>
+          <button type="button" className="ttl__btn" title={tx('nextStep', lang)} aria-label={tx('nextStep', lang)} onClick={() => { const s = adjacentStep(tl, at, 1); if (s) onSeek(s.t, false); }}><InfoIcon name="last" size={14} /></button>
         </div>
         <output className="ttl__clock" aria-live="off">
           {fmtClock(at - tl.origin)}
@@ -272,9 +277,16 @@ export function TaskTimeline({
           </label>
           {jumpErr && <span id="ttl-jump-err" className="ttl__err" role="alert">{tx('jumpBad', lang)}</span>}
         </form>
-        <span className="ttl__legend">{tx('legend', lang)}</span>
+        <ul className="ttl__legend" aria-label={tx('legend', lang)}>
+          <li className="hue-agent"><InfoIcon name="compass" size={13} />{tx('lgAgent', lang)}</li>
+          <li className="hue-vision"><InfoIcon name="eye" size={13} />{tx('lgVision', lang)}</li>
+          <li className="hue-reflex"><InfoIcon name="bolt" size={13} />{tx('lgReflex', lang)}</li>
+          <li className="hue-operator"><InfoIcon name="hand" size={13} />{tx('lgOperator', lang)}</li>
+          <li className="hue-mem"><span className="ttl__dot" />{tx('lgMem', lang)}</li>
+          <li className="hue-script"><InfoIcon name="script" size={13} />{tx('lgScript', lang)}</li>
+        </ul>
         <span className="ttl__spacer" />
-        {onLive && <button type="button" className="ttl__live" onClick={onLive}>⦿ {liveLabel}</button>}
+        {onLive && <button type="button" className="ttl__live" onClick={onLive}><InfoIcon name="live" size={13} /> {liveLabel}</button>}
         <div className="ttl__zoom" role="group" aria-label={tx('zoomIn', lang)}>
           <button type="button" className="ttl__btn" title={tx('zoomOut', lang)} aria-label={tx('zoomOut', lang)} onClick={() => zoomAround(at, 2)} disabled={!view}>−</button>
           <button type="button" className="ttl__btn" title={tx('zoomIn', lang)} aria-label={tx('zoomIn', lang)} onClick={() => zoomAround(at, 0.5)} disabled={span <= MIN_SPAN}>＋</button>
@@ -341,9 +353,9 @@ export function TaskTimeline({
                 style={{ left: `${x(m.t)}%` }}
                 title={m.tip}
               >
-                <span className="ttl__mark-ico">{DECIDER[m.by] ?? DECIDER.agent}</span>
-                {m.memHit && <span className="ttl__mark-mem">🧠</span>}
-                {m.script && <span className="ttl__mark-script">📜{m.script}</span>}
+                <span className="ttl__mark-ico"><InfoIcon name={DECIDER_ICON[m.by] ?? 'compass'} size={13} /></span>
+                {m.memHit && <span className="ttl__mark-mem" />}
+                {m.script && <span className="ttl__mark-script"><InfoIcon name="script" size={11} />{m.script}</span>}
               </span>
             ))}
           </div>
@@ -372,7 +384,7 @@ export function TaskTimeline({
                 key={`${tr.seat}-${tr.index}-${tr.start}`}
                 className={`ttl__call ttl__call--${tr.seat}${tr.ok ? '' : ' is-fail'}`}
                 style={{ left: `${Math.max(0, x(tr.start))}%`, width: `${Math.max(0.25, ((tr.end - tr.start) / span) * 100)}%` }}
-                title={`${SEAT[tr.seat] ?? ''} ${seatText(tr.seat, lang)} · #${tr.index}${tr.modelId ? ` · ${tr.modelId}` : ''} · ${((tr.end - tr.start) / 1000).toFixed(1)}s${tr.ok ? '' : ` · ${tx('failed', lang)}`}`}
+                title={`${seatText(tr.seat, lang)} · #${tr.index}${tr.modelId ? ` · ${tr.modelId}` : ''} · ${((tr.end - tr.start) / 1000).toFixed(1)}s${tr.ok ? '' : ` · ${tx('failed', lang)}`}`}
               />
             ))}
           </div>

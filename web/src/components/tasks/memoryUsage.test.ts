@@ -13,8 +13,9 @@ describe('執行軌跡的記憶標籤', () => {
     };
     const chips = memoryChips(m, 'zh');
     expect(chips.map((c) => c.text)).toEqual([
-      '🧠 已知畫面', '🧠 記憶預測應驗', '🧭 照已驗證路徑:點擊 Slots → 機台選擇', '📌 套用教學 1 條',
+      '已知畫面', '記憶預測應驗', '照已驗證路徑:點擊 Slots → 機台選擇', '套用教學 1 條',
     ]);
+    expect(chips.map((c) => c.icon)).toEqual(['db', 'db', 'compass', 'pin']);
     expect(chips[0]!.tip).toContain('先前到訪 5 次');
     expect(chips[1]!.tip).toBe('記憶說:在「登入畫面」點擊 PLAY 會到「大廳」(先前 成功 2 / 失敗 0)');
     expect(chips.every((c) => c.tone === 'hit')).toBe(true);
@@ -22,7 +23,7 @@ describe('執行軌跡的記憶標籤', () => {
 
   test('與記憶不符、新畫面要清楚標出', () => {
     const chips = memoryChips({ screen: 'new', arrival: { from: '大廳', kind: 'tap', target: 'Slots', expected: ['機台選擇'], result: 'diverged' } }, 'zh');
-    expect(chips.map((c) => [c.text, c.tone])).toEqual([['✨ 新畫面', 'new'], ['⚠ 與記憶不符', 'warn']]);
+    expect(chips.map((c) => [c.text, c.tone])).toEqual([['新畫面', 'new'], ['與記憶不符', 'warn']]);
   });
 
   test('舊任務沒有記憶資料時不顯示', () => {

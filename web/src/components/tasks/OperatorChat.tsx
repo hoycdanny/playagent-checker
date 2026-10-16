@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { InfoIcon } from './InfoIcon.tsx';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
@@ -164,7 +165,7 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
                 {c.hintId && <span className="opchat__tag">{tx('remembered', lang)}</span>}
               </div>
               <p>
-                {c.point && <span className="opchat__pin">{c.to ? '↗' : '📍'} {formatPick({ ...c.point, to: c.to })} </span>}
+                {c.point && <span className="opchat__pin">{c.to ? '↗' : <InfoIcon name="pin" size={12} />} {formatPick({ ...c.point, to: c.to })} </span>}
                 {c.point && c.text === POINT_ONLY_TEXT ? tx('pointOnly', lang)
                   : c.point && c.text === DRAG_ONLY_TEXT ? tx('dragOnly', lang)
                   : c.text}
