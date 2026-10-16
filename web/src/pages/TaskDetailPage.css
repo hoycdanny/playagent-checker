@@ -1291,15 +1291,28 @@
   min-height: 600px;
   margin-top: 4px;
 }
+/* 直向:手機畫面欄寬 = 畫面高 × App 比例(--phone-w 由頁面量出,左右不留白);
+   AI 互動與這一刻合成右邊同一個框(一排 6 個分頁,同時只顯示一個)。 */
 .dstage--portrait {
-  grid-template-columns: minmax(250px, 0.68fr) minmax(340px, 1.05fr) minmax(420px, 1.45fr);
+  grid-template-columns: minmax(200px, min(var(--phone-w, 30%), 45%)) minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   grid-template-areas:
-    'phone chat feed'
-    'tl tl tl';
+    'phone feed'
+    'tl tl';
 }
+.dstage--merged .dstage__chat {
+  grid-area: feed;
+}
+.dstage > [hidden] {
+  display: none !important;
+}
+.dstage--merged .dstage__tabs {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+/* 橫向:左欄寬 = 手機畫面高 × App 比例(最多 62%),右邊 Log 拿剩下的(約一半) */
 .dstage--landscape {
-  grid-template-columns: minmax(0, 3fr) minmax(400px, 2fr);
+  grid-template-columns: minmax(0, min(var(--phone-w, 55%), 62%)) minmax(380px, 1fr);
   grid-template-rows: minmax(0, 1.9fr) minmax(190px, 1fr) auto;
   grid-template-areas:
     'phone feed'
@@ -1461,15 +1474,15 @@
 /* 橫向:模型選擇 + 清空對話放到分頁列右邊,多留一行給對話 */
 .dstage--landscape .dstage__chat {
   position: relative;
+  container-type: inline-size;
 }
-.dstage--landscape .dstage__chat .taskask__foot {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  max-width: 50%;
-}
-@media (max-width: 1180px) {
-  .dstage--landscape .dstage__chat .taskask__foot { position: static; max-width: none; }
+@container (min-width: 700px) {
+  .dstage__chat .taskask--embedded .taskask__foot {
+    position: absolute;
+    top: 12px;
+    right: 14px;
+    max-width: calc(100% - 470px);
+  }
 }
 /* 已經有對話:橫向高度有限,建議問題收起來,把空間留給對話 */
 .dstage--landscape .taskask--embedded.has-items .taskask__suggest {
@@ -1537,6 +1550,12 @@
     grid-template-rows: 46vh 40vh 56vh auto;
     grid-template-areas: 'phone' 'chat' 'feed' 'tl';
   }
+  .dstage--portrait.dstage--merged {
+    grid-template-rows: 64vh auto;
+    grid-template-areas:
+      'phone feed'
+      'tl tl';
+  }
   .dstage__tl { max-height: none; }
 }
 /* 窄螢幕:單欄 */
@@ -1546,5 +1565,9 @@
     grid-template-columns: 1fr;
     grid-template-rows: 70vh 50vh 60vh auto;
     grid-template-areas: 'phone' 'chat' 'feed' 'tl';
+  }
+  .dstage--portrait.dstage--merged {
+    grid-template-rows: 70vh 70vh auto;
+    grid-template-areas: 'phone' 'feed' 'tl';
   }
 }

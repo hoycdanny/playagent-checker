@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
 import { apiGet, apiPost, type ListResponse } from '../api/client.ts';
@@ -126,6 +126,16 @@ export function bootText(backend: string | undefined, lang: RLang): { title: str
     hint: pt(s ? (`bootingHint${s}` as const) : 'bootingHint', lang),
   };
 }
+
+/** 右側分頁:AI 互動三個 + 這一刻三個(直向時合成一排)。 */
+type PaneTab = 'ask' | 'agent' | 'script' | 'moment' | 'trace' | 'logs';
+type ChatTab = 'ask' | 'agent' | 'script';
+type FeedTab = 'moment' | 'trace' | 'logs';
+const CHAT_TABS: readonly ChatTab[] = ['ask', 'agent', 'script'];
+const FEED_TABS: readonly FeedTab[] = ['moment', 'trace', 'logs'];
+const isChatTab = (k: PaneTab): k is ChatTab => (CHAT_TABS as readonly string[]).includes(k);
+const TAB_ICON = { ask: 'sparkle', agent: 'msg', script: 'script', moment: 'pulse', trace: 'list', logs: 'term' } as const;
+const TAB_TEXT = { ask: 'tabAsk', agent: 'tabAgent', script: 'tabScript', moment: 'tabMoment', trace: 'tabTrace', logs: 'tabLogs' } as const;
 
 export default function TaskDetailPage() {
   const { t, locale } = useI18n();
@@ -318,8 +328,61 @@ export default function TaskDetailPage() {
   // 錄影是固定大小(App 轉向會加黑邊):用播放頭那一步的畫面比例把 App 畫面放大填滿。
   const appAspect = aspectAt(steps, cursorStep);
   const rightTab = rightPicked ?? (isLive ? 'agent' : 'ask');
+  // 直向:AI 互動 + 這一刻合成同一個框(一排 6 個分頁);橫向:AI 互動在手機畫面下方、這一刻在右邊。
+  const merged = orient === 'portrait';
+  const [panePicked, setPanePicked] = useState<PaneTab | null>(null);
+  const activePane: PaneTab = panePicked ?? (isLive ? 'agent' : 'moment');
+  const pickTab = (k: PaneTab) => {
+    setPanePicked(k);
+    if (isChatTab(k)) setRightTab(k);
+    else setMidTab(k);
+  };
+  const tabBar = (group: readonly PaneTab[]) => (
+    <div className="dstage__tabs" role="tablist">
+      {(merged ? [...CHAT_TABS, ...FEED_TABS] : group).map((k) => {
+        const on = merged ? activePane === k : isChatTab(k) ? rightTab === k : midTab === k;
+        return (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={on}
+            className={`dstage__tab${on ? ' is-on' : ''}`}
+            onClick={() => pickTab(k)}
+          >
+            <InfoIcon name={TAB_ICON[k]} size={15} />
+            {pt(TAB_TEXT[k], lang)}
+            {k === 'trace' && steps.length > 0 && <small> {steps.length}</small>}
+            {k === 'agent' && isLive && <span className="dstage__dot" aria-hidden="true" />}
+          </button>
+        );
+      })}
+    </div>
+  );
   // 在畫面上點了位置:切到「與 Agent 互動」補一句說明再送出。
-  useEffect(() => { if (pickPoint) setRightTab('agent'); }, [pickPoint]);
+  useEffect(() => { if (pickPoint) { setRightTab('agent'); setPanePicked('agent'); } }, [pickPoint]);
+
+  // 手機畫面欄寬 = 畫面高 × App 寬高比(左右不留白),其餘寬度給右邊。
+  const phoneRef = useRef<HTMLElement>(null);
+  const [phoneH, setPhoneH] = useState(0);
+  useEffect(() => {
+    const el = phoneRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setPhoneH(el.clientHeight));
+    ro.observe(el);
+    setPhoneH(el.clientHeight);
+    return () => ro.disconnect();
+  }, []);
+  // 版面換方向 / 時間軸出現時列高會變:再量一次(保險,不只靠 ResizeObserver)。
+  const hasSteps = steps.length > 0;
+  useEffect(() => {
+    const el = phoneRef.current;
+    if (!el) return;
+    const id = requestAnimationFrame(() => setPhoneH(el.clientHeight));
+    return () => cancelAnimationFrame(id);
+  }, [orient, hasSteps]);
+  const PHONE_PAD = 20; // .dstage__phone 上下 / 左右 padding 合計
+  const phoneW = phoneH > PHONE_PAD && appAspect ? Math.round((phoneH - PHONE_PAD) * appAspect + PHONE_PAD) : null;
 
   return (
     <section className="listpage detail">
@@ -425,9 +488,12 @@ export default function TaskDetailPage() {
         橫向:左 60% = 手機畫面(上)+ AI 互動(下),右 40% = 這一刻;下 = 時間軸(整頁寬)。
         DOM 順序 = 手機 → AI 互動 → 這一刻(鍵盤 Tab 順序與畫面一致)。
       */}
-      <div className={`dstage dstage--${orient}`}>
+      <div
+        className={`dstage dstage--${orient}${merged ? ' dstage--merged' : ''}`}
+        {...(phoneW ? { style: { '--phone-w': `${phoneW}px` } as CSSProperties } : {})}
+      >
         {/* 手機畫面:執行中顯示即時影片 / 串流幀;結束後播整場錄影;沒有錄影顯示播放頭那一步的截圖。 */}
-        <section className="detail__col dstage__phone" aria-label={t('detail.liveView')}>
+        <section ref={phoneRef} className="detail__col dstage__phone" aria-label={t('detail.liveView')}>
           {isLive && (liveFrameUrl || latestStep) && <span className="detail__live-badge dstage__badge">{t('detail.liveBadge')}</span>}
           {/* 開機中(還沒有畫面):顯示 Device Farm 開機各階段 */}
           {steps.length === 0 && (
@@ -489,23 +555,8 @@ export default function TaskDetailPage() {
         </section>
 
         {/* AI 互動:AI 問答 · 與控制遊戲 Agent 互動(即時指令)· 測試腳本與執行資訊 */}
-        <section className="detail__col dstage__chat" aria-label={pt('tabAsk', lang)}>
-          <div className="dstage__tabs" role="tablist">
-            {(['ask', 'agent', 'script'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={rightTab === k}
-                className={`dstage__tab${rightTab === k ? ' is-on' : ''}`}
-                onClick={() => setRightTab(k)}
-              >
-                <InfoIcon name={k === 'ask' ? 'sparkle' : k === 'agent' ? 'msg' : 'script'} size={15} />
-                {pt(k === 'ask' ? 'tabAsk' : k === 'agent' ? 'tabAgent' : 'tabScript', lang)}
-                {k === 'agent' && isLive && <span className="dstage__dot" aria-hidden="true" />}
-              </button>
-            ))}
-          </div>
+        <section className="detail__col dstage__chat" aria-label={pt('tabAsk', lang)} hidden={merged && !isChatTab(activePane)}>
+          {tabBar(CHAT_TABS)}
           {rightTab === 'ask' ? (
             jobId ? (
               <TaskAskPanel
@@ -552,23 +603,8 @@ export default function TaskDetailPage() {
         </section>
 
         {/* 這一刻:播放頭當下的 log / 記憶 / 腳本 / AI(可層層過濾)· 執行軌跡 · 完整日誌 */}
-        <section className="detail__col dstage__feed" aria-label={pt('tabMoment', lang)}>
-          <div className="dstage__tabs" role="tablist">
-            {(['moment', 'trace', 'logs'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                role="tab"
-                aria-selected={midTab === k}
-                className={`dstage__tab${midTab === k ? ' is-on' : ''}`}
-                onClick={() => setMidTab(k)}
-              >
-                <InfoIcon name={k === 'moment' ? 'pulse' : k === 'trace' ? 'list' : 'term'} size={15} />
-                {pt(k === 'moment' ? 'tabMoment' : k === 'trace' ? 'tabTrace' : 'tabLogs', lang)}
-                {k === 'trace' && steps.length > 0 && <small> {steps.length}</small>}
-              </button>
-            ))}
-          </div>
+        <section className="detail__col dstage__feed" aria-label={pt('tabMoment', lang)} hidden={merged && isChatTab(activePane)}>
+          {tabBar(FEED_TABS)}
           {midTab === 'moment' ? (
             <MomentFeed tl={timeline} steps={steps} events={feedEvents} cursor={cursor ?? (isLive && timeline.steps.length ? timeline.end : null)} onSeek={(t) => seekTo(t, false)} lang={lang} />
           ) : midTab === 'logs' ? (
