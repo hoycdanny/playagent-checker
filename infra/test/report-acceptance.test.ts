@@ -183,3 +183,38 @@ describe('RTP ledger', () => {
     expect(targetSpins('隨便玩')).toBeNull();
   });
 });
+
+
+describe('slot-board-v1 evidence acceptance', () => {
+  const manifest = (overrides: Record<string, unknown> = {}) => ({
+    schemaVersion: 1,
+    machineId: 'fu-xing-gao-zhao-3', appVersion: '4.6.8', state: 'complete',
+    capture: { fps: 10, roi: { x: 0.19, y: 0.25, w: 0.63, h: 0.56 }, grid: [64, 36], source: 'android-screenrecord' },
+    summary: { detectedSpins: 500, paidSpins: 500, freeSpins: 0, unknownSpins: 0, capturedBoards: 500, captureFailures: 0, segmentCount: 250, gapCount: 0, gapMs: 0, analysisFailures: 0 },
+    spins: [], gaps: [], segments: [], startedAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:10:00Z',
+    ...overrides,
+  });
+
+  test('all detected boards saved with a continuous timeline → capture criteria pass', () => {
+    const r = buildStructuredReport({
+      raw: { state: 'pass', task: RTP_TASK, message: '500 局完成', steps: cleanRtpSteps(), slotCaptureManifest: manifest() },
+      job: { jobId: 'job-slot' }, app: { genre: 'slot' },
+    });
+    expect(r.slotCapture?.machineId).toBe('fu-xing-gao-zhao-3');
+    expect(r.acceptance.criteria.find((c) => c.id === 'AC-S07')?.result).toBe('pass');
+    expect(r.acceptance.criteria.find((c) => c.id === 'AC-S08')?.result).toBe('pass');
+    expect(r.overallStatus).toBe('PASS');
+  });
+
+  test('video gap makes exact per-spin validation BLOCKED, never silently pass', () => {
+    const r = buildStructuredReport({
+      raw: {
+        state: 'pass', task: RTP_TASK, message: '500 局完成', steps: cleanRtpSteps(),
+        slotCaptureManifest: manifest({ summary: { detectedSpins: 500, paidSpins: 500, freeSpins: 0, unknownSpins: 0, capturedBoards: 500, captureFailures: 0, segmentCount: 250, gapCount: 1, gapMs: 420, analysisFailures: 0 }, gaps: [{ after: 'a', before: 'b', from: 1, to: 421, ms: 420 }] }),
+      },
+      job: { jobId: 'job-slot' }, app: { genre: 'slot' },
+    });
+    expect(r.acceptance.criteria.find((c) => c.id === 'AC-S08')).toMatchObject({ result: 'not_evaluable', attribution: 'data' });
+    expect(r.overallStatus).toBe('BLOCKED');
+  });
+});

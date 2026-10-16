@@ -36,6 +36,34 @@
   height: 100%;
   object-fit: cover;
 }
+/* 可點擊換圖:游標變手指,hover / 鍵盤聚焦時蓋一條「更換圖示」。 */
+.ws__thumb--editable {
+  position: relative;
+  cursor: pointer;
+}
+.ws__thumb-cta {
+  position: absolute;
+  inset: auto 0 0 0;
+  padding: 2px 0;
+  font-size: 10px;
+  text-align: center;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.ws__thumb--editable:hover .ws__thumb-cta,
+.ws__thumb--editable:focus-within .ws__thumb-cta {
+  opacity: 1;
+}
+.ws__thumb--editable:focus-within {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: 2px;
+}
+.ws__icon-error {
+  color: var(--danger, #d33);
+  font-size: 12px;
+}
 .ws__thumb-fallback {
   font-size: 26px;
   font-weight: 700;

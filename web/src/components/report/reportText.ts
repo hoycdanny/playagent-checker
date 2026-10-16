@@ -209,6 +209,7 @@ const T = {
   caseVersionLegacy: ['(版本功能上線前執行,未記錄)', '(run before versioning; not recorded)'],
   // 驗收標準
   acceptance: ['驗收結論與標準', 'Acceptance Verdict & Criteria'],
+  boardCapture: ['逐局盤面證據', 'Per-spin Board Evidence'],
   acStandard: ['驗收標準', 'Acceptance standard'],
   acDecidedBy: ['決定結論的項目', 'Decided by'],
   acId: ['編號', 'ID'],

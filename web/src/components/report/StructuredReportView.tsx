@@ -3,6 +3,7 @@ import { useI18n } from '../../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../../i18n/messages.ts';
 import { CaseVersionBadge } from '../cases/CaseVersions.tsx';
 import { AcceptancePanel } from './AcceptancePanel.tsx';
+import { SlotCapturePanel } from './SlotCapturePanel.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { ReportChart } from './ReportChart.tsx';
 import { ResultPill, VerdictMatrix, type CheckFilter } from './VerdictMatrix.tsx';
@@ -33,7 +34,7 @@ const COVERAGE_CHARTS = new Set(['state_bar']);
 const VISUAL_CATS = new Set(['graphics', 'animation', 'ui']);
 
 type SectionId =
-  | 'cover' | 'acceptance' | 'executive' | 'insights' | 'verdicts' | 'environment' | 'scope' | 'dashboard' | 'coverage' | 'results' | 'modules'
+  | 'cover' | 'acceptance' | 'boardCapture' | 'executive' | 'insights' | 'verdicts' | 'environment' | 'scope' | 'dashboard' | 'coverage' | 'results' | 'modules'
   | 'genre' | 'mechanics' | 'progression' | 'economy' | 'performance' | 'stability' | 'visual' | 'ux'
   | 'aiReliability' | 'defects' | 'criticalDefects' | 'testCase' | 'evidence' | 'risk' | 'release' | 'appendix';
 
@@ -103,6 +104,7 @@ export function StructuredReportView({
   const sections: Array<{ id: SectionId; key: TextKey; show: boolean }> = [
     { id: 'cover', key: 'cover', show: true },
     { id: 'acceptance', key: 'acceptance', show: Boolean(r.acceptance) },
+    { id: 'boardCapture', key: 'boardCapture', show: Boolean(r.slotCapture) },
     { id: 'executive', key: 'executive', show: true },
     { id: 'verdicts', key: 'verdicts', show: checks.length > 0 },
     { id: 'insights', key: 'insights', show: Boolean(jobId) || Boolean(ins) },
@@ -236,6 +238,13 @@ export function StructuredReportView({
         <section className="srep__section">
           {H('acceptance')}
           <AcceptancePanel acceptance={r.acceptance} evidence={r.evidence} lang={lang} onOpenImage={onOpenImage} onOpenFinding={goFinding} />
+        </section>
+      )}
+
+      {r.slotCapture && (
+        <section className="srep__section">
+          {H('boardCapture')}
+          <SlotCapturePanel capture={r.slotCapture} lang={lang} onOpenImage={onOpenImage} />
         </section>
       )}
 

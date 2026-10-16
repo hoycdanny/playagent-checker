@@ -31,3 +31,6 @@ APP-Windows/
 
 # Kiro workspace files (specs, steering, hooks) stay local
 .kiro/
+
+# 其他 AI 工具的本機工作紀錄
+.agents/

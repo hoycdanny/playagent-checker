@@ -210,17 +210,17 @@ async function decide(system, messages, modelId = VLM) {
     // 有些模型不吃 Converse 的獨立 system 欄位(服務端併成 user 回合 → user→user →
     // 「roles must alternate」被拒)。被拒一次就記住,改把 system 併進第一個 user 回合。
     const send = (withSystem) => bedrock.send(new ConverseCommand({
-      modelId: VLM,
+      modelId,
       ...(withSystem ? { system: [{ text: system }] } : {}),
       messages: toConverseMessages(withSystem ? messages : foldSystemIntoFirstUser(system, messages)),
-      inferenceConfig: { maxTokens: 500 },
+      inferenceConfig: { maxTokens: 1000 },
     }));
     let res;
     try {
-      res = await send(!systemUnsupportedModels.has(VLM));
+      res = await send(!systemUnsupportedModels.has(modelId));
     } catch (e) {
-      if (!/roles must alternate/i.test(String(e?.message || '')) || systemUnsupportedModels.has(VLM)) throw e;
-      systemUnsupportedModels.add(VLM);
+      if (!/roles must alternate/i.test(String(e?.message || '')) || systemUnsupportedModels.has(modelId)) throw e;
+      systemUnsupportedModels.add(modelId);
       res = await send(false);
     }
     const out = res.output?.message?.content?.map((c) => c.text).filter(Boolean).join('\n') ?? '{}';

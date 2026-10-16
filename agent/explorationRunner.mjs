@@ -44,6 +44,7 @@ import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
 import { createSession, setupDeviceFarmSession } from './deviceFarmSetup.mjs';
 import { createObsGuard } from './obsGuard.mjs';
 import { createLiveVideo, recordSize } from './liveVideo.mjs';
+import { createSlotVideoCapture } from './slotVideoCapture.mjs';
 import { createMediaRecorder } from './mediaAudio.mjs';
 import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
@@ -103,7 +104,7 @@ const WRAP_MIN = Math.max(10, Math.min(145, Number(process.env.PA_WRAP_MIN) || 1
 const DEADLINE_MS = Number(process.env.PA_DEADLINE_MS) > 0 ? Number(process.env.PA_DEADLINE_MS) : NaN;
 const DEADLINE_LABEL = Number.isFinite(DEADLINE_MS) ? new Date(DEADLINE_MS).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
 // runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
-const RUNNER_VERSION = 'devicefarm-runner/2.4 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1)';
+const RUNNER_VERSION = 'devicefarm-runner/2.5 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1, slot-board-v1)';
 // 效能取樣間隔(步)。adb shell 取樣與 VLM 並行、且 FPS/CPU/GPU 為區間累計,預設每 2 步一次;0 = 停用。
 const PERF_EVERY = process.env.PA_PERF_EVERY ? Math.max(0, Number(process.env.PA_PERF_EVERY) || 0) : 2;
 /** 有啟用 adb 效能監測時的參照(main 例外收尾用,確保還原電池狀態)。 */
@@ -923,11 +924,24 @@ async function main() {
   // Appium 單一 session 不可並發:用 in-flight 旗標,若主迴圈或上一張仍在截圖就跳過這輪。
   // 真機 takeScreenshot 是 WebDriver 往返(較慢),故頻率保守(每 400ms 嘗試一次)。
   const LIVE_KEY = `${PREFIX}/live`;
+  // Fu Xing Gao Zhao 3 逐局盤面證據:直接分析 Android screenrecord 影片(10 FPS),不依賴慢速 Appium 截圖或 VLM wait。
+  // 底層模組可換 profile 擴充其他機台;第一版只對已確認的 4.6.8 機台啟用。
+  const slotCaptureEnabled = PLATFORM === 'android' && process.env.PA_SLOT_CAPTURE !== '0'
+    && /Fu\s*Xing\s*Gao\s*Zhao\s*3|福星高照\s*3/i.test(String(TASK));
+  let slotCapture = slotCaptureEnabled
+    ? createSlotVideoCapture({ put: s3put, prefix: PREFIX, log: (m) => console.log(m) })
+    : null;
+  let slotCaptureSummary = null;
+  if (slotCapture) console.log('[slot-capture] Fu Xing Gao Zhao 3 逐局盤面擷取已啟用(影片 10 FPS)');
   // 即時影片(screenrecord 2 秒分段,30+ fps):Android 才有;啟動失敗就只用截圖輪播。
   let liveVideo = null;
   if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
     try {
-      liveVideo = createLiveVideo({ client, put: s3put, prefix: PREFIX, size: recordSize(w, h), log: (m) => console.log(m) });
+      liveVideo = createLiveVideo({
+        client, put: s3put, prefix: PREFIX, size: recordSize(w, h),
+        ...(slotCapture ? { preserveBacklog: true, onSegment: (seg) => slotCapture.onSegment({ ...seg, session: segment }) } : {}),
+        log: (m) => console.log(m),
+      });
       await liveVideo.start();
     } catch (e) {
       console.warn('[live-video] 無法啟動,改用截圖輪播:', e?.message || e);
@@ -983,6 +997,7 @@ async function main() {
     await stopSelfOwnedSession();
 
     segment += 1;
+    if (slotCapture) slotCapture.setSession(segment);
     segStartedAt = Date.now();
     bootPhase('device', { deviceStatus: 'PENDING' });
     setSessionBoot();
@@ -1044,7 +1059,11 @@ async function main() {
     } catch { /* 用原尺寸 */ }
     if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
       try {
-        liveVideo = createLiveVideo({ client, put: s3put, prefix: PREFIX, size: recordSize(w, h), log: (m) => console.log(m) });
+        liveVideo = createLiveVideo({
+        client, put: s3put, prefix: PREFIX, size: recordSize(w, h),
+        ...(slotCapture ? { preserveBacklog: true, onSegment: (seg) => slotCapture.onSegment({ ...seg, session: segment }) } : {}),
+        log: (m) => console.log(m),
+      });
         await liveVideo.start();
       } catch (e) { console.warn('[live-video] 新連線無法啟動,改用截圖輪播:', e?.message || e); liveVideo = null; }
     }
@@ -1856,6 +1875,18 @@ async function main() {
       }
     }
     steps.push(step);
+    // 盤面擷取區間由結構化觀測/畫面狀態驅動,不是等 VLM 回 wait 才開始。用本步起始時間回填,
+    // 讓稍晚拉回的 screenrecord 分段仍能按影格時間判斷是否屬於 AutoSpin / Free Spin。
+    if (slotCapture) {
+      const slotStateText = `${screenName} ${String(cmd.thinking || '')}`;
+      const hasAutoCounter = Number.isFinite(Number(cmd.obs?.autospin_left));
+      const freeMode = cmd.obs?.bonus === true || /Free\s*Spin\s*進行中|免費遊戲(?:畫面|進行中)|免费游戏(?:画面|进行中)/i.test(slotStateText);
+      const spinningMode = hasAutoCounter || freeMode || /AutoSpin\s*進行中|Auto\s*Spin\s*(?:running|active)/i.test(slotStateText);
+      const stopMode = /AutoSpin.{0,12}(?:已停|停止|結束|结束)|SPIN.{0,12}HOLD\s*FOR\s*AUTOSPIN/i.test(slotStateText);
+      const outsideMachine = /PAYTABLE|GAME\s*INFO|RULES|大廳|大厅|登入|登录|載入|载入|首儲|首储/i.test(screenName);
+      if (spinningMode) slotCapture.setActive(true, `#${i} ${screenName}`, t0, freeMode ? 'free' : 'paid');
+      else if (stopMode || outsideMachine || cmd.action === 'done') slotCapture.setActive(false, `#${i} ${screenName}`, t0);
+    }
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     // 指令回執:AI 這一步怎麼回應(聊天室顯示)。回應無法解析 → 不算已處理,留到下一步再送。
     if (cmd.parseFailed && newCmds.length) pendingCmds = newCmds;
@@ -1955,7 +1986,12 @@ async function main() {
     }
     if (countsForLoop && seen >= LOOP_ABORT_LIMIT) {
       finalState = 'fail';
-      finalMsg = `偵測到 App 死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進,可能此裝置環境無法完成該步驟(如第三方登入服務不可用)。已提早結束以節省時間與成本。`;
+      // 只有畫面名稱本身像登入頁才提示登入問題;否則一律中性描述(先前寫死「第三方登入」,
+      // 讓與登入無關的任務也被報告歸因成登入失敗)。
+      const loginScreen = /登入|登录|login|sign\s*in|facebook|google/i.test(String(screenName || ''));
+      finalMsg = `偵測到 App 死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進` +
+        (loginScreen ? ',可能此裝置環境無法完成登入(如第三方登入服務不可用)。' : ',可能是遊戲卡住、AI 找不到下一步或操作沒有效果。') +
+        '已提早結束以節省時間與成本。';
       break;
     }
 
@@ -2213,6 +2249,13 @@ async function main() {
       } else
       await client.act(deviceCmd);
       actOk = true;
+      // 點 AutoSpin 次數選項或 SPIN 後立刻開始影片盤面追蹤;不必等下一輪 VLM 看見剩餘次數。
+      if (slotCapture && (cmd.action === 'tap' || cmd.action === 'hold' || cmd.action === 'swipe')) {
+        const intent = `${cmd.target ?? ''} ${cmd.screen ?? ''} ${cmd.thinking ?? ''}`;
+        const selectedAuto = /AutoSpin\s*選單|Auto\s*Spin\s*(?:menu|option)/i.test(intent) && /(?:500|100|50|30)/.test(intent);
+        const pressedSpin = /(?:^|\b)SPIN(?:\b|鈕|按鈕)/i.test(String(cmd.target ?? ''));
+        if (selectedAuto || pressedSpin) slotCapture.setActive(true, `#${i} ${selectedAuto ? '選擇 AutoSpin 次數' : '按下 SPIN'}`, Date.now(), 'paid');
+      }
       consecFail = 0;
       // 記下這次走位(方向 + 走位前的背景),下一步比對背景有沒有捲動。
       const moved = cmd.action === 'move' || (cmd.action === 'combo' && cmd.dir);
@@ -2369,6 +2412,10 @@ async function main() {
   // 停止即時串流(先停,避免 quit session 後仍嘗試截圖)。
   clearInterval(liveTimer);
   if (liveVideo) await liveVideo.stop();
+  if (slotCapture) slotCaptureSummary = await slotCapture.stop().catch((e) => {
+    console.warn('[slot-capture] 收尾失敗:', e?.message || e);
+    return slotCapture.summary();
+  });
   if (recorder) {
     activeRecorder = null;
     await recorder.stop().catch((e) => console.warn('[record] 收尾失敗', e?.message || e));
@@ -2412,6 +2459,7 @@ async function main() {
     ...(deviceModel ? { deviceModel } : {}),
     ...(maxSegments !== 1 ? { segments: segment } : {}),
     ...(rtp ? { rtp } : {}),
+    ...(slotCaptureSummary ? { slotCapture: slotCaptureSummary } : {}),
     ...(perfShell ? { perfMeta: perfMon.meta(launchInfo) } : {}),
     // tokens = 三個 Agent 合計;tokensBySeat 分開記(花費依各 Agent 的模型單價分別計算)。
     ...(team ? {

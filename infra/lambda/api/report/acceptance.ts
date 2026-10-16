@@ -14,7 +14,7 @@
  */
 import type { DataQuality } from './dataQuality.js';
 import { buildRtpLedger, ESTIMATE_RE, type RtpLedger } from './rtpLedger.js';
-import type { EvidenceStep, Finding, FailureClass, L10n, OverallStatus, Risk } from './types.js';
+import type { EvidenceStep, Finding, FailureClass, L10n, OverallStatus, Risk, SlotCaptureManifest } from './types.js';
 
 const L = (zh: string, en: string): L10n => ({ zh, en });
 const fmt = (n: number) => n.toLocaleString('en-US');
@@ -85,6 +85,7 @@ export interface AcceptanceInput {
   thresholds: Record<string, number>;
   /** 案例帶結構化測項(items:):以測項為主,知識庫衍生的建議項目/風險僅供參考,不下修結論。 */
   scripted?: boolean;
+  slotCapture?: SlotCaptureManifest;
 }
 
 /** 參考標準(報告附錄逐條列出;每個驗收項目以 id 引用)。 */
@@ -349,6 +350,46 @@ export function buildAcceptance(input: AcceptanceInput): Acceptance {
       sources: [{ kind: 'standard', ref: 'GLI-11' }],
       ...(ledger ? { note: L(`σ = ${ledger.stats.sigma}(${ledger.stats.sigmaSource === 'spec' ? '知識庫規格' : '未提供,採中波動參考值'});${fmt(ledger.spins)} 局的 95% 信賴區間 ±${ledger.stats.ci95Pp} 個百分點;要把誤差壓到 ±1 個百分點約需 ${fmt(ledger.stats.spinsFor1Pp)} 局。`, `σ = ${ledger.stats.sigma} (${ledger.stats.sigmaSource === 'spec' ? 'from spec' : 'not provided; medium-volatility reference'}); 95% CI over ${fmt(ledger.spins)} spins is ±${ledger.stats.ci95Pp} pp; about ${fmt(ledger.stats.spinsFor1Pp)} spins are needed for ±1 pp.`) } : {}),
     });
+
+    // slot-board-v1 才有:逐局盤面證據本身也要驗收。舊 runner 沒有此資料時不新增項目,不回頭讓舊報告受阻。
+    const cap = input.slotCapture;
+    if (cap) {
+      const s = cap.summary;
+      const captureOk = s.detectedSpins > 0 && s.capturedBoards === s.detectedSpins && s.captureFailures === 0 && s.analysisFailures === 0;
+      push({
+        id: 'AC-S07', group: 'data_integrity', level: 'must', basis: 'deterministic',
+        title: L('偵測到的停輪盤面全數保存', 'Every detected stable board was saved'),
+        requirement: L('影片狀態機每次 busy→stable 都要保存 board + 完整 context,抽幀 / 分析失敗不可靜默略過', 'Every busy→stable transition must save board + full context; extraction / analysis failures must never be silently dropped'),
+        threshold: L('保存率 100%,抽幀與分析失敗 0', '100% save rate; 0 extraction and analysis failures'),
+        actual: L(`偵測 ${s.detectedSpins} 局,保存 ${s.capturedBoards} 局,抽幀失敗 ${s.captureFailures},分析失敗 ${s.analysisFailures}`, `${s.detectedSpins} detected, ${s.capturedBoards} saved, ${s.captureFailures} extraction failures, ${s.analysisFailures} analysis failures`),
+        result: captureOk ? 'pass' : 'fail',
+        ...(!captureOk ? { attribution: 'data' as const } : {}),
+        evidenceSteps: [],
+        note: L('這是「偵測事件的保存完整率」;付費 / Free Spin 分類與 AutoSpin 計數逐局對帳由機台 profile 的盤面分類階段完成。', 'This is completeness for detected events; paid/free-spin classification and one-to-one counter reconciliation are completed by the machine-profile recognition stage.'),
+      });
+      const gapOk = s.gapCount === 0;
+      push({
+        id: 'AC-S08', group: 'data_integrity', level: 'must', basis: 'deterministic',
+        title: L('盤面影片時間軸無缺口', 'No gap in the board-video timeline'),
+        requirement: L('所有 screenrecord 分段時間戳必須連續;有缺口就可能漏掉一局或短彈窗,不可宣稱完整逐局驗證', 'All screenrecord segment timestamps must be continuous; a gap can hide a spin or short popup, so complete per-spin validation cannot be claimed'),
+        threshold: L('缺口 0 段 / 0 ms', '0 gaps / 0 ms'),
+        actual: L(`缺口 ${s.gapCount} 段,合計 ${fmt(s.gapMs)} ms`, `${s.gapCount} gap(s), ${fmt(s.gapMs)} ms total`),
+        result: gapOk ? 'pass' : 'not_evaluable',
+        ...(!gapOk ? { attribution: 'data' as const } : {}),
+        evidenceSteps: [],
+      });
+      const paidMatched = Boolean(ledger) && s.unknownSpins === 0 && s.paidSpins === ledger!.spins;
+      push({
+        id: 'AC-S09', group: 'data_integrity', level: 'must', basis: 'deterministic',
+        title: L('付費盤面與 AutoSpin 計數逐局對上', 'Paid boards reconcile one-to-one with the AutoSpin counter'),
+        requirement: L('影片狀態機分類為 paid 的盤面數必須等於 AutoSpin 計數遞減加總,且未分類盤面為 0', 'The number of video boards classified as paid must equal the summed AutoSpin counter decrements, with zero unclassified boards'),
+        threshold: ledger ? L(`付費盤面 = ${ledger.spins},未分類 = 0`, `paid boards = ${ledger.spins}, unknown = 0`) : L('需有 RTP 帳務', 'RTP ledger required'),
+        actual: L(`付費 ${s.paidSpins ?? 0},Free Spin ${s.freeSpins ?? 0},未分類 ${s.unknownSpins ?? 0}`, `paid ${s.paidSpins ?? 0}, free ${s.freeSpins ?? 0}, unknown ${s.unknownSpins ?? 0}`),
+        result: paidMatched ? 'pass' : 'not_evaluable',
+        ...(!paidMatched ? { attribution: 'data' as const } : {}),
+        evidenceSteps: windowSteps,
+      });
+    }
   }
 
   // ── 結論 ──

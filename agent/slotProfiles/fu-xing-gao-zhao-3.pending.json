@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1.0.0",
+  "machineId": "fu-xing-gao-zhao-3",
+  "appId": "app-mup4pgfy-tyzh2e",
+  "appVersion": "4.6.8",
+  "layout": {
+    "reels": 5,
+    "variableRows": true,
+    "ways": "all-ways",
+    "roi": { "x": 0.19, "y": 0.25, "w": 0.63, "h": 0.56 }
+  },
+  "symbols": [
+    { "id": "gold_lion", "aliases": ["金獅", "lion"] },
+    { "id": "gold_dragon_coin", "aliases": ["金龍牌", "dragon coin", "gold medallion"] },
+    { "id": "gold_ingot", "aliases": ["金元寶", "元寶", "ingot"] },
+    { "id": "firecrackers", "aliases": ["鞭炮", "firecracker"] },
+    { "id": "red_envelope", "aliases": ["紅包", "fortune bag"] },
+    { "id": "A", "aliases": ["ace"] },
+    { "id": "K", "aliases": ["king"] },
+    { "id": "Q", "aliases": ["queen"] },
+    { "id": "wild", "aliases": ["WILD", "聚寶盆"], "wild": true },
+    { "id": "scatter", "aliases": ["SCATTER", "福字數值符號", "value symbol"], "scatter": true }
+  ],
+  "paytable": [
+    { "symbol": "gold_lion", "count": 5, "multiplier": 250 },
+    { "symbol": "gold_lion", "count": 4, "multiplier": 60 },
+    { "symbol": "gold_lion", "count": 3, "multiplier": 20 },
+    { "symbol": "gold_dragon_coin", "count": 5, "multiplier": 200 },
+    { "symbol": "gold_dragon_coin", "count": 4, "multiplier": 50 },
+    { "symbol": "gold_dragon_coin", "count": 3, "multiplier": 15 },
+    { "symbol": "gold_ingot", "count": 5, "multiplier": 150 },
+    { "symbol": "gold_ingot", "count": 4, "multiplier": 25 },
+    { "symbol": "gold_ingot", "count": 3, "multiplier": 15 },
+    { "symbol": "firecrackers", "count": 5, "multiplier": 100 },
+    { "symbol": "firecrackers", "count": 4, "multiplier": 20 },
+    { "symbol": "firecrackers", "count": 3, "multiplier": 10 },
+    { "symbol": "red_envelope", "count": 5, "multiplier": 50 },
+    { "symbol": "red_envelope", "count": 4, "multiplier": 15 },
+    { "symbol": "red_envelope", "count": 3, "multiplier": 10 },
+    { "symbol": "A", "count": 5, "multiplier": 10 },
+    { "symbol": "A", "count": 4, "multiplier": 8 },
+    { "symbol": "A", "count": 3, "multiplier": 5 },
+    { "symbol": "K", "count": 5, "multiplier": 10 },
+    { "symbol": "K", "count": 4, "multiplier": 8 },
+    { "symbol": "K", "count": 3, "multiplier": 5 },
+    { "symbol": "Q", "count": 5, "multiplier": 10 },
+    { "symbol": "Q", "count": 4, "multiplier": 8 },
+    { "symbol": "Q", "count": 3, "multiplier": 5 }
+  ],
+  "rules": {
+    "consecutiveFromLeft": true,
+    "wildSubstitutes": true,
+    "scatterAnywhere": true,
+    "betBasis": "total"
+  },
+  "features": {
+    "wild": "只出現在主遊戲第 2–4 軸，替代 scatter 以外所有符號",
+    "scatterTrigger": "6 個以上 scatter 觸發 feature game",
+    "valueRange": [8, 888],
+    "grandJackpotTrigger": "feature game 盤面出現 15 個以上 scatter；每次 feature game 最多一個 GRAND JACKPOT",
+    "extraBet": "畫面實讀：Extra bet 是 original bet 的 50%；啟用時 Step by Step 增加 2 spins 並升級符號"
+  },
+  "provenance": {
+    "sourceScreenshots": [
+      "tenants/globex-us/jobs/job-mv4wirbq-q0p8h0/screenshots/12.png",
+      "tenants/globex-us/jobs/job-mv4wirbq-q0p8h0/screenshots/13.png",
+      "tenants/globex-us/jobs/job-mv4wirbq-q0p8h0/screenshots/14.png",
+      "tenants/globex-us/jobs/job-mv4wirbq-q0p8h0/screenshots/15.png",
+      "tenants/globex-us/jobs/job-mv4wirbq-q0p8h0/screenshots/19.png",
+      "tenants/globex-us/jobs/job-mv4wirbq-q0p8h0/screenshots/44.png"
+    ],
+    "calibrationCase": "case-mv4wir0a-8uaxqm",
+    "calibrationVersion": "2026-1012-1459-0978",
+    "calibrationJob": "job-mv4wirbq-q0p8h0",
+    "approved": false,
+    "approvalStatus": "pending",
+    "pendingReasons": [
+      "需確認倍率的投注基準與 totalWays，不能只看倍率表推定",
+      "需完成所有資訊圓點頁與功能規則頁",
+      "需建立每個符號的多張穩定盤面模板並做人工標記驗證集"
+    ]
+  }
+}

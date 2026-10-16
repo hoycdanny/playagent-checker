@@ -43,6 +43,7 @@ import type {
   RuleHit,
   ScopeStatus,
   Severity,
+  SlotCaptureManifest,
   StructuredReport,
   TestScopeId,
   ThresholdRef,
@@ -97,6 +98,13 @@ export interface EngineInput {
   /** version = 執行時的不可變案例版本號(舊任務無)。 */
   testCase?: { id: string; name: string; yaml: string; version?: string } | null;
   kbs?: EngineKb[];
+}
+
+function slotCaptureOf(v: unknown): SlotCaptureManifest | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const x = v as Partial<SlotCaptureManifest>;
+  if (x.schemaVersion !== 1 || typeof x.machineId !== 'string' || !Array.isArray(x.spins) || !Array.isArray(x.gaps) || !x.summary) return undefined;
+  return x as SlotCaptureManifest;
 }
 
 /** 從 job 快照(優先)或 App 取得類型清單;第一個為主類型。 */
@@ -374,14 +382,18 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
     };
   }
   if (/死循環/.test(msg)) {
-    const login = /登入|login|第三方/.test(msg);
+    // 舊版 runner 的訊息固定附帶「(如第三方登入服務不可用)」,不能當作登入證據;
+    // 只看畫面名稱(「」內)是否為登入頁。
+    const screenInMsg = msg.match(/畫面「([^」]*)」/)?.[1] ?? '';
+    const login = /登入|登录|login|sign\s*in|facebook|google/i.test(screenInMsg);
+    const dmsg = login ? msg : msg.replace(/,可能此裝置環境無法完成該步驟\(如第三方登入服務不可用\)。/, ',可能是遊戲卡住、AI 找不到下一步或操作沒有效果。');
     return {
       blocked: true,
       classification: 'NEEDS_TRIAGE',
       reason: login
         ? L('卡在登入流程(可能為裝置環境不支援第三方登入),需人工判讀', 'Stuck in login (likely unsupported third-party login on device); needs triage')
         : L('同一畫面反覆無法前進,可能是遊戲死路或 AI 找不到出口,需人工判讀', 'Repeated screen without progress: game dead end or AI could not find a way; needs triage'),
-      finding: { ...base, title: login ? L('登入流程無法完成', 'Login flow cannot complete') : L('流程死循環/Dead End', 'Flow loop / dead end'), description: L(msg, msg), severity: 'high', category: login ? 'functional' : 'ux', classification: 'NEEDS_TRIAGE', certainty: 'deterministic', suspectedCause: login ? L('裝置缺 Google/Facebook 登入環境', 'Device lacks third-party login environment') : L('遊戲無出口或 AI 定位錯誤', 'No exit in game or AI mislocated controls') },
+      finding: { ...base, title: login ? L('登入流程無法完成', 'Login flow cannot complete') : L('流程死循環/Dead End', 'Flow loop / dead end'), description: L(dmsg, msg), severity: 'high', category: login ? 'functional' : 'ux', classification: 'NEEDS_TRIAGE', certainty: 'deterministic', suspectedCause: login ? L('裝置缺 Google/Facebook 登入環境', 'Device lacks third-party login environment') : L('遊戲無出口或 AI 定位錯誤', 'No exit in game or AI mislocated controls') },
     };
   }
   if (/無變化|wait \d+ 次/.test(msg)) {
@@ -933,6 +945,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const thresholds = { ...profile.thresholds, ...spec.thresholds };
 
   const state = typeof raw['state'] === 'string' ? raw['state'] : 'unknown';
+  const slotCapture = slotCaptureOf(raw['slotCaptureManifest']);
   const message = typeof raw['message'] === 'string' ? raw['message'] : undefined;
   const isSlotLike = genres.some((g) => g === 'slot' || g === 'casino');
   // 讀錯的數值(餘額/投注額尖峰)從 obs 移除、改記在 excludedObs,不計入任何指標;清單附在報告 dataQuality。
@@ -1209,6 +1222,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     values: spec.values,
     thresholds,
     scripted: job?.scripted === true,
+    ...(slotCapture ? { slotCapture } : {}),
   });
   const overallStatus: OverallStatus = acceptance.verdict;
   const statusReason: L10n = acceptance.verdictReason;
@@ -1316,6 +1330,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     profiles: profile.sources,
     spec: { values: spec.values, sources: spec.sources },
     evidence: steps,
+    ...(slotCapture ? { slotCapture } : {}),
     dataQuality: quality,
     notes: [...qualityNotes(quality), ...buildNotes(steps, hasPerf, spec, genres)],
   };

@@ -510,3 +510,15 @@
 .srep__ac-details summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
 .srep__ac-details ol, .srep__ac-details ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); font-size: 13px; line-height: 1.6; color: var(--text-primary); }
 .srep__ac-details a { color: var(--brand); }
+
+/* slot-board-v1 逐局盤面證據 */
+.srep__slotcap { display: flex; flex-direction: column; gap: var(--space-3); }
+.srep__slotcap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-2); }
+.srep__slotcap-card { display: flex; flex-direction: column; gap: 3px; padding: var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); min-width: 0; }
+.srep__slotcap-card.is-fail { border-color: var(--status-fail); }
+.srep__slotcap-card button { display: block; padding: 0; border: 0; background: #12050a; cursor: zoom-in; aspect-ratio: 16 / 9; overflow: hidden; border-radius: 4px; }
+.srep__slotcap-card img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.srep__slotcap-card strong { font-family: var(--font-mono); font-size: 12px; color: var(--text-primary); }
+.srep__slotcap-card small { color: var(--text-tertiary); font-size: 11px; overflow-wrap: anywhere; }
+.srep__slotcap-error { color: var(--status-fail) !important; }
+.srep__slotcap-missing { display: grid; place-items: center; aspect-ratio: 16 / 9; background: var(--surface); color: var(--text-tertiary); font-size: 12px; }

@@ -38,8 +38,10 @@ export function completedSegments(lsOut) {
  * @param {string} o.prefix   jobs/<id> 前綴
  * @param {string} o.size     screenrecord --size
  * @param {number} [o.maxBacklog] 積壓過多時只送最新幾段(維持低延遲)
+ * @param {boolean} [o.preserveBacklog] 證據模式:不得丟段(盤面完整率優先)
+ * @param {(segment:{name:string,buf:Buffer,startedAt:number|null})=>Promise<unknown>} [o.onSegment] 拉回完整 MP4 後的本機證據分析
  */
-export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, log = () => {} }) {
+export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, preserveBacklog = false, onSegment, log = () => {} }) {
   let timer = null;
   let busy = false;
   let active = false;
@@ -53,8 +55,8 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, log
     try {
       const done = completedSegments(await client.shell(`ls ${DIR} 2>/dev/null`, 8000));
       if (!done.length) return;
-      // 積壓:丟掉較舊的段落(即時畫面重視延遲,不補播)。
-      const drop = done.length > maxBacklog ? done.slice(0, done.length - maxBacklog) : [];
+      // 一般即時畫面可丟舊段維持低延遲;盤面證據模式不得丟段,否則無法宣稱逐局完整。
+      const drop = !preserveBacklog && done.length > maxBacklog ? done.slice(0, done.length - maxBacklog) : [];
       const send = done.slice(drop.length);
       const sent = [];
       for (const name of send) {
@@ -62,6 +64,11 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, log
         const buf = Buffer.from(String(b64 || ''), 'base64');
         if (buf.length > 0) {
           await put(`${prefix}/live/${name}`, buf, 'video/mp4');
+          if (onSegment) {
+            const m = /^s(\d{13})\.mp4$/.exec(name);
+            // 證據分析失敗不能中斷即時影片上傳;slot capture 自己會在 manifest 記 analysisFailures。
+            await onSegment({ name, buf, startedAt: m ? Number(m[1]) : null }).catch((e) => log(`[live-video] ${name} 證據分析失敗:${String(e?.message || e).slice(0, 200)}`));
+          }
           uploaded++;
           lastOkAt = Date.now();
         }
@@ -87,7 +94,8 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, log
       // 指定固定尺寸的話,橫向畫面會被縮成直式框裡的一條。每段 2 秒,轉向後下一段即自動更正。
       // size 只在裝置不支援原生解析度編碼時當備援。
       const rec = (extra) => `screenrecord ${extra}--bit-rate 1500000 --time-limit 2 ${DIR}/s$(date +%s%3N).mp4`;
-      const loop = `while [ -d ${DIR} ]; do ${rec('')} || ${rec(`--size ${size} `)}; done`;
+      // 資料夾被刪(stop() 收尾)或出現 stop 檔都會結束迴圈。
+      const loop = `while [ -d ${DIR} ] && [ ! -f ${DIR}/stop ]; do ${rec('')} || ${rec(`--size ${size} `)}; done`;
       const out = await client.shell(`rm -rf ${DIR}; mkdir -p ${DIR}; nohup sh -c '${loop}' >/dev/null 2>&1 & echo started`, 10000);
       if (!/started/.test(String(out))) throw new Error(`screenrecord 迴圈啟動失敗:${String(out).slice(0, 200)}`);
       active = true;
