@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, type ListResponse } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { modelLabel } from '../modelProvider.ts';
@@ -57,20 +57,40 @@ export function useTraces(jobId: string, isLive: boolean, enabled: boolean, mode
 }
 
 /** 某一個 Agent 每一步的模型互動(最新在上)。 */
-export function AgentLogView({ traces, seat, emptyText, loadingText }: { traces: TraceLog[] | null; seat: AgentSeat; emptyText: string; loadingText: string }) {
+export function AgentLogView({ traces, seat, emptyText, loadingText, activeIndex, onPick }: {
+  traces: TraceLog[] | null;
+  seat: AgentSeat;
+  emptyText: string;
+  loadingText: string;
+  /** 時間軸播放頭所在的步驟(標出來並捲到看得到)。 */
+  activeIndex?: number | null;
+  /** 點步驟編號 → 時間軸跳到那一步。 */
+  onPick?: (index: number) => void;
+}) {
   const { t } = useI18n();
   const list = useMemo(
     () => (traces ?? []).filter((lg) => (lg.seat ?? 'vlm') === seat).sort((a, b) => b.index - a.index),
     [traces, seat],
   );
+  const boxRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (activeIndex === null || activeIndex === undefined) return;
+    const el = boxRef.current?.querySelector<HTMLElement>(`[data-step="${activeIndex}"]`);
+    const scroller = boxRef.current?.closest<HTMLElement>('.devlogs__agent-wrap');
+    if (el && scroller) scroller.scrollTo({ top: Math.max(0, el.offsetTop - scroller.offsetTop - 8) });
+  }, [activeIndex, list]);
   if (traces === null) return <p className="devlogs__muted">{loadingText}</p>;
   if (list.length === 0) return <p className="devlogs__muted">{emptyText}</p>;
   return (
-    <ol className="detail__log-list devlogs__agent">
+    <ol ref={boxRef} className="detail__log-list devlogs__agent">
       {list.map((lg) => (
-        <li key={`${lg.seat}-${lg.index}`} className={`detail__log ${lg.ok === false ? 'detail__log--err' : ''}`}>
+        <li key={`${lg.seat}-${lg.index}`} data-step={lg.index} className={`detail__log ${lg.ok === false ? 'detail__log--err' : ''}${activeIndex === lg.index ? ' is-now' : ''}`}>
           <div className="detail__log-head">
-            <span className="detail__log-idx">{t('detail.step')} {lg.index}</span>
+            {onPick ? (
+              <button type="button" className="detail__log-idx detail__log-idx--btn" onClick={() => onPick(lg.index)}>{t('detail.step')} {lg.index}</button>
+            ) : (
+              <span className="detail__log-idx">{t('detail.step')} {lg.index}</span>
+            )}
             {lg.modelId && <span className="detail__log-model" title={lg.modelId}>{modelLabel(lg.modelId)}</span>}
             {lg.channel && <span className="detail__log-channel">{lg.channel}</span>}
             <span className={`detail__log-status ${lg.ok === false ? 'is-err' : 'is-ok'}`}>

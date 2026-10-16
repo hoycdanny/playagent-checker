@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useJobStream } from '../api/useJobStream.ts';
 import { apiGet, apiPost, type ListResponse } from '../api/client.ts';
@@ -12,8 +12,11 @@ import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
 import { gestureBody, type PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
-import { RecordingPlayer, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
-import { DeviceLogsPanel } from '../components/tasks/DeviceLogsPanel.tsx';
+import { RecordingPlayer, type PlayControl, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
+import { DeviceLogsPanel, useDeviceLog, type LogChunk } from '../components/tasks/DeviceLogsPanel.tsx';
+import { useTraces } from '../components/tasks/AgentLogView.tsx';
+import { TaskTimeline } from '../components/tasks/TaskTimeline.tsx';
+import { buildTimeline, stepAt } from '../components/tasks/timeline.ts';
 import { TaskAskPanel } from '../components/tasks/TaskAskPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
 import { reportLang, type RLang } from '../components/report/reportText.ts';
@@ -71,6 +74,8 @@ const PT = {
   betChanged: ['⚠ 投注額變更 {f} → {t}(第 {s} 步起)', '⚠ Bet changed {f} → {t} (since step {s})'],
   segment: ['第 {n} 段連線', 'Session {n}'],
   replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
+  seekStep: ['在時間軸上跳到這一步', 'Jump to this step on the timeline'],
+  liveFollow: ['回到即時', 'Back to live'],
   stop: ['停止測試', 'Stop test'],
   stopping: ['停止中…', 'Stopping…'],
   stopConfirm: ['確定要停止這次測試嗎?AI 會在目前這一步結束後停下並釋放裝置,已完成的步驟和截圖都會保留。', 'Stop this test? The AI stops after the current step and releases the device. Completed steps and screenshots are kept.'],
@@ -226,6 +231,60 @@ export default function TaskDetailPage() {
     [steps],
   );
 
+  // ── 時間軸(像影音剪輯軟體):一個共用播放頭,錄影 / 步驟 / AI 呼叫 / 聲音 / 裝置 log 都跟著它 ──
+  const isDevice = backend === 'devicefarm' || backend === 'emulator';
+  const logcat = useDeviceLog<LogChunk>(jobId ?? '', 'logcat', isLive, !!jobId && isDevice);
+  const summaryTraces = useTraces(jobId ?? '', isLive, !!jobId, 'summary');
+  const [videoDur, setVideoDur] = useState<Record<string, number>>({});
+  const onDuration = useCallback((name: string, sec: number) => {
+    setVideoDur((d) => (Math.abs((d[name] ?? 0) - sec) < 0.01 ? d : { ...d, [name]: sec }));
+  }, []);
+  // 執行中:時間軸延伸到現在(每 2 秒更新一次)。
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isLive) return;
+    const id = setInterval(() => setNowTick(Date.now()), 2000);
+    return () => clearInterval(id);
+  }, [isLive]);
+  const timeline = useMemo(
+    () => buildTimeline({
+      steps,
+      levels: audioLevels,
+      logChunks: logcat.items,
+      traces: summaryTraces ?? [],
+      videoDur,
+      ...(isLive ? { now: nowTick } : {}),
+    }),
+    [steps, audioLevels, logcat.items, summaryTraces, videoDur, isLive, nowTick],
+  );
+  const chunkStarts = useMemo(() => Object.fromEntries(timeline.chunks.map((c) => [c.name, c.t])), [timeline.chunks]);
+  // 播放頭(epoch ms);null = 還沒選(執行中跟著最新一步)。
+  const [cursor, setCursor] = useState<number | null>(null);
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const [playCtl, setPlayCtl] = useState<PlayControl | null>(null);
+  const lastSeekAt = useRef(0);
+  const seekTo = useCallback((t: number, play = false) => {
+    setCursor(t);
+    lastSeekAt.current = performance.now();
+    if (hasRecording) setSeek((p) => ({ t, n: (p?.n ?? 0) + 1, play }));
+  }, [hasRecording]);
+  // 錄影播放 / 在播放器上跳轉 → 播放頭跟著走(剛由時間軸跳過去的回報略過,避免被影格對齊拉回)。
+  const onVideoTime = useCallback((t: number) => {
+    if (performance.now() - lastSeekAt.current < 400) return;
+    setCursor(t);
+  }, []);
+  const cursorStep = cursor === null ? null : (stepAt(timeline, cursor)?.index ?? null);
+  // 執行軌跡:播放頭所在的步驟捲到看得到(只捲清單本身)。
+  const stepsRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    if (cursorStep === null) return;
+    const list = stepsRef.current;
+    const row = list?.querySelector<HTMLElement>(`[data-step-row="${cursorStep}"]`);
+    if (list && row) list.scrollTo({ top: Math.max(0, row.offsetTop - list.clientHeight / 3) });
+  }, [cursorStep]);
+  const cursorShot = cursorStep === null ? undefined : steps.find((s) => s.index === cursorStep);
+  const cursorShotUrl = asText(cursorShot?.annotatedUrl) ?? asText(cursorShot?.screenshotUrl);
+
   return (
     <section className="listpage detail">
       {/* 標題列(一行):返回 + 標題 + 狀態 + 步數 + 目前動作 + 任務資訊 + 報告 / 連線狀態 */}
@@ -345,10 +404,22 @@ export default function TaskDetailPage() {
               {...(audioLevels?.state ? { audioState: audioLevels.state } : {})}
             />
           ) : hasRecording && audioLevels ? (
-            <RecordingPlayer levels={audioLevels} steps={stepMarks} lang={lang} seek={seek} onStep={setPlayingStep} />
-          ) : liveUrl ? (
+            <RecordingPlayer
+              levels={audioLevels}
+              steps={stepMarks}
+              lang={lang}
+              seek={seek}
+              onStep={setPlayingStep}
+              starts={chunkStarts}
+              onTime={onVideoTime}
+              onDuration={onDuration}
+              control={playCtl}
+              onPlayingChange={setVideoPlaying}
+            />
+          ) : (cursorShotUrl ?? liveUrl) ? (
+            // 沒有錄影:顯示播放頭那一步的截圖(沒選時間 = 最新一步)。
             <figure className="detail__screen">
-              <img src={liveUrl} alt={asText(latestShot?.screen) ?? t('detail.liveView')} />
+              <img src={cursorShotUrl ?? liveUrl} alt={asText((cursorShotUrl ? cursorShot : latestShot)?.screen) ?? t('detail.liveView')} />
             </figure>
           ) : isLive || state === 'queued' ? (
             // 開機中還沒有畫面:顯示手機外框 + 目前階段,不要只有一行字。
@@ -429,7 +500,7 @@ export default function TaskDetailPage() {
           ) : (
             <>
             <MemoryUsagePanel steps={steps} lang={lang} />
-            <ol className="detail__steps" reversed>
+            <ol ref={stepsRef} className="detail__steps" reversed>
               {[...steps].reverse().map((s, k) => {
                 const thumb = asText(s.annotatedUrl) ?? asText(s.screenshotUrl);
                 const screenText = asText(s.screen);
@@ -443,7 +514,11 @@ export default function TaskDetailPage() {
                       .filter((x): x is string => !!x)
                   : [];
                 return (
-                  <li key={s.index} className={`detail__step ${k === 0 && !hasRecording ? 'detail__step--latest' : ''} ${hasRecording && playingStep === s.index ? 'detail__step--playing' : ''}`}>
+                  <li
+                    key={s.index}
+                    data-step-row={s.index}
+                    className={`detail__step ${k === 0 && !hasRecording && cursorStep === null ? 'detail__step--latest' : ''} ${(cursorStep !== null ? cursorStep === s.index : hasRecording && playingStep === s.index) ? 'detail__step--playing' : ''}`}
+                  >
                     {thumb && (
                       <a href={thumb} target="_blank" rel="noreferrer" className="detail__step-thumb">
                         <img src={thumb} alt={screenText ?? `step ${s.index}`} loading="lazy" />
@@ -451,7 +526,18 @@ export default function TaskDetailPage() {
                     )}
                     <div className="detail__step-text">
                       <div className="detail__step-head">
-                        <span className="detail__step-idx">#{s.index}</span>
+                        {typeof s.at === 'string' && Number.isFinite(Date.parse(s.at)) ? (
+                          <button
+                            type="button"
+                            className="detail__step-idx detail__step-idx--btn"
+                            title={pt('seekStep', lang)}
+                            onClick={() => seekTo(Date.parse(s.at as string), false)}
+                          >
+                            #{s.index}
+                          </button>
+                        ) : (
+                          <span className="detail__step-idx">#{s.index}</span>
+                        )}
                         {typeof s.at === 'string' && Number.isFinite(Date.parse(s.at)) && (
                           <time className="detail__step-time" dateTime={s.at} title={new Date(s.at).toString()}>
                             {stepTime(s.at, locale)}
@@ -472,7 +558,7 @@ export default function TaskDetailPage() {
                           <button
                             type="button"
                             className="detail__step-replay"
-                            onClick={() => setSeek((p) => ({ t: Date.parse(s.at as string), n: (p?.n ?? 0) + 1 }))}
+                            onClick={() => seekTo(Date.parse(s.at as string), true)}
                             aria-label={pt('replayStep', lang).replace('{n}', String(s.index))}
                           >
                             ▶ {pt('replay', lang)}
@@ -547,17 +633,43 @@ export default function TaskDetailPage() {
             <DeviceLogsPanel
               jobId={jobId}
               isLive={isLive}
-              device={backend === 'devicefarm' || backend === 'emulator'}
+              device={isDevice}
               {...(appId ? { appId } : {})}
               seats={meta?.seats ?? []}
               {...(meta?.prices ? { prices: meta.prices } : {})}
               levels={audioLevels}
               steps={soundStepRefs}
-              {...(hasRecording ? { onSeek: (t: number) => setSeek((p) => ({ t, n: (p?.n ?? 0) + 1 })) } : {})}
+              onSeek={seekTo}
+              cursor={cursor}
+              origin={timeline.origin}
+              {...(isDevice ? { logcat } : {})}
+              summaryTraces={summaryTraces}
+              cursorStep={cursorStep}
             />
           </section>
         )}
       </div>
+
+      {/* 時間軸:拖到哪一刻,錄影、執行軌跡、日誌都跟著跳到那一刻 */}
+      {steps.length > 0 && (
+        <div className="detail__timeline">
+          <TaskTimeline
+            tl={timeline}
+            cursor={cursor}
+            onSeek={seekTo}
+            lang={lang}
+            hasVideo={hasRecording}
+            playing={videoPlaying}
+            onTogglePlay={() => {
+              // 還沒選時間就按播放:從播放頭(或開頭)開始。
+              if (cursor === null) seekTo(timeline.origin, true);
+              else setPlayCtl((p) => ({ action: 'toggle', n: (p?.n ?? 0) + 1 }));
+            }}
+            follow={isLive}
+            {...(isLive && cursor !== null ? { onLive: () => setCursor(null), liveLabel: pt('liveFollow', lang) } : {})}
+          />
+        </div>
+      )}
     </section>
   );
 }
