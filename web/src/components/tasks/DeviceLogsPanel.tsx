@@ -8,6 +8,9 @@ import { UsageView, type PriceMap } from './UsageView.tsx';
 import type { MetaSeat } from '../../api/useJobStream.ts';
 import type { AudioLevels } from './audioLevels.ts';
 import { buildSoundEvents, type SoundKind, type StepRef } from './soundEvents.ts';
+import { clockOffset, parseLogcat, type LogLine } from './logcat.ts';
+import { fmtClock, lastAtOrBefore } from './timeline.ts';
+import type { TraceLog } from './AgentLogView.tsx';
 import './DeviceLogsPanel.css';
 
 /** 文案:[繁中, English, 简中, 日本語, 한국어](依介面語系)。 */
@@ -111,6 +114,10 @@ const T = {
     "最新 {n} 行のみ表示しています。全体はダウンロードしてください。",
     "최신 {n}줄만 표시합니다. 전체 내용은 다운로드하세요."
   ],
+  truncatedNear: ["只顯示時間軸播放頭附近 {n} 行,完整內容請下載。", "Showing {n} lines around the timeline playhead; download for the full log.", "只显示时间轴播放头附近 {n} 行,完整内容请下载。", "再生ヘッド付近の {n} 行のみ表示しています。全体はダウンロードしてください。", "재생 헤드 근처 {n}줄만 표시합니다. 전체 내용은 다운로드하세요."],
+  follow: ["跟著時間軸捲動", "Follow the timeline", "跟着时间轴滚动", "タイムラインに追従", "타임라인 따라가기"],
+  seekHere: ["跳到這一刻", "Jump to this moment", "跳到这一刻", "この時点へ移動", "이 시점으로 이동"],
+  deviceTime: ["裝置時間", "Device time", "设备时间", "端末時刻", "기기 시간"],
   lvW: [
     "警告",
     "Warning",
@@ -239,12 +246,20 @@ const LOC_IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja:
 const tx = (k: keyof typeof T, loc: string): string => (T[k] as readonly string[])[LOC_IDX[loc] ?? 1] ?? T[k][1];
 
 interface Page<I> { items: I[]; cursor?: string; more: boolean }
-interface LogChunk { name: string; text?: string }
+export interface LogChunk { name: string; text?: string }
+export interface DeviceLogState<I> { items: I[]; loading: boolean; error: boolean }
+/** 與任務時間軸連動:cursor = 播放頭(epoch ms),origin = 時間軸 0,onSeek = 移動播放頭。 */
+interface TimeSync {
+  cursor?: number | null;
+  origin?: number;
+  onSeek?: (t: number, play?: boolean) => void;
+}
 interface Player { piid: number; pid?: number; usage?: string; content?: string; type?: string; state?: string }
 interface Output { thread: string; standby?: boolean; tracks?: number; active?: number }
 interface AudioSnap { step: number; at: number; pid?: number; players: Player[]; outputs: Output[]; playbackRaw?: string; flingerRaw?: string }
 
-export interface LogLine { t: number; pid: number; tid: number; level: string; tag: string; msg: string; raw: string }
+export type { LogLine };
+export { parseLogcat };
 
 /**
  * 來源快選:依 logcat tag(必要時含訊息)分類。'tag:<名稱>' = 單一標籤。
@@ -269,26 +284,8 @@ export function sourceFilter(source: string): (l: LogLine) => boolean {
   return SOURCE_PRESETS.find((p) => p.id === source)?.test ?? (() => true);
 }
 
-const LINE_RE = /^\s*(\d{9,}\.\d+)\s+(\d+)\s+(\d+)\s+([VDIWEFA])\s+(.*?)\s*:\s?(.*)$/;
 const LEVELS = ['V', 'D', 'I', 'W', 'E', 'F', 'A'];
 const MAX_RENDER = 2000;
-
-/** logcat(-v epoch)文字 → 行;回傳行與片段標頭裡的被測 App pid。 */
-export function parseLogcat(text: string): { lines: LogLine[]; pid?: number } {
-  const lines: LogLine[] = [];
-  let pid: number | undefined;
-  for (const raw of text.split('\n')) {
-    if (raw.startsWith('#')) {
-      const m = /pid=(\d+)/.exec(raw);
-      if (m) pid = Number(m[1]);
-      continue;
-    }
-    const m = LINE_RE.exec(raw);
-    if (!m) continue;
-    lines.push({ t: Math.round(Number(m[1]) * 1000), pid: Number(m[2]), tid: Number(m[3]), level: m[4]!, tag: m[5]!, msg: m[6]!, raw });
-  }
-  return { lines, ...(pid ? { pid } : {}) };
-}
 
 const hms = (ms: number) => {
   const d = new Date(ms);
@@ -318,7 +315,7 @@ const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { vlm: 'agentVlmHint', ag
  * 任務詳情頁右欄「日誌檢視」:裝置系統 Log / 音效播放狀態(真機才有)+ 三個 AI Agent 每一步的互動紀錄。
  * device=false(非真機)時只顯示 AI Agent 分頁。lang 保留相容;文案依介面語系(五語)。
  */
-export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [], prices, levels, steps, onSeek }: {
+export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [], prices, levels, steps, onSeek, cursor, origin, logcat, summaryTraces, cursorStep }: {
   jobId: string;
   isLive: boolean;
   device?: boolean;
@@ -331,10 +328,26 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
   levels?: AudioLevels | null;
   /** 步驟時間 + 畫面名(音效事件標上是哪一步)。 */
   steps?: StepRef[];
-  /** 有整場錄影時:跳到錄影某時間(epoch ms)。 */
-  onSeek?: (t: number) => void;
+  /** 移動時間軸播放頭(epoch ms;play = 從那裡開始播錄影)。 */
+  onSeek?: (t: number, play?: boolean) => void;
+  /** 時間軸播放頭(epoch ms):log 捲到這一刻、AI 紀錄標出這一步。 */
+  cursor?: number | null;
+  /** 時間軸的 0(log 時間顯示成「分:秒.毫秒」,和時間軸一致)。 */
+  origin?: number;
+  /** 外層已讀好的 logcat(時間軸也要用,避免讀兩次)。 */
+  logcat?: DeviceLogState<LogChunk>;
+  /** 外層已讀好的 AI 呼叫精簡紀錄(用量分頁)。 */
+  summaryTraces?: TraceLog[] | null;
+  /** 播放頭所在的步驟(AI 分頁標出這一步)。 */
+  cursorStep?: number | null;
 }) {
   const { locale: loc } = useI18n();
+  const ownLog = useDeviceLog<LogChunk>(jobId, 'logcat', isLive, device && !logcat);
+  const log = logcat ?? ownLog;
+  const sync: TimeSync = { ...(cursor !== undefined ? { cursor } : {}), ...(origin !== undefined ? { origin } : {}), ...(onSeek ? { onSeek } : {}) };
+  // 點 AI 紀錄的步驟 → 播放頭跳到那一步開始。
+  const stepStart = useMemo(() => new Map((steps ?? []).map((s) => [s.index, s.t])), [steps]);
+  const pickStep = onSeek ? (index: number) => { const t = stepStart.get(index); if (t !== undefined) onSeek(t, false); } : undefined;
   // 順序:裝置 → 音效 → 視覺 → 決策 → 輔助 → 分析 → 用量(視覺 → 決策 → 輔助 = 每一步的執行順序)。
   // 預設:真機停在裝置;非真機停在視覺。
   const agentTabs: Tab[] = ['vlm', 'agent', 'subagent', 'analysis', 'usage'];
@@ -344,7 +357,8 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
   const tab: Tab = picked && tabs.includes(picked) ? picked : device ? 'logcat' : 'vlm';
   const isAgent = tab === 'vlm' || tab === 'agent' || tab === 'subagent';
   const traces = useTraces(jobId, isLive, isAgent, isAgent ? (tab as AgentSeat) : 'summary');
-  const usageTraces = useTraces(jobId, isLive, tab === 'usage', 'summary');
+  const ownUsage = useTraces(jobId, isLive, tab === 'usage' && summaryTraces === undefined, 'summary');
+  const usageTraces = summaryTraces !== undefined ? summaryTraces : ownUsage;
   const hint = TAB_HINT[tab];
   return (
     <div className="devlogs" role="region" aria-labelledby="devlogs-title">
@@ -368,9 +382,9 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
       </div>
       {hint && <p className="devlogs__muted">{tx(hint, loc)}</p>}
       {tab === 'logcat' ? (
-        <LogcatView jobId={jobId} isLive={isLive} />
+        <LogcatView jobId={jobId} log={log} sync={sync} />
       ) : tab === 'audio' ? (
-        <AudioView jobId={jobId} isLive={isLive} {...(levels !== undefined ? { levels } : {})} {...(steps ? { steps } : {})} {...(onSeek ? { onSeek } : {})} />
+        <AudioView jobId={jobId} isLive={isLive} log={log} sync={sync} {...(levels !== undefined ? { levels } : {})} {...(steps ? { steps } : {})} />
       ) : tab === 'analysis' ? (
         <div className="devlogs__agent-wrap">
           <LiveAnalysisView jobId={jobId} isLive={isLive} {...(appId ? { appId } : {})} loc={loc} />
@@ -386,6 +400,8 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
             seat={tab as AgentSeat}
             emptyText={tx('agentEmpty', loc)}
             loadingText={tx('loading', loc)}
+            {...(cursorStep !== undefined ? { activeIndex: cursorStep } : {})}
+            {...(pickStep ? { onPick: pickStep } : {})}
           />
         </div>
       )}
@@ -393,13 +409,14 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
   );
 }
 
-/** 讀取並(執行中時)每 5 秒以游標續讀。 */
-function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio', isLive: boolean) {
+/** 讀取並(執行中時)每 5 秒以游標續讀。enabled = false 不讀(外層已經讀好傳進來)。 */
+export function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio', isLive: boolean, enabled = true): DeviceLogState<I> {
   const [items, setItems] = useState<I[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const cursor = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (!enabled) return;
     let stop = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     cursor.current = undefined;
@@ -421,25 +438,28 @@ function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio', isLive: boolea
     };
     void load();
     return () => { stop = true; if (timer) clearTimeout(timer); };
-  }, [jobId, kind, isLive]);
+  }, [jobId, kind, isLive, enabled]);
   return { items, loading, error };
 }
 
-function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
+function LogcatView({ jobId, log, sync }: { jobId: string; log: DeviceLogState<LogChunk>; sync: TimeSync }) {
   const { locale: loc } = useI18n();
-  const { items, loading, error } = useDeviceLog<LogChunk>(jobId, 'logcat', isLive);
+  const { items, loading, error } = log;
   const [query, setQuery] = useState('');
   const [minLevel, setMinLevel] = useState('V');
   const [appOnly, setAppOnly] = useState(false);
   const [source, setSource] = useState('');
 
+  // 時間換算成 runner 時鐘(與錄影、步驟、時間軸同一個時鐘);dev = 原本的裝置時間。
   const { lines, appPids } = useMemo(() => {
-    const all: LogLine[] = [];
+    const all: Array<LogLine & { dev: number }> = [];
     const pids = new Set<number>();
     for (const c of items) {
-      const p = parseLogcat(c.text ?? '');
+      const text = c.text ?? '';
+      const p = parseLogcat(text);
+      const off = clockOffset(text);
       if (p.pid) pids.add(p.pid);
-      all.push(...p.lines);
+      for (const l of p.lines) all.push({ ...l, dev: l.t, t: l.t + off });
     }
     return { lines: all, appPids: pids };
   }, [items]);
@@ -460,8 +480,72 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
     return lines.filter((l) => LEVELS.indexOf(l.level) >= lv && (!appOnly || appPids.has(l.pid)) && src(l) && (!q || l.raw.toLowerCase().includes(q)));
   }, [lines, minLevel, appOnly, appPids, query, source]);
   const filtering = !!(source || query.trim() || minLevel !== 'V' || appOnly);
-  // 最新在上:取最新的 MAX_RENDER 行再反轉。
-  const shown = (filtered.length > MAX_RENDER ? filtered.slice(-MAX_RENDER) : filtered).slice().reverse();
+  // 時間軸游標:有游標時顯示游標附近的 MAX_RENDER 行(不是只有最新的),最新在上。
+  const cursor = sync.cursor ?? null;
+  const sorted = useMemo(() => [...filtered].sort((a, b) => a.t - b.t), [filtered]);
+  // 行數太多時只畫游標附近的一段;游標每 10 秒區間才換一次範圍(播放中不必每 0.1 秒重畫上千行)。
+  const bucket = cursor === null ? null : Math.floor(cursor / 10_000);
+  const shown = useMemo(() => {
+    let slice = sorted;
+    if (sorted.length > MAX_RENDER) {
+      if (bucket !== null) {
+        const i = Math.max(0, lastAtOrBefore(sorted, bucket * 10_000 + 5000, (l) => l.t));
+        const from = Math.max(0, Math.min(sorted.length - MAX_RENDER, i - MAX_RENDER / 2));
+        slice = sorted.slice(from, from + MAX_RENDER);
+      } else slice = sorted.slice(-MAX_RENDER);
+    }
+    return slice.slice().reverse();
+  }, [sorted, bucket]);
+  // 最接近游標的那一行(高亮 + 捲到看得到;直接改 DOM class,不重畫整個清單)。
+  const nearestIdx = useMemo(() => {
+    if (cursor === null || !shown.length) return -1;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < shown.length; i++) {
+      const d = Math.abs(shown[i]!.t - cursor);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return bestD <= 5000 ? best : -1;
+  }, [shown, cursor]);
+  const [follow, setFollow] = useState(true);
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    box.querySelectorAll('.devlogs__line.is-now').forEach((n) => n.classList.remove('is-now'));
+    if (nearestIdx < 0) return;
+    const el = box.querySelector<HTMLElement>(`[data-i="${nearestIdx}"]`);
+    if (!el) return;
+    el.classList.add('is-now');
+    if (follow) {
+      // 只捲 log 方塊本身(不捲整頁)。
+      const top = el.offsetTop - box.clientHeight / 2 + el.clientHeight / 2;
+      box.scrollTo({ top: Math.max(0, top) });
+    }
+  }, [nearestIdx, follow, shown]);
+  const onSeek = sync.onSeek;
+  const origin = sync.origin;
+  const rows = useMemo(() => shown.map((l, i) => (
+    <div key={i} data-i={i} className={`devlogs__line is-${l.level}`}>
+      {onSeek ? (
+        <button
+          type="button"
+          className="devlogs__t devlogs__t-btn"
+          title={`${tx('seekHere', loc)} · ${hms(l.t)}${l.dev !== l.t ? ` · ${tx('deviceTime', loc)} ${hms(l.dev)}` : ''}`}
+          onClick={() => onSeek(l.t, false)}
+        >
+          {origin !== undefined ? fmtClock(l.t - origin) : hms(l.t)}
+        </button>
+      ) : (
+        <span className="devlogs__t">{hms(l.t)}</span>
+      )}
+      <span className="devlogs__lv" title={l.level}>
+        {l.level === 'W' ? tx('lvW', loc) : l.level === 'E' || l.level === 'F' || l.level === 'A' ? tx('lvE', loc) : ''}
+      </span>
+      <button type="button" className="devlogs__tag" title={tx('tagClick', loc)} onClick={() => setSource(`tag:${l.tag}`)}>{l.tag}</button>
+      <span className="devlogs__msg">{l.msg}</span>
+    </div>
+  )), [shown, onSeek, origin, loc]);
 
   function download() {
     const blob = new Blob([items.map((c) => c.text ?? '').join('')], { type: 'text/plain;charset=utf-8' });
@@ -521,18 +605,15 @@ function LogcatView({ jobId, isLive }: { jobId: string; isLive: boolean }) {
         <span className="devlogs__muted">{tx('lines', loc).replace('{n}', String(filtered.length))}</span>
         <button type="button" className="devlogs__btn" onClick={download}>{tx('download', loc)}</button>
       </div>
-      {filtered.length > MAX_RENDER && <p className="devlogs__muted">{tx('truncated', loc).replace('{n}', String(MAX_RENDER))}</p>}
-      <div className="devlogs__log" role="log" aria-live="off" tabIndex={0}>
-        {shown.map((l, i) => (
-          <div key={i} className={`devlogs__line is-${l.level}`}>
-            <span className="devlogs__t">{hms(l.t)}</span>
-            <span className="devlogs__lv" title={l.level}>
-              {l.level === 'W' ? tx('lvW', loc) : l.level === 'E' || l.level === 'F' || l.level === 'A' ? tx('lvE', loc) : ''}
-            </span>
-            <button type="button" className="devlogs__tag" title={tx('tagClick', loc)} onClick={() => setSource(`tag:${l.tag}`)}>{l.tag}</button>
-            <span className="devlogs__msg">{l.msg}</span>
-          </div>
-        ))}
+      {filtered.length > MAX_RENDER && <p className="devlogs__muted">{tx(bucket !== null ? 'truncatedNear' : 'truncated', loc).replace('{n}', String(MAX_RENDER))}</p>}
+      {sync.onSeek && (
+        <label className="devlogs__inline devlogs__follow">
+          <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+          <span>{tx('follow', loc)}</span>
+        </label>
+      )}
+      <div ref={boxRef} className="devlogs__log" role="log" aria-live="off" tabIndex={0}>
+        {rows}
       </div>
     </>
   );
@@ -555,9 +636,11 @@ const SOUND_KINDS: Array<{ id: SoundKind; label: keyof typeof T; icon: string }>
 ];
 
 /** 音效分頁:音效事件時間軸(遊戲 log + 錄影聲音 + 系統聲音串流)+ 收合的播放器狀態快照。 */
-function AudioView({ jobId, isLive, levels, steps, onSeek }: { jobId: string; isLive: boolean; levels?: AudioLevels | null; steps?: StepRef[]; onSeek?: (t: number) => void }) {
+function AudioView({ jobId, isLive, log, sync, levels, steps }: { jobId: string; isLive: boolean; log: DeviceLogState<LogChunk>; sync: TimeSync; levels?: AudioLevels | null; steps?: StepRef[] }) {
   const { locale: loc } = useI18n();
-  const logs = useDeviceLog<LogChunk>(jobId, 'logcat', isLive);
+  const logs = log;
+  const onSeek = sync.onSeek;
+  const cursor = sync.cursor ?? null;
   const [filter, setFilter] = useState<SoundFilter>('all');
   const [open, setOpen] = useState<number | null>(null);
   const events = useMemo(() => buildSoundEvents({ logChunks: logs.items, levels: levels ?? null, steps: steps ?? [] }), [logs.items, levels, steps]);
@@ -568,6 +651,17 @@ function AudioView({ jobId, isLive, levels, steps, onSeek }: { jobId: string; is
   }, [events]);
   const shown = (filter === 'all' ? events : events.filter((e) => e.kind === filter)).slice(0, 1500);
   const noGameLog = !counts['game'] && !counts['fail'];
+  // 時間軸播放頭附近(±1 秒)的音效事件標出來。
+  const nearT = (t: number) => cursor !== null && Math.abs(t - cursor) <= 1000;
+  const tableRef = useRef<HTMLDivElement>(null);
+  const firstNear = shown.findIndex((e) => nearT(e.t));
+  useEffect(() => {
+    if (firstNear < 0) return;
+    const box = tableRef.current;
+    const row = box?.querySelector<HTMLElement>(`[data-k="${firstNear}"]`);
+    if (box && row) box.scrollTo({ top: Math.max(0, row.offsetTop - box.clientHeight / 2) });
+  }, [firstNear]);
+  const timeText = (t: number) => (sync.origin !== undefined ? fmtClock(t - sync.origin) : hms(t));
   return (
     <>
       <div className="devlogs__bar">
@@ -588,7 +682,7 @@ function AudioView({ jobId, isLive, levels, steps, onSeek }: { jobId: string; is
       ) : events.length === 0 ? (
         <p className="devlogs__muted">{tx('sndEmpty', loc)}</p>
       ) : (
-        <div className="devlogs__table-wrap">
+        <div ref={tableRef} className="devlogs__table-wrap">
           <table className="devlogs__table devlogs__snd">
             <thead>
               <tr>
@@ -606,8 +700,12 @@ function AudioView({ jobId, isLive, levels, steps, onSeek }: { jobId: string; is
                   ? tx('sndOnsetTitle', loc).replace('{db}', String(e.peakDb)).replace('{s}', ((e.durMs ?? 0) / 1000).toFixed(1))
                   : e.title;
                 return (
-                  <tr key={`${e.kind}-${e.t}-${k}`} className={`is-${e.kind}`}>
-                    <td className="devlogs__t">{hms(e.t)}</td>
+                  <tr key={`${e.kind}-${e.t}-${k}`} data-k={k} className={`is-${e.kind}${nearT(e.t) ? ' is-now' : ''}`}>
+                    <td className="devlogs__t">
+                      {onSeek ? (
+                        <button type="button" className="devlogs__t-btn" title={`${tx('seekHere', loc)} · ${hms(e.t)}`} onClick={() => onSeek(e.t, false)}>{timeText(e.t)}</button>
+                      ) : hms(e.t)}
+                    </td>
                     <td>{e.step !== undefined ? <>#{e.step}{e.screen && <div className="devlogs__muted">{e.screen}</div>}</> : '—'}</td>
                     <td>
                       <span className={`devlogs__snd-kind is-${e.kind}`} title={tx(kind.label, loc)}>{kind.icon}</span>{' '}
@@ -623,7 +721,7 @@ function AudioView({ jobId, isLive, levels, steps, onSeek }: { jobId: string; is
                     </td>
                     {onSeek && (
                       <td>
-                        <button type="button" className="devlogs__btn" onClick={() => onSeek(e.t - 500)} aria-label={tx('sndReplay', loc)} title={tx('sndReplay', loc)}>▶</button>
+                        <button type="button" className="devlogs__btn" onClick={() => onSeek(e.t - 500, true)} aria-label={tx('sndReplay', loc)} title={tx('sndReplay', loc)}>▶</button>
                       </td>
                     )}
                   </tr>

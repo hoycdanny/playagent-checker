@@ -1263,3 +1263,28 @@
 .detail__col--live .livescreen {
   min-height: 0;
 }
+
+/* ───────────── 時間軸(三欄下方,整頁寬) ───────────── */
+/* 有時間軸時三欄矮一點,讓時間軸在同一屏看得到。 */
+.detail:has(.detail__timeline) .detail__layout {
+  height: max(440px, calc(100vh - 470px));
+  min-height: 440px;
+}
+@media (max-width: 1080px) {
+  .detail:has(.detail__timeline) .detail__layout { height: auto; }
+}
+
+.detail__step-idx--btn {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.detail__step-idx--btn:hover {
+  color: #ff2d95;
+  text-decoration: underline;
+}
+.detail__steps {
+  position: relative;
+}

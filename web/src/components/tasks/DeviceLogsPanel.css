@@ -108,6 +108,7 @@
   flex: 1;
 }
 .devlogs__log {
+  position: relative;
   max-height: 460px;
   overflow: auto;
   padding: var(--space-2);
@@ -423,4 +424,45 @@ button.devlogs__snd-title {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
+}
+
+/* 與任務時間軸連動:播放頭這一刻 */
+.devlogs__table-wrap { position: relative; }
+.devlogs__line.is-now {
+  background: rgb(255 45 149 / 0.22);
+  box-shadow: inset 3px 0 0 #ff2d95;
+}
+.devlogs__snd tr.is-now td {
+  background: color-mix(in srgb, #ff2d95 14%, transparent);
+}
+.detail__log.is-now {
+  border-color: #ff2d95;
+  box-shadow: inset 3px 0 0 #ff2d95;
+}
+.devlogs__t-btn {
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.devlogs__t-btn:hover {
+  color: #ff7ab8;
+  text-decoration: underline;
+}
+.detail__log-idx--btn {
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+.detail__log-idx--btn:hover {
+  text-decoration: underline;
+}
+.devlogs__follow {
+  margin: 0 0 4px;
+  font-size: 12px;
 }
