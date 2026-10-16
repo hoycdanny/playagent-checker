@@ -1300,19 +1300,22 @@
     'phone feed'
     'tl tl';
 }
-.dstage--merged .dstage__chat {
+/* 右邊框的 AI 問答 / 腳本(/ 直向的與 Agent 互動)跟即時日誌共用同一格,同時只顯示一個 */
+.dstage__side {
   grid-area: feed;
 }
 .dstage > [hidden] {
   display: none !important;
 }
-.dstage--merged .dstage__tabs {
+.dstage__feed .dstage__tabs,
+.dstage__side .dstage__tabs {
   overflow-x: auto;
   scrollbar-width: thin;
 }
 /* 橫向:左欄寬 = 手機畫面高 × App 比例(最多 62%),右邊 Log 拿剩下的(約一半) */
 .dstage--landscape {
-  grid-template-columns: minmax(0, min(var(--phone-w, 55%), 62%)) minmax(380px, 1fr);
+  /* 最少 340px:手動選橫向但 App 是直向時,下方「與 Agent 互動」還放得下 */
+  grid-template-columns: minmax(340px, min(var(--phone-w, 55%), 62%)) minmax(380px, 1fr);
   grid-template-rows: minmax(0, 1.9fr) minmax(190px, 1fr) auto;
   grid-template-areas:
     'phone feed'
@@ -1426,14 +1429,15 @@
   flex: 1 1 0;
   min-height: 0;
 }
-.dstage__chat .taskask {
+.dstage__side .taskask {
   flex: 1 1 0;
   min-height: 0;
   margin: 0;
   border-top: none;
   padding-top: 0;
 }
-.dstage__chat .opchat {
+.dstage__chat .opchat,
+.dstage__side .opchat {
   flex: 1 1 0;
   min-height: 0;
   margin: 0;
@@ -1442,7 +1446,8 @@
   display: flex;
   flex-direction: column;
 }
-.dstage__chat .opchat__list {
+.dstage__chat .opchat__list,
+.dstage__side .opchat__list {
   flex: 1 1 0;
   min-height: 60px;
   max-height: none;
@@ -1455,39 +1460,7 @@
   flex-direction: column;
   gap: var(--space-3);
 }
-/* 橫向:AI 互動在手機畫面下方,高度較矮 → 建議問題排成一行(可橫向捲動),說明文字收起來 */
-.dstage--landscape .taskask__suggest {
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-.dstage--landscape .taskask__chip {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-.dstage--landscape .taskask--embedded {
-  gap: 8px;
-}
-.dstage--landscape .taskask--embedded .taskask__empty {
-  flex: 0 1 auto;
-}
-/* 橫向:模型選擇 + 清空對話放到分頁列右邊,多留一行給對話 */
-.dstage--landscape .dstage__chat {
-  position: relative;
-  container-type: inline-size;
-}
-@container (min-width: 700px) {
-  .dstage__chat .taskask--embedded .taskask__foot {
-    position: absolute;
-    top: 12px;
-    right: 14px;
-    max-width: calc(100% - 470px);
-  }
-}
-/* 已經有對話:橫向高度有限,建議問題收起來,把空間留給對話 */
-.dstage--landscape .taskask--embedded.has-items .taskask__suggest {
-  display: none;
-}
+/* 橫向:手機畫面下方只剩「與 Agent 互動」,分頁列間距縮小 */
 .dstage--landscape .dstage__chat .dstage__tabs {
   margin-bottom: 8px;
 }

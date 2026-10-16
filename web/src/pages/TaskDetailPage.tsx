@@ -79,7 +79,7 @@ const PT = {
   segment: ['第 {n} 段連線', 'Session {n}'],
   replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
   seekStep: ['在時間軸上跳到這一步', 'Jump to this step on the timeline'],
-  tabMoment: ['即時訊息', 'Live feed'],
+  tabMoment: ['即時日誌', 'Live log'],
   tabTrace: ['執行軌跡', 'Steps'],
   tabLogs: ['完整日誌', 'Full logs'],
   tabAsk: ['AI 問答', 'Ask AI'],
@@ -133,7 +133,9 @@ type PaneTab = 'ask' | 'agent' | 'script' | 'moment' | 'trace' | 'logs';
 type ChatTab = 'ask' | 'agent' | 'script';
 type FeedTab = 'moment' | 'trace' | 'logs';
 const CHAT_TABS: readonly ChatTab[] = ['ask', 'agent', 'script'];
-const FEED_TABS: readonly FeedTab[] = ['moment', 'trace', 'logs'];
+/** 右邊框的分頁順序:即時日誌 · 完整日誌 · 執行軌跡 · AI 問答 · 腳本與執行資訊(· 直向再加與 Agent 互動)。 */
+const RIGHT_TABS_LANDSCAPE: readonly PaneTab[] = ['moment', 'logs', 'trace', 'ask', 'script'];
+const RIGHT_TABS_PORTRAIT: readonly PaneTab[] = [...RIGHT_TABS_LANDSCAPE, 'agent'];
 const isChatTab = (k: PaneTab): k is ChatTab => (CHAT_TABS as readonly string[]).includes(k);
 const TAB_ICON = { ask: 'sparkle', agent: 'msg', script: 'script', moment: 'pulse', trace: 'list', logs: 'term' } as const;
 const TAB_TEXT = { ask: 'tabAsk', agent: 'tabAgent', script: 'tabScript', moment: 'tabMoment', trace: 'tabTrace', logs: 'tabLogs' } as const;
@@ -181,8 +183,6 @@ export default function TaskDetailPage() {
   }
   const [chatRefresh, setChatRefresh] = useState(0);
   // 中欄 / 右欄分頁。右欄:執行中預設「與 Agent 互動」,結束後預設「AI 問答」(使用者點過就照他選的)。
-  const [midTab, setMidTab] = useState<'moment' | 'trace' | 'logs'>('moment');
-  const [rightPicked, setRightTab] = useState<'ask' | 'agent' | 'script' | null>(null);
   useEffect(() => {
     if (!jobId || !isLive) {
       setLiveFrameUrl(null);
@@ -328,20 +328,19 @@ export default function TaskDetailPage() {
   const orient: Orientation = orientPref === 'auto' ? appOrient : orientPref;
   // 錄影是固定大小(App 轉向會加黑邊):用播放頭那一步的畫面比例把 App 畫面放大填滿。
   const appAspect = aspectAt(steps, cursorStep);
-  const rightTab = rightPicked ?? (isLive ? 'agent' : 'ask');
-  // 直向:AI 互動 + 這一刻合成同一個框(一排 6 個分頁);橫向:AI 互動在手機畫面下方、這一刻在右邊。
+  // 右邊的框:直向 6 個分頁(含與 Agent 互動);橫向 5 個,「與 Agent 互動」單獨在手機畫面下方。
   const merged = orient === 'portrait';
+  const rightTabs = merged ? RIGHT_TABS_PORTRAIT : RIGHT_TABS_LANDSCAPE;
   const [panePicked, setPanePicked] = useState<PaneTab | null>(null);
-  const activePane: PaneTab = panePicked ?? (isLive ? 'agent' : 'moment');
-  const pickTab = (k: PaneTab) => {
-    setPanePicked(k);
-    if (isChatTab(k)) setRightTab(k);
-    else setMidTab(k);
-  };
-  const tabBar = (group: readonly PaneTab[]) => (
+  const wanted: PaneTab = panePicked ?? (isLive && merged ? 'agent' : 'moment');
+  const activePane: PaneTab = rightTabs.includes(wanted) ? wanted : 'moment';
+  const midTab: FeedTab = isChatTab(activePane) ? 'moment' : activePane;
+  const rightTab: ChatTab = isChatTab(activePane) ? activePane : 'ask';
+  const pickTab = (k: PaneTab) => setPanePicked(k);
+  const tabBar = (tabs: readonly PaneTab[]) => (
     <div className="dstage__tabs" role="tablist">
-      {(merged ? [...CHAT_TABS, ...FEED_TABS] : group).map((k) => {
-        const on = merged ? activePane === k : isChatTab(k) ? rightTab === k : midTab === k;
+      {tabs.map((k) => {
+        const on = tabs.length === 1 || activePane === k;
         return (
           <button
             key={k}
@@ -361,7 +360,8 @@ export default function TaskDetailPage() {
     </div>
   );
   // 在畫面上點了位置:切到「與 Agent 互動」補一句說明再送出。
-  useEffect(() => { if (pickPoint) { setRightTab('agent'); setPanePicked('agent'); } }, [pickPoint]);
+  // (橫向的「與 Agent 互動」一直在手機畫面下方,不用切。)
+  useEffect(() => { if (pickPoint && orient === 'portrait') setPanePicked('agent'); }, [pickPoint, orient]);
 
   // 手機畫面欄寬 = 畫面高 × App 寬高比(左右不留白),其餘寬度給右邊。
   const phoneRef = useRef<HTMLElement>(null);
@@ -384,6 +384,21 @@ export default function TaskDetailPage() {
   }, [orient, hasSteps]);
   const PHONE_PAD = 20; // .dstage__phone 上下 / 左右 padding 合計
   const phoneW = phoneH > PHONE_PAD && appAspect ? Math.round((phoneH - PHONE_PAD) * appAspect + PHONE_PAD) : null;
+
+  // 與控制遊戲 Agent 互動(橫向在手機畫面下方、直向在右邊框的最後一個分頁)。
+  const agentPane = jobId && (showChat || !!pickPoint) ? (
+    <OperatorChat
+      jobId={jobId}
+      isLive={isLive}
+      {...(latestScreen ? { currentScreen: latestScreen } : {})}
+      {...(appId ? { appId } : {})}
+      point={pickPoint}
+      onClearPoint={() => setPickPoint(null)}
+      refreshKey={chatRefresh}
+    />
+  ) : (
+    <p className="detail__no-steps">{pt('agentEnded', lang)}</p>
+  );
 
   return (
     <section className="listpage detail">
@@ -549,9 +564,17 @@ export default function TaskDetailPage() {
           )}
         </section>
 
-        {/* AI 互動:AI 問答 · 與控制遊戲 Agent 互動(即時指令)· 測試腳本與執行資訊 */}
-        <section className="detail__col dstage__chat" aria-label={pt('tabAsk', lang)} hidden={merged && !isChatTab(activePane)}>
-          {tabBar(CHAT_TABS)}
+        {/* 橫向:與控制遊戲 Agent 互動(即時指令)單獨在手機畫面下方 */}
+        {!merged && (
+          <section className="detail__col dstage__chat" aria-label={pt('tabAgent', lang)}>
+            {tabBar(['agent'])}
+            {agentPane}
+          </section>
+        )}
+
+        {/* 右邊框的 AI 問答 / 腳本與執行資訊(直向再加與 Agent 互動) */}
+        <section className="detail__col dstage__side" aria-label={pt(TAB_TEXT[rightTab], lang)} hidden={!isChatTab(activePane)}>
+          {tabBar(rightTabs)}
           {rightTab === 'ask' ? (
             jobId ? (
               <TaskAskPanel
@@ -562,19 +585,7 @@ export default function TaskDetailPage() {
               />
             ) : null
           ) : rightTab === 'agent' ? (
-            jobId && (showChat || !!pickPoint) ? (
-              <OperatorChat
-                jobId={jobId}
-                isLive={isLive}
-                {...(latestScreen ? { currentScreen: latestScreen } : {})}
-                {...(appId ? { appId } : {})}
-                point={pickPoint}
-                onClearPoint={() => setPickPoint(null)}
-                refreshKey={chatRefresh}
-              />
-            ) : (
-              <p className="detail__no-steps">{pt('agentEnded', lang)}</p>
-            )
+            agentPane
           ) : (
             <div className="dstage__script">
               <BootTimeline
@@ -598,8 +609,8 @@ export default function TaskDetailPage() {
         </section>
 
         {/* 這一刻:播放頭當下的 log / 記憶 / 腳本 / AI(可層層過濾)· 執行軌跡 · 完整日誌 */}
-        <section className="detail__col dstage__feed" aria-label={pt('tabMoment', lang)} hidden={merged && isChatTab(activePane)}>
-          {tabBar(FEED_TABS)}
+        <section className="detail__col dstage__feed" aria-label={pt(TAB_TEXT[midTab], lang)} hidden={isChatTab(activePane)}>
+          {tabBar(rightTabs)}
           {midTab === 'moment' ? (
             <MomentFeed tl={timeline} steps={steps} events={feedEvents} cursor={cursor ?? (isLive && timeline.steps.length ? timeline.end : null)} onSeek={(t) => seekTo(t, false)} lang={lang} />
           ) : midTab === 'logs' ? (
