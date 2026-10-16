@@ -26,7 +26,7 @@ describe('TaskTimeline', () => {
     expect(screen.getByText('0:21.500')).toBeTruthy();
     expect(screen.getByRole('slider').getAttribute('aria-valuetext')).toContain('#1 大廳');
     const marks = [...container.querySelectorAll('.ttl__mark')];
-    expect(marks.map((m) => m.querySelector('.ttl__mark-ico')?.textContent)).toEqual(['🧭', '⚡']);
+    expect(marks.map((m) => m.querySelector('.ttl__mark-ico svg')?.getAttribute('data-icon'))).toEqual(['compass', 'bolt']);
     expect(marks[1]!.classList.contains('is-mem')).toBe(true); // 照記憶直接做 = 記憶打到
     expect(marks[1]!.getAttribute('title')).toContain('照記憶');
   });

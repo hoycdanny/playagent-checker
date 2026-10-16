@@ -62,7 +62,7 @@ export function buildFeed({ tl, steps, sounds = [], lang }: {
     });
     // 記憶:照記憶直接做的步驟 + runner 寫的記憶命中標籤。
     if (sub === 'reflex') {
-      out.push({ id: `mem-reflex-${ts.index}`, t: ts.t, kind: 'memory', sub: 'reflex', title: lang === 'zh' ? `⚡ 照記憶直接操作${reflex?.reason ? `(${reflex.reason})` : ''}` : `⚡ Replayed from memory${reflex?.reason ? ` (${reflex.reason})` : ''}`, step: ts.index, tone: 'good' });
+      out.push({ id: `mem-reflex-${ts.index}`, t: ts.t, kind: 'memory', sub: 'reflex', title: lang === 'zh' ? `照記憶直接操作${reflex?.reason ? `(${reflex.reason})` : ''}` : `Replayed from memory${reflex?.reason ? ` (${reflex.reason})` : ''}`, step: ts.index, tone: 'good' });
     }
     const m = s.memory as StepMemory | undefined;
     // memoryChips 的順序:畫面 → 預測結果 → 照已驗證路徑 → 教學 → 路線;類型照同樣順序對上。
@@ -81,21 +81,21 @@ export function buildFeed({ tl, steps, sounds = [], lang }: {
       const key = `${plan.scriptStep}/${plan.scriptTotal}`;
       if (key !== lastScript) {
         lastScript = key;
-        out.push({ id: `script-${ts.index}`, t: ts.t, kind: 'script', sub: 'progress', title: `📜 ${lang === 'zh' ? '腳本' : 'Script'} ${key}${str(plan.goal) ? ` · ${str(plan.goal)}` : ''}`, step: ts.index });
+        out.push({ id: `script-${ts.index}`, t: ts.t, kind: 'script', sub: 'progress', title: `${lang === 'zh' ? '腳本' : 'Script'} ${key}${str(plan.goal) ? ` · ${str(plan.goal)}` : ''}`, step: ts.index });
       }
     } else if (str(plan?.goal)) {
-      out.push({ id: `goal-${ts.index}`, t: ts.t, kind: 'script', sub: 'goal', title: `🎯 ${str(plan!.goal)}`, step: ts.index });
+      out.push({ id: `goal-${ts.index}`, t: ts.t, kind: 'script', sub: 'goal', title: `${str(plan!.goal)}`, step: ts.index });
     }
     // 測試人員的指令 / 直接操作。
     const cmds = Array.isArray(s.operatorCommands) ? (s.operatorCommands as Array<{ text?: unknown }>) : [];
     cmds.forEach((c, j) => {
       const text = str(c?.text);
-      if (text) out.push({ id: `op-${ts.index}-${j}`, t: ts.t, kind: 'operator', sub: 'command', title: `💬 ${text}`, step: ts.index });
+      if (text) out.push({ id: `op-${ts.index}-${j}`, t: ts.t, kind: 'operator', sub: 'command', title: `${text}`, step: ts.index });
     });
     const direct = Array.isArray(s.operatorDirect) ? (s.operatorDirect as Array<{ kind?: unknown; at?: unknown; said?: unknown }>) : [];
     direct.forEach((d, j) => {
       const t = typeof d.at === 'string' ? Date.parse(d.at) : ts.t;
-      out.push({ id: `opd-${ts.index}-${j}`, t: Number.isFinite(t) ? t : ts.t, kind: 'operator', sub: 'gesture', title: `👆 ${String(d.kind ?? 'tap')}${str(d.said) ? ` · ${str(d.said)}` : ''}`, step: ts.index });
+      out.push({ id: `opd-${ts.index}-${j}`, t: Number.isFinite(t) ? t : ts.t, kind: 'operator', sub: 'gesture', title: `${String(d.kind ?? 'tap')}${str(d.said) ? ` · ${str(d.said)}` : ''}`, step: ts.index });
     });
   }
   for (const tr of tl.traces) {

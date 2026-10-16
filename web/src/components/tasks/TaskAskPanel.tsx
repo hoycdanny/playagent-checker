@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { apiDelete, apiGet, apiPost, type ListResponse } from '../../api/client.ts';
 import type { RLang } from '../report/reportText.ts';
 import { recommendStyle, sortByRecommend, starLabel } from '../modelRecommend.ts';
+import { InfoIcon } from './InfoIcon.tsx';
 import './TaskAskPanel.css';
 
 /** GET /models?seat=ask 的一筆(管理員在模型管理「AI 問答」欄開放的模型)。 */
@@ -43,10 +44,41 @@ const T = {
   q3: ['AI 有沒有照測試腳本走?哪一步偏離了?', 'Did the AI follow the script? Where did it deviate?'],
   q4: ['有沒有當機、ANR 或錯誤訊息?', 'Any crashes, ANRs or error messages?'],
   model: ['問答模型', 'Model'],
+  more: ['你也可以問', 'You can also ask'],
+  gotoStep: ['在時間軸跳到第 {n} 步', 'Jump to step {n} on the timeline'],
+  placeholderShort: ['問這次測試的問題,例如:哪一步最花時間?(Enter 送出)', 'Ask about this run, e.g. which step took longest? (Enter to send)'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
 
-export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
+/** 回答裡的「#3」「第 3 步」變成可點的連結(點了時間軸跳到那一步)。 */
+const STEP_REF = /#(\d+)|第\s*(\d+)\s*步/g;
+function withStepLinks(text: string, onStep: ((n: number) => void) | undefined, lang: RLang) {
+  if (!onStep) return text;
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of text.matchAll(STEP_REF)) {
+    const n = Number(m[1] ?? m[2]);
+    if (!Number.isFinite(n)) continue;
+    if (m.index! > last) out.push(text.slice(last, m.index));
+    out.push(
+      <button key={m.index} type="button" className="taskask__ref" title={tx('gotoStep', lang).replace('{n}', String(n))} onClick={() => onStep(n)}>
+        {m[0]}
+      </button>,
+    );
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+export function TaskAskPanel({ jobId, lang, embedded = false, onStep }: {
+  jobId: string;
+  lang: RLang;
+  /** 放在任務詳情的分頁裡:不顯示可收合的標題列,建議問題固定在輸入框上方。 */
+  embedded?: boolean;
+  /** 回答裡提到的步驟 → 時間軸跳過去。 */
+  onStep?: (index: number) => void;
+}) {
   const [items, setItems] = useState<AskMessage[]>([]);
   const [q, setQ] = useState('');
   const [busy, setBusy] = useState(false);
@@ -124,70 +156,101 @@ export function TaskAskPanel({ jobId, lang }: { jobId: string; lang: RLang }) {
     setItems([]);
   }
 
+  const shown = embedded || open;
+  const suggestions = (['q1', 'q2', 'q3', 'q4'] as const).map((k) => (
+    <button key={k} type="button" className="taskask__chip" onClick={() => void ask(tx(k, lang))} disabled={busy}>{tx(k, lang)}</button>
+  ));
   return (
-    <section className={`taskask${open ? '' : ' taskask--closed'}`} aria-labelledby="taskask-title">
-      <div className="taskask__head">
-        <button type="button" className="taskask__toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-          <span aria-hidden="true">{open ? '▾' : '▸'}</span>
-          <h3 id="taskask-title">✨ {tx('title', lang)}</h3>
-        </button>
-        {open && items.length > 0 && (
-          <button type="button" className="taskask__clear" onClick={() => void clear()} disabled={busy}>{tx('clear', lang)}</button>
-        )}
-      </div>
-      {open && (
+    <section className={`taskask${shown ? '' : ' taskask--closed'}${embedded ? ' taskask--embedded' : ''}${items.length ? ' has-items' : ''}`} aria-labelledby="taskask-title">
+      {embedded ? (
+        <h3 id="taskask-title" className="visually-hidden">{tx('title', lang)}</h3>
+      ) : (
+        <div className="taskask__head">
+          <button type="button" className="taskask__toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+            <InfoIcon name={open ? 'chevDown' : 'chevRight'} size={14} />
+            <h3 id="taskask-title"><InfoIcon name="sparkle" size={15} /> {tx('title', lang)}</h3>
+          </button>
+          {open && items.length > 0 && (
+            <button type="button" className="taskask__clear" onClick={() => void clear()} disabled={busy}>{tx('clear', lang)}</button>
+          )}
+        </div>
+      )}
+      {shown && (
         <>
           {items.length === 0 && !busy ? (
             <div className="taskask__empty">
-              <p>{tx('hint', lang)}</p>
-              <div className="taskask__chips">
-                {(['q1', 'q2', 'q3', 'q4'] as const).map((k) => (
-                  <button key={k} type="button" className="taskask__chip" onClick={() => void ask(tx(k, lang))}>{tx(k, lang)}</button>
-                ))}
-              </div>
+              <p className="taskask__intro">
+                <span className="taskask__avatar"><InfoIcon name="sparkle" size={15} /></span>
+                {tx('hint', lang)}
+              </p>
+              {!embedded && <div className="taskask__chips">{suggestions}</div>}
             </div>
           ) : (
             <ol className="taskask__list" ref={listRef} aria-live="polite">
               {items.map((m, i) => (
                 <li key={i} className={`taskask__msg taskask__msg--${m.role}`}>
-                  <span className="taskask__who">
-                    {m.role === 'user' ? tx('you', lang) : tx('ai', lang)}
-                    {m.role === 'assistant' && m.model && <span className="taskask__model"> · {modelName(m.model)}</span>}
-                  </span>
-                  <div className="taskask__text">{m.text}</div>
+                  {m.role === 'assistant' && <span className="taskask__avatar" aria-hidden="true"><InfoIcon name="sparkle" size={14} /></span>}
+                  <div className="taskask__bubble">
+                    <span className="taskask__who">
+                      {m.role === 'user' ? tx('you', lang) : tx('ai', lang)}
+                      {m.role === 'assistant' && m.model && <span className="taskask__model"> · {modelName(m.model)}</span>}
+                    </span>
+                    <div className="taskask__text">{m.role === 'assistant' ? withStepLinks(m.text, onStep, lang) : m.text}</div>
+                  </div>
                 </li>
               ))}
               {busy && (
                 <li className="taskask__msg taskask__msg--assistant taskask__msg--busy" role="status">
-                  <span className="taskask__who">{tx('ai', lang)}</span>
-                  <div className="taskask__text">{tx('thinking', lang)}</div>
+                  <span className="taskask__avatar" aria-hidden="true"><InfoIcon name="sparkle" size={14} /></span>
+                  <div className="taskask__bubble">
+                    <span className="taskask__who">{tx('ai', lang)}</span>
+                    <div className="taskask__text">{tx('thinking', lang)}</div>
+                  </div>
                 </li>
               )}
             </ol>
           )}
           {error && <p className="taskask__error" role="alert">{error}</p>}
+          {embedded && (
+            <div className="taskask__suggest" role="group" aria-label={tx('more', lang)}>
+              <span className="taskask__suggest-k">{tx('more', lang)}</span>
+              {suggestions}
+            </div>
+          )}
           <form className="taskask__form" onSubmit={onSubmit}>
             <textarea
               value={q}
-              rows={2}
+              rows={embedded ? 1 : 2}
               maxLength={1000}
-              placeholder={tx('placeholder', lang)}
+              placeholder={tx(embedded ? 'placeholderShort' : 'placeholder', lang)}
               aria-label={tx('title', lang)}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={onKey}
               disabled={busy}
             />
-            <button type="submit" className="taskask__send" disabled={busy || !q.trim()}>{tx('send', lang)}</button>
+            <button type="submit" className="taskask__send" disabled={busy || !q.trim()} aria-label={tx('send', lang)} title={tx('send', lang)}>
+              {embedded ? <InfoIcon name="send" size={16} /> : tx('send', lang)}
+            </button>
           </form>
-          {models.length > 0 && (
-            <label className="taskask__modelpick">
-              <span>{tx('model', lang)}</span>
-              <select value={model} onChange={(e) => pickModel(e.target.value)} disabled={busy}>
-                {models.map((m) => (
-                  <option key={m.modelId} value={m.modelId} style={recommendStyle(m)}>{starLabel('agent', m, optionLabel(m))}</option>
-                ))}
-              </select>
-            </label>
+          {(models.length > 0 || (embedded && items.length > 0)) && (
+            <div className="taskask__foot">
+              {models.length > 0 && (
+                <label className="taskask__modelpick">
+                  {embedded ? <InfoIcon name="cpu" size={13} /> : null}
+                  <span className={embedded ? 'visually-hidden' : undefined}>{tx('model', lang)}</span>
+                  <select value={model} onChange={(e) => pickModel(e.target.value)} disabled={busy}>
+                    {models.map((m) => (
+                      <option key={m.modelId} value={m.modelId} style={recommendStyle(m)}>{starLabel('agent', m, optionLabel(m))}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {embedded && items.length > 0 && (
+                <button type="button" className="taskask__clear" onClick={() => void clear()} disabled={busy} title={tx('clear', lang)}>
+                  <InfoIcon name="trash" size={13} /> {tx('clear', lang)}
+                </button>
+              )}
+            </div>
           )}
         </>
       )}
