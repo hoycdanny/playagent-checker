@@ -41,6 +41,7 @@ export function RecordingPlayer({
   onDuration,
   control,
   onPlayingChange,
+  bare = false,
 }: {
   levels: AudioLevels;
   steps: StepMark[];
@@ -56,6 +57,8 @@ export function RecordingPlayer({
   onDuration?: (name: string, sec: number) => void;
   control?: PlayControl | null;
   onPlayingChange?: (playing: boolean) => void;
+  /** 只顯示影片(標題、波形、時間交給下方的任務時間軸)。 */
+  bare?: boolean;
 }) {
   const chunks = useMemo(() => levels.chunks.filter((c): c is Chunk => typeof c.url === 'string' && c.dur > 0), [levels.chunks]);
   const [part, setPart] = useState(0);
@@ -183,9 +186,9 @@ export function RecordingPlayer({
   const w = 1000;
   const bw = w / BARS;
   return (
-    <div className="recplayer">
-      <div className="recplayer__head">
-        <strong>{tx('title', lang)}</strong>
+    <div className={`recplayer${bare ? ' recplayer--bare' : ''}`}>
+      {(!bare || chunks.length > 1) && <div className="recplayer__head">
+        {!bare && <strong>{tx('title', lang)}</strong>}
         {chunks.length > 1 && (
           <span className="recplayer__parts" role="group" aria-label={tx('title', lang)}>
             {chunks.map((c, i) => (
@@ -195,7 +198,7 @@ export function RecordingPlayer({
             ))}
           </span>
         )}
-      </div>
+      </div>}
       <video
         key={chunk.url}
         ref={videoRef}
@@ -218,7 +221,7 @@ export function RecordingPlayer({
           }
         }}
       />
-      <div
+      {!bare && <div
         className="recplayer__wave"
         role="slider"
         tabIndex={0}
@@ -241,12 +244,12 @@ export function RecordingPlayer({
           ))}
           <line className="recplayer__head-line" x1={pos * w} x2={pos * w} y1={0} y2={40} />
         </svg>
-      </div>
-      <div className="recplayer__foot">
+      </div>}
+      {!bare && <div className="recplayer__foot">
         <span className="recplayer__time">{fmtMs(time)} / {fmt(dur)}</span>
         {curStep !== null && <span className="recplayer__step">{tx('step', lang).replace('{n}', String(curStep))}</span>}
         {silent && <span className="recplayer__muted">{tx('noSound', lang)}</span>}
-      </div>
+      </div>}
     </div>
   );
 }

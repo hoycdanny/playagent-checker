@@ -3,18 +3,15 @@ import type { RLang } from '../report/reportText.ts';
 import { SILENT_DB } from './audioLevels.ts';
 import {
   adjacentStep,
-  chunkAt,
   fmtClock,
-  levelAt,
   logBins,
-  logsBetween,
   parseClock,
   stepAt,
   tickStep,
-  tracesAt,
   wallClock,
   waveBins,
   type Timeline,
+  type TlStep,
 } from './timeline.ts';
 import './TaskTimeline.css';
 
@@ -28,9 +25,13 @@ import './TaskTimeline.css';
 
 const T = {
   title: ['時間軸', 'Timeline'],
-  laneVideo: ['錄影', 'Video'],
-  laneSound: ['聲音', 'Sound'],
+  laneRec: ['錄影 / 聲音', 'Video / sound'],
+  laneMarks: ['觸發', 'Triggers'],
   laneSteps: ['步驟', 'Steps'],
+  legend: ['🧭 決策 Agent · 👁 視覺 Agent · ⚡ 照記憶直接做 · 👆 測試人員 · 🧠 記憶打到 · 📜 腳本換項', '🧭 Decision agent · 👁 Vision agent · ⚡ Replayed from memory · 👆 Tester · 🧠 Memory hit · 📜 Script item'],
+  memHit: ['記憶打到', 'memory hit'],
+  scriptAt: ['腳本第 {s} 項', 'script item {s}'],
+  byOperator: ['測試人員直接操作', 'Tester gesture'],
   laneAi: ['AI 呼叫', 'AI calls'],
   laneLog: ['裝置 Log', 'Device log'],
   noVideo: ['這次測試沒有錄影(只有每一步的截圖)', 'No recording for this run (step screenshots only)'],
@@ -51,17 +52,7 @@ const T = {
   slider: ['時間軸播放頭', 'Timeline playhead'],
   keys: ['← → 0.1 秒 · Shift 1 秒 · Alt 0.01 秒 · PgUp/PgDn 換步 · 空白鍵播放 · Ctrl+滾輪縮放', '← → 0.1 s · Shift 1 s · Alt 0.01 s · PgUp/PgDn step · Space play · Ctrl+wheel zoom'],
   wall: ['當地時間', 'Local time'],
-  nowStep: ['步驟', 'Step'],
-  nowAi: ['AI', 'AI'],
-  nowSound: ['聲音', 'Sound'],
-  nowLog: ['Log ±1 秒', 'Log ±1 s'],
-  beforeFirst: ['第一步之前', 'Before the first step'],
-  noAi: ['沒有進行中的 AI 呼叫', 'No AI call in progress'],
-  silent: ['靜音', 'Silent'],
-  noRec: ['沒有錄音', 'No recording'],
-  logNone: ['沒有 log', 'No log lines'],
-  logCount: ['{n} 行 · 錯誤 {e} · 警告 {w}', '{n} lines · {e} errors · {w} warnings'],
-  byAgent: ['AI 決策', 'AI decision'],
+  byAgent: ['決策 Agent', 'Decision agent'],
   byReflex: ['照記憶', 'From memory'],
   byVision: ['視覺 Agent', 'Vision agent'],
   seat_vlm: ['視覺', 'Vision'],
@@ -77,7 +68,12 @@ const BINS = 360;
 const MIN_SPAN = 200;
 const clampN = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const byText = (by: string | undefined, lang: RLang) =>
-  by === 'reflex' ? tx('byReflex', lang) : by === 'vision' ? tx('byVision', lang) : by === 'agent' ? tx('byAgent', lang) : '';
+  by === 'reflex' ? tx('byReflex', lang) : by === 'vision' ? tx('byVision', lang) : by === 'operator' ? tx('byOperator', lang) : tx('byAgent', lang);
+/** 誰觸發這一步 / 哪個 Agent 的小圖示(時間軸與「這一刻」共用)。 */
+const DECIDER: Record<string, string> = { agent: '🧭', vision: '👁', reflex: '⚡', operator: '👆' };
+const SEAT: Record<string, string> = { vlm: '👁', agent: '🧭', subagent: '🛠' };
+/** 標記之間至少隔多少(% 寬),太密就略過(滑過步驟仍看得到)。 */
+const MARK_GAP = 1.6;
 const seatText = (seat: string, lang: RLang) =>
   seat === 'agent' ? tx('seat_agent', lang) : seat === 'subagent' ? tx('seat_subagent', lang) : tx('seat_vlm', lang);
 
@@ -222,20 +218,31 @@ export function TaskTimeline({
     return ticks.st >= 1000 ? s.replace(/\.\d{3}$/, '') : s;
   };
 
-  // 這個時間點(播放頭)的摘要。
   const step = stepAt(tl, at);
-  const calls = tracesAt(tl, at);
-  const db = levelAt(tl, at);
-  const near = logsBetween(tl, at - 1000, at + 1000);
-  const errs = near.filter((l) => l.level === 'E' || l.level === 'F' || l.level === 'A');
-  const warns = near.filter((l) => l.level === 'W');
-  const pick = [...errs, ...warns, ...near].filter((l, i, a) => a.indexOf(l) === i).slice(0, 4);
-  const inVideo = chunkAt(tl, at);
+  const stepTip = (s: TlStep) =>
+    `#${s.index} ${s.screen ?? ''} · ${s.action ?? ''}${s.target ? ` ${s.target}` : ''} · ${fmtClock(s.t - tl.origin)} · ${byText(s.decidedBy, lang)}`
+    + `${s.memHit ? ` · 🧠 ${tx('memHit', lang)}` : ''}${s.script ? ` · 📜 ${tx('scriptAt', lang, { s: s.script })}` : ''}`;
+  // 觸發標記:誰觸發、記憶有沒有打到、腳本換項;太密的略過(腳本換項 / 記憶打到優先保留)。
+  const marks = useMemo(() => {
+    const out: Array<{ index: number; t: number; by: string; memHit: boolean; script?: string; tip: string }> = [];
+    let lastX = -Infinity;
+    let lastScript = '';
+    for (const s of visSteps) {
+      const sx = ((s.t - v.from) / span) * 100;
+      const scriptChanged = Boolean(s.script && s.script !== lastScript);
+      if (s.script) lastScript = s.script;
+      if (sx < -1 || sx > 101) continue;
+      if (sx - lastX < MARK_GAP && !scriptChanged) continue;
+      lastX = sx;
+      out.push({ index: s.index, t: s.t, by: s.decidedBy ?? 'agent', memHit: Boolean(s.memHit), ...(scriptChanged ? { script: s.script! } : {}), tip: stepTip(s) });
+    }
+    return out;
+  }, [visSteps, v.from, span, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className="ttl" aria-labelledby="ttl-title">
       <div className="ttl__bar">
-        <h2 id="ttl-title" className="ttl__title">{tx('title', lang)}</h2>
+        <h2 id="ttl-title" className="ttl__title" title={tx('legend', lang)}>{tx('title', lang)}</h2>
         <div className="ttl__transport" role="group" aria-label={tx('title', lang)}>
           <button type="button" className="ttl__btn" title={tx('prevStep', lang)} aria-label={tx('prevStep', lang)} onClick={() => { const s = adjacentStep(tl, at, -1); if (s) onSeek(s.t, false); }}>⏮</button>
           <button type="button" className="ttl__btn" title={tx('back', lang)} aria-label={tx('back', lang)} onClick={() => onSeek(clampN(at - 100, tl.origin, tl.end), false)}>‹</button>
@@ -265,6 +272,7 @@ export function TaskTimeline({
           </label>
           {jumpErr && <span id="ttl-jump-err" className="ttl__err" role="alert">{tx('jumpBad', lang)}</span>}
         </form>
+        <span className="ttl__legend">{tx('legend', lang)}</span>
         <span className="ttl__spacer" />
         {onLive && <button type="button" className="ttl__live" onClick={onLive}>⦿ {liveLabel}</button>}
         <div className="ttl__zoom" role="group" aria-label={tx('zoomIn', lang)}>
@@ -277,11 +285,11 @@ export function TaskTimeline({
       <div className="ttl__body">
         <div className="ttl__labels" aria-hidden="true">
           <span className="ttl__label ttl__label--ruler" />
-          <span className="ttl__label">{tx('laneVideo', lang)}</span>
-          <span className="ttl__label">{tx('laneSound', lang)}</span>
+          <span className="ttl__label">{tx('laneRec', lang)}</span>
+          <span className="ttl__label ttl__label--marks">{tx('laneMarks', lang)}</span>
           <span className="ttl__label ttl__label--steps">{tx('laneSteps', lang)}</span>
-          <span className="ttl__label">{tx('laneAi', lang)}</span>
-          <span className="ttl__label">{tx('laneLog', lang)}</span>
+          <span className="ttl__label ttl__label--ai">{tx('laneAi', lang)}</span>
+          <span className="ttl__label ttl__label--log">{tx('laneLog', lang)}</span>
         </div>
         <div
           ref={lanesRef}
@@ -293,7 +301,7 @@ export function TaskTimeline({
           aria-valuemax={Math.round(total)}
           aria-valuenow={Math.round(at - tl.origin)}
           aria-valuetext={`${fmtClock(at - tl.origin)}${step ? ` · #${step.index} ${step.screen ?? ''}` : ''}`}
-          title={tx('keys', lang)}
+          title={`${tx('keys', lang)}\n${tx('precision', lang)}`}
           onPointerDown={down}
           onPointerMove={move}
           onPointerUp={up}
@@ -306,7 +314,8 @@ export function TaskTimeline({
             ))}
           </div>
 
-          <div className="ttl__lane ttl__lane--video">
+          {/* 錄影 + 聲音同一條:底色 = 有錄影的時段,上面畫聲音波形,斜線 = 錄影空檔 */}
+          <div className="ttl__lane ttl__lane--rec">
             {tl.chunks.length === 0 && <span className="ttl__empty">{tx('noVideo', lang)}</span>}
             {tl.chunks.map((c) => (
               <span key={c.name} className="ttl__clip" style={{ left: `${x(c.t)}%`, width: `${Math.max(0.2, ((c.end - c.t) / span) * 100)}%` }} title={c.name} />
@@ -314,9 +323,6 @@ export function TaskTimeline({
             {gaps.map((g) => (
               <span key={g.from} className="ttl__gap" style={{ left: `${x(g.from)}%`, width: `${((g.to - g.from) / span) * 100}%` }} title={tx('gap', lang)} />
             ))}
-          </div>
-
-          <div className="ttl__lane ttl__lane--sound">
             <svg viewBox={`0 0 ${BINS} 20`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
               {wave.map((d, i) => {
                 if (d === null) return null;
@@ -324,6 +330,22 @@ export function TaskTimeline({
                 return <rect key={i} x={i + 0.1} y={10 - h / 2} width={0.8} height={h} />;
               })}
             </svg>
+          </div>
+
+          {/* 標記:每一步是誰觸發(決策 / 視覺 / 照記憶 / 測試人員)、記憶有沒有打到、腳本換到第幾項 */}
+          <div className="ttl__lane ttl__lane--marks">
+            {marks.map((m) => (
+              <span
+                key={m.index}
+                className={`ttl__mark${m.memHit ? ' is-mem' : ''}`}
+                style={{ left: `${x(m.t)}%` }}
+                title={m.tip}
+              >
+                <span className="ttl__mark-ico">{DECIDER[m.by] ?? DECIDER.agent}</span>
+                {m.memHit && <span className="ttl__mark-mem">🧠</span>}
+                {m.script && <span className="ttl__mark-script">📜{m.script}</span>}
+              </span>
+            ))}
           </div>
 
           <div className="ttl__lane ttl__lane--steps">
@@ -336,7 +358,7 @@ export function TaskTimeline({
                   key={s.index}
                   className={`ttl__step ttl__step--${s.decidedBy ?? 'agent'}${on ? ' is-on' : ''}`}
                   style={{ left: `${left}%`, width: `${Math.max(0.15, right - left)}%` }}
-                  title={`#${s.index} ${s.screen ?? ''} · ${s.action ?? ''}${s.target ? ` ${s.target}` : ''} · ${fmtClock(s.t - tl.origin)}${s.decidedBy ? ` · ${byText(s.decidedBy, lang)}` : ''}`}
+                  title={stepTip(s)}
                 >
                   <span className="ttl__step-text">#{s.index} {s.screen ?? ''}</span>
                 </span>
@@ -350,7 +372,7 @@ export function TaskTimeline({
                 key={`${tr.seat}-${tr.index}-${tr.start}`}
                 className={`ttl__call ttl__call--${tr.seat}${tr.ok ? '' : ' is-fail'}`}
                 style={{ left: `${Math.max(0, x(tr.start))}%`, width: `${Math.max(0.25, ((tr.end - tr.start) / span) * 100)}%` }}
-                title={`${seatText(tr.seat, lang)} · #${tr.index}${tr.modelId ? ` · ${tr.modelId}` : ''} · ${((tr.end - tr.start) / 1000).toFixed(1)}s${tr.ok ? '' : ` · ${tx('failed', lang)}`}`}
+                title={`${SEAT[tr.seat] ?? ''} ${seatText(tr.seat, lang)} · #${tr.index}${tr.modelId ? ` · ${tr.modelId}` : ''} · ${((tr.end - tr.start) / 1000).toFixed(1)}s${tr.ok ? '' : ` · ${tx('failed', lang)}`}`}
               />
             ))}
           </div>
@@ -358,7 +380,7 @@ export function TaskTimeline({
           <div className="ttl__lane ttl__lane--log">
             <svg viewBox={`0 0 ${BINS} 20`} preserveAspectRatio="none" aria-hidden="true" focusable="false">
               {logs.map((b, i) => (b.count ? (
-                <rect key={i} className={`is-${b.level}`} x={i + 0.1} y={20 - Math.max(2, (b.count / maxLog) * 19)} width={0.8} height={Math.max(2, (b.count / maxLog) * 19)} />
+                <rect key={i} className={`is-${b.level}`} x={i + 0.1} y={20 - Math.max(3, (b.count / maxLog) * 19)} width={0.8} height={Math.max(3, (b.count / maxLog) * 19)} />
               ) : null))}
             </svg>
           </div>
@@ -387,59 +409,6 @@ export function TaskTimeline({
           }}
         />
       )}
-
-      {/* 播放頭這一刻:步驟 / AI / 聲音 / log(完整內容看上面三欄,已跟著跳到這一刻) */}
-      <div className="ttl__now" aria-live="polite">
-        <div className="ttl__now-cell">
-          <span className="ttl__now-k">{tx('nowStep', lang)}</span>
-          {step ? (
-            <span className="ttl__now-v" title={step.thinking}>
-              <b>#{step.index}</b> {step.screen ?? ''} · {step.action ?? ''}{step.target ? `「${step.target}」` : ''}
-              {step.decidedBy && <span className={`ttl__by ttl__by--${step.decidedBy}`}>{byText(step.decidedBy, lang)}</span>}
-              <span className="ttl__muted"> +{((at - step.t) / 1000).toFixed(2)}s</span>
-            </span>
-          ) : <span className="ttl__muted">{tx('beforeFirst', lang)}</span>}
-        </div>
-        <div className="ttl__now-cell">
-          <span className="ttl__now-k">{tx('nowAi', lang)}</span>
-          {calls.length ? (
-            <span className="ttl__now-v">
-              {calls.map((c) => (
-                <span key={`${c.seat}-${c.index}-${c.start}`} className={`ttl__chip ttl__chip--${c.seat}${c.ok ? '' : ' is-fail'}`} title={c.modelId}>
-                  {seatText(c.seat, lang)} #{c.index}{c.ok ? '' : ` · ${tx('failed', lang)}`}
-                </span>
-              ))}
-            </span>
-          ) : <span className="ttl__muted">{tx('noAi', lang)}</span>}
-        </div>
-        <div className="ttl__now-cell">
-          <span className="ttl__now-k">{tx('nowSound', lang)}</span>
-          <span className="ttl__now-v">
-            {db === null ? <span className="ttl__muted">{tx('noRec', lang)}</span> : db <= SILENT_DB ? <span className="ttl__muted">{tx('silent', lang)}</span> : `${Math.round(db)} dB`}
-            {inVideo && tl.chunks.length > 1 && <span className="ttl__muted"> · {inVideo.chunk.name}</span>}
-          </span>
-        </div>
-        <div className="ttl__now-cell ttl__now-cell--log">
-          <span className="ttl__now-k">{tx('nowLog', lang)}</span>
-          {near.length ? (
-            <span className="ttl__now-v">
-              <span className="ttl__muted">{tx('logCount', lang, { n: near.length, e: errs.length, w: warns.length })}</span>
-              {pick.map((l, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  className={`ttl__logline is-${l.level}`}
-                  title={l.raw}
-                  onClick={() => onSeek(l.t, false)}
-                >
-                  {((l.t - at) / 1000 >= 0 ? '+' : '') + ((l.t - at) / 1000).toFixed(2)}s {l.tag}: {l.msg}
-                </button>
-              ))}
-            </span>
-          ) : <span className="ttl__muted">{tx('logNone', lang)}</span>}
-        </div>
-      </div>
-      <p className="ttl__note">{tx('precision', lang)}</p>
     </section>
   );
 }
