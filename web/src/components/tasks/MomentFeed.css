@@ -626,7 +626,8 @@
   content: attr(data-tip);
   position: absolute;
   z-index: 60;
-  top: calc(100% + 6px);
+  /* 顯示在 icon 上方(不要被滑鼠游標擋住) */
+  bottom: calc(100% + 6px);
   left: 0;
   width: max-content;
   max-width: 340px;
@@ -643,7 +644,7 @@
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(-2px);
+  transform: translateY(2px);
   transition: opacity 0.1s ease, transform 0.1s ease, visibility 0.1s;
 }
 .mfeed [data-tip]:hover::after,
