@@ -20,8 +20,12 @@ export interface TlStep {
   screen?: string;
   action?: string;
   target?: string;
-  /** 誰決定的:agent(決策 Agent)/ vision(視覺 Agent)/ reflex(照記憶直接做)。 */
+  /** 誰決定的:agent(決策 Agent)/ vision(視覺 Agent)/ reflex(照記憶直接做)/ operator(測試人員直接操作)。 */
   decidedBy?: string;
+  /** 這一步有用到記憶(認得畫面、預測應驗、照已驗證路徑、照記憶直接做)。 */
+  memHit?: boolean;
+  /** 腳本進度「2/5」(這一步在做腳本第幾項)。 */
+  script?: string;
   thinking?: string;
   thumb?: string;
 }
@@ -118,6 +122,11 @@ export function buildTimeline({
     const dur = typeof s.durationMs === 'number' && s.durationMs > 0 ? (s.durationMs as number) : 3000;
     const end = next ? next.t : now !== undefined ? Math.max(t + dur, now) : t + dur;
     const thumb = str(s.annotatedUrl) ?? str(s.screenshotUrl);
+    const mem = s.memory as { screen?: string; arrival?: { result?: string }; plan?: unknown } | undefined;
+    const by = s.operatorGesture || s.operatorTap ? 'operator' : str(s.decidedBy);
+    const memHit = by === 'reflex' || mem?.screen === 'known' || mem?.arrival?.result === 'followed' || Boolean(mem?.plan);
+    const plan = s.plan as { scriptStep?: unknown; scriptTotal?: unknown } | undefined;
+    const script = typeof plan?.scriptStep === 'number' && typeof plan.scriptTotal === 'number' ? `${plan.scriptStep}/${plan.scriptTotal}` : undefined;
     return {
       index: s.index,
       t,
@@ -125,7 +134,9 @@ export function buildTimeline({
       ...(str(s.screen) && !s.parseFailed ? { screen: str(s.screen)! } : {}),
       ...(str(s.action) ? { action: str(s.action)! } : {}),
       ...(str(s.target) ? { target: str(s.target)! } : {}),
-      ...(str(s.decidedBy) ? { decidedBy: str(s.decidedBy)! } : {}),
+      ...(by ? { decidedBy: by } : {}),
+      ...(memHit ? { memHit: true } : {}),
+      ...(script ? { script } : {}),
       ...(str(s.thinking) ? { thinking: str(s.thinking)! } : {}),
       ...(thumb ? { thumb } : {}),
     };

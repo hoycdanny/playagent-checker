@@ -1,16 +1,16 @@
 /* 任務時間軸(影音剪輯軟體風格):整頁寬,放在三欄下方。 */
 .ttl {
-  --ttl-label-w: 74px;
+  --ttl-label-w: 78px;
   --ttl-agent: #a371f7;
   --ttl-reflex: #2ea043;
   --ttl-vision: #3fb6ff;
   --ttl-sub: #d29922;
-  margin-top: var(--space-3);
-  padding: var(--space-2) var(--space-3) var(--space-2);
+  padding: 6px var(--space-3) 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
   user-select: none;
+  overflow: hidden;
 }
 
 /* ── 工具列 ── */
@@ -18,8 +18,8 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
-  margin-bottom: var(--space-2);
+  gap: 4px var(--space-3);
+  margin-bottom: 4px;
 }
 .ttl__title {
   margin: 0;
@@ -32,8 +32,8 @@
   gap: 2px;
 }
 .ttl__btn {
-  min-width: 28px;
-  height: 28px;
+  min-width: 26px;
+  height: 26px;
   padding: 0 6px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -61,7 +61,7 @@
 }
 .ttl__clock {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
@@ -132,7 +132,7 @@
 }
 .ttl__label {
   height: 20px;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   padding-right: 8px;
   font-size: 11.5px;
   line-height: 20px;
@@ -141,11 +141,25 @@
   white-space: nowrap;
 }
 .ttl__label--ruler {
-  height: 16px;
+  height: 15px;
 }
 .ttl__label--steps {
-  height: 26px;
-  line-height: 26px;
+  height: 22px;
+  line-height: 22px;
+}
+.ttl__label--marks {
+  height: 18px;
+  line-height: 18px;
+}
+.ttl__label--ai {
+  height: 12px;
+  line-height: 12px;
+  font-size: 10.5px;
+}
+.ttl__label--log {
+  height: 12px;
+  line-height: 12px;
+  font-size: 10.5px;
 }
 .ttl__lanes {
   position: relative;
@@ -161,8 +175,8 @@
 }
 .ttl__ruler {
   position: relative;
-  height: 16px;
-  margin-bottom: 3px;
+  height: 15px;
+  margin-bottom: 2px;
   border-bottom: 1px solid var(--border);
 }
 .ttl__tick {
@@ -179,7 +193,7 @@
 .ttl__lane {
   position: relative;
   height: 20px;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   border-radius: 3px;
   background: var(--surface-raised);
   overflow: hidden;
@@ -211,11 +225,68 @@
   bottom: 0;
   background: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--status-fail) 30%, transparent) 4px 7px);
 }
-.ttl__lane--sound rect {
-  fill: color-mix(in srgb, var(--brand) 70%, var(--text-tertiary));
+.ttl__lane--rec .ttl__clip {
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--brand) 22%, transparent);
+}
+.ttl__lane--rec rect {
+  fill: color-mix(in srgb, var(--brand) 80%, var(--text-secondary));
 }
 .ttl__lane--steps {
-  height: 26px;
+  height: 22px;
+}
+.ttl__lane--steps .ttl__step-text {
+  line-height: 18px;
+}
+.ttl__lane--ai {
+  height: 12px;
+}
+.ttl__lane--log {
+  height: 12px;
+}
+/* 觸發標記:每一步誰觸發 + 記憶打到 + 腳本換項 */
+.ttl__lane--marks {
+  height: 18px;
+  overflow: visible;
+  background: none;
+}
+.ttl__mark {
+  position: absolute;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 18px;
+  padding-left: 1px;
+  border-left: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ttl__mark.is-mem {
+  border-left-color: var(--status-pass);
+}
+.ttl__mark-mem {
+  font-size: 10px;
+}
+.ttl__mark-script {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--ttl-agent) 25%, transparent);
+  font-size: 10px;
+  color: var(--text-primary);
+}
+.ttl__legend {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .ttl__step {
   position: absolute;

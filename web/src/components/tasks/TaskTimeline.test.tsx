@@ -21,11 +21,14 @@ function setup(cursor: number | null = T0 + 21_500) {
 }
 
 describe('TaskTimeline', () => {
-  it('shows the moment under the playhead', () => {
-    setup();
+  it('shows the playhead time and who triggered each step', () => {
+    const { container } = render(<TaskTimeline tl={tl} cursor={T0 + 21_500} onSeek={vi.fn()} lang="zh" hasVideo playing={false} onTogglePlay={vi.fn()} />);
     expect(screen.getByText('0:21.500')).toBeTruthy();
-    expect(screen.getByText('照記憶')).toBeTruthy();
     expect(screen.getByRole('slider').getAttribute('aria-valuetext')).toContain('#1 大廳');
+    const marks = [...container.querySelectorAll('.ttl__mark')];
+    expect(marks.map((m) => m.querySelector('.ttl__mark-ico')?.textContent)).toEqual(['🧭', '⚡']);
+    expect(marks[1]!.classList.contains('is-mem')).toBe(true); // 照記憶直接做 = 記憶打到
+    expect(marks[1]!.getAttribute('title')).toContain('照記憶');
   });
 
   it('typing 0:05.250 jumps there', () => {
