@@ -9,13 +9,12 @@ import { fmtClock, lastAtOrBefore, levelAt, stepAt, tracesAt, type Timeline } fr
 import './MomentFeed.css';
 
 /**
- * 「這一刻」:播放頭當下發生了什麼(步驟 / AI / 記憶 / 腳本 / 裝置 log / 音效 / 指令),
+ * 「即時訊息」:播放頭當下發生了什麼(步驟 / AI / 記憶 / 腳本 / 裝置 log / 音效 / 指令),
  * 用類別 → 類型 → tag → 關鍵字 → 範圍一層一層過濾。點時間 = 時間軸跳到那一刻;點 tag / 類型 = 再往下過濾。
  * icon 與顏色跟時間軸同一套(eventIcons.ts)。
  */
 
 const T = {
-  now: ['這一刻', 'This moment'],
   beforeFirst: ['第一步之前', 'Before the first step'],
   rel: ['第 {n} 步開始後 +{s} 秒', '+{s} s into step {n}'],
   silent: ['靜音', 'Silent'],
@@ -214,54 +213,65 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
 
   return (
     <div className="mfeed">
-      {/* 這一刻摘要:選了時間才出現(不放說明文字) */}
-      {cursor !== null && (
-      <div className="mfeed__now" aria-live="polite">
-        <div className="mfeed__now-head">
-          <span className="mfeed__now-k">{tx('now', lang)}</span>
-          <span className="mfeed__clock">{fmtClock(cursor - tl.origin)}</span>
-          {step && (
-            <span className="mfeed__now-rel">{tx('rel', lang, { n: step.index, s: ((cursor - step.t) / 1000).toFixed(2) })}</span>
-          )}
-        </div>
-        {!step ? (
-          <p className="mfeed__muted">{tx('beforeFirst', lang)}</p>
-        ) : (
-          <>
-            <p className="mfeed__step">
-              <span className={`mfeed__tile hue-${DECIDER_ICON[byKey] ? byKey : 'agent'}`} title={subText(byKey, lang)}>
-                <InfoIcon name={DECIDER_ICON[byKey] ?? 'compass'} size={14} />
-              </span>
-              <b>#{step.index} {step.screen ?? ''}</b>
-              <span className="mfeed__muted">· {step.action ?? ''}{step.target ? `「${step.target}」` : ''}</span>
-              <span className={`mfeed__by hue-${DECIDER_ICON[byKey] ? byKey : 'agent'}`}>{subText(byKey, lang)}</span>
-            </p>
-            <div className="mfeed__chips">
-              {typeof plan?.scriptStep === 'number' && typeof plan.scriptTotal === 'number' && (
-                <span className="mfeed__chip hue-script">
-                  <InfoIcon name="script" size={13} />{tx('k_script', lang)} {plan.scriptStep}/{plan.scriptTotal}{plan.goal ? ` · ${plan.goal}` : ''}
+      {/* 即時訊息摘要(一行):時間 · 誰決定 · 步驟 · 動作 · 腳本 / 記憶 / AI / 聲音 icon(滑過看說明)· AI 判斷(太長省略,滑過看全文) */}
+      {cursor !== null && (() => {
+        const hue = DECIDER_ICON[byKey] ? byKey : 'agent';
+        const sound = db === null ? tx('noRec', lang) : db <= SILENT_DB ? tx('silent', lang) : `${Math.round(db)} dB`;
+        return (
+          <div className="mfeed__now" aria-live="polite">
+            <span className="mfeed__clock" data-tip={step ? tx('rel', lang, { n: step.index, s: ((cursor - step.t) / 1000).toFixed(2) }) : tx('beforeFirst', lang)}>
+              {fmtClock(cursor - tl.origin)}
+            </span>
+            {!step ? (
+              <span className="mfeed__muted">{tx('beforeFirst', lang)}</span>
+            ) : (
+              <>
+                <span className={`mfeed__tile hue-${hue}`} data-tip={subText(byKey, lang)} aria-label={subText(byKey, lang)}>
+                  <InfoIcon name={DECIDER_ICON[byKey] ?? 'compass'} size={14} />
                 </span>
-              )}
-              {memChips.map((c, k) => (
-                <span key={k} className={`mfeed__chip ${c.tone === 'warn' ? 'hue-warn' : c.tone === 'new' ? 'hue-vision' : 'hue-memory'}`} title={c.tip}>
-                  <InfoIcon name={c.icon} size={13} />{c.text}
+                <b className="mfeed__now-step">#{step.index} {step.screen ?? ''}</b>
+                {(step.action || step.target) && (
+                  <span className="mfeed__now-act">{step.action ?? ''}{step.target ? `「${step.target}」` : ''}</span>
+                )}
+                {typeof plan?.scriptStep === 'number' && typeof plan.scriptTotal === 'number' && (
+                  <span
+                    className="mfeed__mini hue-script"
+                    data-tip={`${tx('k_script', lang)} ${plan.scriptStep}/${plan.scriptTotal}${plan.goal ? ` · ${plan.goal}` : ''}`}
+                  >
+                    <InfoIcon name="script" size={13} />{plan.scriptStep}/{plan.scriptTotal}
+                  </span>
+                )}
+                {memChips.map((c, k) => (
+                  <span
+                    key={k}
+                    className={`mfeed__mini ${c.tone === 'warn' ? 'hue-warn' : c.tone === 'new' ? 'hue-vision' : 'hue-memory'}`}
+                    data-tip={`${c.text}${c.tip ? `\n${c.tip}` : ''}`}
+                    aria-label={c.text}
+                  >
+                    <InfoIcon name={c.icon} size={13} />
+                  </span>
+                ))}
+                {calls.map((c) => (
+                  <span
+                    key={`${c.seat}-${c.start}`}
+                    className={`mfeed__mini ${c.ok ? (c.seat === 'agent' ? 'hue-agent' : 'hue-vision') : 'hue-warn'}`}
+                    data-tip={`${subText(c.seat, lang)}${c.modelId ? ` · ${c.modelId}` : ''}`}
+                    aria-label={subText(c.seat, lang)}
+                  >
+                    <InfoIcon name={SEAT_ICON[c.seat] ?? 'sparkle'} size={13} />
+                  </span>
+                ))}
+                <span className="mfeed__mini" data-tip={`${tx('k_sound', lang)} · ${sound}`}>
+                  <InfoIcon name={quiet ? 'mute' : 'volume'} size={13} />{db !== null && db > SILENT_DB ? `${Math.round(db)}` : ''}
                 </span>
-              ))}
-              {calls.map((c) => (
-                <span key={`${c.seat}-${c.start}`} className={`mfeed__chip ${c.ok ? (c.seat === 'agent' ? 'hue-agent' : 'hue-vision') : 'hue-warn'}`} title={c.modelId}>
-                  <InfoIcon name={SEAT_ICON[c.seat] ?? 'sparkle'} size={13} />{subText(c.seat, lang)}
-                </span>
-              ))}
-              <span className="mfeed__chip">
-                <InfoIcon name={quiet ? 'mute' : 'volume'} size={13} />
-                {db === null ? tx('noRec', lang) : db <= SILENT_DB ? tx('silent', lang) : `${Math.round(db)} dB`}
-              </span>
-            </div>
-            {step.thinking && <p className="mfeed__think">{step.thinking}</p>}
-          </>
-        )}
-      </div>
-      )}
+                {step.thinking && (
+                  <span className="mfeed__now-think" data-tip={step.thinking}>{step.thinking}</span>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="mfeed__filters">
         {/* 一行:類別(只有 icon,滑過看名稱與筆數)· 關鍵字 · 範圍 · 篩選 */}
@@ -277,7 +287,7 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
                   className={`mfeed__kind${on ? ' is-on' : ''}`}
                   aria-pressed={on}
                   aria-label={label}
-                  title={`${label}${on ? '' : ` · ${tx('kindOff', lang)}`}`}
+                  data-tip={`${label}${on ? '' : ` · ${tx('kindOff', lang)}`}`}
                   onClick={() => toggleKind(k)}
                 >
                   <InfoIcon name={KIND_ICON[k]} size={15} />
