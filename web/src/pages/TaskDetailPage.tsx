@@ -87,9 +87,10 @@ const PT = {
   tabScript: ['腳本與執行資訊', 'Script & run info'],
   agentEnded: ['這次測試沒有下過指令。測試進行中可以在這裡告訴控制遊戲的 Agent 該怎麼做,或在畫面上直接點。', 'No instructions were sent in this run. While a test is running you can tell the game-control Agent what to do here, or tap the screen directly.'],
   layout: ['版面', 'Layout'],
-  layoutAuto: ['自動(跟著 App 方向)', 'Auto (follow the app)'],
-  layoutPortrait: ['直向 App 版面', 'Portrait app layout'],
-  layoutLandscape: ['橫向 App 版面', 'Landscape app layout'],
+  layoutAuto: ['自動', 'Auto'],
+  layoutPortrait: ['直向', 'Portrait'],
+  layoutLandscape: ['橫向', 'Landscape'],
+  layoutHint: ['版面:自動 = 跟著被測 App 的方向切換', 'Layout: Auto follows the app orientation'],
   liveFollow: ['回到即時', 'Back to live'],
   stop: ['停止測試', 'Stop test'],
   stopping: ['停止中…', 'Stopping…'],
@@ -411,22 +412,16 @@ export default function TaskDetailPage() {
               {t('outcome.execution')}:{t(`state.${state}` as MessageKey)}
             </span>
           )}
-          {stepNo > 0 && (
-            <span className="detail__progress">
-              {pt('progress', lang).replace('{n}', String(stepNo))}
-              {meta?.maxSteps ? ` · ${pt('limit', lang).replace('{m}', String(meta.maxSteps))}` : ''}
-            </span>
-          )}
-          {/* 目前狀態訊息:放在標題列步數後面,淺灰色(終局狀態以 ARIA live region 通報,Req 11.3) */}
-          {/* 狀態訊息去掉開頭重複的「第 N 步:」(步數已在左邊) */}
-          <span className="detail__state" role="status" aria-live="polite" title={message ?? undefined}>
-            <span className="visually-hidden">{t(`state.${state}` as MessageKey)}{message ? ' — ' : ''}</span>
-            {stripStepPrefix(message)}
+          {/* 步數 / 狀態訊息不顯示(時間軸、這一刻已經看得到);只留給讀屏通報狀態變化(Req 11.3)。 */}
+          <span className="visually-hidden" role="status" aria-live="polite">
+            {t(`state.${state}` as MessageKey)}
+            {stepNo > 0 ? ` · ${pt('progress', lang).replace('{n}', String(stepNo))}` : ''}
+            {message ? ` — ${stripStepPrefix(message)}` : ''}
           </span>
           <TaskInfoStrip meta={meta} kbNames={kbNames} />
           <span className="detail__head-end">
             {/* 版面:自動跟著被測 App 的直 / 橫向切換;也可以手動固定。 */}
-            <label className="detail__orient" title={pt('layout', lang)}>
+            <label className="detail__orient" title={pt('layoutHint', lang)}>
               <InfoIcon name={orient === 'landscape' ? 'phoneL' : 'phone'} size={14} className="detail__orient-ico" />
               <span className="visually-hidden">{pt('layout', lang)}</span>
               <select value={orientPref} onChange={(e) => setOrientPref(e.target.value as 'auto' | Orientation)}>

@@ -16,7 +16,6 @@ import './MomentFeed.css';
 
 const T = {
   now: ['這一刻', 'This moment'],
-  noCursor: ['在下方時間軸點一下或拖曳,這裡會顯示那一刻發生的事。', 'Click or drag on the timeline below to see what happened at that moment.'],
   beforeFirst: ['第一步之前', 'Before the first step'],
   rel: ['第 {n} 步開始後 +{s} 秒', '+{s} s into step {n}'],
   silent: ['靜音', 'Silent'],
@@ -57,6 +56,8 @@ const T = {
   s_W: ['警告', 'Warning'],
   s_E: ['錯誤', 'Error'],
   kinds: ['事件類別', 'Event kinds'],
+  kindTip: ['{k} · {n} 筆', '{k} · {n}'],
+  kindOff: ['已隱藏,點一下顯示', 'hidden, click to show'],
   filters: ['篩選', 'Filters'],
   filtersHint: ['細部類型與 tag', 'Sub-types and tags'],
   search: ['搜尋關鍵字,空白分隔 = 都要符合', 'Search, space = all words must match'],
@@ -75,7 +76,6 @@ const T = {
   remove: ['移除這個過濾', 'Remove this filter'],
   clearAll: ['清除全部', 'Clear all'],
   count: ['共 {n} 筆', '{n} items'],
-  capped: ['只顯示播放頭附近 {n} 筆,縮小範圍或加過濾看更多', 'Showing {n} items near the playhead; narrow the range or filter to see more'],
   empty: ['這個範圍沒有符合過濾條件的事件。', 'Nothing matches the filters in this range.'],
   follow: ['跟著播放頭', 'Follow playhead'],
   seek: ['跳到這一刻', 'Jump to this moment'],
@@ -214,17 +214,17 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
 
   return (
     <div className="mfeed">
+      {/* 這一刻摘要:選了時間才出現(不放說明文字) */}
+      {cursor !== null && (
       <div className="mfeed__now" aria-live="polite">
         <div className="mfeed__now-head">
           <span className="mfeed__now-k">{tx('now', lang)}</span>
-          {cursor !== null && <span className="mfeed__clock">{fmtClock(cursor - tl.origin)}</span>}
-          {cursor !== null && step && (
+          <span className="mfeed__clock">{fmtClock(cursor - tl.origin)}</span>
+          {step && (
             <span className="mfeed__now-rel">{tx('rel', lang, { n: step.index, s: ((cursor - step.t) / 1000).toFixed(2) })}</span>
           )}
         </div>
-        {cursor === null ? (
-          <p className="mfeed__muted">{tx('noCursor', lang)}</p>
-        ) : !step ? (
+        {!step ? (
           <p className="mfeed__muted">{tx('beforeFirst', lang)}</p>
         ) : (
           <>
@@ -261,19 +261,54 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
           </>
         )}
       </div>
+      )}
 
       <div className="mfeed__filters">
-        <div className="mfeed__kinds" role="group" aria-label={tx('kinds', lang)}>
-          {FEED_KINDS.filter((k) => present.has(k) || !f.kinds.includes(k)).map((k) => {
-            const on = f.kinds.includes(k);
-            return (
-              <button key={k} type="button" className={`mfeed__kind${on ? ' is-on' : ''}`} aria-pressed={on} onClick={() => toggleKind(k)}>
-                <InfoIcon name={KIND_ICON[k]} size={14} />
-                {kindText(k, lang)}
-                <small>{(counts.kinds[k] ?? 0).toLocaleString()}</small>
+        {/* 一行:類別(只有 icon,滑過看名稱與筆數)· 關鍵字 · 範圍 · 篩選 */}
+        <div className="mfeed__bar">
+          <div className="mfeed__kinds" role="group" aria-label={tx('kinds', lang)}>
+            {FEED_KINDS.filter((k) => present.has(k) || !f.kinds.includes(k)).map((k) => {
+              const on = f.kinds.includes(k);
+              const label = tx('kindTip', lang, { k: kindText(k, lang), n: (counts.kinds[k] ?? 0).toLocaleString() });
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  className={`mfeed__kind${on ? ' is-on' : ''}`}
+                  aria-pressed={on}
+                  aria-label={label}
+                  title={`${label}${on ? '' : ` · ${tx('kindOff', lang)}`}`}
+                  onClick={() => toggleKind(k)}
+                >
+                  <InfoIcon name={KIND_ICON[k]} size={15} />
+                </button>
+              );
+            })}
+          </div>
+          <label className="mfeed__search">
+            <InfoIcon name="search" size={14} />
+            <input
+              type="search"
+              value={f.query}
+              placeholder={tx('search', lang)}
+              aria-label={tx('search', lang)}
+              onChange={(e) => setF((p) => ({ ...p, query: e.target.value }))}
+            />
+          </label>
+          <div className="mfeed__seg" role="radiogroup" aria-label={tx('window', lang)}>
+            {RANGES.map((r) => (
+              <button
+                key={r.k}
+                type="button"
+                role="radio"
+                aria-checked={rangeOn(r)}
+                className={rangeOn(r) ? 'is-on' : ''}
+                onClick={() => setF((p) => (r.step ? { ...p, step: -1, windowMs: 0 } : { ...p, step: null, windowMs: r.ms }))}
+              >
+                {tx(r.k, lang)}
               </button>
-            );
-          })}
+            ))}
+          </div>
           <button
             type="button"
             className={`mfeed__more${typesOpen ? ' is-open' : ''}${advCount ? ' is-active' : ''}`}
@@ -317,32 +352,6 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
             ))}
           </div>
         )}
-        <div className="mfeed__bar">
-          <label className="mfeed__search">
-            <InfoIcon name="search" size={14} />
-            <input
-              type="search"
-              value={f.query}
-              placeholder={tx('search', lang)}
-              aria-label={tx('search', lang)}
-              onChange={(e) => setF((p) => ({ ...p, query: e.target.value }))}
-            />
-          </label>
-          <div className="mfeed__seg" role="radiogroup" aria-label={tx('window', lang)}>
-            {RANGES.map((r) => (
-              <button
-                key={r.k}
-                type="button"
-                role="radio"
-                aria-checked={rangeOn(r)}
-                className={rangeOn(r) ? 'is-on' : ''}
-                onClick={() => setF((p) => (r.step ? { ...p, step: -1, windowMs: 0 } : { ...p, step: null, windowMs: r.ms }))}
-              >
-                {tx(r.k, lang)}
-              </button>
-            ))}
-          </div>
-        </div>
         <div className="mfeed__active">
           {Object.entries(f.subs).map(([k, list]) => (list?.length ? (
             <button key={k} type="button" className="mfeed__pill" title={tx('remove', lang)} onClick={() => setF((p) => { const subs = { ...p.subs }; delete subs[k as FeedKind]; return { ...p, subs }; })}>
@@ -372,7 +381,6 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
         </div>
       </div>
 
-      {filtered.length > MAX_ROWS && <p className="mfeed__muted">{tx('capped', lang, { n: MAX_ROWS })}</p>}
       <div ref={boxRef} className="mfeed__list" role="log" aria-live="off" tabIndex={0}>
         {shown.length === 0 ? <p className="mfeed__muted">{tx('empty', lang)}</p> : rows}
       </div>
