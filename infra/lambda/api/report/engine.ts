@@ -227,6 +227,9 @@ export function normalizeSteps(rawSteps: unknown, opts: { legacySlot: boolean })
     if (module) step.module = module;
     const mechanic = text(s['mechanic'], 40);
     if (mechanic) step.mechanic = mechanic;
+    // runner 的 SPIN 迴圈會記下這一局有沒有真的等到「盤面 + 數字列都靜止」才讀數字。
+    const settle = (s['rtpRound'] as Record<string, unknown> | undefined)?.['settle'];
+    if (typeof settle === 'string') step.settled = settle === 'still';
     if (typeof s['obs'] === 'object' && s['obs'] !== null && !Array.isArray(s['obs'])) {
       const o: Record<string, number | string | boolean> = {};
       for (const [k, v] of Object.entries(s['obs'] as Record<string, unknown>)) {
@@ -560,27 +563,41 @@ function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleO
   // (b) 餘額一致性(程式規則,數值由 AI 讀取)。
   const txns = spinTransactions(steps);
   // AutoSpin 模式(餘額差法)下觀測不是逐次 spin,不做逐次餘額比對(見 metrics.balance_checks)。
-  const bc = autospinRtp(steps) ? { checked: 0, mismatches: [] as typeof txns } : balanceChecks(txns);
+  const bc = autospinRtp(steps)
+    ? { checked: 0, mismatches: [] as typeof txns, plausible: [] as typeof txns, misread: [] as typeof txns }
+    : balanceChecks(txns);
   if (bc.mismatches.length > 0) {
-    const first = bc.mismatches[0]!;
+    const first = (bc.plausible[0] ?? bc.mismatches[0])!;
     const st = steps.find((s) => s.index === first.step);
+    // 升級成「已確認的遊戲缺陷」的條件(PA-AS §4「可重現才算已確認」的量化版):
+    // 量級合理的不一致 ≥ 3 次,而且佔可比對次數 > 20%。數字是 AI 讀來的,單一來源沒有交叉驗證,
+    // 低比例的不一致更可能是讀數誤差 —— 原本只要 2 次就判 GAME_FAILURE,實測兩個任務都因此
+    // 被判失敗(job-mvc3jedr 29 次裡 2 次、job-mvc3knmo 86 次裡 11 次,後者多數是看錯位數)。
+    const rate = bc.checked ? bc.plausible.length / bc.checked : 0;
+    const confirmed = bc.plausible.length >= 3 && rate > 0.2;
     findings.push({
       id: nextId('DEF'),
-      title: L('餘額與下注/派彩不一致', 'Balance does not match bet / payout'),
+      title: confirmed
+        ? L('餘額與下注/派彩不一致', 'Balance does not match bet / payout')
+        : L('餘額對帳有疑點(數值可信度不足)', 'Balance reconciliation anomaly (readings not reliable enough)'),
       description: L(
-        `${bc.checked} 次可比對的 Spin 中有 ${bc.mismatches.length} 次「前餘額 − 下注 + 派彩 ≠ 後餘額」。數值由 AI 從畫面讀取,少量不一致可能為讀數誤差。`,
-        `${bc.mismatches.length} of ${bc.checked} comparable spins violate prev − bet + win = balance. Values were read from screen by AI; isolated cases may be OCR errors.`,
+        `${bc.checked} 次可比對的 Spin 中有 ${bc.mismatches.length} 次「前餘額 − 下注 + 派彩 ≠ 後餘額」`
+        + `(量級合理 ${bc.plausible.length} 次;差額超過投注額 100 倍、判定為讀數誤差 ${bc.misread.length} 次)。`
+        + `數值由 AI 從畫面讀取,只有單一來源,${confirmed ? '不一致的比例與次數已達可確認門檻。' : '尚不足以判定為遊戲帳務錯誤,需人工判讀。'}`,
+        `${bc.mismatches.length} of ${bc.checked} comparable spins violate prev − bet + win = balance `
+        + `(${bc.plausible.length} with a plausible magnitude; ${bc.misread.length} off by more than 100× the bet and treated as read errors). `
+        + `Values come from a single source (AI reading the screen); ${confirmed ? 'the rate and count meet the confirmation threshold.' : 'this is not yet enough to call it a game accounting bug and needs triage.'}`,
       ),
-      severity: 'critical',
+      severity: confirmed ? 'critical' : 'medium',
       category: 'economy',
-      classification: bc.mismatches.length >= 2 ? 'GAME_FAILURE' : 'NEEDS_TRIAGE',
+      classification: confirmed ? 'GAME_FAILURE' : 'NEEDS_TRIAGE',
       certainty: 'deterministic',
       module: 'reels',
       gameState: st?.screen,
       frequency: bc.mismatches.length,
-      reproducibility: reproLabel(bc.mismatches.length, bc.checked),
+      reproducibility: reproLabel(bc.plausible.length, bc.checked),
       firstStep: first.step,
-      lastStep: bc.mismatches[bc.mismatches.length - 1]!.step,
+      lastStep: (bc.plausible[bc.plausible.length - 1] ?? bc.mismatches[bc.mismatches.length - 1])!.step,
       expected: L('前餘額 − 下注 + 派彩', 'prev − bet + win').zh,
       actual: `balance=${first.balance}, bet=${first.bet}, win=${first.win}`,
       stepsToReproduce: stepsBefore(steps, first.step),

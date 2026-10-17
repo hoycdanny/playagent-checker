@@ -159,6 +159,12 @@ export interface EvidenceStep {
   segment?: number;
   /** 被判定為讀錯、已從 obs 移除的數值(原值 + 判斷依據,可回溯)。 */
   excludedObs?: Record<string, { value: number; reason: L10n }>;
+  /**
+   * SPIN 迴圈:這一局的數字是不是在「盤面與數字列都確認靜止」之後讀的。
+   * false = 等到逾時仍沒靜止下來,數字可能讀在派彩動畫途中,不納入餘額對帳。
+   * undefined = 舊任務或不走 SPIN 迴圈的步驟(照舊納入)。
+   */
+  settled?: boolean;
   durationMs?: number;
   vlmMs?: number;
   screenshotKey?: string;
