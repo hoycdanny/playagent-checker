@@ -51,7 +51,7 @@ import { createDeviceLogs } from './deviceLogs.mjs';
 import { createAgentTeam, normalizeElements, screenFromSeen, scriptSteps, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { createScriptTracker, DEFAULT_ITEM_BUDGET } from './scriptTracker.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
-import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapB64, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
+import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapAsync, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
 import { isAutoSpinWait, watchAutoSpin, watchNote } from './spinWatch.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -156,6 +156,13 @@ function s3putBg(key, body, contentType) {
     bgPuts.delete(p);
     if (bgChain.get(key) === p) bgChain.delete(key);
   });
+  return p;
+}
+/** 把任意背景工作掛進 flushPuts 的等待清單(例如背景產生落點標記圖再上傳)。 */
+function trackBg(promise) {
+  const p = Promise.resolve(promise).catch(() => {});
+  bgPuts.add(p);
+  void p.then(() => bgPuts.delete(p));
   return p;
 }
 /** 等背景上傳收尾(收尾、換連線、寫報告前呼叫)。 */
@@ -1920,17 +1927,12 @@ async function main() {
     const screenName = cmd.screen || `畫面 ${i}`;
 
     // 落點標記圖:tap/swipe 時在點擊座標畫紅十字+圓圈+座標,存 annotated/<i>.png(前端顯示 AI 點在哪)。
-    let annotatedKey;
-    if (MAGICK && (cmd.action === 'tap' || cmd.action === 'swipe') && cmd.x != null && cmd.y != null) {
-      // 落點標記畫在「縮圖」上(座標同縮圖空間),前端顯示 AI 實際點在哪。
-      // swipe 有終點時畫箭頭(起點 → 終點),一眼看出拖/滑的方向與距離。
-      const swipeTo = cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2) ? { x: Math.round(cmd.x2), y: Math.round(cmd.y2) } : undefined;
-      const annB64 = timed(tm, 'annotate', () => annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.operatorDrag ? 'drag' : cmd.action, ssDim, swipeTo));
-      if (annB64) {
-        annotatedKey = `${PREFIX}/annotated/${i}.png`;
-        s3putBg(annotatedKey, Buffer.from(annB64, 'base64'), 'image/png'); // 只給前端看 → 背景上傳
-      }
-    }
+    // 這張圖只給人看,不影響判斷,而 ImageMagick 要跑約 1.2 秒 → 先只決定 key,圖在背景產生並上傳
+    // (見迴圈後半的 annotatePending);真的失敗時會把 step 的 annotatedKey 收回,前端就退回原始截圖。
+    const annotateSwipeTo = cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2)
+      ? { x: Math.round(cmd.x2), y: Math.round(cmd.y2) } : undefined;
+    const wantAnnotate = Boolean(MAGICK && (cmd.action === 'tap' || cmd.action === 'swipe') && cmd.x != null && cmd.y != null);
+    const annotatedKey = wantAnnotate ? `${PREFIX}/annotated/${i}.png` : undefined;
 
     const perf = perfPending ? await perfPending : null;
     perfPending = null;
@@ -2002,6 +2004,23 @@ async function main() {
       }
     }
     steps.push(step);
+    // 落點標記:背景產生 + 上傳(不佔決策時間)。產圖失敗就把 annotatedKey 收回並重寫步驟 JSON,
+    // 否則前端會指到一個不存在的物件(顯示破圖)。
+    if (wantAnnotate && annotatedKey) {
+      const tAnn = Date.now();
+      const stepKey = `${PREFIX}/steps/${i}.json`;
+      trackBg(
+        annotateTapAsync(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.operatorDrag ? 'drag' : cmd.action, ssDim, annotateSwipeTo)
+          .then((annB64) => {
+            tm.annotateBg = Date.now() - tAnn;
+            if (annB64) return s3put(annotatedKey, Buffer.from(annB64, 'base64'), 'image/png');
+            delete step.annotatedKey;
+            console.warn(`[annotate] 第 ${i} 步產生落點標記圖失敗,前端改用原始截圖`);
+            return s3putBg(stepKey, JSON.stringify(step), 'application/json');
+          })
+          .catch(() => {}),
+      );
+    }
     // 盤面擷取區間由結構化觀測/畫面狀態驅動,不是等 VLM 回 wait 才開始。用本步起始時間回填,
     // 讓稍晚拉回的 screenrecord 分段仍能按影格時間判斷是否屬於 AutoSpin / Free Spin。
     if (slotCapture) {

@@ -429,11 +429,9 @@ export function dragArrowDraws(x, y, x2, y2, base) {
   ];
 }
 
-export function annotateTapB64(srcB64, x, y, label, ss, to) {
-  let src;
-  try {
-    src = b64ToTmp(srcB64, 'ann-src');
-    const out = join(tmpdir(), `pa-ann-${Date.now()}.png`);
+/** 落點標記的 ImageMagick 參數(sync / async 兩個版本共用)。 */
+function annotateArgs(src, out, x, y, label, ss, to) {
+  {
     const base = Math.max(ss.w, ss.h);
     const cross = Math.max(30, Math.round(base * 0.03));
     const r = Math.max(20, Math.round(base * 0.02));
@@ -474,9 +472,43 @@ export function annotateTapB64(srcB64, x, y, label, ss, to) {
       );
     }
     markArgs.push(out);
-    execFileSync(IM, markArgs, { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
+    return markArgs;
+  }
+}
+
+export function annotateTapB64(srcB64, x, y, label, ss, to) {
+  try {
+    const src = b64ToTmp(srcB64, 'ann-src');
+    const out = join(tmpdir(), `pa-ann-${Date.now()}.png`);
+    execFileSync(IM, annotateArgs(src, out, x, y, label, ss, to), { stdio: 'ignore', maxBuffer: 16 * 1024 * 1024 });
     return fileToB64(out);
   } catch {
     return null;
   }
+}
+
+/**
+ * 落點標記(非同步版)。
+ *
+ * 2026-10-17 實測:這一步要 1.2 秒(ImageMagick 啟動 + 十幾個 -draw + 字型渲染),而它產出的圖
+ * 只給前端看「AI 點在哪」,不影響任何判斷。同步版會卡住整個 event loop,所以改用 spawn 讓它
+ * 在背景跑,主迴圈可以直接去送動作。失敗 / 逾時回 null(呼叫端會把步驟的 annotatedKey 收回)。
+ */
+export function annotateTapAsync(srcB64, x, y, label, ss, to, timeoutMs = 10_000) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (!done) { done = true; resolve(v); } };
+    try {
+      const src = b64ToTmp(srcB64, 'ann-src');
+      const out = join(tmpdir(), `pa-ann-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.png`);
+      const p = spawn(IM, annotateArgs(src, out, x, y, label, ss, to), { stdio: 'ignore' });
+      const timer = setTimeout(() => { try { p.kill('SIGKILL'); } catch { /* 已結束 */ } finish(null); }, timeoutMs);
+      p.on('error', () => { clearTimeout(timer); finish(null); });
+      p.on('close', (code) => {
+        clearTimeout(timer);
+        if (code !== 0) return finish(null);
+        try { finish(fileToB64(out)); } catch { finish(null); }
+      });
+    } catch { finish(null); }
+  });
 }
