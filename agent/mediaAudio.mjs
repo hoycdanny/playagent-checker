@@ -49,6 +49,9 @@ export function parseRmsLines(text) {
 /** 錄影段檔名(audio/ 底下)。 */
 export const recordingName = (idx) => `rec-${idx}.mp4`;
 
+/** 超過單段上限多久就一定收段(緩衝,避免跟裝置自己的收尾搶同一瞬間)。 */
+export const ROTATE_GRACE_MS = 2000;
+
 /**
  * @param {object} o
  * @param {{ mobile(name:string, args?:object):Promise<unknown> }} o.client
@@ -67,7 +70,7 @@ export const recordingName = (idx) => `rec-${idx}.mp4`;
 export function createMediaRecorder({
   client, put, presignPost, download, downloadTo, prefix, maxSec = 9000, watchMs = 30_000, log = () => {},
   setIntervalFn = setInterval, clearIntervalFn = clearInterval, analyze = analyzeLevels,
-  startIndex = 0, initialChunks = [],
+  startIndex = 0, initialChunks = [], now = Date.now,
 }) {
   /** 把 S3 上的錄影存到本機檔案,回傳位元組數。優先用串流(downloadTo),沒有才退回整份讀進記憶體。 */
   const downloadToFile = async (key, file) => {
@@ -107,7 +110,7 @@ export function createMediaRecorder({
       await client.mobile('stopMediaProjectionRecording').catch(() => {});
       started = await client.mobile('startMediaProjectionRecording', args);
     }
-    seg = { name, startedAt: Date.now() };
+    seg = { name, startedAt: now() };
     state = 'recording';
     await writeDoc();
     log(`[record] 開始錄影 ${name}(最長 ${maxUsed} 秒)`);
@@ -119,7 +122,7 @@ export function createMediaRecorder({
     const { name, startedAt } = seg;
     seg = null;
     const key = `${prefix}/audio/${name}`;
-    const stopAt = Date.now();
+    const stopAt = now();
     let buf = null;
     try {
       const post = await presignPost(key);
@@ -157,20 +160,45 @@ export function createMediaRecorder({
       await unlink(tmp).catch(() => {});
     }
     const dur = rms.length ? rms.length * doc.dt : Math.max(0, (stopAt - startedAt) / 1000);
-    // 對時:正常停止 → 結束時間 = stop 呼叫當下,往回推長度;自己結束的段 → 用開始時間。
-    const t = Math.round(autoEnded ? startedAt : stopAt - dur * 1000);
+    // 對時:這一段一定是從 startedAt 開始錄的。只有在「長度與實際經過的時間相符」時才改用
+    // stopAt 往回推 —— 那是為了修掉開始錄影前權限畫面的 1~2 秒誤差。
+    // 兩者差很多 = 錄影早就因長度上限自己結束、我們到收尾才呼叫 stop,這時往回推會把這一段
+    // 錯放到時間軸的大後方(實測 job-mvch7zri:實際錄的是 +191s~+1388s,卻被標成 +3698s,
+    // 任務頁按播放就跳到第 58 分鐘)。
+    const elapsed = (stopAt - startedAt) / 1000;
+    const drift = Math.abs(elapsed - dur);
+    const t = Math.round(autoEnded || drift > 10 ? startedAt : stopAt - dur * 1000);
+    if (!autoEnded && drift > 10) {
+      log(`[record] ${name} 實際長度 ${Math.round(dur)} 秒 < 經過 ${Math.round(elapsed)} 秒:錄影提早結束,時間軸以開始時間為準`);
+    }
     doc.chunks.push({ name, t, dur: Math.round(dur * 10) / 10, rms, bytes });
     await writeDoc();
     log(`[record] ${name} 已上傳(${Math.round(bytes / 1024 / 1024)} MB,${Math.round(dur)} 秒)`);
   }
 
-  /** 看門狗:錄影因長度上限自己結束 → 收下這段並開下一段。 */
+  /**
+   * 看門狗:錄影因長度上限自己結束 → 收下這段並開下一段。
+   *
+   * 2026-10-17(job-mvch7zri):82 分鐘的任務只留下最前面 20 分鐘的錄影,其餘 62 分鐘整段沒有,
+   * 而且日誌裡一行看門狗訊息都沒出現。原因是舊版只信 isMediaProjectionRecordingRunning:
+   * 寫成 `!== false` → 這個指令在部分 Appium / 裝置上不回布林(回 null / 字串)就會被當成
+   * 「還在錄」,丟錯時更是直接 return,兩種情況都讓看門狗永遠不接下一段。
+   * 改成以「開始錄影到現在的時間」為主要判準(確定性、不依賴可選指令),裝置回報只當輔助。
+   */
   async function check() {
     if (stopped || !seg) return;
-    let running = true;
-    try { running = (await client.mobile('isMediaProjectionRecordingRunning')) !== false; } catch { return; }
-    if (running || stopped) return;
-    log('[record] 錄影已達長度上限,收下這段並開始下一段');
+    // +2 秒緩衝:避免跟裝置自己的收尾搶同一瞬間。
+    const overdue = now() - seg.startedAt >= maxUsed * 1000 + ROTATE_GRACE_MS;
+    let reportedStopped = false;
+    try {
+      reportedStopped = (await client.mobile('isMediaProjectionRecordingRunning')) === false;
+    } catch (e) {
+      // 查不到就只靠時間判斷;但要留下紀錄,不要再像之前一樣靜默失效。
+      if (overdue) log(`[record] 無法查詢錄影狀態(改用時間判斷):${String(e?.message || e).slice(0, 160)}`);
+    }
+    if (!reportedStopped && !overdue) return;
+    if (stopped) return;
+    log(`[record] 錄影已達長度上限(${overdue ? '已錄滿 ' + maxUsed + ' 秒' : '裝置回報已停止'}),收下這段並開始下一段`);
     await finishSegment(true);
     if (!stopped) await startSegment().catch((e) => log(`[record] 重開失敗:${String(e?.message || e).slice(0, 200)}`));
   }

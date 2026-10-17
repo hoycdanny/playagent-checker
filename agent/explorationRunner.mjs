@@ -985,6 +985,8 @@ async function main() {
     target: isRtpTask(TASK) ? parseSpinCount(TASK) : 0,
     paid: 0, rounds: [], misses: 0, handBack: false, done: false, startBalance: undefined, endBalance: undefined,
   };
+  /** SPIN 迴圈還有局數沒轉完:這時 AI 說「全部完成」一律不採用(局數以系統計數為準)。 */
+  const spinLoopPending = () => rtpLoop.target > 0 && !rtpLoop.done;
   if (REFLEX_ON) console.log(`[記憶腳本] 啟用(App 版本 ${appVersion || '未知'})${rtpLoop.target ? `;SPIN 迴圈目標 ${rtpLoop.target} 局` : ''}`);
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
@@ -1451,13 +1453,18 @@ async function main() {
     const memoNote = progressMemo ? `\n【你的進度筆記(上一步寫的,照它延續,不要重新開始)】${progressMemo}` : '';
 
     // ── 【記憶腳本 / 反射層】先用畫面指紋認畫面:認得、而且記憶裡有可信的操作 → 這一步直接照做,不問 AI。
-    // 測試人員正在下指令、收尾、測項確認中、戰鬥走位中都不用反射(交給 AI 看)。
+    // 測試人員正在下指令、收尾、戰鬥走位中都不用反射(交給 AI 看)。
+    // 「測項確認中」(pendingFinal)原本也整個關掉反射 —— 2026-10-17(job-mvch7zri)實測這會
+    // 造成大量空轉:AI 在第 78 步宣告全部完成,之後的 206 步裡只有 5 步走得到反射層,
+    // SPIN 迴圈幾乎停擺。確認要的是「AI 再看一張畫面」,不是「停止按 SPIN」,所以只擋導航,
+    // SPIN 迴圈照跑(它本來就是這個任務要做的動作,而且每局都會自行驗證轉輪有沒有動)。
+    const confirming = Boolean(scriptTracker?.pendingFinal);
     let reflexCmd = null;
-    if (REFLEX_ON && MAGICK && curPhash && !newCmds.length && !wrapUpAsked && !scriptTracker?.pendingFinal && !lastBattleMove) {
+    if (REFLEX_ON && MAGICK && curPhash && !newCmds.length && !wrapUpAsked && !lastBattleMove) {
       const here = identifyPage(struct, curPhash);
       const nameOf = (id) => struct.pages?.[id]?.name ?? '';
       // 1) 確認上一步反射的結果:到了預期畫面才繼續;載入中就等;沒反應記失敗並交回 AI。
-      if (reflexPending) {
+      if (!confirming && reflexPending) {
         const p = reflexPending;
         if (here?.pageId === p.to) {
           reflexPending = null;
@@ -1494,7 +1501,7 @@ async function main() {
         }
       }
       // 3) 導航:這個畫面有可信、通往目標的出路 → 直接走。
-      if (!reflexCmd && !reflexPending && here && !here.transient && reflexState.chain < REFLEX_MAX_CHAIN) {
+      if (!confirming && !reflexCmd && !reflexPending && here && !here.transient && reflexState.chain < REFLEX_MAX_CHAIN) {
         const focus = scriptTracker ? (scriptTracker.items()[scriptTracker.current - 1] ?? '') : '';
         const d = chooseReflex({ struct, edits: appMemory.edits, pageId: here.pageId, task: TASK, focus, version: appVersion, state: reflexState });
         const c = d ? cmdFromOp(d.op, cw, ch) : null;
@@ -1638,7 +1645,15 @@ async function main() {
     if (scriptTracker && !USE_UITARS && !pointCmd && !reflexCmd && !cmd.parseFailed && trace?.ok !== false) {
       const before = scriptTracker.done;
       // 視覺 Agent 給 done 卻沒填 scriptDone → 視同宣告全部完成(確認回合說 done = 確認)。
-      const claim = cmd.scriptDone ?? (String(cmd.action || '').trim().toLowerCase() === 'done' ? scriptTracker.total : undefined);
+      let claim = cmd.scriptDone ?? (String(cmd.action || '').trim().toLowerCase() === 'done' ? scriptTracker.total : undefined);
+      // 【SPIN 迴圈未達標就不可能全部完成】局數 runner 自己數得出來(rtpLoop.paid),比 AI 從
+      // 畫面上數可靠。job-mvch7zri:AI 從第 78 步起反覆宣告 5 項全部完成,runner 只能要它
+      // 「再看一張畫面確認」,它看完又改口 —— 這個確認迴圈重複了 62 次(override=script_confirm),
+      // 每次都是一趟 VLM 往返。現在直接用客觀局數駁回,並把真實進度告訴它,不進確認迴圈。
+      if (Number.isFinite(Number(claim)) && Number(claim) >= scriptTracker.total && spinLoopPending()) {
+        claim = Math.max(0, scriptTracker.total - 1);
+        controlNote += `【SPIN 迴圈】系統計數:已完成 ${rtpLoop.paid}/${rtpLoop.target} 局付費 SPIN,還沒達標,所以最後一項還不算完成。局數由系統計數,你不用自己數也不要宣告完成;回到主盤面讓系統繼續轉即可。`;
+      }
       scriptEvent = scriptTracker.observe(claim, typeof cmd.scriptEvidence === 'string' ? cmd.scriptEvidence : '');
       if (scriptEvent.advanced) console.log(`[測項為主] 第 ${i} 步:完成 ${before} → ${scriptTracker.done}/${scriptTracker.total}(${scriptTracker.evidence || '—'})`);
       if (scriptEvent.confirm) console.log(`[測項為主] 第 ${i} 步:視覺 Agent 回報全部完成,停手確認`);
@@ -1925,7 +1940,7 @@ async function main() {
 
     // 【測項為主】任何「done」都要經視覺 Agent 確認:還沒確認全部完成就想結束 → 當成完成宣告,停手再看一張畫面。
     // (例如決策 Agent 自認做完了,或視覺 Agent 給 done 卻沒填 scriptDone。)
-    if (scriptTracker && cmd.action === 'done' && !scriptEvent?.complete && !scriptEvent?.confirm && trace?.ok !== false && !operatorDirected && !wrapUpAsked) {
+    if (scriptTracker && cmd.action === 'done' && !scriptEvent?.complete && !scriptEvent?.confirm && trace?.ok !== false && !operatorDirected && !wrapUpAsked && !spinLoopPending()) {
       const ev = scriptTracker.observe(scriptTracker.total, typeof cmd.scriptEvidence === 'string' ? cmd.scriptEvidence : '');
       scriptEvent = { ...(scriptEvent ?? {}), ...ev };
       team?.setScriptStep(scriptTracker.current);
