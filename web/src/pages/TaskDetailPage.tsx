@@ -83,7 +83,7 @@ const PT = {
   tabTrace: ['執行軌跡', 'Steps'],
   tabLogs: ['完整日誌', 'Full logs'],
   tabAsk: ['AI 問答', 'Ask AI'],
-  tabAgent: ['與 Agent 互動', 'Talk to the Agent'],
+  tabAgent: ['與畫面互動', 'Interact with screen'],
   tabScript: ['腳本與執行資訊', 'Script & run info'],
   agentEnded: ['這次測試沒有下過指令。測試進行中可以在這裡告訴控制遊戲的 Agent 該怎麼做,或在畫面上直接點。', 'No instructions were sent in this run. While a test is running you can tell the game-control Agent what to do here, or tap the screen directly.'],
   layout: ['版面', 'Layout'],
@@ -332,8 +332,9 @@ export default function TaskDetailPage() {
   const merged = orient === 'portrait';
   const rightTabs = merged ? RIGHT_TABS_PORTRAIT : RIGHT_TABS_LANDSCAPE;
   const [panePicked, setPanePicked] = useState<PaneTab | null>(null);
-  const wanted: PaneTab = panePicked ?? (isLive && merged ? 'agent' : 'moment');
-  const activePane: PaneTab = rightTabs.includes(wanted) ? wanted : 'moment';
+  // 預設分頁:執行中 = 與畫面互動(橫向它固定在手機畫面下方,右邊框就顯示即時日誌);結束後 = 完整日誌。
+  const wanted: PaneTab = panePicked ?? (isLive ? 'agent' : 'logs');
+  const activePane: PaneTab = rightTabs.includes(wanted) ? wanted : isLive ? 'moment' : 'logs';
   const midTab: FeedTab = isChatTab(activePane) ? 'moment' : activePane;
   const rightTab: ChatTab = isChatTab(activePane) ? activePane : 'ask';
   const pickTab = (k: PaneTab) => setPanePicked(k);
