@@ -100,7 +100,15 @@ describe('runner helpers', () => {
 
 describe('continuous recorder (one recording per run)', () => {
   type Call = { name: string; args?: Record<string, unknown> };
-  function setup(opts: { uploadFails?: boolean; autoEndOnce?: boolean; startIndex?: number; initialChunks?: unknown[]; streamed?: string[]; analyzed?: boolean[] } = {}) {
+  function setup(opts: {
+    uploadFails?: boolean; autoEndOnce?: boolean; startIndex?: number; initialChunks?: unknown[];
+    streamed?: string[]; analyzed?: boolean[];
+    /** 單段上限(秒)與可控時鐘:測看門狗的「時間到就收段」。 */
+    maxSec?: number; clock?: { t: number };
+    /** 裝置回報錄影狀態的方式:null = 不回布林、throw = 丟錯(實測都會讓舊版看門狗失效)。 */
+    probe?: 'null' | 'throw';
+    logs?: string[];
+  } = {}) {
     const calls: Call[] = [];
     const puts = new Map<string, unknown>();
     let running = false;
@@ -111,6 +119,8 @@ describe('continuous recorder (one recording per run)', () => {
         calls.push({ name, ...(args ? { args } : {}) });
         if (name === 'startMediaProjectionRecording') { running = true; return true; }
         if (name === 'isMediaProjectionRecordingRunning') {
+          if (opts.probe === 'throw') throw new Error('not implemented');
+          if (opts.probe === 'null') return null;
           if (opts.autoEndOnce && !autoEnded) { autoEnded = true; running = false; }
           return running;
         }
@@ -137,10 +147,14 @@ describe('continuous recorder (one recording per run)', () => {
       analyze: async (file: string) => { opts.analyzed?.push(existsSync(file)); return [-30, -20, -120, -10]; },
       setIntervalFn: (fn: () => void) => { tick = fn; return 1; },
       clearIntervalFn: () => {},
+      ...(opts.maxSec !== undefined ? { maxSec: opts.maxSec } : {}),
+      ...(opts.clock ? { now: () => opts.clock!.t } : {}),
+      ...(opts.logs ? { log: (m: string) => opts.logs!.push(m) } : {}),
       ...(opts.startIndex !== undefined ? { startIndex: opts.startIndex, initialChunks: opts.initialChunks } : {}),
     });
     return { rec, calls, puts, tick: () => tick?.() };
   }
+  const settle = async () => { for (let k = 0; k < 20; k++) await new Promise((r) => setTimeout(r, 0)); };
   const levels = (puts: Map<string, unknown>) => JSON.parse(String(puts.get('tenants/t1/jobs/job-1/audio/levels.json')));
 
   test('starts once, stops once and uploads straight to S3 via presigned POST', async () => {
@@ -187,6 +201,42 @@ describe('continuous recorder (one recording per run)', () => {
     await rec.stop();
     expect(calls.filter((c) => c.name === 'startMediaProjectionRecording')).toHaveLength(2);
     expect(levels(puts).chunks.map((c: { name: string }) => c.name)).toEqual(['rec-0.mp4', 'rec-1.mp4']);
+  });
+
+  // job-mvch7zri:82 分鐘的任務只剩最前面 20 分鐘有錄影。舊版只信
+  // isMediaProjectionRecordingRunning,而這個指令回 null 或丟錯時都被當成「還在錄」,
+  // 看門狗就永遠不接下一段(日誌一行都沒有)。現在時間到就一定收段。
+  test.each(['null', 'throw'] as const)('watchdog rotates on elapsed time even when the running probe returns %s', async (probe) => {
+    const clock = { t: 1_000_000 };
+    const { rec, calls, puts, tick } = setup({ maxSec: 1200, clock, probe });
+    await rec.start();
+    // 還沒到上限:不收段。
+    clock.t += 1200 * 1000 - 1;
+    tick();
+    await settle();
+    expect(calls.filter((c) => c.name === 'startMediaProjectionRecording')).toHaveLength(1);
+    // 過了上限 + 緩衝:收下這段並開下一段。
+    clock.t += 1 + ma.ROTATE_GRACE_MS;
+    tick();
+    await settle();
+    expect(calls.filter((c) => c.name === 'startMediaProjectionRecording')).toHaveLength(2);
+    expect(levels(puts).chunks.map((c: { name: string }) => c.name)).toEqual(['rec-0.mp4']);
+  });
+
+  // 同一筆任務的第二個症狀:錄影其實是 +191s~+1388s,卻被標到 +3698s,任務頁按播放跳到 58 分。
+  test('a recording that ended early is placed at its start time, not back-dated from the stop call', async () => {
+    const clock = { t: 5_000_000 };
+    const logs: string[] = [];
+    const { rec, puts } = setup({ maxSec: 1200, clock, probe: 'null', logs });
+    await rec.start();
+    const startedAt = clock.t;
+    // 錄影早就自己停了,但我們到收尾(一小時後)才呼叫 stop;分析出來的長度只有 0.4 秒。
+    clock.t += 3600 * 1000;
+    await rec.stop();
+    const chunk = levels(puts).chunks[0];
+    expect(chunk).toMatchObject({ name: 'rec-0.mp4', dur: 0.4 });
+    expect(chunk.t).toBe(startedAt);
+    expect(logs.some((m) => m.includes('錄影提早結束'))).toBe(true);
   });
 
   test('new connection (long run): continues the part number and keeps earlier parts', async () => {
