@@ -55,6 +55,23 @@
   --arch-green: #1f8f4e;
   --arch-teal: #0e8a86;
   --arch-slate: #647089;
+
+  /* 任務詳情:凹陷的輸入區 / 軌道、Log 區、誰決定這一步的配色(白底用深一點的色才看得清) */
+  --surface-sunken: #f1f3f7;
+  --code-bg: #fbfcfd;
+  --code-text: #1f2937;
+  --code-muted: #6b7280;
+  --code-strong: #3b1f8f;
+  --code-tag: #0369a1;
+  --accent-now: #d6246e;
+  --hue-agent: #7048c4;
+  --hue-vision: #0278b8;
+  --hue-reflex: #b45309;
+  --hue-operator: #c0267a;
+  --hue-memory: #0f8a5f;
+  --hue-script: #8b3fd1;
+  --hue-warn: #c0392b;
+  --hue-sub: #0e8a86;
 }
 
 /* 深色主題 */
@@ -89,6 +106,23 @@
   --arch-green: #4ec97a;
   --arch-teal: #35c9c2;
   --arch-slate: #9aa3b2;
+
+  /* 任務詳情:凹陷的輸入區 / 軌道、Log 區、誰決定這一步的配色 */
+  --surface-sunken: #0f1217;
+  --code-bg: #0a0d12;
+  --code-text: #cbd5e1;
+  --code-muted: #8b95a5;
+  --code-strong: #ede9fe;
+  --code-tag: #7dd3fc;
+  --accent-now: #ff5cad;
+  --hue-agent: #a78bfa;
+  --hue-vision: #38bdf8;
+  --hue-reflex: #fbbf24;
+  --hue-operator: #f472b6;
+  --hue-memory: #34d399;
+  --hue-script: #c084fc;
+  --hue-warn: #f87171;
+  --hue-sub: #2dd4bf;
 }
 
 * {

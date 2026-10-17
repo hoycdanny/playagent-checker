@@ -145,19 +145,19 @@
   border: 1px solid var(--border);
   border-radius: 50%;
   background: var(--surface-raised);
-  color: #a78bfa;
+  color: var(--hue-agent);
 }
 .taskask__intro { display: flex; align-items: center; gap: 8px; }
 .taskask__ref {
   padding: 0 4px;
-  border: 1px solid color-mix(in srgb, #a78bfa 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hue-agent) 50%, transparent);
   border-radius: 6px;
-  background: color-mix(in srgb, #a78bfa 14%, transparent);
-  color: #c4b5fd;
+  background: color-mix(in srgb, var(--hue-agent) 14%, transparent);
+  color: color-mix(in srgb, var(--hue-agent) 70%, var(--text-primary));
   font: inherit;
   cursor: pointer;
 }
-.taskask__ref:hover { background: color-mix(in srgb, #a78bfa 28%, transparent); }
+.taskask__ref:hover { background: color-mix(in srgb, var(--hue-agent) 26%, transparent); }
 .taskask__ref:focus-visible,
 .taskask__chip:focus-visible,
 .taskask__send:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
@@ -186,7 +186,7 @@
   padding: 4px 4px 4px 14px;
   border: 1px solid var(--border);
   border-radius: 20px;
-  background: var(--surface-sunken, color-mix(in srgb, var(--surface) 60%, #000));
+  background: var(--surface-sunken);
 }
 .taskask--embedded .taskask__form:focus-within { border-color: var(--brand); }
 .taskask--embedded .taskask__form textarea {

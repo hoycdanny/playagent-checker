@@ -1273,7 +1273,7 @@
   cursor: pointer;
 }
 .detail__step-idx--btn:hover {
-  color: #ff2d95;
+  color: var(--accent-now);
   text-decoration: underline;
 }
 .detail__steps {
@@ -1494,7 +1494,7 @@
   color: var(--text-secondary);
 }
 .detail__orient-ico {
-  color: #a78bfa;
+  color: var(--hue-agent);
 }
 .detail__orient select {
   padding: 2px 4px;
