@@ -596,6 +596,7 @@ export default function TaskDetailPage() {
                 {...(createdAt ? { createdAt } : {})}
                 {...(updatedAt ? { updatedAt } : {})}
                 {...(backend ? { backend } : {})}
+                {...(typeof steps[0]?.at === 'string' ? { firstStepAt: steps[0].at as string } : {})}
               />
               <ScriptPanel
                 lang={lang}

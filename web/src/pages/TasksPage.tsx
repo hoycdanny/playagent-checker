@@ -38,8 +38,10 @@ interface TaskItem {
   state: string;
   createdAt: string;
   updatedAt?: string;
-  /** 結束時間(報告產生時間;無報告則為最後狀態更新)—— 耗時欄用。 */
+  /** 結束時間(報告產生時間;無報告則為最後狀態更新)。 */
   finishedAt?: string;
+  /** AI 開始操作遊戲的時間 —— 列表「操作時間」欄的起點。 */
+  runStartedAt?: string;
   vlmModel?: string;
   seatModels?: { agent?: string; vlm?: string; subagent?: string };
   billableSpendUsd?: number;
