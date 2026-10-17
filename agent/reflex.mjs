@@ -16,6 +16,17 @@ import { edgeKey } from './operatorMemory.mjs';
 
 /** 自動啟用需要的最少成功次數。 */
 export const REFLEX_MIN_HITS = 2;
+/**
+ * 彈窗類畫面的放寬門檻:成功 1 次且沒失敗就可以照記憶關掉。
+ *
+ * 背景(2026-10-17 實測 job-mvbrqar9):12 個互動步驟裡有 7 步的操作,記憶中已經有
+ * 「成功 1 次 / 失敗 0 次」的紀錄,卻因為門檻是 2 次而全部回去問 AI(每步多花約 15 秒)。
+ * 任務頁顯示的「照已驗證路徑」用的是較寬的標準(成功 > 失敗),所以畫面說命中、
+ * 系統卻還在問 AI,兩套標準不一致。
+ * 只對彈窗放寬:關彈窗做錯的代價最低(頂多關錯一個彈窗,下一步 AI 就會看到並修正),
+ * 而彈窗又是最常重複、最浪費時間的畫面。其餘畫面維持 2 次。
+ */
+export const REFLEX_MIN_HITS_POPUP = 1;
 /** 主要出口門檻:這條路佔該畫面所有出路使用次數的比例。 */
 const DOMINANT_SHARE = 0.6;
 /** 連續反射步數上限(之後讓 AI 看一次畫面,避免一路走偏)。 */
@@ -153,7 +164,11 @@ export function chooseReflex({ struct, edits, pageId, task = '', focus = '', ver
     const key = edgeKey(e);
     const edit = opEdits[key];
     const trust = opTrust({ hitCount: e.hitCount, missCount: e.missCount, manual: manualKeys.has(key) }, edit);
-    if (trust === 'disabled' || trust === 'learning') continue;
+    if (trust === 'disabled') continue;
+    // 彈窗畫面放寬到「成功 ≥1 次且 0 失敗」(見 REFLEX_MIN_HITS_POPUP);放寬進來的標記成
+    // relaxed,只允許用在「關彈窗」這個分支,不參與路線 / 目標點名 / 主要出口的判斷。
+    const relaxed = trust === 'learning';
+    if (relaxed && !(popup && (e.hitCount ?? 0) >= REFLEX_MIN_HITS_POPUP && (e.missCount ?? 0) === 0)) continue;
     if (state?.demoted?.has(key)) continue;
     const op = effectiveOp(e.op, edit);
     if (!op || op.a !== e.trigger.kind) continue;
@@ -166,7 +181,7 @@ export function chooseReflex({ struct, edits, pageId, task = '', focus = '', ver
     if (state?.recent?.includes(e.toPageId)) continue;
     const cross = Boolean(op.v && version && op.v !== version && !edit?.op);
     if (cross && state?.crossVersionFailed) continue;
-    candidates.push({ e, key, op, trust, target, toPage, cross });
+    candidates.push({ e, key, op, trust, target, toPage, cross, relaxed });
   }
   if (!candidates.length) return null;
 
@@ -178,29 +193,32 @@ export function chooseReflex({ struct, edits, pageId, task = '', focus = '', ver
       : null;
   };
 
+  // 路線 / 目標點名 / 主要出口只用「完整信心」的操作(成功 ≥2 或人工確認);放寬的只用在關彈窗。
+  const strict = candidates.filter((x) => !x.relaxed);
+
   // 1) 測試人員畫的路線:目前畫面在路線上 → 走路線的下一個畫面。
   for (const r of edits?.routes ?? []) {
     if (!r || r.enabled === false || !Array.isArray(r.steps)) continue;
     const idx = r.steps.findIndex((s) => s.pageId === pageId);
     const next = idx >= 0 ? r.steps[idx + 1] : null;
     if (!next) continue;
-    const onRoute = candidates.filter((x) => x.e.toPageId === next.pageId);
+    const onRoute = strict.filter((x) => x.e.toPageId === next.pageId);
     if (onRoute.length) return pick(onRoute, 'route');
   }
   // 2) 目標文字有點名的出路(例如「進入 Desert Legend」)。
-  const named = candidates.filter((x) => mentions(goalText, x.target) || (x.toPage && mentions(goalText, x.toPage.name, 3)));
+  const named = strict.filter((x) => mentions(goalText, x.target) || (x.toPage && mentions(goalText, x.toPage.name, 3)));
   if (named.length) return pick(named, 'named');
   // 目標點名了「別的」出路(這裡記憶沒有可用的版本)→ 交給 AI,不要照習慣走。
   const otherNamed = all.some((e) => mentions(goalText, e.trigger?.target) || mentions(goalText, struct.pages?.[e.toPageId]?.name, 3));
   if (otherNamed) return null;
-  // 3) 彈窗:照記憶關掉。
+  // 3) 彈窗:照記憶關掉(這裡才允許用放寬門檻的操作)。
   if (popup) return pick(candidates, 'popup');
   // 4) 這個畫面的主要出口(佔使用次數 ≥ 60%)或測試人員確認過的唯一一條。
-  const verified = candidates.filter((x) => x.trust === 'verified');
-  if (verified.length === 1 && !candidates.some((x) => x.trust !== 'verified' && (x.e.hitCount ?? 0) > (verified[0].e.hitCount ?? 0))) {
+  const verified = strict.filter((x) => x.trust === 'verified');
+  if (verified.length === 1 && !strict.some((x) => x.trust !== 'verified' && (x.e.hitCount ?? 0) > (verified[0].e.hitCount ?? 0))) {
     return pick(verified, 'verified');
   }
-  const dominant = candidates.filter((x) => totalHits > 0 && (x.e.hitCount ?? 0) / totalHits >= DOMINANT_SHARE);
+  const dominant = strict.filter((x) => totalHits > 0 && (x.e.hitCount ?? 0) / totalHits >= DOMINANT_SHARE);
   if (dominant.length) return pick(dominant, 'dominant');
   return null;
 }
