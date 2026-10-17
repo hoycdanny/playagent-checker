@@ -290,6 +290,8 @@ export function createAgentTeam({
   const noSampling = new Set();
   // 拒收獨立 system 回合的模型(首次被拒後記住)。
   const noSystem = new Set();
+  // 拒收 cachePoint 的模型(首次被拒後記住,之後都送純文字)。
+  const noCache = new Set();
   const history = []; // { i, screen, action, goal, effect }
   let summary = '';
   let plan = null; // 最近一次決策(目標 / 預期 / 實際動作)
@@ -301,19 +303,39 @@ export function createAgentTeam({
 
   const enabled = { agent: Boolean(agentModel), subagent: Boolean(subagentModel) };
 
+  /**
+   * 呼叫一個 seat 的模型。
+   * @param {string} seat 'agent' | 'subagent'
+   * @param {string} system system prompt
+   * @param {string|{staticText:string, dynamicText:string}} user
+   *   傳物件時會在 staticText 之後插一個 cachePoint:staticText 必須每步都一模一樣
+   *   (腳本、操作方式、背景知識),dynamicText 放每步會變的內容。
+   *   實測 us.openai.gpt-5.6-luna 的自動快取連發三次相同前綴 cacheRead 都是 0(只一直寫),
+   *   加上明確 cachePoint 後第二次起 cacheRead 2,953 / cacheWrite 33。
+   */
   async function call(seat, system, user, maxTokens, traceIndex, traceTag) {
     const modelId = seat === 'agent' ? agentModel : subagentModel;
     if (!modelId || failStreak[seat] >= 5) return null;
     const t0 = Date.now();
+    const staticText = typeof user === 'string' ? '' : String(user?.staticText ?? '');
+    const dynamicText = typeof user === 'string' ? user : String(user?.dynamicText ?? '');
+    const userText = staticText ? `${staticText}\n\n${dynamicText}` : dynamicText;
     // withSystem=false:有些模型不吃 Converse 的獨立 system 欄位(服務端會把它併成一個
     // user 回合,變成 user→user,chat template 直接拒收「roles must alternate」)。
     // 這時把 system 併進同一個 user 回合重送。
-    const send = (withSampling, withSystem = true) => bedrock.send(new ConverseCommand({
-      modelId,
-      ...(withSystem ? { system: [{ text: system }] } : {}),
-      messages: [{ role: 'user', content: [{ text: withSystem ? user : `${system}\n\n${user}` }] }],
-      inferenceConfig: withSampling ? { maxTokens, temperature: 0.2, topP: 0.9 } : { maxTokens },
-    }));
+    const send = (withSampling, withSystem = true, withCache = false) => {
+      // 固定前綴獨立成一個 content block,尾端放 cachePoint;後面接每步會變的部分。
+      const head = withSystem ? staticText : `${system}\n\n${staticText}`;
+      const content = withCache && staticText
+        ? [{ text: head }, { cachePoint: { type: 'default' } }, { text: dynamicText }]
+        : [{ text: withSystem ? userText : `${system}\n\n${userText}` }];
+      return bedrock.send(new ConverseCommand({
+        modelId,
+        ...(withSystem ? { system: [{ text: system }] } : {}),
+        messages: [{ role: 'user', content }],
+        inferenceConfig: withSampling ? { maxTokens, temperature: 0.2, topP: 0.9 } : { maxTokens },
+      }));
+    };
     const withTimeout = (p) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(Object.assign(new Error(`逾時 ${timeoutMs}ms`), { name: 'Timeout' })), timeoutMs))]);
     let rawText = '';
     let usage = null;
@@ -322,16 +344,21 @@ export function createAgentTeam({
       let res;
       const sampling = !noSampling.has(modelId);
       const withSystem = !noSystem.has(modelId);
+      const withCache = Boolean(staticText) && !noCache.has(modelId);
       try {
-        res = await withTimeout(send(sampling, withSystem));
+        res = await withTimeout(send(sampling, withSystem, withCache));
       } catch (e) {
         const msg = String(e?.message || '');
-        if (/temperature|top_?p/i.test(msg)) {
+        if (withCache && /cache|cachePoint/i.test(msg)) {
+          noCache.add(modelId);
+          log(`[${seat}] ${modelId} 不支援 prompt 快取,改送純文字`);
+          res = await withTimeout(send(sampling, withSystem, false));
+        } else if (/temperature|top_?p/i.test(msg)) {
           noSampling.add(modelId);
-          res = await withTimeout(send(false, withSystem));
+          res = await withTimeout(send(false, withSystem, withCache));
         } else if (withSystem && /roles must alternate/i.test(msg)) {
           noSystem.add(modelId);
-          res = await withTimeout(send(sampling, false));
+          res = await withTimeout(send(sampling, false, withCache));
         } else {
           throw e;
         }
@@ -356,7 +383,7 @@ export function createAgentTeam({
       modelId,
       channel: 'bedrock-converse',
       ok: !error,
-      request: { turnText: user.slice(0, 6000), imageCount: 0, messageTurns: 1, systemChars: system.length },
+      request: { turnText: userText.slice(0, 6000), imageCount: 0, messageTurns: 1, systemChars: system.length },
       rawResponse: rawText,
       ...(usage ? { tokens: usage } : {}),
       ...(error ? { error } : {}),
@@ -411,14 +438,17 @@ export function createAgentTeam({
         ? elements.map((e) => `[${e.id}] ${e.label}${e.kind ? `(${e.kind})` : ''}`).join('\n')
         : '(視覺 Agent 沒有列出元件)';
       const sug = suggestion?.action ? `${suggestion.action}${suggestion.target ? ` → ${suggestion.target}` : ''}${suggestion.dir ? ` dir=${suggestion.dir}` : ''}` : '—';
-      // 【排序】固定不變的內容(原則、腳本、操作方式、背景知識)全部放最前面,每步會變的放後面。
-      // 模型端的 prompt 快取是比對前綴的:原本把 controlsPrompt 與 knowledge(最大的兩塊固定內容)
-      // 放在最後面,前綴等於每步都不一樣,實測 18 次呼叫 cacheRead 全是 0,寫進去的快取完全沒用到。
-      const user = [
+      // 【排序】固定不變的內容(原則、腳本、操作方式、背景知識)全部放最前面,每步會變的放後面,
+      // 中間插一個 cachePoint(見 call())。模型端的 prompt 快取是比對前綴的:原本把 controlsPrompt
+      // 與 knowledge(最大的兩塊固定內容)放在最後面,前綴等於每步都不一樣,實測 18 次呼叫 cacheRead
+      // 全是 0,寫進去的快取完全沒用到。
+      const staticText = [
         scripted ? '【最高原則|測項為主】只做下面測試腳本列出的測項,逐項對照預期結果判定通過或失敗。知識庫只是幫你看懂畫面,嚴禁主動延伸去測知識庫提到、但腳本沒列的玩法或功能(例如多轉幾局、刷任務、逛其他頁面)。所有測項都判定完成後,立刻用 done 結束,不要多做。' : '',
         `【測試腳本】\n${scriptText()}`,
         controlsPrompt ? `【這款遊戲的操作方式】\n${controlsPrompt}` : '',
         knowledgeBrief ? `【遊戲類型背景知識(參考)】\n${knowledgeBrief}` : '',
+      ].filter(Boolean).join('\n\n');
+      const dynamicText = [
         `【目前進度】腳本第 ${scriptStep} / ${Math.max(1, steps.length)} 步` +
           (externalProgress ? '(由看得到畫面的視覺 Agent 判定;scriptStep 照填這個數字,只做這一項需要的操作)' : ''),
         plan ? `【上一步】動作:${plan.actionText || '—'};目標:${plan.goal}(預期:${plan.expect || '—'})` : '',
@@ -434,7 +464,7 @@ export function createAgentTeam({
         operator.length ? `【測試人員即時指令(最優先)】\n${operator.map((t) => `- ${t}`).join('\n')}` : '',
         runnerNote ? `【系統狀態】${runnerNote}` : '',
       ].filter(Boolean).join('\n\n');
-      const r = await call('agent', DECIDE_SYSTEM, user, DECIDE_MAX_TOKENS, index, 'agent');
+      const r = await call('agent', DECIDE_SYSTEM, { staticText, dynamicText }, DECIDE_MAX_TOKENS, index, 'agent');
       if (!r || !str(r.action, 12)) return null;
       let cmd = decisionToCommand(r, elements, dims);
       if (cmd && allowedActions?.length && !allowedActions.includes(cmd.action)) cmd = null;
