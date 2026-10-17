@@ -639,6 +639,21 @@ function isRtpTask(task) {
 }
 
 /**
+ * 畫面數值的指紋(只取數字欄位,排序後串起來);沒有任何數字回 ''。
+ * 用於死循環偵測:同一個畫面名重複出現,但數值在變 → 遊戲有回應,不是卡死。
+ * 只看數字是刻意的 —— 布林(bonus/spun)與字串在同一畫面上本來就常常一樣,放進來會讓指紋失去鑑別力。
+ */
+export function numericObsSig(obs) {
+  if (!obs || typeof obs !== 'object') return '';
+  const parts = [];
+  for (const [k, v] of Object.entries(obs)) {
+    const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v.replace(/,/g, '')) : NaN;
+    if (Number.isFinite(n)) parts.push(`${k}=${n}`);
+  }
+  return parts.sort().join('|');
+}
+
+/**
  * 從單句 thinking 文字抓出 { bet, win } 數字配對(若找得到)。數字可能含千分位逗號。
  * 嘗試多種常見描述順序與中英混用寫法,找不到就回 null(該步不計入統計,不當作 0)。
  */
@@ -929,6 +944,18 @@ async function main() {
   // 畫面比原本更晚(更穩),但下一步少掉一次串列的 Appium 取圖。
   const SETTLE_MS = Math.max(0, Number(process.env.PA_SETTLE_MS ?? 1500));
   const REFLEX_SETTLE_MS = Math.max(0, Number(process.env.PA_REFLEX_SETTLE_MS ?? 800));
+  // 【SPIN 迴圈的停輪判定】
+  // 轉軸停了不等於這一局結束 —— 派彩時餘額還會滾動數字 1~2 秒。要讀到正確的餘額/贏分,
+  // 必須「轉軸區」與「畫面下方數字列」兩塊都不動滿 SPIN_STILL_MS 才去讀。
+  // 區域用通用比例(各機台版面相近);門檻 SPIN_STILL_BITS 需按機台校準 —— 結果畫面常有
+  // 中獎線閃爍、角色待機動畫,永遠不會完全靜止,所以是「容許多少晃動」而不是「一動也不動」。
+  const SPIN_REELS_CROP = { x: 0.15, y: 0.22, w: 0.70, h: 0.52 };
+  const SPIN_NUMS_CROP = { x: 0.0, y: 0.82, w: 1.0, h: 0.18 };
+  const SPIN_STILL_MS = Math.max(0, Number(process.env.PA_SPIN_STILL_MS ?? 2000));
+  const SPIN_STILL_BITS = Math.max(0, Number(process.env.PA_SPIN_STILL_BITS ?? 20));
+  const SPIN_MOVED_BITS = Math.max(0, Number(process.env.PA_SPIN_MOVED_BITS ?? 24));
+  const SPIN_POLL_MS = Math.max(0, Number(process.env.PA_SPIN_POLL_MS ?? 250));
+  const SPIN_SETTLE_MAX_MS = Math.max(1000, Number(process.env.PA_SPIN_SETTLE_MAX_MS ?? 20_000));
   // 前景檢查的間隔(步);0 = 每步都查。有風險的步(back / launch / 剛掉出前景)一律會查。
   const FG_EVERY = Math.max(1, Number(process.env.PA_FG_EVERY ?? 4));
   let lastForegroundLost = false;
@@ -985,6 +1012,8 @@ async function main() {
   // App 死循環偵測:某個「畫面名」(如登入失敗彈窗)反覆出現超過此門檻,代表 App 端阻斷
   // (常見:此裝置無 Google/Facebook 登入環境,關掉彈窗又立刻重跳),提早收斂不空轉到步數上限。
   const screenSeen = new Map();
+  // 每個畫面名最近一次的數值指紋(餘額/贏分/下注…);用來分辨「同畫面重複」是卡死還是正常重複玩法。
+  const screenObsSig = new Map();
   const LOOP_ABORT_LIMIT = 8;
   const loopRestarted = new Set(); // 已因「同畫面操作無效」重啟過的畫面(同一畫面只重啟一次)
   // 連續 wait 次數上限:2026-10-02 修正死循環偵測排除 wait 動作後的副作用——純等待不再計入
@@ -2115,10 +2144,22 @@ async function main() {
     // 結果」畫面),這是正常重複玩法(連續多輪 SPIN 本就該停在同畫面名),不是卡死 —— 不該
     // 計入死循環次數,否則玩滿 8 輪 SPIN 就會被誤判成「App 死循環」提早中止整個任務。
     const screenLoopExempt = loopLoadingHint.test(screenNameLower) || slotHint.test(screenNameLower);
+    // 2026-10-17(job-mvc3jedr / job-mvc3knmo):畫面名豁免清單是字串比對,補不完 —— 清單裡有
+    // 「轉軸」但沒有「拉霸」,於是「拉霸轉軸畫面」被豁免、「拉霸結果畫面」沒有,正常玩拉霸
+    // 每局停在結果畫面,連點 8 次 SPIN 就被判死循環、重啟、再 8 次就判失敗(50 局只跑到 18 局)。
+    // 比字串可靠的判準:同一個畫面名重複出現,但畫面上的數值(餘額/贏分/下注)在變,就代表
+    // 遊戲確實在回應,不是卡死。真正的死循環一定是「做了動作,畫面與數值都沒有任何變化」。
+    const obsSig = numericObsSig(cmd.obs);
+    const prevObsSig = screenObsSig.get(screenName);
+    const obsMoved = Boolean(obsSig) && Boolean(prevObsSig) && obsSig !== prevObsSig;
+    if (obsSig) screenObsSig.set(screenName, obsSig);
     // done 不是對畫面的操作:被駁回的 done(例如 AutoSpin 中想提早結束)不能算「操作了沒反應」。
     // 實測 job-mv1oqkmk:Free Spins 畫面 8 次被駁回的 done 被當成死循環 → 重啟遊戲 → 離開機台、累計局數全丟。
     // SPIN 迴圈每局都停在同一個畫面,是預期行為,不算死循環。
-    const countsForLoop = cmd.action !== 'wait' && cmd.action !== 'done' && !screenLoopExempt && cmd.reflex?.kind !== 'spin';
+    const countsForLoop = cmd.action !== 'wait' && cmd.action !== 'done' && !screenLoopExempt
+      && cmd.reflex?.kind !== 'spin' && !obsMoved;
+    // 數值有變 = 這個畫面有進展,先前累積的「操作沒反應」次數不該留著算帳。
+    if (obsMoved && (screenSeen.get(screenName) || 0) > 0) screenSeen.set(screenName, 0);
     const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
     if (countsForLoop) screenSeen.set(screenName, seen);
     // 2026-10-05(job-muv712gs-pvg7ow):NEWBIE MISSION 彈窗在動畫還沒播完時被點了寶箱,之後整個
@@ -2426,22 +2467,49 @@ async function main() {
     // 【SPIN 迴圈】這一步是照記憶按的 SPIN:runner 自己等盤面停下,再只讀數字(不做決策,快又省)。
     if (cmd.reflex?.kind === 'spin' && actOk) {
       const t1 = Date.now();
-      let last = null;
+      let reelsPrev = null;   // 上一張的轉軸區
+      let numsPrev = null;    // 上一張的數字列
       let lastB64 = null;
-      let moved = false;
-      let stable = 0;
-      for (let k = 0; k < 30 && Date.now() - t1 < 20_000; k++) {
-        await sleep(700);
+      let moved = false;      // 轉軸真的轉過(沒轉 = 多半沒按到)
+      let stillSince = null;  // 兩區都不動的起始時刻
+      let stillMs = 0;
+      let samples = 0;
+      let why = 'timeout';
+      // 按下 SPIN 之前的轉軸區(用這一步開頭那張截圖),用來判斷有沒有真的轉動。
+      const reelsBefore = MAGICK ? pHashHex(shot, SPIN_REELS_CROP) : null;
+      for (let k = 0; k < 40 && Date.now() - t1 < SPIN_SETTLE_MAX_MS; k++) {
+        await sleep(SPIN_POLL_MS);
+        // 即時畫面的截圖也走同一條 Appium session,不避讓會互相排隊(實測 shot 從 2.3 秒變 6.4 秒)。
+        for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
         let b64;
-        try { b64 = await client.takeScreenshot(); } catch { break; }
-        const h = MAGICK ? pHashHex(b64) : null;
-        if (curPhash && h && pHashHamming(curPhash, h) > 40) moved = true;
-        stable = last && h && pHashHamming(last, h) <= 8 ? stable + 1 : 0;
-        last = h;
+        liveBusy = true;
+        try { b64 = await client.takeScreenshot(); }
+        catch { break; }
+        finally { liveBusy = false; }
+        samples++;
         lastB64 = b64;
-        // 轉完 = 轉動過、且連續 2 張幾乎不變(約 1.4 秒);3 秒都沒動 → 多半沒按到。
-        if (stable >= 2 && (moved || Date.now() - t1 > 3000)) break;
+        if (!MAGICK) { why = 'no_magick'; break; }
+        const reels = pHashHex(b64, SPIN_REELS_CROP);
+        const nums = pHashHex(b64, SPIN_NUMS_CROP);
+        if (!reels || !nums) continue;
+        if (reelsBefore && pHashHamming(reelsBefore, reels) > SPIN_MOVED_BITS) moved = true;
+        // 「停下來」= 轉軸不動,而且數字列也不動。只看轉軸會在派彩滾動數字的途中就放行,
+        // 讀到滾到一半的餘額(job-mvc3knmo 的 86 局裡 11 局餘額對不上帳就是這樣來的)。
+        const still = reelsPrev && numsPrev
+          && pHashHamming(reelsPrev, reels) <= SPIN_STILL_BITS
+          && pHashHamming(numsPrev, nums) <= SPIN_STILL_BITS;
+        reelsPrev = reels;
+        numsPrev = nums;
+        const now = Date.now();
+        if (!still) { stillSince = null; continue; }
+        if (stillSince === null) stillSince = now;
+        stillMs = now - stillSince;
+        // 以「持續不動的時間」為準,不是「連續幾張圖」—— 取一張圖要 2 秒多,張數換算不出秒數。
+        if (moved && stillMs >= SPIN_STILL_MS) { why = 'still'; break; }
+        // 沒轉動過:多半是沒按到,不必等滿整個靜止窗,早點交還。
+        if (!moved && now - t1 > 4000 && stillMs >= 1500) { why = 'no_move'; break; }
       }
+      console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(${why};取樣 ${samples} 次,靜止 ${stillMs}ms,轉動=${moved})`);
       let reading = null;
       if (lastB64) {
         pendingShot = lastB64; // 下一步直接用這張(不再多等 3 秒)
@@ -2472,13 +2540,18 @@ async function main() {
         if (rtpLoop.misses >= 2) { reflexState.demoted.add(cmd.reflex.key); rtpLoop.handBack = true; }
       }
       if (Number.isFinite(round.balance)) rtpLoop.endBalance = round.balance;
-      step.rtpRound = { ...round, paid: paidRound, moved, ms: Date.now() - t1 };
+      // settle:'still' = 兩區都靜止滿門檻才讀(數字可信);'timeout' / 'no_move' = 沒等到靜止,
+      // 這一局的數字不該拿去做餘額對帳(報告端據此排除,不要當成遊戲算錯帳)。
+      step.rtpRound = { ...round, paid: paidRound, moved, ms: Date.now() - t1, settle: why, stillMs, samples };
       if (reading) {
         step.obs = { ...(step.obs ?? {}),
           ...(Number.isFinite(round.balance) ? { balance: round.balance } : {}),
           ...(Number.isFinite(round.bet) ? { bet: round.bet } : {}),
-          ...(moved ? { win: round.win } : {}) };
+          ...(moved ? { win: round.win } : {}),
+          // spun 讓報告端知道這是「一局的結果」:沒有它,連續兩局數字剛好一樣會被去重合併成一局。
+          ...(paidRound ? { spun: true } : {}) };
       }
+      if (paidRound) step.mechanic = 'spin';
       step.thinking = moved
         ? `[SPIN 迴圈] 第 ${rtpLoop.paid}/${rtpLoop.target} 局${paidRound ? '' : '(免費遊戲中,不算付費局)'}:下注 ${round.bet ?? '?'}、贏分 ${round.win ?? '?'}、餘額 ${round.balance ?? '?'}${bonusNow ? '(免費遊戲 / Bonus)' : ''}。`
         : `[SPIN 迴圈] 點了「${cmd.target}」但盤面沒有轉動(第 ${rtpLoop.misses} 次)。`;

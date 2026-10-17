@@ -85,6 +85,8 @@ export function spinTransactions(steps: EvidenceStep[]): SpinTxn[] {
     if (toNum(o['autospin_left']) !== null) continue;
     // Bonus / Free Spins 期間不扣注、派彩於結算時一次入帳,逐格比對必然「不一致」,不列入逐次交易。
     if (o['bonus'] === true) continue;
+    // runner 明確回報「沒等到畫面靜止」:數字可能讀在派彩滾動途中,不可拿去做餘額對帳。
+    if (s.settled === false) continue;
     const bet = toNum(o['bet']);
     if (bet === null || bet <= 0) continue;
     const spun = o['spun'] === true || s.mechanic === 'spin';
@@ -138,10 +140,23 @@ function toNum(v: unknown): number | null {
   return null;
 }
 
-/** 餘額一致性檢查:balance_n ≈ balance_{n-1} − bet_n + win_n(容差 0.5% 或 1)。 */
-export function balanceChecks(txns: SpinTxn[]): { checked: number; mismatches: SpinTxn[] } {
+/** 讀數誤差門檻:差額超過投注額的這個倍數,就不可能是帳務錯誤,只能是把數字看錯了。 */
+const MISREAD_BET_MULTIPLE = 100;
+
+/**
+ * 餘額一致性檢查:balance_n ≈ balance_{n-1} − bet_n + win_n(容差 0.5% 或 1)。
+ *
+ * 不一致分成兩類,因為數字是 AI 從畫面讀來的,不先分類就無法歸因:
+ * - plausible:差額在投注額的 100 倍內 —— 量級合理,有可能真的是帳務錯誤。
+ * - misread:差額大到不合量級(實測 job-mvc3knmo 讀到 5,681,010,744 → 4,995,863,050 → 1,016,960,
+ *   差額是投注額的數千倍)—— 這是少讀/多讀一位數,不是遊戲算錯帳。
+ * 只有 plausible 才可以升級成遊戲缺陷,否則單純的看錯字會讓整份報告判失敗(AC-G03)。
+ */
+export function balanceChecks(txns: SpinTxn[]): { checked: number; mismatches: SpinTxn[]; plausible: SpinTxn[]; misread: SpinTxn[] } {
   let checked = 0;
   const mismatches: SpinTxn[] = [];
+  const plausible: SpinTxn[] = [];
+  const misread: SpinTxn[] = [];
   for (let i = 1; i < txns.length; i++) {
     const prev = txns[i - 1]!;
     const cur = txns[i]!;
@@ -149,9 +164,13 @@ export function balanceChecks(txns: SpinTxn[]): { checked: number; mismatches: S
     const expected = prev.balance - cur.bet + cur.win;
     const tol = Math.max(1, Math.abs(expected) * 0.005);
     checked++;
-    if (Math.abs(cur.balance - expected) > tol) mismatches.push(cur);
+    const gap = Math.abs(cur.balance - expected);
+    if (gap <= tol) continue;
+    mismatches.push(cur);
+    if (gap > cur.bet * MISREAD_BET_MULTIPLE) misread.push(cur);
+    else plausible.push(cur);
   }
-  return { checked, mismatches };
+  return { checked, mismatches, plausible, misread };
 }
 
 // ───────── 內建計算器 ─────────
