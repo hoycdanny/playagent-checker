@@ -3,22 +3,14 @@ import { apiGet } from '../../api/client.ts';
 import type { RLang } from '../report/reportText.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { AgentLogView, useTraces, type AgentSeat } from './AgentLogView.tsx';
-import { LiveAnalysisView } from './LiveAnalysisView.tsx';
-import { UsageView, type PriceMap } from './UsageView.tsx';
-import type { MetaSeat } from '../../api/useJobStream.ts';
 import type { AudioLevels } from './audioLevels.ts';
 import { buildSoundEvents, type SoundKind, type StepRef } from './soundEvents.ts';
 import { clockOffset, parseLogcat, type LogLine } from './logcat.ts';
 import { fmtClock, lastAtOrBefore } from './timeline.ts';
-import type { TraceLog } from './AgentLogView.tsx';
 import './DeviceLogsPanel.css';
 
 /** 文案:[繁中, English, 简中, 日本語, 한국어](依介面語系)。 */
 const T = {
-  analysis: ["分析", "Analysis", "分析", "分析", "분석"],
-  usage: ["用量", "Usage", "用量", "使用量", "사용량"],
-  analysisHint: ["勾選要追蹤的指標,測試中即時計算(與測試報告同一套指標)", "Track the metrics you pick, calculated live during the test (same metrics as the test report)", "勾选要追踪的指标,测试中实时计算(与测试报告同一套指标)", "選んだ指標をテスト中にリアルタイムで計算(テストレポートと同じ指標)", "선택한 지표를 테스트 중 실시간 계산(테스트 보고서와 같은 지표)"],
-  usageHint: ["每個 Agent 的 Token 用量與估算費用", "Token usage and estimated cost per agent", "每个 Agent 的 Token 用量与估算费用", "Agent ごとのトークン使用量と推定費用", "Agent별 토큰 사용량과 예상 비용"],
   agentNotCalled: ["這次測試的執行程式只會呼叫「視覺 Agent」。這個 Agent 雖然有選模型,但執行時沒有被呼叫,所以沒有紀錄(也不會產生它的費用)。","This run only calls the Vision Agent. A model is selected for this agent, but it is never called during the run, so there are no records (and no cost for it).","这次测试的执行程序只会调用「视觉 Agent」。这个 Agent 虽然选了模型,但执行时没有被调用,所以没有记录(也不会产生它的费用)。","このテストの実行プログラムは「ビジョン Agent」だけを呼び出します。この Agent はモデルが選択されていますが、実行中に呼び出されないため記録はありません(費用も発生しません)。","이번 테스트 실행 프로그램은 \"비전 Agent\"만 호출합니다. 이 Agent는 모델이 선택되어 있지만 실행 중 호출되지 않아 기록이 없습니다(비용도 발생하지 않음)."],
   agentVlm: ["視覺","Vision","视觉","ビジョン","비전"],
   agentMain: ["決策","Decision","决策","判断","결정"],
@@ -306,23 +298,23 @@ async function readAll<I>(jobId: string, kind: string, after: string | undefined
   return { items, ...(cursor ? { cursor } : {}) };
 }
 
-/** 任務詳情頁右欄:真機 log(一直展開,最新在上)。 */
-type Tab = 'logcat' | 'audio' | AgentSeat | 'analysis' | 'usage';
-const TAB_LABEL: Record<Tab, keyof typeof T> = { logcat: 'logcat', audio: 'audio', vlm: 'agentVlm', agent: 'agentMain', subagent: 'agentSub', analysis: 'analysis', usage: 'usage' };
-const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { vlm: 'agentVlmHint', agent: 'agentMainHint', subagent: 'agentSubHint', analysis: 'analysisHint', usage: 'usageHint' };
+/**
+ * 任務詳情頁右欄:真機 log(一直展開,最新在上)。
+ * 「數據分析」與「Token 用量」原本也是這裡的分頁,已拉到任務詳情頁的上層分頁列
+ * (LiveAnalysisView / UsageView),這裡只留逐步的 log 與三個 Agent 的互動紀錄。
+ */
+type Tab = 'logcat' | 'audio' | AgentSeat;
+const TAB_LABEL: Record<Tab, keyof typeof T> = { logcat: 'logcat', audio: 'audio', vlm: 'agentVlm', agent: 'agentMain', subagent: 'agentSub' };
+const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { vlm: 'agentVlmHint', agent: 'agentMainHint', subagent: 'agentSubHint' };
 
 /**
  * 任務詳情頁右欄「日誌檢視」:裝置系統 Log / 音效播放狀態(真機才有)+ 三個 AI Agent 每一步的互動紀錄。
  * device=false(非真機)時只顯示 AI Agent 分頁。lang 保留相容;文案依介面語系(五語)。
  */
-export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [], prices, levels, steps, onSeek, cursor, origin, logcat, summaryTraces, cursorStep }: {
+export function DeviceLogsPanel({ jobId, isLive, device = true, levels, steps, onSeek, cursor, origin, logcat, cursorStep }: {
   jobId: string;
   isLive: boolean;
   device?: boolean;
-  appId?: string;
-  seats?: MetaSeat[];
-  /** 這次可能用到的各模型目前單價(含快取);用量分頁依每筆實際模型計價。 */
-  prices?: PriceMap;
   lang?: RLang;
   /** 錄影聲音時間軸(音效分頁對照「有沒有真的聽到」)。 */
   levels?: AudioLevels | null;
@@ -336,8 +328,6 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
   origin?: number;
   /** 外層已讀好的 logcat(時間軸也要用,避免讀兩次)。 */
   logcat?: DeviceLogState<LogChunk>;
-  /** 外層已讀好的 AI 呼叫精簡紀錄(用量分頁)。 */
-  summaryTraces?: TraceLog[] | null;
   /** 播放頭所在的步驟(AI 分頁標出這一步)。 */
   cursorStep?: number | null;
 }) {
@@ -348,17 +338,15 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
   // 點 AI 紀錄的步驟 → 播放頭跳到那一步開始。
   const stepStart = useMemo(() => new Map((steps ?? []).map((s) => [s.index, s.t])), [steps]);
   const pickStep = onSeek ? (index: number) => { const t = stepStart.get(index); if (t !== undefined) onSeek(t, false); } : undefined;
-  // 順序:裝置 → 音效 → 視覺 → 決策 → 輔助 → 分析 → 用量(視覺 → 決策 → 輔助 = 每一步的執行順序)。
+  // 順序:裝置 → 音效 → 視覺 → 決策 → 輔助(視覺 → 決策 → 輔助 = 每一步的執行順序)。
   // 預設:真機停在裝置;非真機停在視覺。
-  const agentTabs: Tab[] = ['vlm', 'agent', 'subagent', 'analysis', 'usage'];
+  const agentTabs: Tab[] = ['vlm', 'agent', 'subagent'];
   const tabs: Tab[] = device ? ['logcat', 'audio', ...agentTabs] : agentTabs;
   // 頁面剛載入時還不知道是不是真機任務(device 會從 false 變 true):使用者沒點過分頁前,預設跟著 device 走。
   const [picked, setTab] = useState<Tab | null>(null);
   const tab: Tab = picked && tabs.includes(picked) ? picked : device ? 'logcat' : 'vlm';
   const isAgent = tab === 'vlm' || tab === 'agent' || tab === 'subagent';
   const traces = useTraces(jobId, isLive, isAgent, isAgent ? (tab as AgentSeat) : 'summary');
-  const ownUsage = useTraces(jobId, isLive, tab === 'usage' && summaryTraces === undefined, 'summary');
-  const usageTraces = summaryTraces !== undefined ? summaryTraces : ownUsage;
   const hint = TAB_HINT[tab];
   return (
     <div className="devlogs" role="region" aria-labelledby="devlogs-title">
@@ -385,14 +373,6 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, appId, seats = [
         <LogcatView jobId={jobId} log={log} sync={sync} />
       ) : tab === 'audio' ? (
         <AudioView jobId={jobId} isLive={isLive} log={log} sync={sync} {...(levels !== undefined ? { levels } : {})} {...(steps ? { steps } : {})} />
-      ) : tab === 'analysis' ? (
-        <div className="devlogs__agent-wrap">
-          <LiveAnalysisView jobId={jobId} isLive={isLive} {...(appId ? { appId } : {})} loc={loc} />
-        </div>
-      ) : tab === 'usage' ? (
-        <div className="devlogs__agent-wrap">
-          <UsageView traces={usageTraces} seats={seats} {...(prices ? { prices } : {})} loc={loc} />
-        </div>
       ) : (
         <div className="devlogs__agent-wrap">
           <AgentLogView

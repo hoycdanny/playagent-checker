@@ -31,9 +31,13 @@ const T = {
   vlm: ['視覺', 'Vision', '视觉', 'ビジョン', '비전'],
   agentSeat: ['決策', 'Decision', '决策', '判断', '결정'],
   subagent: ['輔助', 'Helper', '辅助', '補助', '보조'],
+  hint: ['每個 Agent 的 Token 用量與估算費用', 'Token usage and estimated cost per agent', '每个 Agent 的 Token 用量与估算费用', 'Agent ごとのトークン使用量と推定費用', 'Agent별 토큰 사용량과 예상 비용'],
 } as const satisfies Record<string, L5>;
 const LOC_IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
 const tx = (k: keyof typeof T, loc: string): string => (T[k] as L5)[LOC_IDX[loc] ?? 1] ?? T[k][1];
+
+/** 分頁說明(由分頁列的擁有者顯示;面板本身在載入中/空資料時會提早回傳,放不進去)。 */
+export const usageHint = (loc: string): string => tx('hint', loc);
 
 const SEATS: AgentSeat[] = ['vlm', 'agent', 'subagent'];
 const SEAT_LABEL: Record<AgentSeat, keyof typeof T> = { vlm: 'vlm', agent: 'agentSeat', subagent: 'subagent' };

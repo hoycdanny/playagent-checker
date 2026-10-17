@@ -29,9 +29,13 @@ const T = {
   error: ['暫時無法計算指標', 'Could not calculate metrics', '暂时无法计算指标', '指標を計算できませんでした', '지표를 계산할 수 없습니다'],
   selected: ['已追蹤 {n} 項', '{n} tracked', '已追踪 {n} 项', '{n} 件を追跡中', '{n}개 추적 중'],
   clear: ['全部取消', 'Clear all', '全部取消', 'すべて解除', '모두 해제'],
+  hint: ['勾選要追蹤的指標,測試中即時計算(與測試報告同一套指標)', 'Track the metrics you pick, calculated live during the test (same metrics as the test report)', '勾选要追踪的指标,测试中实时计算(与测试报告同一套指标)', '選んだ指標をテスト中にリアルタイムで計算(テストレポートと同じ指標)', '선택한 지표를 테스트 중 실시간 계산(테스트 보고서와 같은 지표)'],
 } as const satisfies Record<string, L5>;
 const LOC_IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
 const tx = (k: keyof typeof T, loc: string): string => (T[k] as L5)[LOC_IDX[loc] ?? 1] ?? T[k][1];
+
+/** 分頁說明(由分頁列的擁有者顯示;面板本身在載入中/空資料時會提早回傳,放不進去)。 */
+export const analysisHint = (loc: string): string => tx('hint', loc);
 
 const GROUP: Record<string, L5> = {
   summary: ['總覽', 'Summary', '总览', '概要', '요약'],

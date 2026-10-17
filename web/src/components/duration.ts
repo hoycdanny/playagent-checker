@@ -56,8 +56,8 @@ export function formatDuration(ms: number | null): string {
  * 耗時 → 時鐘格式「0:45」「3:20」「1:02:05」;算不出來回「—」。
  * 任務詳情頁的啟動時間軸用這個格式,列表的操作時間欄也用同一個,兩邊字串完全一樣。
  */
-export function fmtDur(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '—';
+export function fmtDur(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return '—';
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);

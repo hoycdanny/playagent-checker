@@ -1411,9 +1411,20 @@
 }
 .dstage__feed > .mfeed,
 .dstage__trace,
-.dstage__logs {
+.dstage__logs,
+.dstage__panel {
   flex: 1 1 0;
   min-height: 0;
+}
+/* 數據分析 / Token 用量:說明一行 + 面板自己捲動(與「腳本與執行資訊」同一個行為) */
+.dstage__panel {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.dstage__panel > .devlogs__muted {
+  margin: 0;
 }
 .dstage__trace {
   display: flex;

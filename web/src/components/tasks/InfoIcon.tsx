@@ -1,6 +1,7 @@
 /** 任務詳情用的小型線條 icon(24 格、currentColor;純裝飾,一律 aria-hidden)。 */
 export type InfoIconName =
   | 'target'
+  | 'chart'
   | 'book'
   | 'phone'
   | 'phoneL'
@@ -57,6 +58,7 @@ export type InfoIconName =
 
 const PATHS: Record<InfoIconName, string[]> = {
   target: ['M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z', 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z', 'M12 12h.01'],
+  chart: ['M4 3v18h17', 'M8 17v-5M13 17V8M18 17v-9'],
   book: ['M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14Z', 'M4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5'],
   phone: ['M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z', 'M11 18h2'],
   phoneL: ['M2 7a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7Z', 'M18 11v2'],

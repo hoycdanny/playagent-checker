@@ -26,6 +26,9 @@ import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.t
 import { reportLang, type RLang } from '../components/report/reportText.ts';
 import { outcomeKey, outcomeOf, outcomeTip } from '../components/outcome.ts';
 import { MemoryUsagePanel, StepMemoryChips } from '../components/tasks/MemoryUsagePanel.tsx';
+// 數據分析 / Token 用量:原本是「完整日誌」裡的子分頁,現在是這一層的分頁。
+import { LiveAnalysisView, analysisHint } from '../components/tasks/LiveAnalysisView.tsx';
+import { UsageView, usageHint } from '../components/tasks/UsageView.tsx';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -82,6 +85,8 @@ const PT = {
   tabMoment: ['即時日誌', 'Live log'],
   tabTrace: ['執行軌跡', 'Steps'],
   tabLogs: ['完整日誌', 'Full logs'],
+  tabAnalysis: ['數據分析', 'Metrics'],
+  tabUsage: ['Token 用量', 'Token usage'],
   tabAsk: ['AI 問答', 'Ask AI'],
   tabAgent: ['與畫面互動', 'Interact with screen'],
   tabScript: ['腳本與執行資訊', 'Script & run info'],
@@ -128,17 +133,22 @@ export function bootText(backend: string | undefined, lang: RLang): { title: str
   };
 }
 
-/** 右側分頁:AI 互動三個 + 這一刻三個(直向時合成一排)。 */
-type PaneTab = 'ask' | 'agent' | 'script' | 'moment' | 'trace' | 'logs';
+/** 右側分頁:AI 互動三個 + 這一刻五個(直向時合成一排)。 */
+type PaneTab = 'ask' | 'agent' | 'script' | 'moment' | 'trace' | 'logs' | 'analysis' | 'usage';
 type ChatTab = 'ask' | 'agent' | 'script';
-type FeedTab = 'moment' | 'trace' | 'logs';
+type FeedTab = 'moment' | 'trace' | 'logs' | 'analysis' | 'usage';
 const CHAT_TABS: readonly ChatTab[] = ['ask', 'agent', 'script'];
-/** 右邊框的分頁順序:即時日誌 · 完整日誌 · 執行軌跡 · AI 問答 · 腳本與執行資訊(· 直向再加與 Agent 互動)。 */
-const RIGHT_TABS_LANDSCAPE: readonly PaneTab[] = ['moment', 'logs', 'trace', 'ask', 'script'];
+/**
+ * 右邊框的分頁順序:即時日誌 · 完整日誌 · 執行軌跡 · 數據分析 · Token 用量 · AI 問答 ·
+ * 腳本與執行資訊(· 直向再加與 Agent 互動)。
+ * 數據分析與 Token 用量原本埋在「完整日誌」裡當子分頁(要點兩層才看得到),拉上來跟其他
+ * 看資料的分頁並排;會問問題的三個(AI 問答 / 與畫面互動 / 腳本)留在後面。
+ */
+const RIGHT_TABS_LANDSCAPE: readonly PaneTab[] = ['moment', 'logs', 'trace', 'analysis', 'usage', 'ask', 'script'];
 const RIGHT_TABS_PORTRAIT: readonly PaneTab[] = [...RIGHT_TABS_LANDSCAPE, 'agent'];
 const isChatTab = (k: PaneTab): k is ChatTab => (CHAT_TABS as readonly string[]).includes(k);
-const TAB_ICON = { ask: 'sparkle', agent: 'msg', script: 'script', moment: 'pulse', trace: 'list', logs: 'term' } as const;
-const TAB_TEXT = { ask: 'tabAsk', agent: 'tabAgent', script: 'tabScript', moment: 'tabMoment', trace: 'tabTrace', logs: 'tabLogs' } as const;
+const TAB_ICON = { ask: 'sparkle', agent: 'msg', script: 'script', moment: 'pulse', trace: 'list', logs: 'term', analysis: 'chart', usage: 'coin' } as const;
+const TAB_TEXT = { ask: 'tabAsk', agent: 'tabAgent', script: 'tabScript', moment: 'tabMoment', trace: 'tabTrace', logs: 'tabLogs', analysis: 'tabAnalysis', usage: 'tabUsage' } as const;
 
 export default function TaskDetailPage() {
   const { t, locale } = useI18n();
@@ -622,20 +632,35 @@ export default function TaskDetailPage() {
                   jobId={jobId}
                   isLive={isLive}
                   device={isDevice}
-                  {...(appId ? { appId } : {})}
-                  seats={meta?.seats ?? []}
-                  {...(meta?.prices ? { prices: meta.prices } : {})}
                   levels={audioLevels}
                   steps={soundStepRefs}
                   onSeek={seekTo}
                   cursor={cursor}
                   origin={timeline.origin}
                   {...(isDevice ? { logcat } : {})}
-                  summaryTraces={summaryTraces}
                   cursorStep={cursorStep}
                 />
               </div>
             ) : null
+          ) : midTab === 'analysis' ? (
+            // 數據分析:勾選的指標,測試中每 10 秒重算(與測試報告同一套指標)。
+            jobId ? (
+              <div className="dstage__panel">
+                <p className="devlogs__muted">{analysisHint(locale)}</p>
+                <LiveAnalysisView jobId={jobId} isLive={isLive} {...(appId ? { appId } : {})} loc={locale} />
+              </div>
+            ) : null
+          ) : midTab === 'usage' ? (
+            // Token 用量:每個 Agent 的 token 與估算費用(summaryTraces 外層已讀好,不重讀)。
+            <div className="dstage__panel">
+              <p className="devlogs__muted">{usageHint(locale)}</p>
+              <UsageView
+                traces={summaryTraces}
+                seats={meta?.seats ?? []}
+                {...(meta?.prices ? { prices: meta.prices } : {})}
+                loc={locale}
+              />
+            </div>
           ) : (
           <div className="dstage__trace">
           {loading && steps.length === 0 ? (

@@ -100,52 +100,12 @@ describe('DeviceLogsPanel', () => {
   });
 });
 
-describe('analysis + usage tabs', () => {
-  it('tab order: device, sound, vision, decision, helper, analysis, usage', () => {
+describe('tabs', () => {
+  // 「分析」「用量」已移出成任務詳情頁的上層分頁(見 analysisUsage.test.tsx),
+  // 這裡只剩逐步的 log 與三個 Agent 的互動紀錄。
+  it('tab order: device, sound, vision, decision, helper', () => {
     apiGet.mockResolvedValue({ items: [], more: false });
     render(<I18nProvider><DeviceLogsPanel jobId="job-1" isLive={false} /></I18nProvider>);
-    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Device', 'Sound', 'Vision', 'Decision', 'Helper', 'Analysis', 'Usage']);
-  });
-
-  it('analysis: pick a metric → shows its live value; selection is remembered per app', async () => {
-    localStorage.clear();
-    apiGet.mockImplementation(async (p: string) => p.endsWith('/live-metrics')
-      ? { stepCount: 12, final: false, at: '', metrics: [
-        { id: 'spin_count', label: { zh: '轉數', en: 'Spins' }, unit: 'count', group: 'genre', source: 'objective', value: 42, status: 'ok', profile: 'slot' },
-        { id: 'fps_avg', label: { zh: '平均 FPS', en: 'Avg FPS' }, unit: '', group: 'performance', source: 'objective', value: null, status: 'not_collected', profile: 'global' },
-      ] }
-      : { items: [], more: false });
-    render(<I18nProvider><DeviceLogsPanel jobId="job-1" isLive={false} appId="app-9" /></I18nProvider>);
-    fireEvent.click(screen.getByRole('tab', { name: 'Analysis' }));
-    await waitFor(() => expect(screen.getByLabelText('Spins')).toBeTruthy());
-    fireEvent.click(screen.getByLabelText('Spins'));
-    fireEvent.click(screen.getByLabelText('Avg FPS'));
-    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
-    expect(screen.getByText('42')).toBeTruthy();
-    expect(screen.getByText('Not collected yet')).toBeTruthy();
-    expect(JSON.parse(localStorage.getItem('pa.trackedMetrics.app-9')!)).toEqual(['spin_count', 'fps_avg']);
-  });
-
-  it('usage: tokens and cost per agent from the summary traces', async () => {
-    apiGet.mockImplementation(async (p: string) => p.includes('summary=1')
-      ? { items: [
-        { index: 0, seat: 'vlm', ok: true, tokens: { input: 1000, output: 100 } },
-        { index: 0, seat: 'agent', ok: true, tokens: { input: 500, output: 50 } },
-        { index: 1, seat: 'vlm', ok: false, tokens: { input: 1000, output: 100 } },
-      ] }
-      : { items: [], more: false });
-    const seats = [
-      { seat: 'vlm', modelId: 'm-v', inputPerM: 1, outputPerM: 10 },
-      { seat: 'agent', modelId: 'm-a', inputPerM: 0.1, outputPerM: 1 },
-    ];
-    render(<I18nProvider><DeviceLogsPanel jobId="job-1" isLive={false} seats={seats} /></I18nProvider>);
-    fireEvent.click(screen.getByRole('tab', { name: 'Usage' }));
-    await waitFor(() => expect(screen.getByText('Total')).toBeTruthy());
-    const row = (name: string) => screen.getByRole('rowheader', { name }).closest('tr')!.textContent;
-    expect(row('Vision')).toContain('2,000');
-    expect(row('Vision')).toContain('Failed 1');
-    expect(row('Vision')).toContain('$0.0040');
-    expect(row('Decision')).toContain('500');
-    expect(row('Total')).toContain('2,500');
+    expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Device', 'Sound', 'Vision', 'Decision', 'Helper']);
   });
 });
