@@ -45,6 +45,7 @@ import { createSession, setupDeviceFarmSession } from './deviceFarmSetup.mjs';
 import { createObsGuard } from './obsGuard.mjs';
 import { createLiveVideo, recordSize } from './liveVideo.mjs';
 import { createSlotVideoCapture } from './slotVideoCapture.mjs';
+import { createSpinSettle } from './spinSettle.mjs';
 import { createMediaRecorder } from './mediaAudio.mjs';
 import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
@@ -987,6 +988,33 @@ async function main() {
   };
   /** SPIN 迴圈還有局數沒轉完:這時 AI 說「全部完成」一律不採用(局數以系統計數為準)。 */
   const spinLoopPending = () => rtpLoop.target > 0 && !rtpLoop.done;
+  // 停輪判定要盯的區域(每步依截圖方向更新;影片判定與截圖退路共用同一組)。
+  let spinRois = SPIN_CROPS_PORTRAIT;
+  /**
+   * 即時錄影:分段同時餵給「逐局盤面擷取」與「停輪判定」(兩者都只讀分段,不改內容)。
+   * 開新連線時也用同一份設定(長時模式換連線後要繼續餵)。
+   */
+  const makeLiveVideo = () => {
+    const consumers = [
+      ...(slotCapture ? [(seg) => slotCapture.onSegment({ ...seg, session: segment })] : []),
+      ...(spinSettle ? [(seg) => spinSettle.onSegment(seg)] : []),
+    ];
+    return createLiveVideo({
+      client, put: s3put, prefix: PREFIX, size: recordSize(w, h),
+      ...(consumers.length
+        ? { preserveBacklog: true, onSegment: (seg) => { for (const f of consumers) f(seg); } }
+        : {}),
+      log: (m) => console.log(m),
+    });
+  };
+  // 【停輪判定:影片版】RTP 任務才建。用即時錄影的影格判斷靜止,不佔 Appium 連線。
+  const spinSettle = rtpLoop.target > 0
+    ? createSpinSettle({
+      rois: () => [spinRois.reels, spinRois.nums],
+      threshold: Number(process.env.PA_SPIN_MOTION_DELTA) || 2.5,
+      log: (m) => console.log(m),
+    })
+    : null;
   if (REFLEX_ON) console.log(`[記憶腳本] 啟用(App 版本 ${appVersion || '未知'})${rtpLoop.target ? `;SPIN 迴圈目標 ${rtpLoop.target} 局` : ''}`);
   let system = buildSystemPrompt(w, h, knowledge, MAGICK, evidence, controls, vlmCoordSystem)
     + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
@@ -1094,11 +1122,7 @@ async function main() {
   let liveVideo = null;
   if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
     try {
-      liveVideo = createLiveVideo({
-        client, put: s3put, prefix: PREFIX, size: recordSize(w, h),
-        ...(slotCapture ? { preserveBacklog: true, onSegment: (seg) => slotCapture.onSegment({ ...seg, session: segment }) } : {}),
-        log: (m) => console.log(m),
-      });
+      liveVideo = makeLiveVideo();
       await liveVideo.start();
     } catch (e) {
       console.warn('[live-video] 無法啟動,改用截圖輪播:', e?.message || e);
@@ -1219,13 +1243,12 @@ async function main() {
     } catch { /* 用原尺寸 */ }
     if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
       try {
-        liveVideo = createLiveVideo({
-        client, put: s3put, prefix: PREFIX, size: recordSize(w, h),
-        ...(slotCapture ? { preserveBacklog: true, onSegment: (seg) => slotCapture.onSegment({ ...seg, session: segment }) } : {}),
-        log: (m) => console.log(m),
-      });
+        liveVideo = makeLiveVideo();
         await liveVideo.start();
-      } catch (e) { console.warn('[live-video] 新連線無法啟動,改用截圖輪播:', e?.message || e); liveVideo = null; }
+      } catch (e) {
+        console.warn('[live-video] 換新連線後無法啟動,改用截圖輪播:', e?.message || e);
+        liveVideo = null;
+      }
     }
     liveTimer = setInterval(liveTick, 400);
     if (liveTimer.unref) liveTimer.unref();
@@ -1417,6 +1440,8 @@ async function main() {
       spaceDims = [origW, origH];
     }
     lastSpace = { cw, ch, origW, origH };
+    // 停輪判定的區域跟著畫面方向(遊戲可能中途轉向)。
+    spinRois = spinCrops(origW, origH);
     if (i === 0 && space) console.log('座標空間 裝置=', space.shot, 'window=', space.win, 'smart-resize(給模型)=', `${cw}x${ch}`, ds.format, `${Math.round(ds.bytes / 1024)}KB`);
     // 方向偵測(僅用於提示模型重新評估版面;不影響座標換算)。
     const isLandscape = origW > origH;
@@ -2505,7 +2530,22 @@ async function main() {
       let stillMs = 0;
       let samples = 0;
       let why = 'timeout';
-      const { reels: SPIN_REELS_CROP, nums: SPIN_NUMS_CROP } = spinCrops(origW, origH);
+      const { reels: SPIN_REELS_CROP, nums: SPIN_NUMS_CROP } = spinRois;
+      // 【影片判定】優先用已經在錄的即時錄影判斷停輪(見 spinSettle.mjs):每秒 10 個樣本、
+      // 不佔 Appium 連線,「靜止 2 秒」就是真的 2 秒。確認停好之後才取一張圖來讀數字。
+      // 截圖輪詢(下面的 else)留作沒有錄影時的退路 —— 它一個樣本要 5 秒多,量不出 2 秒的窗口
+      // (job-mvch7zri:每局等 16~23 秒,回報的靜止時間都是 5~6 秒)。
+      if (spinSettle?.healthy()) {
+        const r = await spinSettle.waitSettled({ after: t1, stillMs: SPIN_STILL_MS, timeoutMs: SPIN_SETTLE_MAX_MS, sleep });
+        why = r.reason;
+        moved = Boolean(r.movedAt);
+        stillMs = Math.round(r.stillMs);
+        for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
+        liveBusy = true;
+        try { lastB64 = await client.takeScreenshot(); } catch { lastB64 = null; } finally { liveBusy = false; }
+        samples = 1;
+        console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(影片判定 ${why};靜止 ${stillMs}ms,影片落後 ${Math.max(0, Math.round((Date.now() - t1 - r.covered) / 100) / 10)}s,轉動=${moved})`);
+      } else {
       // 按下 SPIN 之前的轉軸區(用這一步開頭那張截圖),用來判斷有沒有真的轉動。
       const reelsBefore = MAGICK ? pHashHex(shot, SPIN_REELS_CROP) : null;
       for (let k = 0; k < 40 && Date.now() - t1 < SPIN_SETTLE_MAX_MS; k++) {
@@ -2540,7 +2580,8 @@ async function main() {
         // 沒轉動過:多半是沒按到,不必等滿整個靜止窗,早點交還。
         if (!moved && now - t1 > 4000 && stillMs >= 1500) { why = 'no_move'; break; }
       }
-      console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(${why};取樣 ${samples} 次,靜止 ${stillMs}ms,轉動=${moved})`);
+      console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(截圖輪詢 ${why};取樣 ${samples} 次,靜止 ${stillMs}ms,轉動=${moved})`);
+      }
       let reading = null;
       if (lastB64) {
         pendingShot = lastB64; // 下一步直接用這張(不再多等 3 秒)
