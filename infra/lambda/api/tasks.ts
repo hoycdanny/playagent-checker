@@ -414,6 +414,11 @@ export interface TaskListItem {
   deviceModel?: string;
   /** 結束時間(報告產生時間;無報告則取最後狀態更新)。 */
   finishedAt?: string;
+  /**
+   * AI 開始操作遊戲的時間(= 詳情頁啟動時間軸上「測試中」那一段的起點)。
+   * 用 finishedAt − runStartedAt 可得「扣掉排隊、開機、連線」的純操作時間。
+   */
+  runStartedAt?: string;
   /** 執行時的案例版本號(功能上線前的舊任務無此欄位)。 */
   caseVersion?: string;
   /** 執行時的案例名稱快照。 */
@@ -519,7 +524,7 @@ export async function listJobs(
       if (!job) return null;
       // status(狀態)、report(花費/模型)、config(各角色模型)併發讀取,避免序列往返拖慢列表。
       const [status, report, config, savedVerdict] = await Promise.all([
-        readJson<{ state: TaskState; updatedAt: string; steps?: number; message?: string }>(
+        readJson<{ state: TaskState; updatedAt: string; steps?: number; message?: string; boot?: BootProgress }>(
           s3,
           bucket,
           statusKeyFor(tenantId, job.jobId),
@@ -587,6 +592,12 @@ export async function listJobs(
           : typeof status?.steps === 'number'
             ? status.steps
             : undefined;
+      // 「AI 開始操作遊戲」的時間點 —— 任務詳情頁時間軸上「測試中」那一段的起點。
+      // 主來源是 runner 寫的 boot.at.run(explorationRunner 的 bootPhase('run'));
+      // web runner 不寫 boot,退回報告裡第一步的時間(= AI 的第一個動作),結果一樣。
+      // 注意:長時任務換段時 bootPhase 不會覆寫既有的 at.run,所以這個起點是第一段的,
+      // 與詳情頁同一個值(換段的重新配機時間也算在操作時間內)。
+      const runStartedAt = status?.boot?.at?.run ?? report?.steps?.[0]?.at;
       const item: TaskListItem = {
         jobId: job.jobId,
         backend: job.backend,
@@ -606,6 +617,7 @@ export async function listJobs(
         ...((report?.task ?? job.caseTask) ? { task: String(report?.task ?? job.caseTask).slice(0, 200) } : {}),
         ...((report?.deviceModel ?? job.deviceModel) ? { deviceModel: report?.deviceModel ?? job.deviceModel } : {}),
         ...((report?.generatedAt ?? status?.updatedAt) ? { finishedAt: report?.generatedAt ?? status?.updatedAt } : {}),
+        ...(runStartedAt ? { runStartedAt } : {}),
         ...(job.caseVersion ? { caseVersion: job.caseVersion } : {}),
         ...(job.caseName ? { caseName: job.caseName } : {}),
         ...(job.submittedBy ? { submittedBy: job.submittedBy } : {}),
@@ -809,6 +821,8 @@ interface ReportShape {
   message?: string;
   /** 報告產生時間(= 任務結束時間)。 */
   generatedAt?: string;
+  /** 每一步的紀錄;列表只用第一步的 at 回推「AI 開始操作」的時間。 */
+  steps?: Array<{ at?: string }>;
 }
 
 /** runner 寫在 status.json 的啟動進度(Device Farm 開機時間軸)。 */

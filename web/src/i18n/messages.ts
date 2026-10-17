@@ -423,8 +423,9 @@ export type MessageKey =
   | 'tasks.colCreated'
   | 'tasks.submittedBy'
   | 'tasks.colSteps'
-  | 'tasks.colDurationTip'
-  | 'tasks.durationRunning'
+  | 'tasks.colRunTime'
+  | 'tasks.colRunTimeTip'
+  | 'tasks.runTimeRunning'
   | 'tasks.colCost'
   | 'tasks.colModel'
   | 'tasks.costEstimatedShort'
@@ -1110,8 +1111,9 @@ const zhHant: Catalog = {
   'tasks.colCreated': '建立時間',
   'tasks.submittedBy': '送出者',
   'tasks.colSteps': '步數',
-  'tasks.colDurationTip': '從建立到結束的總時間,含排隊與裝置開機,不只是 AI 操作的時間。',
-  'tasks.durationRunning': '還在執行,這是到目前為止經過的時間。',
+  'tasks.colRunTime': '操作時間',
+  'tasks.colRunTimeTip': 'AI 實際操作遊戲的時間,已扣掉排隊、開機與連線。與任務詳情頁時間軸上「測試中」那一段同一個數字。',
+  'tasks.runTimeRunning': '還在執行,這是到目前為止的操作時間。',
   'tasks.colCost': '花費',
   'tasks.colModel': '模型',
   'tasks.costEstimatedShort': '估',
@@ -1797,8 +1799,9 @@ const en: Catalog = {
   'tasks.colCreated': 'Created',
   'tasks.submittedBy': 'Submitted by',
   'tasks.colSteps': 'Steps',
-  'tasks.colDurationTip': 'Total time from creation to finish, including queueing and device boot — not just the AI run.',
-  'tasks.durationRunning': 'Still running; this is the time elapsed so far.',
+  'tasks.colRunTime': 'Run time',
+  'tasks.colRunTimeTip': 'Time the AI actually spent playing, with queueing, boot and connection excluded. Same number as the "Testing" stage on the task detail page.',
+  'tasks.runTimeRunning': 'Still running; this is the run time so far.',
   'tasks.colCost': 'Cost',
   'tasks.colModel': 'Model',
   'tasks.costEstimatedShort': 'est.',
@@ -2488,8 +2491,9 @@ const zhHans: Catalog = {
   'tasks.colCreated': '创建时间',
   'tasks.submittedBy': '提交者',
   'tasks.colSteps': '步数',
-  'tasks.colDurationTip': '从创建到结束的总时间,含排队与设备开机,不只是 AI 操作的时间。',
-  'tasks.durationRunning': '仍在执行,这是到目前为止经过的时间。',
+  'tasks.colRunTime': '操作时间',
+  'tasks.colRunTimeTip': 'AI 实际操作游戏的时间,已扣掉排队、开机与连线。与任务详情页时间轴上「测试中」那一段是同一个数字。',
+  'tasks.runTimeRunning': '仍在执行,这是到目前为止的操作时间。',
   'tasks.colCost': '花费',
   'tasks.colModel': '模型',
   'tasks.costEstimatedShort': '估',
@@ -3174,8 +3178,9 @@ const ja: Catalog = {
   'tasks.colCreated': '作成日時',
   'tasks.submittedBy': '送信者',
   'tasks.colSteps': 'ステップ',
-  'tasks.colDurationTip': '作成から終了までの合計時間です。待機時間とデバイス起動も含み、AI の操作時間だけではありません。',
-  'tasks.durationRunning': '実行中です。現時点までの経過時間を表示しています。',
+  'tasks.colRunTime': '操作時間',
+  'tasks.colRunTimeTip': 'AI が実際にゲームを操作した時間です。待機・起動・接続は除いています。タスク詳細の「テスト中」の区間と同じ数値です。',
+  'tasks.runTimeRunning': '実行中です。現時点までの操作時間を表示しています。',
   'tasks.colCost': '費用',
   'tasks.colModel': 'モデル',
   'tasks.costEstimatedShort': '概算',
@@ -3861,8 +3866,9 @@ const ko: Catalog = {
   'tasks.colCreated': '생성 시간',
   'tasks.submittedBy': '제출자',
   'tasks.colSteps': '단계',
-  'tasks.colDurationTip': '생성부터 종료까지의 총 시간입니다. 대기와 기기 부팅을 포함하므로 AI 실행 시간만은 아닙니다.',
-  'tasks.durationRunning': '아직 실행 중이며, 현재까지 경과한 시간입니다.',
+  'tasks.colRunTime': '조작 시간',
+  'tasks.colRunTimeTip': 'AI가 실제로 게임을 조작한 시간이며 대기, 부팅, 연결은 제외했습니다. 작업 상세의 "테스트 중" 구간과 같은 값입니다.',
+  'tasks.runTimeRunning': '아직 실행 중이며, 현재까지의 조작 시간입니다.',
   'tasks.colCost': '비용',
   'tasks.colModel': '모델',
   'tasks.costEstimatedShort': '추정',

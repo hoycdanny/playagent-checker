@@ -2,6 +2,9 @@ import { useEffect, useState } from 'react';
 import type { BootPhase, BootProgress } from '../../api/useJobStream.ts';
 import type { RLang } from '../report/reportText.ts';
 import { InfoIcon, type InfoIconName } from './InfoIcon.tsx';
+// 時鐘格式與任務列表的「操作時間」欄共用,同一個任務兩邊看到的字串一致。
+export { fmtDur } from '../duration.ts';
+import { fmtDur } from '../duration.ts';
 
 /**
  * 即時畫面上方的啟動時間軸:Device Farm 開機各階段(icon + 耗時)與總計時。
@@ -34,21 +37,18 @@ const OPEN_KEY = 'pa.bootTimelineOpen';
 
 const TERMINAL = new Set(['pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead']);
 
-export function fmtDur(ms: number): string {
-  if (!Number.isFinite(ms) || ms < 0) return '—';
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const ss = String(s % 60).padStart(2, '0');
-  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
-}
-
 const ms = (iso?: string) => (iso ? Date.parse(iso) : NaN);
 
-export function BootTimeline({ boot, createdAt, updatedAt, state, backend, lang }: {
+export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, backend, lang }: {
   boot?: BootProgress;
   createdAt?: string;
   updatedAt?: string;
+  /**
+   * 第一步的時間 —— 只有 web runner 不寫 boot(沒有開機/連線階段可報),
+   * 這時用「AI 的第一個動作」當測試開始,否則 web 任務永遠看不到測試耗時。
+   * 列表的「操作時間」欄用同一個回退(見 duration.ts / listJobs 的 runStartedAt)。
+   */
+  firstStepAt?: string;
   state: string;
   backend?: string;
   lang: RLang;
@@ -82,7 +82,7 @@ export function BootTimeline({ boot, createdAt, updatedAt, state, backend, lang 
     upload: ms(boot?.at?.upload),
     device: ms(boot?.at?.device),
     connect: ms(boot?.at?.connect),
-    run: ms(boot?.at?.run),
+    run: ms(boot?.at?.run ?? firstStepAt),
   };
   const isDeviceFarm = backend === 'devicefarm' || !!boot;
   const stages = isDeviceFarm ? STAGES : STAGES.filter((s) => s.id === 'queue' || s.id === 'run');

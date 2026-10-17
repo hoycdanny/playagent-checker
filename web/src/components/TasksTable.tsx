@@ -7,7 +7,7 @@ import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome.ts';
 import { usd4 } from './money.ts';
-import { formatDuration, taskDurationMs } from './duration.ts';
+import { fmtDur, formatDuration, taskDurationMs, taskRunDurationMs } from './duration.ts';
 import UserTag from './UserTag.tsx';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
@@ -22,6 +22,8 @@ export interface TaskRow {
   updatedAt?: string;
   /** 結束時間(報告產生時間;無報告則為最後狀態更新)。 */
   finishedAt?: string;
+  /** AI 開始操作遊戲的時間 —— 操作時間欄的起點(見 duration.ts)。 */
+  runStartedAt?: string;
   vlmModel?: string;
   seatModels?: { agent?: string; vlm?: string; subagent?: string };
   billableSpendUsd?: number;
@@ -86,6 +88,9 @@ export default function TasksTable({
   const { t, locale } = useI18n();
   const navigate = useNavigate();
   const sel = selectedIds ?? new Set<string>();
+  // 執行中的任務沒有結束時間,操作時間算到「現在」。整張表取同一個時間點,
+  // 每列才不會各自落在不同毫秒;值隨呼叫端重新取清單而更新。
+  const now = Date.now();
 
   const renderModel = (modelId: string | undefined) =>
     modelId ? (
@@ -117,8 +122,8 @@ export default function TasksTable({
           <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
           <th className="tasks__col-icon">{t('tasks.colLocality')}</th>
           <th className="tasks__col-steps">{t('tasks.colSteps')}</th>
-          {/* 欄位順序與報告列表一致:步數 → 耗時 → 花費 */}
-          <th className="tasks__duration" title={t('tasks.colDurationTip')}>{t('reports.col.duration')}</th>
+          {/* 欄位順序與報告列表一致:步數 → 操作時間 → 花費 */}
+          <th className="tasks__duration" title={t('tasks.colRunTimeTip')}>{t('tasks.colRunTime')}</th>
           <th>{t('tasks.colCost')}</th>
           <th title={t('tasks.roleAgentHint')}>{t('tasks.roleAgent')}</th>
           <th title={t('tasks.roleVlmHint')}>{t('tasks.roleVlm')}</th>
@@ -197,16 +202,24 @@ export default function TasksTable({
                   <span className="tasks__muted-cell">—</span>
                 )}
               </td>
-              {/* 耗時:終局 = 總時間;執行中 = 到目前為止(隨輪詢更新),用 ~ 標示還在跑。 */}
+              {/* 操作時間:AI 真的在操作遊戲的那段(扣掉排隊、開機、連線)。
+                  = 任務詳情頁時間軸上「測試中」那一段,格式也用同一個 fmtDur。
+                  還沒開始操作 → 「—」;執行中 → 加 ~(到目前為止,下次輪詢才更新)。
+                  總耗時(含開機)放在 title 裡,需要時滑過去看。 */}
               <td className="tasks__duration">
                 {(() => {
-                  const ms = taskDurationMs(x);
-                  if (ms === null) return <span className="tasks__muted-cell">—</span>;
+                  const runMs = taskRunDurationMs(x, now);
+                  if (runMs === null) return <span className="tasks__muted-cell">—</span>;
                   const running = !TERMINAL_STATES.has(x.state);
+                  const total = taskDurationMs(x);
+                  const tip = [
+                    running ? t('tasks.runTimeRunning') : t('tasks.colRunTimeTip'),
+                    total === null ? '' : `${t('reports.col.duration')} ${formatDuration(total)}`,
+                  ].filter(Boolean).join('\n');
                   return (
-                    <span title={running ? t('tasks.durationRunning') : t('tasks.colDurationTip')}>
+                    <span title={tip}>
                       {running ? '~' : ''}
-                      {formatDuration(ms)}
+                      {fmtDur(runMs)}
                     </span>
                   );
                 })()}
