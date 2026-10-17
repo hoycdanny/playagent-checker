@@ -240,25 +240,70 @@ export function pageSelfOps(page, pageId, opEdits = {}) {
 }
 
 /**
+ * SPIN 迴圈的最少成功次數。導航用 2 次是為了安全(走錯路要花好幾步才回得來),
+ * 但「按 SPIN」是這個任務本身要做的動作,而且 runner 每一局都會用轉輪有沒有真的轉動來驗證
+ * (沒轉動 2 次就把這個操作降級並交回 AI)—— 那個驗證比次數門檻可靠,所以這裡只要 1 次。
+ */
+export const REFLEX_MIN_HITS_SPIN = 1;
+
+/**
  * SPIN 迴圈:這個畫面有沒有可信的 SPIN 操作。回 { key, op, target, trust } 或 null。
+ *
+ * 候選同時看兩種記憶:
+ *  - selfOps:按了畫面有變、但還停在同一頁。
+ *  - 出邊(edges):按了之後換頁。
+ * 2026-10-17(job-mvcei8tq)實測:只看 selfOps 會幾乎抓不到 —— 這款遊戲按 SPIN 會在
+ * 「拉霸結果畫面」與「拉霸轉軸畫面」之間來回,記憶把兩者當成不同頁面,所以 SPIN 是一條
+ * 「出邊」而不是 selfOp。結果 55 次點 SPIN 只有 3 次走到迴圈,其餘 52 次每局多問一次 AI
+ * (每次約 7.6 秒);日誌裡那條 tap SPIN(成功 9 / 失敗 0)就擺在旁邊卻用不到。
  */
 export function chooseSpinOp({ struct, edits, pageId, version, state }) {
   const page = struct?.pages?.[pageId];
   if (!page || page.transient) return null;
   const opEdits = edits?.opEdits ?? {};
-  const list = pageSelfOps(page, pageId, opEdits)
-    // AutoSpin / 免費遊戲的按鈕不是「付費一局」,不放進迴圈。
-    .filter((s) => s && (s.kind === 'tap' || s.kind === 'hold') && SPIN_RE.test(String(s.target ?? '')) && !/auto|free|免費|免费/i.test(String(s.target ?? '')))
-    .map((s) => {
-      const key = selfOpKey(pageId, s);
-      const edit = opEdits[key];
-      return { s, key, edit, trust: opTrust(s, edit), op: effectiveOp(s.op, edit) };
+  // AutoSpin / 免費遊戲的按鈕不是「付費一局」,不放進迴圈。
+  const isSpinTarget = (kind, target) => (kind === 'tap' || kind === 'hold')
+    && SPIN_RE.test(String(target ?? '')) && !/auto|free|免費|免费/i.test(String(target ?? ''));
+
+  const cands = [];
+  for (const s of pageSelfOps(page, pageId, opEdits)) {
+    if (!s || !isSpinTarget(s.kind, s.target)) continue;
+    cands.push({ key: selfOpKey(pageId, s), kind: s.kind, target: s.target, recorded: s.op, counts: s, self: true });
+  }
+  const manualKeys = new Set((edits?.addedEdges ?? []).map((e) => edgeKey(e)));
+  const fromStruct = (struct.edges ?? []).filter((e) => e.fromPageId === pageId);
+  const extraEdges = (edits?.addedEdges ?? [])
+    .filter((e) => e.fromPageId === pageId && !fromStruct.some((x) => edgeKey(x) === edgeKey(e)))
+    .map((e) => ({ ...e, hitCount: 0, missCount: 0 }));
+  for (const e of [...fromStruct, ...extraEdges]) {
+    if (!isSpinTarget(e.trigger?.kind, e.trigger?.target)) continue;
+    const key = edgeKey(e);
+    if (cands.some((c) => c.key === key)) continue;
+    cands.push({
+      key,
+      kind: e.trigger.kind,
+      target: e.trigger.target,
+      recorded: e.op,
+      counts: { hitCount: e.hitCount, missCount: e.missCount, manual: manualKeys.has(key) },
+      self: false,
+    });
+  }
+
+  const list = cands
+    .map((c) => {
+      const edit = opEdits[c.key];
+      return { ...c, edit, trust: opTrust(c.counts, edit), op: effectiveOp(c.recorded, edit) };
     })
-    .filter((x) => x.op && x.op.a === x.s.kind && (x.trust === 'verified' || x.trust === 'auto') && !state?.demoted?.has(x.key))
+    // learning 但已成功 ≥ REFLEX_MIN_HITS_SPIN 次且沒失敗過也放行(見上面的註解)。
+    .filter((x) => x.op && x.op.a === x.kind && !state?.demoted?.has(x.key)
+      && (x.trust === 'verified' || x.trust === 'auto'
+        || (x.trust === 'learning' && (x.counts.hitCount ?? 0) >= REFLEX_MIN_HITS_SPIN && (x.counts.missCount ?? 0) === 0)))
     .filter((x) => !(x.op.v && version && x.op.v !== version && !x.edit?.op && state?.crossVersionFailed))
-    .sort((a, b) => (b.trust === 'verified') - (a.trust === 'verified') || (b.s.hitCount ?? 0) - (a.s.hitCount ?? 0));
+    .sort((a, b) => (b.trust === 'verified') - (a.trust === 'verified')
+      || (b.counts.hitCount ?? 0) - (a.counts.hitCount ?? 0)
+      || (b.self === true) - (a.self === true));
   const best = list[0];
-  return best ? { key: best.key, op: best.op, target: best.s.target, trust: best.trust } : null;
+  return best ? { key: best.key, op: best.op, target: best.target, trust: best.trust } : null;
 }
 
 /**

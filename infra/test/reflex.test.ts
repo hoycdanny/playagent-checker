@@ -194,6 +194,29 @@ describe('SPIN loop and RTP', () => {
     expect(parseSpinCount('分析 RTP')).toBe(0);
   });
 
+  // job-mvcei8tq:這款遊戲按 SPIN 會在「結果畫面」與「轉軸畫面」之間來回,所以 SPIN 被記成
+  // 一條「出邊」而不是 selfOp。只看 selfOps 的話 55 次點 SPIN 只有 3 次走到迴圈。
+  test('chooseSpinOp also uses a SPIN recorded as a page transition, not only selfOps', () => {
+    const s = emptyStructure('slot-app');
+    const result = upsertPage(s, { name: '拉霸結果畫面', pHash: H('3') }).pageId;
+    const reels = upsertPage(s, { name: '拉霸轉軸畫面', pHash: H('7') }).pageId;
+    const op = (c: ReturnType<typeof tap>) => opFromCmd(c, 1000, 500, { version: 'art-1' });
+    // 按 SPIN 從結果畫面到轉軸畫面:成功一次、沒失敗過。
+    recordTransition(s, result, reels, { action: 'tap', target: 'SPIN', op: op(tap(900, 440, 'SPIN')) });
+    expect(s.pages[result]!.selfOps ?? []).toHaveLength(0);
+
+    const pick = chooseSpinOp({ struct: s, edits: null, pageId: result, state: createReflexState() })!;
+    expect(pick).toMatchObject({ target: 'SPIN', op: { a: 'tap', x: 0.9, y: 0.88 } });
+    expect(pick.key).toBe(edgeKey({ fromPageId: result, toPageId: reels, trigger: { kind: 'tap', target: 'SPIN' } }));
+
+    // 這一局沒轉動被降級後就不再用它(runner 連續 2 次沒轉動會這樣做)。
+    const demoted = createReflexState();
+    demoted.demoted.add(pick.key);
+    expect(chooseSpinOp({ struct: s, edits: null, pageId: result, state: demoted })).toBeNull();
+    // 測試人員停用也一樣。
+    expect(chooseSpinOp({ struct: s, edits: { opEdits: { [pick.key]: { disabled: true } } }, pageId: result, state: createReflexState() })).toBeNull();
+  });
+
   test('chooseSpinOp picks the trusted SPIN, not AutoSpin / free spin', () => {
     const s = learnedGame(1);
     const slot = idOf(s, 'Desert Legend 轉軸');

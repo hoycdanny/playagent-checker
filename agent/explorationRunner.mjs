@@ -631,6 +631,8 @@ function logPaceSummary(steps) {
 const SPIN_READER_SYSTEM = '你只負責讀拉霸機畫面上的數字,不要操作、不要推理玩法。只輸出 JSON:' +
   '{"screen":"畫面名稱","balance":<目前餘額,讀不到填 null>,"bet":<這一局的總投注,讀不到填 null>,' +
   '"win":<這一局的贏分,沒中獎填 0>,"free_spins_left":<剩餘免費次數,沒有填 0>,' +
+  // 很多機台沒中獎時不顯示 0,而是把贏分欄位換成玩法名稱(實測 Fortune Rabbit Part2 顯示「All Ways」)。
+  '贏分欄位若顯示的是玩法名稱(例如 All Ways、Hold & Win)或空白,代表這局沒有派彩,win 填 0。' +
   '"bonus":<是否正在免費遊戲 / Bonus 中 true|false>,"popup":<是否有彈窗、大獎動畫或公告擋住盤面 true|false>}。' +
   '數字去掉逗號與貨幣符號,只填畫面上看得到的數字,不要估算。';
 
@@ -947,10 +949,23 @@ async function main() {
   // 【SPIN 迴圈的停輪判定】
   // 轉軸停了不等於這一局結束 —— 派彩時餘額還會滾動數字 1~2 秒。要讀到正確的餘額/贏分,
   // 必須「轉軸區」與「畫面下方數字列」兩塊都不動滿 SPIN_STILL_MS 才去讀。
-  // 區域用通用比例(各機台版面相近);門檻 SPIN_STILL_BITS 需按機台校準 —— 結果畫面常有
-  // 中獎線閃爍、角色待機動畫,永遠不會完全靜止,所以是「容許多少晃動」而不是「一動也不動」。
-  const SPIN_REELS_CROP = { x: 0.15, y: 0.22, w: 0.70, h: 0.52 };
-  const SPIN_NUMS_CROP = { x: 0.0, y: 0.82, w: 1.0, h: 0.18 };
+  //
+  // 2026-10-17 用 job-mvcei8tq 的真實截圖量過(Fortune Rabbit Part2,直向 1440x3088):
+  // 轉輪 5x3 只佔 y 0.51–0.70 的一條;數字列在最底 y 0.93–0.995。
+  // 先前用的是猜的通用比例(轉輪 y 0.22–0.74、數字列整條含右側),等於把上方會動的金兔子、
+  // 燈籠背景,以及右下角會脈動發光的 SPIN 鈕都框進來 —— 那些永遠不會靜止,所以靜止條件要
+  // 等 5~6 秒才勉強成立(實測 stillMs 4960/5191/6459,門檻只要 2000)。
+  // 數字列刻意只取左側 70%:右邊是 MAX BET 與會發光的 SPIN 鈕。
+  const SPIN_CROPS_PORTRAIT = {
+    reels: { x: 0.12, y: 0.50, w: 0.79, h: 0.21 },
+    nums: { x: 0.0, y: 0.93, w: 0.70, h: 0.07 },
+  };
+  // 橫向版面沒有實測資料(這款遊戲是直向);保守取中段與底部左側,並在報告標示未校準。
+  const SPIN_CROPS_LANDSCAPE = {
+    reels: { x: 0.18, y: 0.28, w: 0.64, h: 0.44 },
+    nums: { x: 0.0, y: 0.88, w: 0.70, h: 0.12 },
+  };
+  const spinCrops = (ow, oh) => (ow > oh ? SPIN_CROPS_LANDSCAPE : SPIN_CROPS_PORTRAIT);
   const SPIN_STILL_MS = Math.max(0, Number(process.env.PA_SPIN_STILL_MS ?? 2000));
   const SPIN_STILL_BITS = Math.max(0, Number(process.env.PA_SPIN_STILL_BITS ?? 20));
   const SPIN_MOVED_BITS = Math.max(0, Number(process.env.PA_SPIN_MOVED_BITS ?? 24));
@@ -2475,6 +2490,7 @@ async function main() {
       let stillMs = 0;
       let samples = 0;
       let why = 'timeout';
+      const { reels: SPIN_REELS_CROP, nums: SPIN_NUMS_CROP } = spinCrops(origW, origH);
       // 按下 SPIN 之前的轉軸區(用這一步開頭那張截圖),用來判斷有沒有真的轉動。
       const reelsBefore = MAGICK ? pHashHex(shot, SPIN_REELS_CROP) : null;
       for (let k = 0; k < 40 && Date.now() - t1 < SPIN_SETTLE_MAX_MS; k++) {
