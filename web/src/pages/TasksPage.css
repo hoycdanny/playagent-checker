@@ -330,6 +330,13 @@
   cursor: default;
 }
 
+/* 耗時欄:與花費同樣用等寬數字對齊,不換行(欄位順序與報告列表一致) */
+.tasks__duration {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
 .tasks__cost {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;

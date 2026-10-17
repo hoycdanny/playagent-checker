@@ -7,6 +7,7 @@ import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome.ts';
 import { usd4 } from './money.ts';
+import { formatDuration, taskDurationMs } from './duration.ts';
 import UserTag from './UserTag.tsx';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
@@ -17,6 +18,10 @@ export interface TaskRow {
   appId: string;
   state: string;
   createdAt: string;
+  /** 最後狀態更新時間;與 finishedAt 一起算耗時(見 duration.ts)。 */
+  updatedAt?: string;
+  /** 結束時間(報告產生時間;無報告則為最後狀態更新)。 */
+  finishedAt?: string;
   vlmModel?: string;
   seatModels?: { agent?: string; vlm?: string; subagent?: string };
   billableSpendUsd?: number;
@@ -112,6 +117,8 @@ export default function TasksTable({
           <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
           <th className="tasks__col-icon">{t('tasks.colLocality')}</th>
           <th className="tasks__col-steps">{t('tasks.colSteps')}</th>
+          {/* 欄位順序與報告列表一致:步數 → 耗時 → 花費 */}
+          <th className="tasks__duration" title={t('tasks.colDurationTip')}>{t('reports.col.duration')}</th>
           <th>{t('tasks.colCost')}</th>
           <th title={t('tasks.roleAgentHint')}>{t('tasks.roleAgent')}</th>
           <th title={t('tasks.roleVlmHint')}>{t('tasks.roleVlm')}</th>
@@ -189,6 +196,20 @@ export default function TasksTable({
                 ) : (
                   <span className="tasks__muted-cell">—</span>
                 )}
+              </td>
+              {/* 耗時:終局 = 總時間;執行中 = 到目前為止(隨輪詢更新),用 ~ 標示還在跑。 */}
+              <td className="tasks__duration">
+                {(() => {
+                  const ms = taskDurationMs(x);
+                  if (ms === null) return <span className="tasks__muted-cell">—</span>;
+                  const running = !TERMINAL_STATES.has(x.state);
+                  return (
+                    <span title={running ? t('tasks.durationRunning') : t('tasks.colDurationTip')}>
+                      {running ? '~' : ''}
+                      {formatDuration(ms)}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="tasks__cost">
                 {typeof x.billableSpendUsd === 'number' ? (

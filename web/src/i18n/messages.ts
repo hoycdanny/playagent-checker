@@ -423,6 +423,8 @@ export type MessageKey =
   | 'tasks.colCreated'
   | 'tasks.submittedBy'
   | 'tasks.colSteps'
+  | 'tasks.colDurationTip'
+  | 'tasks.durationRunning'
   | 'tasks.colCost'
   | 'tasks.colModel'
   | 'tasks.costEstimatedShort'
@@ -1108,6 +1110,8 @@ const zhHant: Catalog = {
   'tasks.colCreated': '建立時間',
   'tasks.submittedBy': '送出者',
   'tasks.colSteps': '步數',
+  'tasks.colDurationTip': '從建立到結束的總時間,含排隊與裝置開機,不只是 AI 操作的時間。',
+  'tasks.durationRunning': '還在執行,這是到目前為止經過的時間。',
   'tasks.colCost': '花費',
   'tasks.colModel': '模型',
   'tasks.costEstimatedShort': '估',
@@ -1793,6 +1797,8 @@ const en: Catalog = {
   'tasks.colCreated': 'Created',
   'tasks.submittedBy': 'Submitted by',
   'tasks.colSteps': 'Steps',
+  'tasks.colDurationTip': 'Total time from creation to finish, including queueing and device boot — not just the AI run.',
+  'tasks.durationRunning': 'Still running; this is the time elapsed so far.',
   'tasks.colCost': 'Cost',
   'tasks.colModel': 'Model',
   'tasks.costEstimatedShort': 'est.',
@@ -2482,6 +2488,8 @@ const zhHans: Catalog = {
   'tasks.colCreated': '创建时间',
   'tasks.submittedBy': '提交者',
   'tasks.colSteps': '步数',
+  'tasks.colDurationTip': '从创建到结束的总时间,含排队与设备开机,不只是 AI 操作的时间。',
+  'tasks.durationRunning': '仍在执行,这是到目前为止经过的时间。',
   'tasks.colCost': '花费',
   'tasks.colModel': '模型',
   'tasks.costEstimatedShort': '估',
@@ -3166,6 +3174,8 @@ const ja: Catalog = {
   'tasks.colCreated': '作成日時',
   'tasks.submittedBy': '送信者',
   'tasks.colSteps': 'ステップ',
+  'tasks.colDurationTip': '作成から終了までの合計時間です。待機時間とデバイス起動も含み、AI の操作時間だけではありません。',
+  'tasks.durationRunning': '実行中です。現時点までの経過時間を表示しています。',
   'tasks.colCost': '費用',
   'tasks.colModel': 'モデル',
   'tasks.costEstimatedShort': '概算',
@@ -3851,6 +3861,8 @@ const ko: Catalog = {
   'tasks.colCreated': '생성 시간',
   'tasks.submittedBy': '제출자',
   'tasks.colSteps': '단계',
+  'tasks.colDurationTip': '생성부터 종료까지의 총 시간입니다. 대기와 기기 부팅을 포함하므로 AI 실행 시간만은 아닙니다.',
+  'tasks.durationRunning': '아직 실행 중이며, 현재까지 경과한 시간입니다.',
   'tasks.colCost': '비용',
   'tasks.colModel': '모델',
   'tasks.costEstimatedShort': '추정',
