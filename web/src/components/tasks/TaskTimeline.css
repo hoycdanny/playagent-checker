@@ -2,14 +2,14 @@
    顏色 = 誰決定這一步:紫 決策 Agent、藍 視覺、黃 照記憶、粉 測試人員;綠點 = 記憶命中。 */
 .ttl {
   --ttl-label-w: 84px;
-  --ttl-agent: #a78bfa;
-  --ttl-reflex: #fbbf24;
-  --ttl-vision: #38bdf8;
-  --ttl-operator: #f472b6;
-  --ttl-mem: #34d399;
-  --ttl-script: #c084fc;
-  --ttl-sub: #2dd4bf;
-  --ttl-track: color-mix(in srgb, var(--surface-raised) 70%, #000);
+  --ttl-agent: var(--hue-agent);
+  --ttl-reflex: var(--hue-reflex);
+  --ttl-vision: var(--hue-vision);
+  --ttl-operator: var(--hue-operator);
+  --ttl-mem: var(--hue-memory);
+  --ttl-script: var(--hue-script);
+  --ttl-sub: var(--hue-sub);
+  --ttl-track: var(--surface-sunken);
   padding: 10px 14px 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -127,10 +127,10 @@
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  border: 1px solid #ff2d95;
+  border: 1px solid var(--accent-now);
   border-radius: 999px;
   background: none;
-  color: #ff2d95;
+  color: var(--accent-now);
   font-size: 12px;
   cursor: pointer;
 }
@@ -253,7 +253,7 @@
   background: repeating-linear-gradient(45deg, transparent 0 4px, color-mix(in srgb, var(--status-fail) 30%, transparent) 4px 7px);
 }
 .ttl__lane--rec rect {
-  fill: color-mix(in srgb, var(--brand) 85%, #fff);
+  fill: var(--brand);
   opacity: 0.85;
 }
 .ttl__lane--ai { height: 14px; }
@@ -357,8 +357,8 @@
 .ttl__call--subagent { background: var(--ttl-sub); }
 .ttl__call.is-fail { background: var(--status-fail); }
 .ttl__lane--log rect { fill: var(--text-tertiary); opacity: 0.55; }
-.ttl__lane--log rect.is-W { fill: #fbbf24; opacity: 0.95; }
-.ttl__lane--log rect.is-E { fill: #f85149; opacity: 1; }
+.ttl__lane--log rect.is-W { fill: var(--hue-reflex); opacity: 0.95; }
+.ttl__lane--log rect.is-E { fill: var(--hue-warn); opacity: 1; }
 
 /* 播放頭 */
 .ttl__head {
@@ -366,7 +366,7 @@
   top: 0;
   bottom: 0;
   width: 0;
-  border-left: 2px solid #ff2d95;
+  border-left: 2px solid var(--accent-now);
   transform: translateX(-1px);
   pointer-events: none;
   z-index: 2;
@@ -379,7 +379,7 @@
   height: 0;
   border-left: 6px solid transparent;
   border-right: 6px solid transparent;
-  border-top: 8px solid #ff2d95;
+  border-top: 8px solid var(--accent-now);
 }
 
 .ttl__pan {
