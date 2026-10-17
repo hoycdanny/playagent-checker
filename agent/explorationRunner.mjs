@@ -106,7 +106,9 @@ const DEADLINE_LABEL = Number.isFinite(DEADLINE_MS) ? new Date(DEADLINE_MS).toIS
 // runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
 const RUNNER_VERSION = 'devicefarm-runner/2.5 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1, slot-board-v1)';
 // 效能取樣間隔(步)。adb shell 取樣與 VLM 並行、且 FPS/CPU/GPU 為區間累計,預設每 2 步一次;0 = 停用。
-const PERF_EVERY = process.env.PA_PERF_EVERY ? Math.max(0, Number(process.env.PA_PERF_EVERY) || 0) : 2;
+// 2026-10-17:取樣走 Appium/adb,且必須在送動作前等它結束(同一條 session 不能並發指令),
+// 所以它整段都在關鍵路徑上。改成每 4 步一次(原本 2 步),FPS/CPU 仍是區間累計不會漏資料。
+const PERF_EVERY = process.env.PA_PERF_EVERY ? Math.max(0, Number(process.env.PA_PERF_EVERY) || 0) : 4;
 /** 有啟用 adb 效能監測時的參照(main 例外收尾用,確保還原電池狀態)。 */
 let activePerfMon = null;
 // 進行中的整場錄影(runner 例外結束時盡力收尾,錄影才不會整段遺失)。
@@ -136,6 +138,41 @@ async function stopSelfOwnedSession() {
 
 async function s3put(key, body, contentType) {
   await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: body, ContentType: contentType }));
+}
+
+// ── 背景上傳 ─────────────────────────────────────────────────────────────
+// 截圖、落點標記、步驟 JSON、記憶地圖都只給人看(不影響下一步的決策),原本每一步都
+// 同步等它們傳完才繼續。實測一步要傳約 5MB(截圖平均 3.2MB + 標記 2.1MB)外加記憶地圖
+// 48KB 整份重傳,全部串在關鍵路徑上。改成背景上傳,收尾前再一起等完。
+// 同一個 key 依序寫(後面那次內容較完整),避免後寫的被先寫的蓋掉。
+const bgPuts = new Set();
+const bgChain = new Map();
+function s3putBg(key, body, contentType) {
+  const prev = bgChain.get(key) ?? Promise.resolve();
+  const p = prev.then(() => s3put(key, body, contentType)).catch(() => {});
+  bgChain.set(key, p);
+  bgPuts.add(p);
+  void p.then(() => {
+    bgPuts.delete(p);
+    if (bgChain.get(key) === p) bgChain.delete(key);
+  });
+  return p;
+}
+/** 等背景上傳收尾(收尾、換連線、寫報告前呼叫)。 */
+async function flushPuts(maxMs = 20_000) {
+  if (!bgPuts.size) return;
+  await Promise.race([Promise.all([...bgPuts]), sleep(maxMs)]);
+}
+
+/** 量測一段同步工作的耗時(寫進 step.timing,供找真正的瓶頸)。 */
+function timed(tm, key, fn) {
+  const t = Date.now();
+  try { return fn(); } finally { tm[key] = (tm[key] ?? 0) + (Date.now() - t); }
+}
+/** 量測一段非同步工作的耗時。 */
+async function timedAsync(tm, key, fn) {
+  const t = Date.now();
+  try { return await fn(); } finally { tm[key] = (tm[key] ?? 0) + (Date.now() - t); }
 }
 
 /** 解析 PNG 標頭取真實像素寬高(IHDR:偏移 16..19 寬、20..23 高,大端)。非 PNG 回 null。 */
@@ -302,6 +339,24 @@ function makeUserTurn(images, text, fmt = 'png') {
 function makeAssistantTurn(rawText) {
   return { role: 'assistant', content: [{ type: 'text', text: rawText }] };
 }
+/** 對話歷史裡還帶著圖片的 user 回合數。 */
+function countImages(messages) {
+  let n = 0;
+  for (const m of messages) if ((m.content || []).some((c) => c.type === 'image' && c.source?.data)) n++;
+  return n;
+}
+/** 對話歷史裡還是完整內容(未被精簡)的 assistant 回合數。 */
+function countAssistant(messages) {
+  let n = 0;
+  for (const m of messages) if (m.role === 'assistant' && !String(m.content?.[0]?.text ?? '').startsWith('(先前回應,已精簡)')) n++;
+  return n;
+}
+/** 保留幾輪圖片 / 幾輪完整回應,以及「超過多少才裁」的批次大小(分批裁剪才不會每步打壞快取)。 */
+const IMG_KEEP = 2;
+const IMG_PRUNE_BATCH = 2;
+const TEXT_KEEP = 6;
+const TEXT_PRUNE_BATCH = 6;
+
 function pruneImages(messages, keepLatest = 2) {
   const userIdx = [];
   for (let i = 0; i < messages.length; i++) if (messages[i].role === 'user') userIdx.push(i);
@@ -440,12 +495,15 @@ const vlmLedger = createUsageLedger();
 async function decide(system, messages, modelId = VLM) {
   // 預設保留最近 2 張圖;但再加一道保險:若總圖量仍逼近模型 body 上限(~2MB),就降到只留最新 1 張,
   // 避免像大廳這種細節多的畫面兩張疊起來撐爆(Failed to buffer request body: length limit exceeded)。
-  pruneImages(messages, 2);
+  // 【分批裁剪】裁剪會改動到 prompt 的「前綴」,而模型端的 prompt 快取是比對前綴的 ——
+  // 每步都裁一點,等於每步都讓快取失效。實測 job-mvbrqar9:視覺 Agent 21 次呼叫寫進
+  // 285,279 個快取 token,只命中過 1 次(就是對話還沒開始被裁剪的第 0→1 步)。
+  // 改成「超過上限才一次裁到位」:多數步驟前綴不變,快取才有機會命中。保留的內容比原本更多,
+  // 不會讓模型看到更少資訊。體積上限(SOFT_LIMIT)仍然照舊把關。
+  if (countImages(messages) > IMG_KEEP + IMG_PRUNE_BATCH) pruneImages(messages, IMG_KEEP);
   const SOFT_LIMIT = 1_500_000; // ~1.5MB 原始位元組(base64 會再脹 ~33%,保守留裕度)
   if (totalImageBytes(messages) > SOFT_LIMIT) pruneImages(messages, 1);
-  // 裁剪過舊的 assistant 回應文字(見 pruneAssistantText 註解):長任務的對話歷史文字
-  // 本來無限增長,這裡控制在最近 6 輪完整內容,避免 prompt 隨步數線性變長變雜訊化。
-  pruneAssistantText(messages, 6);
+  if (countAssistant(messages) > TEXT_KEEP + TEXT_PRUNE_BATCH) pruneAssistantText(messages, TEXT_KEEP);
   const channel = channelFor(modelId);
   const request = summarizeRequest(system, messages);
   const baseTrace = { modelId, channel, request };
@@ -527,6 +585,41 @@ async function decide(system, messages, modelId = VLM) {
  * 唯一可行的資料來源。擷取結果的準確性取決於模型描述的一致性,無法保證 100% 精確,但能
  * 提供一個遠優於「完全沒有」的估算與視覺化。
  */
+/**
+ * 步調統計(收尾時印一次):每步真正花在哪。
+ * 間隔 = 相鄰兩步的 at 之差(含送動作與等待);模型 = 視覺 + 決策;其餘為流程開銷。
+ */
+function logPaceSummary(steps) {
+  const list = (steps ?? []).filter((s) => s && typeof s.at === 'string');
+  if (list.length < 2) return;
+  const med = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : 0);
+  const s1 = (ms) => (ms / 1000).toFixed(1);
+  const gaps = [];
+  for (let k = 0; k + 1 < list.length; k++) {
+    const g = Date.parse(list[k + 1].at) - Date.parse(list[k].at);
+    if (Number.isFinite(g) && g > 0) gaps.push({ g, s: list[k] });
+  }
+  const ai = gaps.filter((x) => !x.s.reflex);
+  const rfx = gaps.filter((x) => x.s.reflex);
+  const model = (s) => (s.vlmMs ?? 0) + (s.decisionMs ?? 0);
+  const keys = ['shot', 'prefetch', 'phash', 'resize', 'annotate', 'winSize', 'fg', 'act'];
+  const parts = keys
+    .map((k) => {
+      const vals = list.map((s) => s.timing?.[k]).filter((v) => Number.isFinite(v) && v > 0);
+      return vals.length ? `${k} ${s1(med(vals))}s×${vals.length}` : '';
+    })
+    .filter(Boolean)
+    .join(' · ');
+  const prefetched = list.filter((s) => s.timing?.shotPrefetched).length;
+  console.log('[pace] 每步中位數:'
+    + `間隔 ${s1(med(ai.map((x) => x.g)))}s`
+    + ` = 模型 ${s1(med(ai.map((x) => model(x.s))))}s`
+    + ` + durationMs 內其他 ${s1(med(ai.map((x) => (x.s.durationMs ?? 0) - model(x.s))))}s`
+    + ` + durationMs 外 ${s1(med(ai.map((x) => x.g - (x.s.durationMs ?? 0))))}s`);
+  if (rfx.length) console.log(`[pace] 照記憶執行的步驟 ${rfx.length} 步:間隔中位數 ${s1(med(rfx.map((x) => x.g)))}s(不呼叫模型)`);
+  console.log(`[pace] 預抓截圖命中 ${prefetched}/${list.length} 步;分段耗時 ${parts || '(無)'}`);
+}
+
 /** SPIN 迴圈的讀數字提示:只看、不操作,輸出越短越快。 */
 const SPIN_READER_SYSTEM = '你只負責讀拉霸機畫面上的數字,不要操作、不要推理玩法。只輸出 JSON:' +
   '{"screen":"畫面名稱","balance":<目前餘額,讀不到填 null>,"bet":<這一局的總投注,讀不到填 null>,' +
@@ -823,6 +916,17 @@ async function main() {
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
   // 【記憶腳本 / 反射層】認得的畫面直接照記憶操作,不問 AI(見 reflex.mjs)。PA_REFLEX=0 關閉。
   const REFLEX_ON = process.env.PA_REFLEX !== '0';
+  // ── 步調相關的常數(2026-10-17 依實測調整,見下方註解)──────────────────
+  // 動作送出後等畫面穩定的時間。原本固定 3000ms,之後下一步才去抓圖(再花數秒,串列)。
+  // 改成等較短時間後「就地把下一步要用的圖抓好」:抓圖本身也在等畫面穩定,實際取到的
+  // 畫面比原本更晚(更穩),但下一步少掉一次串列的 Appium 取圖。
+  const SETTLE_MS = Math.max(0, Number(process.env.PA_SETTLE_MS ?? 1500));
+  const REFLEX_SETTLE_MS = Math.max(0, Number(process.env.PA_REFLEX_SETTLE_MS ?? 800));
+  // 前景檢查的間隔(步);0 = 每步都查。有風險的步(back / launch / 剛掉出前景)一律會查。
+  const FG_EVERY = Math.max(1, Number(process.env.PA_FG_EVERY ?? 4));
+  let lastForegroundLost = false;
+  let spaceDims = null;           // 已告知裝置的截圖尺寸 [w,h];尺寸沒變就不重問
+  let lastStructFingerprint = ''; // 記憶地圖內容指紋;沒變就不重傳
   const reflexState = createReflexState();
   let reflexPending = null; // 上一步反射操作的預期結果 { key, from, to, cross, waits }
   let reflexNotes = []; // 這串反射做了什麼(AI 下一次看畫面時告訴它)
@@ -993,6 +1097,7 @@ async function main() {
     if (perfPending) { await perfPending.catch(() => null); perfPending = null; }
     if (perfShell) await perfMon.stop().catch(() => {});
     activePerfMon = null;
+    await flushPuts(); // 背景上傳(截圖 / 步驟 JSON / 記憶地圖)先收完,再換連線
     await client.quit().catch(() => {});
     await stopSelfOwnedSession();
 
@@ -1031,6 +1136,8 @@ async function main() {
     sessionInfo.deviceArn = session.deviceArn ?? sessionInfo.deviceArn;
     bootPhase('connect', session.deviceModel ? { deviceModel: session.deviceModel } : {});
     client = await AppiumClient.create(APPIUM_URL, { platform: PLATFORM, autoLaunch: false, refreshEndpoint });
+    // 新 client 的座標基準是空的:清掉快取,下一步一定會重新告知截圖尺寸(否則點擊不會換算到視窗座標)。
+    spaceDims = null;
 
     perfMon = PLATFORM === 'android' && effectivePkg && PERF_EVERY > 0 ? new PerfMonitor(client, effectivePkg) : null;
     perfShell = perfMon ? await perfMon.start() : false;
@@ -1176,17 +1283,25 @@ async function main() {
     }
 
     const t0 = Date.now();
-    // 前景守衛:AI 可能誤按 back 把遊戲退到背景/桌面。已知包名時,每步先確保遊戲在前景,
+    // 這一步各段耗時(ms),寫進 step.timing;收尾時印出中位數,用來找真正的瓶頸。
+    const tm = {};
+    // 前景守衛:AI 可能誤按 back 把遊戲退到背景/桌面。已知包名時確保遊戲在前景,
     // 若被拉回前景則多等一下載入,避免整段在 Android 桌面/Play Games 空轉。
     // 前景遺失記錄成證據(報告據 appState + 上一步動作區分:AI 按 back / 疑似閃退 / 跳到其他 App)。
+    //
+    // 每步都問一次是一次 Appium 往返(實測整步開銷約 7.6 秒,這類往返是其中一部分)。
+    // 改成只在「上一步可能把 App 弄到背景」時必查(back / launch / 上一步剛掉出前景 / 第一步),
+    // 其餘每 FG_EVERY 步查一次 —— 真的掉出前景時,下一張截圖也會讓 AI 看到桌面並自行處理。
     let foregroundLost = false;
     let appState;
-    if (effectivePkg) {
+    const fgRisk = i === 0 || lastForegroundLost || prevAction === 'back' || prevAction === 'launch';
+    if (effectivePkg && (fgRisk || i % FG_EVERY === 0)) {
       try {
-        const wasForeground = await client.ensureForeground(effectivePkg);
+        const wasForeground = await timedAsync(tm, 'fg', () => client.ensureForeground(effectivePkg));
         if (!wasForeground) { foregroundLost = true; appState = client.lastAppState; await sleepOrOperator(4000); }
       } catch { /* 盡力,不擋主流程 */ }
     }
+    lastForegroundLost = foregroundLost;
     // 效能取樣(每 PERF_EVERY 步一次;取不到為 null,報告標示未收集)。
     // adb shell 取樣與 VLM 推理並行(不拖慢步調);FPS/CPU/GPU 是「區間累計」,不會漏掉取樣間的幀。
     // 本步若中途 continue,未寫入的結果留給下一步(perfPending 不會重複發起)。
@@ -1198,12 +1313,15 @@ async function main() {
     // 真機 log(logcat + 音效播放狀態)與 VLM 推理並行;動作送出前等它結束(Appium 指令不交錯)。
     if (devLogs && !devLogsPending) devLogsPending = devLogs.collect(i).catch(() => null);
     let shot;
-    try { shot = pendingShot ?? await client.takeScreenshot(); pendingShot = null; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
-    // 即時推截圖到 S3(前端即時顯示)。
-    await s3put(`${PREFIX}/screenshots/${i}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    // pendingShot = 上一步等畫面穩定時就預先抓好的那張(見迴圈尾端),這一步不必再等取圖。
+    const prefetched = Boolean(pendingShot);
+    try { shot = pendingShot ?? await timedAsync(tm, 'shot', () => client.takeScreenshot()); pendingShot = null; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
+    if (prefetched) tm.shotPrefetched = 1;
+    // 即時推截圖到 S3(只給前端看)→ 背景上傳,不擋決策。
+    s3putBg(`${PREFIX}/screenshots/${i}.png`, Buffer.from(shot, 'base64'), 'image/png');
 
     // 卡住偵測:本步 pHash 與上一步比,幾乎相同(<40 bit)視為畫面沒變。
-    const curPhash = MAGICK ? pHashHex(shot) : null;
+    const curPhash = MAGICK ? timed(tm, 'phash', () => pHashHex(shot)) : null;
     const screenChanged = lastPhash && curPhash ? pHashHamming(lastPhash, curPhash) > 40 : true;
     if (lastPhash && !screenChanged) stuckCount++; else stuckCount = 0;
     lastPhash = curPhash;
@@ -1233,12 +1351,18 @@ async function main() {
     // 故把截圖精確縮到 smart_resize 尺寸再送(送出尺寸 == 模型座標基準 cw×ch),
     // 模型回像素座標後,除以 cw/ch 得比例、再乘 origW/origH → 裝置像素,座標才會準。
     // 不再疊網格、不再要 0~1000(那是造成先前不準的錯誤問法)。
-    const ds = MAGICK ? resizeToSmartB64(shot, origW, origH) : { b64: shot, w: origW, h: origH, bytes: Math.floor((shot.length * 3) / 4), format: 'png' };
+    const ds = MAGICK ? timed(tm, 'resize', () => resizeToSmartB64(shot, origW, origH)) : { b64: shot, w: origW, h: origH, bytes: Math.floor((shot.length * 3) / 4), format: 'png' };
     const cw = ds.w;   // smart-resize 寬 = 模型座標 x 基準
     const ch = ds.h;   // smart-resize 高 = 模型座標 y 基準
     const visionFmt = ds.format; // 'jpeg' | 'png'
     // 點擊仍換算到裝置截圖空間(origW×origH == Appium 點擊空間);setCoordinateSpace 傳原圖尺寸。
-    const space = await client.setCoordinateSpace(origW, origH).catch(() => null);
+    // 座標空間只在截圖尺寸變了(例如遊戲轉向)才重新問裝置 —— 原本每步都問,是一次沒必要的
+    // Appium 往返;尺寸沒變時 client 內部的基準值本來就不用動。
+    let space = null;
+    if (!spaceDims || spaceDims[0] !== origW || spaceDims[1] !== origH) {
+      space = await timedAsync(tm, 'winSize', () => client.setCoordinateSpace(origW, origH).catch(() => null));
+      spaceDims = [origW, origH];
+    }
     lastSpace = { cw, ch, origW, origH };
     if (i === 0 && space) console.log('座標空間 裝置=', space.shot, 'window=', space.win, 'smart-resize(給模型)=', `${cw}x${ch}`, ds.format, `${Math.round(ds.bytes / 1024)}KB`);
     // 方向偵測(僅用於提示模型重新評估版面;不影響座標換算)。
@@ -1547,7 +1671,7 @@ async function main() {
       ...(trace?.error ? { error: trace.error } : {}),
       at: new Date().toISOString(),
     };
-    await s3put(`${PREFIX}/traces/${i}.json`, JSON.stringify(traceRecord), 'application/json').catch(() => {});
+    s3putBg(`${PREFIX}/traces/${i}.json`, JSON.stringify(traceRecord), 'application/json');
     // 座標數值化:部分模型(如 Nova)把 x/y 以字串回傳,統一轉成數字供後續吸附/標記/點擊計算。
     for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'holdMs', 'durationMs', 'taps']) {
       if (cmd[k] != null && typeof cmd[k] !== 'number') { const n = Number(cmd[k]); if (Number.isFinite(n)) cmd[k] = n; }
@@ -1801,10 +1925,10 @@ async function main() {
       // 落點標記畫在「縮圖」上(座標同縮圖空間),前端顯示 AI 實際點在哪。
       // swipe 有終點時畫箭頭(起點 → 終點),一眼看出拖/滑的方向與距離。
       const swipeTo = cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2) ? { x: Math.round(cmd.x2), y: Math.round(cmd.y2) } : undefined;
-      const annB64 = annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.operatorDrag ? 'drag' : cmd.action, ssDim, swipeTo);
+      const annB64 = timed(tm, 'annotate', () => annotateTapB64(ds.b64, Math.round(cmd.x), Math.round(cmd.y), cmd.operatorDrag ? 'drag' : cmd.action, ssDim, swipeTo));
       if (annB64) {
         annotatedKey = `${PREFIX}/annotated/${i}.png`;
-        await s3put(annotatedKey, Buffer.from(annB64, 'base64'), 'image/png').catch(() => { annotatedKey = undefined; });
+        s3putBg(annotatedKey, Buffer.from(annB64, 'base64'), 'image/png'); // 只給前端看 → 背景上傳
       }
     }
 
@@ -1833,6 +1957,9 @@ async function main() {
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,
       ...(annotatedKey ? { annotatedKey } : {}),
       durationMs: Date.now() - t0, ...(usage ? { tokens: usage } : {}),
+      // 各段耗時(ms):shot 取圖、phash 指紋、resize 縮圖、winSize 問尺寸、fg 前景檢查、
+      // annotate 落點標記、act 送動作、prefetch 預抓下一張。用來找真正的瓶頸。
+      timing: tm,
       // ── 證據(報告引擎據此以程式計算指標;AI 只觀察與標註)──
       at: new Date(t0).toISOString(),
       vlmMs,
@@ -1887,7 +2014,7 @@ async function main() {
       if (spinningMode) slotCapture.setActive(true, `#${i} ${screenName}`, t0, freeMode ? 'free' : 'paid');
       else if (stopMode || outsideMachine || cmd.action === 'done') slotCapture.setActive(false, `#${i} ${screenName}`, t0);
     }
-    await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+    s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
     // 指令回執:AI 這一步怎麼回應(聊天室顯示)。回應無法解析 → 不算已處理,留到下一步再送。
     if (cmd.parseFailed && newCmds.length) pendingCmds = newCmds;
     // 這一步本身就是測試人員的手勢(不經 AI):回執標成「直接執行」並附裝置座標,
@@ -1918,7 +2045,7 @@ async function main() {
     // 增量記憶地圖:建/更新當前畫面節點 + 從上一畫面的轉移邊,即時寫回供前端重繪。
     // 畫面身分用「視覺指紋 + 正規化名稱 + 模組」判斷(見 memoryGraph.mjs),AI 換說法不會長出重複節點。
     const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
-    if (isNew) await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    if (isNew) s3putBg(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png');
     // 記憶命中(必須在 recordTransition 之前:那之後本步的轉場已算進次數,分不出是不是舊記憶)。
     const memHit = memTrace.onStep({
       pageId: pid, screenName, prevPageId, navAction, prevTarget, screenChanged,
@@ -1926,7 +2053,7 @@ async function main() {
     });
     step.memory = memHit;
     console.log(memTrace.formatLog(i, memHit));
-    await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+    s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
     if (prevPageId && pid) {
       // 畫面真的換了才建邊(觸發 = 上一步實際執行的動作 + 目標元件);同畫面且無變化 = 該操作失效一次。
       // navOp = 上一步實際執行的操作細節(相對座標),一起記下來,下次就能照記憶重播。
@@ -1935,8 +2062,17 @@ async function main() {
       // 同一畫面、畫面有變(例如按 SPIN 轉輪):記成這個畫面上的操作(SPIN 迴圈靠它)。
       else if (navOp) recordSelfOp(struct, pid, { action: navAction, target: prevTarget, op: navOp });
     }
+    // 記憶地圖:只有真的變了才上傳(原本每步整份重傳 48KB,21 步共約 1MB 全是白做的)。
     struct.lastUpdatedAt = new Date().toISOString();
-    await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
+    {
+      const sj = JSON.stringify(struct);
+      // lastUpdatedAt 每步都不同,比較時拿掉它才看得出內容有沒有變。
+      const fingerprint = sj.replace(/"lastUpdatedAt":"[^"]*"/, '');
+      if (fingerprint !== lastStructFingerprint) {
+        lastStructFingerprint = fingerprint;
+        s3putBg(`${MEM_PREFIX}/structure.json`, sj, 'application/json');
+      }
+    }
 
     await writeStatus('running', `${segment > 1 ? `第 ${segment} 段 · ` : ''}第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
     if (wrapUpAsked) {
@@ -1978,7 +2114,7 @@ async function main() {
       try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
       step.override = 'app_restart';
       step.thinking = `[runner 重啟 App] 畫面「${screenName}」操作 ${seen} 次都沒有反應(遊戲可能卡住),已重新啟動遊戲。` + String(step.thinking || '');
-      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+      s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
       controlNote = `【系統】畫面「${screenName}」操作 ${seen} 次都沒有反應(遊戲可能卡住),已重新啟動遊戲。請從第一個畫面重新進入;再遇到這個畫面時,先等它的動畫播完、主要按鈕出現後再點主要按鈕。`;
       prevAction = 'launch';
       await sleep(1000);
@@ -2156,7 +2292,7 @@ async function main() {
 
     // runner 在 step 落地後才改寫動作(拒絕假完成/戰鬥強制走位/走位被擋)時,重寫 step json 讓證據與實際執行一致。
     if (step.override === 'reject_done' || step.override === 'battle_move' || step.override === 'blocked_move' || step.blockedFrom || autopilot) {
-      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+      s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
     }
 
     // 實際點擊用「裝置截圖像素」座標:把 cmd(縮圖空間)的 x/y/x2/y2 換算到 origW/origH 空間再送。
@@ -2190,7 +2326,7 @@ async function main() {
       } catch (e) {
         const why = String(e?.message || e).replace(/\s+/g, ' ').slice(0, 200);
         step.credentialError = { refs, reason: 'resolver_error' };
-        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
         finalState = 'error'; finalMsg = `測試憑證解析失敗:${why}`;
         await writeStatus('error', finalMsg, steps.length);
         break;
@@ -2200,7 +2336,7 @@ async function main() {
       if (sub.missing.length > 0) {
         const missingKeys = sub.missing.map((x) => x.replace(/^\$\{|\}$/g, ''));
         step.credentialError = { refs: missingKeys, reason: 'missing' };
-        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
         finalState = 'error';
         finalMsg = `測試案例引用的憑證尚未設定:${missingKeys.join('、')}。請在應用管理設定同名 key,或只保留一組「帳號/密碼」供系統自動對應。`;
         await writeStatus('error', finalMsg, steps.length);
@@ -2208,7 +2344,7 @@ async function main() {
       }
       deviceCmd.text = sub.text;
       // 只重寫「解析結果/引用名稱」,不寫 substituted text(明文永不落 S3)。
-      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+      s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
     }
     // launch 沒帶 app 時(AI 想「重開遊戲」),實際關閉並重開被測 App;舊版只 activateApp(已在前景時等於什麼都沒做)。
     if (deviceCmd.action === 'launch' && !deviceCmd.app && effectivePkg) {
@@ -2243,11 +2379,11 @@ async function main() {
         if (res.frame && res.reason !== 'error') pendingShot = res.frame;
         controlNote += watchNote(res);
         step.watch = { reason: res.reason, frames: res.frames, ms: res.ms, ...(res.detail && Object.keys(res.detail).length ? { detail: res.detail } : {}) };
-        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
         console.log(`[spin-watch] 第 ${i} 步:${res.reason}(${res.frames} 張 / ${Math.round(res.ms / 1000)}s)${res.detail ? ' ' + JSON.stringify(res.detail) : ''}`);
         if (res.reason === 'error') throw new Error(`AutoSpin 看守截圖失敗:${res.detail?.error ?? ''}`);
       } else
-      await client.act(deviceCmd);
+      await timedAsync(tm, 'act', () => client.act(deviceCmd));
       actOk = true;
       // 點 AutoSpin 次數選項或 SPIN 後立刻開始影片盤面追蹤;不必等下一輪 VLM 看見剩餘次數。
       if (slotCapture && (cmd.action === 'tap' || cmd.action === 'hold' || cmd.action === 'swipe')) {
@@ -2337,7 +2473,7 @@ async function main() {
         controlNote += `【SPIN 迴圈完成】已轉完 ${rtpLoop.target} 局付費 SPIN,RTP 已由系統統計(${s?.rtpPercent ?? '?'}%,95% 信賴區間 ${s?.ci95?.join('–') ?? '?'}%)。不用再轉;完成測試腳本其餘項目,沒有其他項目就 done。`;
         console.log(`[SPIN 迴圈] 完成 ${rtpLoop.target} 局:RTP ${s?.rtpPercent ?? '?'}%`);
       }
-      await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+      s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
       console.log(`[SPIN 迴圈] 第 ${i} 步:${step.thinking}(${Math.round((Date.now() - t1) / 100) / 10}s)`);
     }
     prevOrient = isLandscape;
@@ -2379,12 +2515,12 @@ async function main() {
           : null;
         if (rv && prevStep) {
           prevStep.review = { effect: rv.effect, ...(rv.note ? { note: rv.note } : {}), ...(rv.issues.length ? { issues: rv.issues } : {}) };
-          await s3put(`${PREFIX}/steps/${prevStep.index}.json`, JSON.stringify(prevStep), 'application/json').catch(() => {});
+          s3putBg(`${PREFIX}/steps/${prevStep.index}.json`, JSON.stringify(prevStep), 'application/json');
         }
         const cur = steps.find((s) => s.index === idx);
         if (rv && cur && Object.keys(rv.facts).length) {
           cur.facts = rv.facts;
-          await s3put(`${PREFIX}/steps/${idx}.json`, JSON.stringify(cur), 'application/json').catch(() => {});
+          s3putBg(`${PREFIX}/steps/${idx}.json`, JSON.stringify(cur), 'application/json');
         }
         team.record({ index: idx, screen: observation.screen, action: actionText, effect: rv?.effect });
         await team.maybeSummarize(idx).catch(() => {});
@@ -2395,8 +2531,30 @@ async function main() {
     // AutoSpin 看守剛結束:事件幀已備好,立刻交回 AI(再等 3 秒,自動關閉的彈窗就消失了)。
     // 記憶腳本:SPIN 迴圈已在上面等過盤面;導航操作只等 1.5 秒(下一步會確認是否到了預期畫面,載入中會再等)。
     if (cmd.reflex?.kind === 'spin') { /* 已等過 */ }
-    else if (!spinWatched) { if (lastBattleMove) await sleep(300); else await sleepOrOperator(cmd.reflex ? 1500 : 3000); }
+    else if (!spinWatched) {
+      if (lastBattleMove) await sleep(300);
+      else {
+        await sleepOrOperator(cmd.reflex ? REFLEX_SETTLE_MS : SETTLE_MS);
+        // 【預抓下一張】趁這裡把下一步要用的截圖抓好(取圖本身要數秒,期間畫面也在繼續穩定)。
+        // 下一步直接用這張,省掉一次串列的 Appium 取圖。
+        // 有新指令待處理時不預抓(那條路要最新畫面);liveBusy 旗標避免與即時串流搶同一條 session。
+        if (!pendingShot && !pendingCmds.length) {
+          for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
+          liveBusy = true;
+          const tShot = Date.now();
+          try { pendingShot = await client.takeScreenshot(); }
+          catch { pendingShot = null; }
+          finally {
+            liveBusy = false;
+            const last = steps[steps.length - 1];
+            if (last?.timing) last.timing.prefetch = Date.now() - tShot;
+          }
+        }
+      }
+    }
   }
+  // 背景上傳(截圖 / 標記 / 步驟 JSON / 記憶地圖)收尾。
+  await flushPuts();
 
   // 收尾(停止並上傳整場錄影、收 log、產生報告)可能要十幾秒到一兩分鐘;先更新狀態訊息,讓前端不是乾等。
   await writeStatus('running', '測試已結束,正在收尾:上傳錄影、整理畫面與產生報告(約需 1–2 分鐘)…', steps.length).catch(() => {});
@@ -2425,6 +2583,10 @@ async function main() {
   // 效能監測收尾:讀最終耗電、還原電池「未接電」模擬與 timestats(必須在 quit session 前)。
   if (perfPending) await perfPending.catch(() => null);
   if (perfShell) await perfMon.stop().catch(() => {});
+
+  // 步調統計:各段耗時的中位數 + 模型與流程開銷的佔比。用來確認加速有沒有生效、
+  // 以及下一輪該從哪裡再省(之前完全沒有這些數字,只能從 durationMs 反推)。
+  logPaceSummary(steps);
 
   // 報告 + 終態。
   console.log(memTrace.summaryLog());

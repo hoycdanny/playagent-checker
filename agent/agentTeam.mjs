@@ -411,9 +411,14 @@ export function createAgentTeam({
         ? elements.map((e) => `[${e.id}] ${e.label}${e.kind ? `(${e.kind})` : ''}`).join('\n')
         : '(視覺 Agent 沒有列出元件)';
       const sug = suggestion?.action ? `${suggestion.action}${suggestion.target ? ` → ${suggestion.target}` : ''}${suggestion.dir ? ` dir=${suggestion.dir}` : ''}` : '—';
+      // 【排序】固定不變的內容(原則、腳本、操作方式、背景知識)全部放最前面,每步會變的放後面。
+      // 模型端的 prompt 快取是比對前綴的:原本把 controlsPrompt 與 knowledge(最大的兩塊固定內容)
+      // 放在最後面,前綴等於每步都不一樣,實測 18 次呼叫 cacheRead 全是 0,寫進去的快取完全沒用到。
       const user = [
         scripted ? '【最高原則|測項為主】只做下面測試腳本列出的測項,逐項對照預期結果判定通過或失敗。知識庫只是幫你看懂畫面,嚴禁主動延伸去測知識庫提到、但腳本沒列的玩法或功能(例如多轉幾局、刷任務、逛其他頁面)。所有測項都判定完成後,立刻用 done 結束,不要多做。' : '',
         `【測試腳本】\n${scriptText()}`,
+        controlsPrompt ? `【這款遊戲的操作方式】\n${controlsPrompt}` : '',
+        knowledgeBrief ? `【遊戲類型背景知識(參考)】\n${knowledgeBrief}` : '',
         `【目前進度】腳本第 ${scriptStep} / ${Math.max(1, steps.length)} 步` +
           (externalProgress ? '(由看得到畫面的視覺 Agent 判定;scriptStep 照填這個數字,只做這一項需要的操作)' : ''),
         plan ? `【上一步】動作:${plan.actionText || '—'};目標:${plan.goal}(預期:${plan.expect || '—'})` : '',
@@ -428,8 +433,6 @@ export function createAgentTeam({
         `【最近步驟】\n${historyText()}`,
         operator.length ? `【測試人員即時指令(最優先)】\n${operator.map((t) => `- ${t}`).join('\n')}` : '',
         runnerNote ? `【系統狀態】${runnerNote}` : '',
-        controlsPrompt ? `【這款遊戲的操作方式】\n${controlsPrompt}` : '',
-        knowledgeBrief ? `【遊戲類型背景知識(參考)】\n${knowledgeBrief}` : '',
       ].filter(Boolean).join('\n\n');
       const r = await call('agent', DECIDE_SYSTEM, user, DECIDE_MAX_TOKENS, index, 'agent');
       if (!r || !str(r.action, 12)) return null;

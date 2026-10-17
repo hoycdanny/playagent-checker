@@ -24,6 +24,21 @@ export const GRAPH_SCHEMA_VERSION = 2;
 const STRONG_MATCH = 48;
 /** 視覺「相近」門檻(需再搭配名稱相容才合併)。 */
 const WEAK_MATCH = 110;
+/**
+ * 視覺「完全相同」門檻:像素幾乎一模一樣 → 不管 AI 這次叫它什麼名字,都是同一個畫面。
+ *
+ * 背景(2026-10-17 實測 app-mva95wxf-camd57):同一張畫面被 AI 前後取了兩個名字時
+ * (「大廳」/「開場畫面」、「每日任務畫面」/「每日獎勵畫面」),名稱不相容 →
+ * findMatch 不合併 → 長出兩個節點,指紋距離 0 bit。這會讓 identifyPage 的
+ * 「要比第二近的明顯更近」條件永遠不成立(兩個節點一樣近),該畫面在實機上
+ * 永遠認不出來,記憶腳本因此完全不會啟動。30 個節點裡有 6 個中這個問題。
+ */
+const IDENTICAL_MATCH = 8;
+/**
+ * 指紋資訊量下限(1024 bit 裡 1 的個數)。全黑/全白畫面的指紋會退化成幾乎全 0 或全 1,
+ * 兩張不同的暗畫面也會算出 0 bit 距離 —— 這種退化指紋不可用來判定「完全相同」。
+ */
+const MIN_HASH_BITS = 80;
 /** 每個節點保留的 pHash 樣本數(動態畫面需要多個樣本)。 */
 const MAX_HASH_SAMPLES = 6;
 const INTERACTIVE = new Set(['tap', 'swipe', 'move', 'type', 'back', 'launch', 'hold', 'key']);
@@ -140,6 +155,19 @@ export function emptyStructure(appName) {
   return { schemaVersion: GRAPH_SCHEMA_VERSION, appName: appName ?? '', rootPageId: null, pages: {}, edges: [], lastUpdatedAt: null };
 }
 
+/** 指紋裡 1 的個數(資訊量);用來排除全黑/全白的退化指紋。 */
+function hashBits(h) {
+  let n = 0;
+  for (const c of String(h ?? '')) { let x = parseInt(c, 16); while (x) { n += x & 1; x >>= 1; } }
+  return n;
+}
+/** 指紋資訊量是否足夠(非全黑/全白)。 */
+function richHash(h) {
+  if (!h) return false;
+  const n = hashBits(h);
+  return n >= MIN_HASH_BITS && n <= 1024 - MIN_HASH_BITS;
+}
+
 function pageHashes(p) {
   const list = Array.isArray(p.pHashes) ? p.pHashes : [];
   return p.pHash && !list.includes(p.pHash) ? [p.pHash, ...list] : list;
@@ -173,6 +201,13 @@ function findMatch(struct, { canon, pHash, module, transient = false }) {
     const pc = p.canonical ?? canonicalName(p.name);
     const sameModule = !module || !p.module || p.module === module;
     const dist = pHash ? Math.min(Infinity, ...pageHashes(p).map((h) => hamming(pHash, h))) : Infinity;
+    // 【完全相同】像素幾乎一模一樣 → 同一個畫面,不看名字(AI 常對同一畫面給不同名字)。
+    // 條件:指紋資訊量足夠(排除全黑/全白的退化指紋)、且「載入類」屬性一致
+    // (載入畫面不與正式畫面合併,否則記憶腳本會在載入畫面上動作)。
+    if (dist <= IDENTICAL_MATCH && richHash(pHash) && transient === Boolean(p.transient)) {
+      if (dist < bestScore) { bestScore = dist; best = p.id; }
+      continue;
+    }
     if (transient || p.transient) {
       // 載入畫面只跟載入畫面比:長得幾乎一樣 = 同一個;或描述了「載入什麼」且描述相同。
       // 只寫「載入中」的泛稱不靠名字合併(否則不同的載入畫面又全疊在一起)。
@@ -239,6 +274,28 @@ export function upsertPage(struct, frame) {
   bumpAlias(struct.pages[newId], frame.name);
   if (!struct.rootPageId && !transient) struct.rootPageId = newId;
   return { pageId: newId, isNew: true };
+}
+
+/** 目標名稱的比對鍵(小寫、去空白與標點)。 */
+function targetKey(t) {
+  return String(t ?? '').toLowerCase().replace(/[\s「」『』"'（）()[\]【】：:,，。.、_-]+/g, '');
+}
+
+/**
+ * 兩個目標名稱是不是同一個元件。
+ *
+ * 背景(2026-10-17 實測):同一顆按鈕 AI 會給不同寫法(「X」/「X 關閉」、「PLAY」/「Play」),
+ * 原本只用 normTarget(僅去空白)比對 → 同一條路被拆成多條邊,成功次數各自累積,
+ * 永遠達不到「成功 ≥ 2 次」的自動重播門檻。這裡用「去標點小寫後相等,或較長的以較短的開頭」
+ * 判定為同一個(「x關閉」以「x」開頭 → 同一個;「go」與「fortunerabbit」不同 → 不合併)。
+ */
+export function sameTarget(a, b) {
+  const x = targetKey(a);
+  const y = targetKey(b);
+  if (!x || !y) return x === y;
+  if (x === y) return true;
+  const [s, l] = x.length <= y.length ? [x, y] : [y, x];
+  return l.startsWith(s);
 }
 
 export function normTarget(t) {
@@ -312,7 +369,10 @@ export function recordTransition(struct, fromId, toId, { action, target, op } = 
   const kind = INTERACTIVE.has(action) ? action : 'auto';
   const tgt = kind === 'auto' ? '' : normTarget(target);
   const label = kind === 'auto' ? 'auto' : tgt ? `${kind} ${tgt}` : kind;
-  let edge = struct.edges.find((e) => e.fromPageId === fromId && e.toPageId === toId && (e.trigger?.kind ?? '') === kind && normTarget(e.trigger?.target) === tgt);
+  // 目標名稱用 sameTarget 比對(「X」與「X 關閉」視為同一顆按鈕),次數才會累積到同一條邊上。
+  // 刻意不改寫既有邊的 target:它是 opEdits 的識別鍵一部分,改了會讓測試人員的手動修正失聯。
+  let edge = struct.edges.find((e) => e.fromPageId === fromId && e.toPageId === toId && (e.trigger?.kind ?? '') === kind
+    && (kind === 'auto' ? normTarget(e.trigger?.target) === tgt : sameTarget(e.trigger?.target, tgt)));
   if (!edge) {
     edge = { fromPageId: fromId, toPageId: toId, trigger: { kind, label, ...(tgt ? { target: tgt } : {}) }, hitCount: 0, missCount: 0 };
     struct.edges.push(edge);
@@ -330,10 +390,10 @@ export function recordMiss(struct, pageId, { action, target } = {}) {
   if (!INTERACTIVE.has(action) || !struct.pages[pageId]) return;
   const tgt = normTarget(target);
   for (const e of struct.edges) {
-    if (e.fromPageId === pageId && e.trigger?.kind === action && normTarget(e.trigger?.target) === tgt) e.missCount += 1;
+    if (e.fromPageId === pageId && e.trigger?.kind === action && sameTarget(e.trigger?.target, tgt)) e.missCount += 1;
   }
   for (const s of struct.pages[pageId].selfOps ?? []) {
-    if (s.kind === action && normTarget(s.target) === tgt) s.missCount = (s.missCount ?? 0) + 1;
+    if (s.kind === action && sameTarget(s.target, tgt)) s.missCount = (s.missCount ?? 0) + 1;
   }
 }
 
@@ -348,7 +408,7 @@ export function recordSelfOp(struct, pageId, { action, target, op } = {}) {
   if (!tgt) return; // 沒有目標名稱的點擊無法辨識是哪個按鈕
   const clean = sanitizeOp(op);
   const list = Array.isArray(page.selfOps) ? page.selfOps : [];
-  let s = list.find((x) => x.kind === action && normTarget(x.target) === tgt);
+  let s = list.find((x) => x.kind === action && sameTarget(x.target, tgt));
   if (!s) {
     s = { kind: action, target: tgt, hitCount: 0, missCount: 0 };
     list.push(s);
@@ -445,7 +505,8 @@ export function compactStructure(input) {
     const rawKind = k && k !== 'tap' ? k : (first || k || 'auto');
     const kind = INTERACTIVE.has(rawKind) ? rawKind : 'auto';
     const tgt = kind === 'auto' ? '' : normTarget(e.trigger?.target);
-    let edge = out.edges.find((x) => x.fromPageId === from && x.toPageId === to && x.trigger.kind === kind && normTarget(x.trigger.target) === tgt);
+    let edge = out.edges.find((x) => x.fromPageId === from && x.toPageId === to && x.trigger.kind === kind
+      && (kind === 'auto' ? normTarget(x.trigger.target) === tgt : sameTarget(x.trigger.target, tgt)));
     if (!edge) {
       edge = { fromPageId: from, toPageId: to, trigger: { kind, label: kind === 'auto' ? 'auto' : tgt ? `${kind} ${tgt}` : kind, ...(tgt ? { target: tgt } : {}) }, hitCount: 0, missCount: 0 };
       out.edges.push(edge);
@@ -466,7 +527,7 @@ function mergeSelfOps(a, b) {
   const out = (Array.isArray(a) ? a : []).map((s) => ({ ...s }));
   for (const s of Array.isArray(b) ? b : []) {
     if (!s || !REPLAYABLE.has(s.kind)) continue;
-    const t = out.find((x) => x.kind === s.kind && normTarget(x.target) === normTarget(s.target));
+    const t = out.find((x) => x.kind === s.kind && sameTarget(x.target, s.target));
     if (!t) { out.push({ ...s }); continue; }
     t.hitCount = (t.hitCount ?? 0) + (s.hitCount ?? 0);
     t.missCount = (t.missCount ?? 0) + (s.missCount ?? 0);
