@@ -13,7 +13,7 @@ import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
 import { usd4 } from '../components/money.ts';
-import { formatDuration, taskDurationMs } from '../components/duration.ts';
+import { fmtDur, taskRunDurationMs } from '../components/duration.ts';
 import UserTag from '../components/UserTag.tsx';
 
 /** GET /reports 回傳的列(對齊後端 TaskListItem)。 */
@@ -28,6 +28,8 @@ interface ReportItem {
   createdAt: string;
   updatedAt?: string;
   finishedAt?: string;
+  /** AI 開始操作遊戲的時間 —— 「操作時間」欄的起點。 */
+  runStartedAt?: string;
   vlmModel?: string;
   seatModels?: { agent?: string; vlm?: string; subagent?: string };
   billableSpendUsd?: number;
@@ -53,8 +55,13 @@ const STATE_ORDER = ['pass', 'pass_risk', 'fail', 'blocked', 'error', 'cancelled
 const RANGES: Record<string, number> = { '24h': 24 * 3600_000, '7d': 7 * 24 * 3600_000, '30d': 30 * 24 * 3600_000 };
 type SortKey = 'newest' | 'oldest' | 'duration' | 'steps' | 'cost';
 
-/** 耗時算法與格式與任務列表共用(components/duration.ts)。 */
-const durationOf = (x: ReportItem): number | null => taskDurationMs(x);
+/**
+ * 這一欄是「操作時間」:AI 真的在操作遊戲的那段,扣掉排隊、開機與連線。
+ * 與任務列表、任務詳情頁時間軸的「測試中」同一個算法與格式(components/duration.ts),
+ * 排序與「平均操作時間」統計也都跟著這個值。報告都是終局任務,不必傳 now;
+ * 功能上線前的舊報告沒有 runStartedAt,回 null → 顯示「—」。
+ */
+const durationOf = (x: ReportItem): number | null => taskRunDurationMs(x);
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
@@ -266,7 +273,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
             <Stat label={t('outcome.blocked')} value={String(stats.blocked)} tone={stats.blocked ? 'warn' : undefined} />
             <Stat label={t('state.error')} value={String(stats.error)} tone={stats.error ? 'warn' : undefined} />
             <Stat label={t('reports.stat.passRate')} value={stats.passRate === null ? '—' : `${stats.passRate}%`} />
-            <Stat label={t('reports.stat.avgDuration')} value={formatDuration(stats.avgDuration)} />
+            <Stat label={t('reports.stat.avgDuration')} value={fmtDur(stats.avgDuration)} />
             <Stat label={t('reports.stat.cost')} value={`${usd4(stats.cost)}${stats.anyEstimated ? ` (${t('reports.estimated')})` : ''}`} />
           </div>
 
@@ -375,7 +382,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                   <th className="tasks__col-case">{t('reports.col.case')}</th>
                   <th className="tasks__col-icon">{t('tasks.colBackend')}</th>
                   <th className="tasks__col-steps">{t('reports.col.steps')}</th>
-                  <th>{t('reports.col.duration')}</th>
+                  <th title={t('tasks.colRunTimeTip')}>{t('tasks.colRunTime')}</th>
                   <th>{t('reports.col.cost')}</th>
                   <th>{t('reports.col.device')}</th>
                   <th title={t('tasks.roleAgentHint')}>{t('tasks.roleAgent')}</th>
@@ -436,7 +443,7 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                         })()}
                       </td>
                       <td className="tasks__col-steps">{x.stepCount ?? <span className="tasks__muted-cell">—</span>}</td>
-                      <td className="rpts__nowrap">{formatDuration(durationOf(x))}</td>
+                      <td className="rpts__nowrap">{fmtDur(durationOf(x))}</td>
                       <td className="tasks__cost">
                         {typeof x.billableSpendUsd === 'number' ? (
                           <>
