@@ -38,6 +38,8 @@ interface TaskItem {
   state: string;
   createdAt: string;
   updatedAt?: string;
+  /** 結束時間(報告產生時間;無報告則為最後狀態更新)—— 耗時欄用。 */
+  finishedAt?: string;
   vlmModel?: string;
   seatModels?: { agent?: string; vlm?: string; subagent?: string };
   billableSpendUsd?: number;

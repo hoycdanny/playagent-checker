@@ -13,6 +13,7 @@ import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
 import { usd4 } from '../components/money.ts';
+import { formatDuration, taskDurationMs } from '../components/duration.ts';
 import UserTag from '../components/UserTag.tsx';
 
 /** GET /reports 回傳的列(對齊後端 TaskListItem)。 */
@@ -52,21 +53,8 @@ const STATE_ORDER = ['pass', 'pass_risk', 'fail', 'blocked', 'error', 'cancelled
 const RANGES: Record<string, number> = { '24h': 24 * 3600_000, '7d': 7 * 24 * 3600_000, '30d': 30 * 24 * 3600_000 };
 type SortKey = 'newest' | 'oldest' | 'duration' | 'steps' | 'cost';
 
-function durationOf(x: ReportItem): number | null {
-  const end = x.finishedAt ?? x.updatedAt;
-  if (!end) return null;
-  const ms = Date.parse(end) - Date.parse(x.createdAt);
-  return Number.isFinite(ms) && ms >= 0 ? ms : null;
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return '—';
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
-}
+/** 耗時算法與格式與任務列表共用(components/duration.ts)。 */
+const durationOf = (x: ReportItem): number | null => taskDurationMs(x);
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
