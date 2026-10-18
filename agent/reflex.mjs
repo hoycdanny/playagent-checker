@@ -244,7 +244,26 @@ export function pageSelfOps(page, pageId, opEdits = {}) {
  * 但「按 SPIN」是這個任務本身要做的動作,而且 runner 每一局都會用轉輪有沒有真的轉動來驗證
  * (沒轉動 2 次就把這個操作降級並交回 AI)—— 那個驗證比次數門檻可靠,所以這裡只要 1 次。
  */
-export const REFLEX_MIN_HITS_SPIN = 1;
+export const REFLEX_MIN_HITS_SPIN = 2;
+/**
+ * SPIN 操作的可信度改用「成功率」而不是「零失敗」。
+ *
+ * opTrust 的 auto 要求 missCount === 0 —— 這對導航合理(走錯路要好幾步才回得來),
+ * 但一個被按過上百次的 SPIN 鈕不可能從來沒失敗過:彈窗蓋住、動畫還在播、剛好掉進
+ * 免費遊戲,都會記一次失敗。
+ * 2026-10-18 用這個 App 的真實記憶地圖驗證:主要的「拉霸結果畫面」上 tap SPIN 是
+ * hit=96 / miss=11(成功率 90%),卻因為 miss 不是 0 而被判 learning、整個被拒絕,
+ * 所以 SPIN 迴圈實機兩次都幾乎不啟動(88~93 次點 SPIN 只有 3~9 次走到迴圈)。
+ * 這裡放行「成功 ≥ 2 次且成功數 ≥ 失敗數的 SPIN_HIT_RATIO 倍」(≈ 成功率 67% 以上)。
+ * 安全性不是靠這個門檻顧的:runner 每按一次都會看轉輪有沒有真的轉,連續 2 次沒轉就
+ * 把這個操作降級並交回 AI —— 那個驗證比次數門檻可靠得多。
+ */
+export const SPIN_HIT_RATIO = 2;
+
+/** 這個 SPIN 操作的成功紀錄夠不夠好(成功率門檻,不要求零失敗)。 */
+export function spinOpReliable({ hitCount = 0, missCount = 0 } = {}) {
+  return hitCount >= REFLEX_MIN_HITS_SPIN && hitCount >= missCount * SPIN_HIT_RATIO;
+}
 
 /**
  * SPIN 迴圈:這個畫面有沒有可信的 SPIN 操作。回 { key, op, target, trust } 或 null。
@@ -294,10 +313,9 @@ export function chooseSpinOp({ struct, edits, pageId, version, state }) {
       const edit = opEdits[c.key];
       return { ...c, edit, trust: opTrust(c.counts, edit), op: effectiveOp(c.recorded, edit) };
     })
-    // learning 但已成功 ≥ REFLEX_MIN_HITS_SPIN 次且沒失敗過也放行(見上面的註解)。
-    .filter((x) => x.op && x.op.a === x.kind && !state?.demoted?.has(x.key)
-      && (x.trust === 'verified' || x.trust === 'auto'
-        || (x.trust === 'learning' && (x.counts.hitCount ?? 0) >= REFLEX_MIN_HITS_SPIN && (x.counts.missCount ?? 0) === 0)))
+    // 測試人員停用的不碰;其餘看成功率(見 spinOpReliable 的註解)。
+    .filter((x) => x.op && x.op.a === x.kind && x.trust !== 'disabled' && !state?.demoted?.has(x.key)
+      && (x.trust === 'verified' || spinOpReliable(x.counts)))
     .filter((x) => !(x.op.v && version && x.op.v !== version && !x.edit?.op && state?.crossVersionFailed))
     .sort((a, b) => (b.trust === 'verified') - (a.trust === 'verified')
       || (b.counts.hitCount ?? 0) - (a.counts.hitCount ?? 0)

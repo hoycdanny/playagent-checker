@@ -66,7 +66,10 @@ export async function decodeBoardFrames(mp4, opts = {}) {
   if (!Buffer.isBuffer(mp4) || mp4.length === 0) throw new TypeError('mp4 must be a non-empty Buffer');
   if (!(p.fps > 0 && p.gridW > 0 && p.gridH > 0)) throw new RangeError('fps/grid dimensions must be positive');
   const vf = `fps=${p.fps},${roiFilter(p.roi, `scale=${p.gridW}:${p.gridH}:flags=area,format=rgb24`)}`;
-  const raw = await withTempMp4(mp4, (file) => runFfmpeg(['-i', file, '-an', '-vf', vf, '-f', 'rawvideo', 'pipe:1'], null));
+  // threads:預設 ffmpeg 會吃滿所有核心。runner 是單執行緒 Node,在小容器上被解碼搶走 CPU
+  // 之後連截圖與模型呼叫都會變慢(實測每步從 15.7 秒變 30 秒)。固定 1 條執行緒。
+  const threads = Math.max(1, Number(p.threads) || 1);
+  const raw = await withTempMp4(mp4, (file) => runFfmpeg(['-threads', String(threads), '-i', file, '-an', '-vf', vf, '-f', 'rawvideo', 'pipe:1'], null));
   const pixels = p.gridW * p.gridH;
   const n = pixels * 3;
   const frames = [];
