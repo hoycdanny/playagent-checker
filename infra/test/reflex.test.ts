@@ -14,6 +14,7 @@ import {
   chooseReflex,
   chooseSpinOp,
   cmdFromOp,
+  coolSpinOp,
   createReflexState,
   opFromCmd,
   opTrust,
@@ -21,6 +22,7 @@ import {
   parseSpinCount,
   rtpSummary,
   selfOpKey,
+  spinCooledDown,
 } from '../../agent/reflex.mjs';
 import { edgeKey } from '../../agent/operatorMemory.mjs';
 import { parseEditOp } from '../lambda/api/memoryHints.js';
@@ -224,6 +226,17 @@ describe('SPIN loop and RTP', () => {
     const demoted = createReflexState();
     demoted.demoted.add(pick.key);
     expect(chooseSpinOp({ struct: s, edits: null, pageId: result, state: demoted })).toBeNull();
+    // 但「點了沒轉」常常只是獎勵動畫壓著,所以 runner 用的是冷卻而不是永久停用:過幾步要回來。
+    // job-mvdued65 實測:永久停用的話 162 步只跑完 11 局(每次都要 AI 摸索幾十步才回到盤面)。
+    const cooled = createReflexState();
+    coolSpinOp(cooled, pick.key, 40, 8);
+    expect(spinCooledDown(cooled, pick.key, 40)).toBe(true);
+    expect(chooseSpinOp({ struct: s, edits: null, pageId: result, state: cooled, step: 40 })).toBeNull();
+    expect(chooseSpinOp({ struct: s, edits: null, pageId: result, state: cooled, step: 47 })).toBeNull();
+    expect(chooseSpinOp({ struct: s, edits: null, pageId: result, state: cooled, step: 48 })).toMatchObject({ key: pick.key });
+    expect(spinCooledDown(cooled, pick.key, 48)).toBe(false);
+    // 沒被冷卻過的 key 不受影響
+    expect(spinCooledDown(cooled, 'other', 0)).toBe(false);
     // 測試人員停用也一樣。
     expect(chooseSpinOp({ struct: s, edits: { opEdits: { [pick.key]: { disabled: true } } }, pageId: result, state: createReflexState() })).toBeNull();
   });

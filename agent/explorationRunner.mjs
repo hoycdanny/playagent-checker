@@ -58,7 +58,7 @@ import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure, identifyPage } from './memoryGraph.mjs';
-import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, createReflexState, opFromCmd, parseSpinCount, rtpSummary } from './reflex.mjs';
+import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, coolSpinOp, createReflexState, opFromCmd, parseSpinCount, rtpSummary } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
 
@@ -1523,7 +1523,7 @@ async function main() {
       }
       // 2) SPIN 迴圈:RTP 任務、還沒轉完、目前在有可信 SPIN 操作的畫面。
       if (!reflexCmd && !reflexPending && rtpLoop.target > 0 && !rtpLoop.done && !rtpLoop.handBack && here && !here.transient) {
-        const spin = chooseSpinOp({ struct, edits: appMemory.edits, pageId: here.pageId, version: appVersion, state: reflexState });
+        const spin = chooseSpinOp({ struct, edits: appMemory.edits, pageId: here.pageId, version: appVersion, state: reflexState, step: i });
         const c = spin ? cmdFromOp(spin.op, cw, ch) : null;
         if (c) {
           reflexCmd = { ...c, target: spin.target, screen: nameOf(here.pageId),
@@ -2649,7 +2649,13 @@ async function main() {
         if (rtpLoop.startBalance === undefined && Number.isFinite(round.balance) && Number.isFinite(round.bet)) rtpLoop.startBalance = round.balance - round.win + round.bet;
       } else if (!moved) {
         rtpLoop.misses++;
-        if (rtpLoop.misses >= 2) { reflexState.demoted.add(cmd.reflex.key); rtpLoop.handBack = true; }
+        // 連兩次沒轉:交回 AI 處理(多半是獎勵動畫 / 彈窗壓著),但只把這個操作冷卻幾步,
+        // 不永久停用 —— 永久停用的代價是每次都要 AI 摸索幾十步才回到盤面(見 SPIN_COOLDOWN_STEPS)。
+        if (rtpLoop.misses >= 2) {
+          const until = coolSpinOp(reflexState, cmd.reflex.key, i);
+          rtpLoop.handBack = true;
+          console.log(`[SPIN 迴圈] 連 2 次沒轉動,交回 AI;這個 SPIN 操作冷卻到第 ${until} 步(不是永久停用)`);
+        }
       }
       if (Number.isFinite(round.balance)) rtpLoop.endBalance = round.balance;
       // settle:'still' = 兩區都靜止滿門檻才讀(數字可信);'timeout' / 'no_move' = 沒等到靜止,
@@ -2694,8 +2700,9 @@ async function main() {
     } else if (cmd.action !== 'wait') {
       navAction = cmd.action; prevTarget = ''; navOp = null;
     }
-    // AI 看過一次畫面後,被打斷的 SPIN 迴圈可以再接著轉。
-    if (!cmd.reflex) rtpLoop.handBack = false;
+    // AI 看過一次畫面後,被打斷的 SPIN 迴圈可以再接著轉;沒轉動的連續計數也重新起算
+    // (那兩次是上一個擋住盤面的狀況留下的,不該算到 AI 處理完之後)。
+    if (!cmd.reflex) { rtpLoop.handBack = false; rtpLoop.misses = 0; }
     // 輔助 Agent 核對上一步 + 決策 Agent 規劃下一步:在等待畫面穩定的這段時間背景進行(依序串接,不交錯)。
     if (team && !cmd.reflex) {
       const idx = i;

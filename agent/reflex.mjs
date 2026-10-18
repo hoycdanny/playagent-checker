@@ -105,7 +105,29 @@ export function effectiveOp(recorded, edit) {
 }
 
 export function createReflexState() {
-  return { demoted: new Set(), recent: [], chain: 0, crossVersionFailed: false };
+  return { demoted: new Set(), spinCooldown: new Map(), recent: [], chain: 0, crossVersionFailed: false };
+}
+
+/**
+ * SPIN 迴圈的冷卻步數。
+ *
+ * 「點了 SPIN 盤面沒轉」常常不是按鈕記錯了,而是當下有獎勵動畫 / 彈窗 / 免費遊戲壓在上面。
+ * 2026-10-18(job-mvdued65)實測:兩次沒轉就把那個 key 永久停用,結果 162 步只跑完 11 局 ——
+ * 每次停用都要 AI 自己摸索幾十步才回到盤面,而那個按鈕其實是好的。
+ * 所以改成「暫時擋下、過幾步再試」,而不是整場不再用。
+ */
+export const SPIN_COOLDOWN_STEPS = Math.max(1, Number(process.env.PA_SPIN_COOLDOWN_STEPS) || 8);
+
+/** 暫時擋下這個 SPIN 操作(不是永久停用):記下可以重新啟用的步數。 */
+export function coolSpinOp(state, key, step, steps = SPIN_COOLDOWN_STEPS) {
+  if (state?.spinCooldown && key) state.spinCooldown.set(key, step + steps);
+  return step + steps;
+}
+
+/** 這個 SPIN 操作還在冷卻中嗎。 */
+export function spinCooledDown(state, key, step) {
+  const until = state?.spinCooldown?.get(key);
+  return Number.isFinite(until) && step < until;
 }
 
 /** 從 task 文字抓 SPIN 局數(「1-100 局」「100 局」「100 spins」);沒有回 0。 */
@@ -276,7 +298,7 @@ export function spinOpReliable({ hitCount = 0, missCount = 0 } = {}) {
  * 「出邊」而不是 selfOp。結果 55 次點 SPIN 只有 3 次走到迴圈,其餘 52 次每局多問一次 AI
  * (每次約 7.6 秒);日誌裡那條 tap SPIN(成功 9 / 失敗 0)就擺在旁邊卻用不到。
  */
-export function chooseSpinOp({ struct, edits, pageId, version, state }) {
+export function chooseSpinOp({ struct, edits, pageId, version, state, step = 0 }) {
   const page = struct?.pages?.[pageId];
   if (!page || page.transient) return null;
   const opEdits = edits?.opEdits ?? {};
@@ -315,6 +337,7 @@ export function chooseSpinOp({ struct, edits, pageId, version, state }) {
     })
     // 測試人員停用的不碰;其餘看成功率(見 spinOpReliable 的註解)。
     .filter((x) => x.op && x.op.a === x.kind && x.trust !== 'disabled' && !state?.demoted?.has(x.key)
+      && !spinCooledDown(state, x.key, step)
       && (x.trust === 'verified' || spinOpReliable(x.counts)))
     .filter((x) => !(x.op.v && version && x.op.v !== version && !x.edit?.op && state?.crossVersionFailed))
     .sort((a, b) => (b.trust === 'verified') - (a.trust === 'verified')
