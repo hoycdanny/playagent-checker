@@ -17,6 +17,9 @@ import { decodeBoardFrames } from './slotVideoCapture.mjs';
 /** 整張畫面(不裁切):一次解碼,各區域的差異在網格上分別算。 */
 const FULL_ROI = Object.freeze({ x: 0, y: 0, w: 1, h: 1 });
 
+/** 一幀都沒拿到時還願意試幾局(分段是事後拉回的,開場可能真的還沒到)。 */
+const GRACE_ATTEMPTS = 2;
+
 /** 網格上某個區域(0~1 比例)的平均灰階差 0~255。區域落在網格外會被夾住。 */
 export function roiDelta(a, b, gw, gh, roi) {
   const x0 = Math.max(0, Math.min(gw - 1, Math.floor(roi.x * gw)));
@@ -55,6 +58,7 @@ export function createSpinSettle({
   let segs = 0;
   let frames = 0;
   let fails = 0;
+  let attempts = 0;
 
   async function ingest({ buf, startedAt }) {
     if (!Buffer.isBuffer(buf) || !buf.length) return;
@@ -73,12 +77,14 @@ export function createSpinSettle({
   }
 
   return {
-    get stats() { return { segs, frames, fails, coveredUntil, lastMotionAt }; },
+    get stats() { return { segs, frames, fails, attempts, coveredUntil, lastMotionAt }; },
     /**
-     * 影片這條路還能不能用。解碼一直失敗卻一幀都沒拿到(例如容器沒有 ffmpeg、分段格式有問題)
-     * 就回 false —— 呼叫端要退回截圖輪詢,否則每局都會乾等到逾時才知道沒資料。
+     * 影片這條路還能不能用。只要拿到過影格就算可用;一幀都沒拿到時只寬容 GRACE_ATTEMPTS 局
+     * (分段是事後才拉回來的,第一局可能真的還沒到),之後就回 false 讓呼叫端退回截圖輪詢。
+     * 不能無條件回 true:job-mvd8vsfb 實測即時影片開場就掛掉,但 fails 一直是 0
+     * (分段根本沒進來,連解碼都沒發生),結果每局都乾等 30 秒到逾時才判「沒有轉動」。
      */
-    healthy() { return frames > 0 || fails === 0; },
+    healthy() { return frames > 0 || attempts < GRACE_ATTEMPTS; },
     /** 開始等停輪:從現在起解碼進來的分段。 */
     arm() { armedUntil = Infinity; },
     /** 等完了:再收 graceMs 內到達的分段(它們才覆蓋剛才那段等待),之後就不解碼了。 */
@@ -98,6 +104,7 @@ export function createSpinSettle({
      * @returns {Promise<{ok:boolean, reason:'still'|'timeout'|'no_move', stillMs:number, movedAt:number, waitedMs:number, covered:number}>}
      */
     async waitSettled({ after, stillMs = 2000, timeoutMs = 15_000, pollMs = 200, sleep, now = Date.now }) {
+      attempts++;
       const t0 = now();
       // 迭代上限:逾時只看時間,萬一時鐘沒前進(或 sleep 被換成立即回傳)就會變成無窮忙迴圈。
       const maxLoops = Math.max(2, Math.ceil(timeoutMs / Math.max(1, pollMs)) + 2);
