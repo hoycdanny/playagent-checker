@@ -438,21 +438,38 @@ export interface TaskListItem {
   verdict?: { status: Verdict; reason: { zh: string; en: string }; standard: string };
 }
 
-/** 讀某物件 JSON(不存在回 null)。 */
+/**
+ * 讀某物件 JSON(不存在、或內容壞掉都回 null)。
+ *
+ * 壞掉的物件視同不存在,而不是往外丟錯:listJobs 用 Promise.all 併發讀每個任務的
+ * status / report / config,任何一筆 JSON.parse 失敗都會讓整個 /tasks 請求 reject,
+ * 前端就變成一片空白 —— 一個壞檔案害使用者看不到其他所有任務。
+ * 2026-10-18 實測:某個任務的 status.json 被寫進了 UTF-8 BOM,應用管理頁的任務清單全空。
+ * readSteps 早就為同樣的理由改用 allSettled(見下方註解),這裡把防線收到單一進出點。
+ * 真正的 S3 / 權限錯誤仍然往外丟 —— 那是系統性問題,不該被當成「沒有資料」默默吞掉。
+ */
 async function readJson<T>(
   s3: S3Client,
   bucket: string,
   key: string,
 ): Promise<T | null> {
+  let text: string | undefined;
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    const text = await res.Body?.transformToString();
-    return text ? (JSON.parse(text) as T) : null;
+    text = await res.Body?.transformToString();
   } catch (err) {
     if (err instanceof Error && (err.name === 'NoSuchKey' || err.name === 'NotFound')) {
       return null;
     }
     throw err;
+  }
+  if (!text) return null;
+  try {
+    // 去掉 UTF-8 BOM:JSON.parse 不接受,但不少工具(PowerShell 的 Out-File 等)會寫進去。
+    return JSON.parse(text.replace(/^\uFEFF/, '')) as T;
+  } catch {
+    console.warn(`[readJson] ${key} 內容不是合法 JSON,視同不存在`);
+    return null;
   }
 }
 
