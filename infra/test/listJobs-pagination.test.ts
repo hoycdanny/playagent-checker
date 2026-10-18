@@ -106,4 +106,58 @@ describe('listJobs 分頁', () => {
 
     expect(items.map((i) => i.jobId).sort()).toEqual(['job-aaa', 'job-bbb', 'job-ccc']);
   });
+
+  /**
+   * 回歸測試:單一任務的附屬 JSON 壞掉,不能害整張清單消失。
+   *
+   * 2026-10-18 實測:某個任務的 status.json 被寫進 UTF-8 BOM,JSON.parse 丟錯。
+   * listJobs 用 Promise.all 併發讀 status / report / config,一筆失敗就讓整個
+   * /tasks 請求 reject,應用管理頁的任務清單整頁空白 —— 其他任務全都看不到。
+   */
+  test('壞掉的 status.json 視同不存在,其餘任務照樣回傳', async () => {
+    const tenantId = 't-002';
+    const prefix = `tenants/${tenantId}/jobs/`;
+    const keys: string[] = [];
+    const bodies = new Map<string, string>();
+    const jobIds = ['job-aaa', 'job-bad', 'job-ccc'];
+    jobIds.forEach((jobId, i) => {
+      const jobKey = `${prefix}${jobId}/job.json`;
+      keys.push(jobKey);
+      bodies.set(jobKey, JSON.stringify({
+        jobId, tenantId, backend: 'web', locality: 'cloud', category: 'test',
+        appId: 'app-1', caseId: 'case-1', createdAt: `2026-09-27T0${i}:00:00.000Z`,
+      }));
+      const statusKey = `${prefix}${jobId}/status.json`;
+      keys.push(statusKey);
+      // 壞掉那一筆:帶 BOM(PowerShell 的 Out-File 等工具會寫進去)。
+      bodies.set(statusKey, jobId === 'job-bad'
+        ? `\uFEFF${JSON.stringify({ jobId, state: 'pass', updatedAt: '2026-09-27T05:00:00.000Z' })}`
+        : JSON.stringify({ jobId, state: 'pass', updatedAt: '2026-09-27T05:00:00.000Z' }));
+    });
+
+    const s3 = makePagingS3(keys, bodies, 2);
+    const { items } = await listJobs(s3, 'test-bucket', tenantId);
+
+    // 三個任務都要在,壞掉那個只是少了 status 推導出來的欄位。
+    expect(items.map((i) => i.jobId).sort()).toEqual(['job-aaa', 'job-bad', 'job-ccc']);
+    expect(items.find((i) => i.jobId === 'job-ccc')?.state).toBe('pass');
+    // BOM 只是前置字元,內容本身合法 → 去掉 BOM 後照樣解析得出來。
+    expect(items.find((i) => i.jobId === 'job-bad')?.state).toBe('pass');
+  });
+
+  test('內容真的不是 JSON 時也只是視同不存在', async () => {
+    const tenantId = 't-003';
+    const prefix = `tenants/${tenantId}/jobs/`;
+    const keys = [`${prefix}job-x/job.json`, `${prefix}job-x/status.json`];
+    const bodies = new Map<string, string>([
+      [keys[0]!, JSON.stringify({
+        jobId: 'job-x', tenantId, backend: 'web', locality: 'cloud', category: 'test',
+        appId: 'app-1', caseId: 'case-1', createdAt: '2026-09-27T00:00:00.000Z',
+      })],
+      [keys[1]!, '<html>500 oops</html>'],
+    ]);
+    const { items } = await listJobs(makePagingS3(keys, bodies, 2), 'test-bucket', tenantId);
+    expect(items.map((i) => i.jobId)).toEqual(['job-x']);
+    expect(items[0]!.updatedAt).toBeUndefined();
+  });
 });
