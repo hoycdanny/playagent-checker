@@ -37,7 +37,14 @@ COPY exploration-runner.package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
 # 複製 runner 與其模組。
-COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs memoryTrace.mjs perfMonitor.mjs liveVideo.mjs mediaAudio.mjs moveFeedback.mjs deviceLogs.mjs agentTeam.mjs obsGuard.mjs adbClient.mjs windowsClient.mjs spinWatch.mjs converseShape.mjs tokenUsage.mjs scriptTracker.mjs reflex.mjs slotBoardTracker.mjs slotVideoCapture.mjs slotPayout.mjs ./
+COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs memoryTrace.mjs perfMonitor.mjs liveVideo.mjs mediaAudio.mjs moveFeedback.mjs deviceLogs.mjs agentTeam.mjs obsGuard.mjs adbClient.mjs windowsClient.mjs spinWatch.mjs converseShape.mjs tokenUsage.mjs scriptTracker.mjs reflex.mjs slotBoardTracker.mjs slotVideoCapture.mjs spinSettle.mjs slotPayout.mjs ./
+
+# 上面這份清單是逐檔列的,新增 runner 模組一定要同步加進來 —— 漏了不會在建置時報錯,
+# 而是容器一啟動就 ERR_MODULE_NOT_FOUND(實測 job-mvd28c6f:缺 spinSettle.mjs,
+# 任務卡在「上傳 APK 中」23 分鐘、一步都沒跑,錢照花)。
+# 下面是建置期防呆:只比對「runner 自己 import 的相對路徑檔案有沒有被複製進來」,
+# 不 import 執行(explorationRunner.mjs 的最後一行就會呼叫 main(),一 import 就開始跑測試)。
+RUN node -e "const fs=require('fs');const seen=new Set();const miss=new Set();const walk=(f)=>{if(seen.has(f)||!fs.existsSync(f))return;seen.add(f);for(const m of fs.readFileSync(f,'utf8').matchAll(/from '\.\/([^']+)'/g)){const d=m[1];if(!fs.existsSync(d))miss.add(d);else walk(d)}};walk('explorationRunner.mjs');if(miss.size){console.error('Dockerfile 的 COPY 清單漏了:'+[...miss].join(', '));process.exit(1)}console.log('runner 模組齊全('+seen.size+' 個)')"
 
 # 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_APPIUM_URL / PA_JOB / ...)。
 CMD ["node", "explorationRunner.mjs"]
