@@ -988,6 +988,9 @@ async function main() {
   };
   /** SPIN 迴圈還有局數沒轉完:這時 AI 說「全部完成」一律不採用(局數以系統計數為準)。 */
   const spinLoopPending = () => rtpLoop.target > 0 && !rtpLoop.done;
+  // 局數沒達標的「完成」宣告最多攔這麼多次;再來就以失敗收尾(而不是無止盡攔下去燒預算)。
+  const SPIN_DONE_REJECT_CAP = Math.max(1, Number(process.env.PA_SPIN_DONE_REJECTS) || 3);
+  let spinDoneRejects = 0;
   // 停輪判定要盯的區域(每步依截圖方向更新;影片判定與截圖退路共用同一組)。
   let spinRois = SPIN_CROPS_PORTRAIT;
   /**
@@ -2350,8 +2353,27 @@ async function main() {
             ? `【提醒|測項為主】還差:${vd.missing || '腳本項目未完成'}。只需完成測試腳本列出的測項;知識庫僅供理解遊戲,不要延伸腳本以外的玩法(例如多餘的轉動 / 刷任務)。所有測項完成後即可 done。`
             : `【輔助 Agent 核對】你宣告測試完成,但還缺:${vd.missing || '腳本還沒全部完成'}。請繼續完成測試腳本,不要再提早 done。`;
           stuckCount = 0;
+        } else if (spinLoopPending() && spinDoneRejects < SPIN_DONE_REJECT_CAP) {
+          // 【局數是客觀事實】SPIN 迴圈還沒轉完就不可能「完成」,不管 AI 或輔助 Agent 怎麼說。
+          // job-mvd3hil3:裝置卡在系統「Fully charged」全螢幕覆蓋層,遊戲從頭沒載入、一局都沒轉,
+          // 卻因為輔助 Agent 核對放行而判了 pass(訊息還寫著「流程確定阻塞」)。
+          spinDoneRejects++;
+          cmd.action = 'wait'; cmd.duration = 2;
+          cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined;
+          cmd.thinking = `[拒絕假完成] 系統計數:只完成 ${rtpLoop.paid}/${rtpLoop.target} 局付費 SPIN,還沒達標(第 ${spinDoneRejects} 次攔截)。` + String(cmd.thinking || '');
+          cmd.override = 'reject_done';
+          step.action = 'wait'; step.override = 'reject_done'; step.thinking = cmd.thinking; delete step.expect;
+          controlNote = `【系統計數】目前只完成 ${rtpLoop.paid}/${rtpLoop.target} 局付費 SPIN。局數由系統計數,不是你自己數的 —— 還沒達標就不能 done。回到拉霸主盤面讓系統繼續轉;若畫面真的被擋住無法進入遊戲,就說明被什麼擋住,不要宣告完成。`;
+          stuckCount = 0;
         } else {
           if (vd) step.doneCheck = vd;
+          // 攔了 SPIN_DONE_REJECT_CAP 次還是進不去:這是失敗,不是通過(以客觀局數為準)。
+          if (spinLoopPending()) {
+            finalState = 'fail';
+            finalMsg = `只完成 ${rtpLoop.paid}/${rtpLoop.target} 局付費 SPIN 就無法繼續:${String(cmd.thinking || '').slice(0, 200)}`;
+            console.log(`[SPIN 迴圈] ${finalMsg}`);
+            break;
+          }
           finalState = 'pass';
           finalMsg = cmd.thinking || (authoritativeDone ? '所有測項完成,任務結束' : '流程完成');
           if (authoritativeDone) {
