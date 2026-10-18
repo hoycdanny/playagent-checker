@@ -41,10 +41,11 @@ export function completedSegments(lsOut) {
  * @param {boolean} [o.preserveBacklog] 證據模式:不得丟段(盤面完整率優先)
  * @param {(segment:{name:string,buf:Buffer,startedAt:number|null})=>Promise<unknown>} [o.onSegment] 拉回完整 MP4 後的本機證據分析
  */
-export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, preserveBacklog = false, onSegment, log = () => {} }) {
+export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, preserveBacklog = false, onSegment, maxFailures = 10, log = () => {} }) {
   let timer = null;
   let busy = false;
   let active = false;
+  let dead = false;
   let lastOkAt = 0;
   let uploaded = 0;
   let failures = 0;
@@ -67,7 +68,9 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
           if (onSegment) {
             const m = /^s(\d{13})\.mp4$/.exec(name);
             // 證據分析失敗不能中斷即時影片上傳;slot capture 自己會在 manifest 記 analysisFailures。
-            await onSegment({ name, buf, startedAt: m ? Number(m[1]) : null }).catch((e) => log(`[live-video] ${name} 證據分析失敗:${String(e?.message || e).slice(0, 200)}`));
+            // Promise.resolve 包起來:消費端忘了回 Promise 也不能把整條上傳迴圈打掛。
+            await Promise.resolve(onSegment({ name, buf, startedAt: m ? Number(m[1]) : null }))
+              .catch((e) => log(`[live-video] ${name} 證據分析失敗:${String(e?.message || e).slice(0, 200)}`));
           }
           uploaded++;
           lastOkAt = Date.now();
@@ -80,15 +83,33 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
     } catch (e) {
       failures++;
       if (failures === 3) log(`[live-video] 連續失敗:${String(e?.message || e).slice(0, 200)}`);
+      // 壞掉就要真的停。每秒重試一次失敗的 `ls`/`pullFile` 會把 Appium 連線(一次只跑一條指令)
+      // 佔住,整個決策迴圈都被拖慢;裝置端的 screenrecord 迴圈也會一直產生永遠不會被刪的分段。
+      // job-mvd8vsfb 實測:每步 15.7s → 63.8s,而且 2 小時只跑完 38/50 局。
+      if (failures >= maxFailures && !dead) {
+        dead = true;
+        log(`[live-video] 連續失敗 ${failures} 次,停用即時影片(改用截圖輪播):${String(e?.message || e).slice(0, 200)}`);
+        void shutdown();
+      }
     } finally {
       busy = false;
     }
   }
 
+  /** 停掉計時器與裝置端迴圈(circuit breaker 與 stop() 共用;不等 busy,因為可能從 tick 內呼叫)。 */
+  async function shutdown() {
+    active = false;
+    if (timer) clearInterval(timer);
+    timer = null;
+    await client.shell(`rm -rf ${DIR}; pkill -f screenrecord; echo stopped`, 8000).catch(() => {});
+  }
+
   return {
     get uploaded() { return uploaded; },
+    /** circuit breaker 跳掉了(連續失敗太多次)→ 呼叫端不該再期待影片。 */
+    get dead() { return dead; },
     /** 最近 8 秒內有成功上傳 → 前端可用影片;否則 runner 應回退截圖輪播。 */
-    healthy() { return active && Date.now() - lastOkAt < 8000; },
+    healthy() { return active && !dead && Date.now() - lastOkAt < 8000; },
     async start() {
       // 不指定 --size:screenrecord 每段開始時依「目前螢幕方向」決定寬高(橫向遊戲就錄成橫的)。
       // 指定固定尺寸的話,橫向畫面會被縮成直式框裡的一條。每段 2 秒,轉向後下一段即自動更正。
@@ -105,9 +126,9 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
     },
     async stop() {
       active = false;
-      if (timer) clearInterval(timer);
+      if (timer) { clearInterval(timer); timer = null; }
       for (let i = 0; busy && i < 40; i++) await new Promise((r) => setTimeout(r, 100));
-      await client.shell(`rm -rf ${DIR}; pkill -f screenrecord; echo stopped`, 8000).catch(() => {});
+      await shutdown();
     },
   };
 }

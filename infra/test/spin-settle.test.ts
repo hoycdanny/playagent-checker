@@ -125,6 +125,39 @@ describe('createSpinSettle', () => {
     expect(decodes).toBe(2);
   });
 
+  // job-mvd8vsfb 實測:即時影片開場就掛了,分段一段都沒進來(所以 fails 一直是 0),
+  // 但 healthy() 回 true,結果每局都乾等 30 秒才判「沒有轉動」,SPIN 按鈕還被扣成不可信。
+  test('一幀都沒拿到時只寬容兩局,之後就回報不健康(呼叫端要退回截圖)', async () => {
+    const s = createSpinSettle({ rois: () => [TOP], gridW: GW, gridH: GH, decode: async () => [] });
+    const wait = () => {
+      let now = 0;
+      return s.waitSettled({ after: 0, stillMs: 100, timeoutMs: 100, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
+    };
+    expect(s.healthy()).toBe(true);
+    await wait();
+    expect(s.healthy()).toBe(true);
+    await wait();
+    expect(s.stats.frames).toBe(0);
+    expect(s.healthy()).toBe(false);
+  });
+
+  test('拿到過影格就一直算健康(偶發解碼失敗不該讓它退回截圖)', async () => {
+    const s = createSpinSettle({
+      rois: () => [TOP],
+      gridW: GW,
+      gridH: GH,
+      decode: async () => [{ gray: grid(), offsetMs: 0 }],
+    });
+    s.arm();
+    await s.onSegment({ name: 'a', buf: Buffer.from('x'), startedAt: 0 });
+    let now = 0;
+    for (let k = 0; k < 5; k++) {
+      await s.waitSettled({ after: 0, stillMs: 100, timeoutMs: 100, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
+    }
+    expect(s.stats.frames).toBe(1);
+    expect(s.healthy()).toBe(true);
+  });
+
   test('解碼失敗不會中斷後續分段', async () => {
     const logs: string[] = [];
     const s = createSpinSettle({

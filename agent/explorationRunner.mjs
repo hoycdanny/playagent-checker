@@ -1004,8 +1004,11 @@ async function main() {
     ];
     return createLiveVideo({
       client, put: s3put, prefix: PREFIX, size: recordSize(w, h),
+      // onSegment 必須回 Promise(liveVideo 要 await 它);回 undefined 會讓上傳迴圈每秒丟
+      // 「Cannot read properties of undefined」,整條即時影片就死了(job-mvd8vsfb 實測:
+      // 影片停輪判定全程沒資料、裝置端分段也不再清掉,連 Appium 連線都被失敗重試佔滿)。
       ...(consumers.length
-        ? { preserveBacklog: true, onSegment: (seg) => { for (const f of consumers) f(seg); } }
+        ? { preserveBacklog: true, onSegment: async (seg) => { await Promise.all(consumers.map((f) => f(seg))); } }
         : {}),
       log: (m) => console.log(m),
     });
@@ -2559,21 +2562,33 @@ async function main() {
       // 不佔 Appium 連線,「靜止 2 秒」就是真的 2 秒。確認停好之後才取一張圖來讀數字。
       // 截圖輪詢(下面的 else)留作沒有錄影時的退路 —— 它一個樣本要 5 秒多,量不出 2 秒的窗口
       // (job-mvch7zri:每局等 16~23 秒,回報的靜止時間都是 5~6 秒)。
+      let settledByVideo = false;
       if (spinSettle?.healthy()) {
         const r = await spinSettle.waitSettled({ after: t1, stillMs: SPIN_STILL_MS, timeoutMs: SPIN_SETTLE_MAX_MS, sleep })
           .finally(() => spinSettle.disarm());
-        why = r.reason;
-        moved = Boolean(r.movedAt);
-        stillMs = Math.round(r.stillMs);
-        for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
-        liveBusy = true;
-        try { lastB64 = await client.takeScreenshot(); } catch { lastB64 = null; } finally { liveBusy = false; }
-        samples = 1;
-        console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(影片判定 ${why};靜止 ${stillMs}ms,影片落後 ${Math.max(0, Math.round((Date.now() - t1 - r.covered) / 100) / 10)}s,轉動=${moved})`);
-      } else {
+        // 一幀都沒解到就說「沒有轉動」是量測失敗,不是遊戲沒反應 —— 不能拿它去扣 SPIN 按鈕的
+        // 可信度(實測這樣會把 24/11 的按鈕扣成 24/17 而被停用,之後整段都回去走 VLM)。
+        if (r.reason === 'no_move' && spinSettle.stats.frames === 0) {
+          console.log(`[SPIN 迴圈] 即時影片沒有任何影格(等了 ${Math.round(r.waitedMs / 100) / 10}s),改用截圖輪詢判定停輪`);
+        } else {
+          settledByVideo = true;
+          why = r.reason;
+          moved = Boolean(r.movedAt);
+          stillMs = Math.round(r.stillMs);
+          for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
+          liveBusy = true;
+          try { lastB64 = await client.takeScreenshot(); } catch { lastB64 = null; } finally { liveBusy = false; }
+          samples = 1;
+          console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(影片判定 ${why};靜止 ${stillMs}ms,影片落後 ${Math.max(0, Math.round((Date.now() - t1 - r.covered) / 100) / 10)}s,轉動=${moved})`);
+        }
+      }
+      if (!settledByVideo) {
       // 按下 SPIN 之前的轉軸區(用這一步開頭那張截圖),用來判斷有沒有真的轉動。
       const reelsBefore = MAGICK ? pHashHex(shot, SPIN_REELS_CROP) : null;
-      for (let k = 0; k < 40 && Date.now() - t1 < SPIN_SETTLE_MAX_MS; k++) {
+      // 退路自己重新計時:影片那條路可能已經先燒掉整個 SPIN_SETTLE_MAX_MS,
+      // 沿用 t1 當起點的話這個迴圈會一次都不跑,直接回報「沒有轉動」。
+      const t2 = Date.now();
+      for (let k = 0; k < 40 && Date.now() - t2 < SPIN_SETTLE_MAX_MS; k++) {
         await sleep(SPIN_POLL_MS);
         // 即時畫面的截圖也走同一條 Appium session,不避讓會互相排隊(實測 shot 從 2.3 秒變 6.4 秒)。
         for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
@@ -2603,7 +2618,7 @@ async function main() {
         // 以「持續不動的時間」為準,不是「連續幾張圖」—— 取一張圖要 2 秒多,張數換算不出秒數。
         if (moved && stillMs >= SPIN_STILL_MS) { why = 'still'; break; }
         // 沒轉動過:多半是沒按到,不必等滿整個靜止窗,早點交還。
-        if (!moved && now - t1 > 4000 && stillMs >= 1500) { why = 'no_move'; break; }
+        if (!moved && now - t2 > 4000 && stillMs >= 1500) { why = 'no_move'; break; }
       }
       console.log(`[SPIN 迴圈] 等盤面停 ${Math.round((Date.now() - t1) / 100) / 10}s(截圖輪詢 ${why};取樣 ${samples} 次,靜止 ${stillMs}ms,轉動=${moved})`);
       }
