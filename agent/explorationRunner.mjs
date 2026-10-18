@@ -2543,6 +2543,8 @@ async function main() {
     }
     // 【SPIN 迴圈】這一步是照記憶按的 SPIN:runner 自己等盤面停下,再只讀數字(不做決策,快又省)。
     if (cmd.reflex?.kind === 'spin' && actOk) {
+      // 從這裡開始解碼錄影分段(分段是事後拉回來的,涵蓋剛才那一下 SPIN 的那段會晚點才到)。
+      spinSettle?.arm();
       const t1 = Date.now();
       let reelsPrev = null;   // 上一張的轉軸區
       let numsPrev = null;    // 上一張的數字列
@@ -2558,7 +2560,8 @@ async function main() {
       // 截圖輪詢(下面的 else)留作沒有錄影時的退路 —— 它一個樣本要 5 秒多,量不出 2 秒的窗口
       // (job-mvch7zri:每局等 16~23 秒,回報的靜止時間都是 5~6 秒)。
       if (spinSettle?.healthy()) {
-        const r = await spinSettle.waitSettled({ after: t1, stillMs: SPIN_STILL_MS, timeoutMs: SPIN_SETTLE_MAX_MS, sleep });
+        const r = await spinSettle.waitSettled({ after: t1, stillMs: SPIN_STILL_MS, timeoutMs: SPIN_SETTLE_MAX_MS, sleep })
+          .finally(() => spinSettle.disarm());
         why = r.reason;
         moved = Boolean(r.movedAt);
         stillMs = Math.round(r.stillMs);

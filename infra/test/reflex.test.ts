@@ -201,13 +201,24 @@ describe('SPIN loop and RTP', () => {
     const result = upsertPage(s, { name: '拉霸結果畫面', pHash: H('3') }).pageId;
     const reels = upsertPage(s, { name: '拉霸轉軸畫面', pHash: H('7') }).pageId;
     const op = (c: ReturnType<typeof tap>) => opFromCmd(c, 1000, 500, { version: 'art-1' });
-    // 按 SPIN 從結果畫面到轉軸畫面:成功一次、沒失敗過。
+    // 按 SPIN 從結果畫面到轉軸畫面:成功兩次、沒失敗過(達到 REFLEX_MIN_HITS_SPIN)。
+    recordTransition(s, result, reels, { action: 'tap', target: 'SPIN', op: op(tap(900, 440, 'SPIN')) });
     recordTransition(s, result, reels, { action: 'tap', target: 'SPIN', op: op(tap(900, 440, 'SPIN')) });
     expect(s.pages[result]!.selfOps ?? []).toHaveLength(0);
 
     const pick = chooseSpinOp({ struct: s, edits: null, pageId: result, state: createReflexState() })!;
     expect(pick).toMatchObject({ target: 'SPIN', op: { a: 'tap', x: 0.9, y: 0.88 } });
     expect(pick.key).toBe(edgeKey({ fromPageId: result, toPageId: reels, trigger: { kind: 'tap', target: 'SPIN' } }));
+
+    // 成功率門檻:失敗太多就不用了(這條規則讓實機上 hit=96/miss=11 的 SPIN 能通過,
+    // 但 hit=1/miss=11 這種不行)。
+    const flaky = emptyStructure('slot-app');
+    const fp = upsertPage(flaky, { name: '拉霸結果畫面', pHash: H('3') }).pageId;
+    const fr = upsertPage(flaky, { name: '拉霸轉軸畫面', pHash: H('7') }).pageId;
+    recordTransition(flaky, fp, fr, { action: 'tap', target: 'SPIN', op: op(tap(900, 440, 'SPIN')) });
+    recordTransition(flaky, fp, fr, { action: 'tap', target: 'SPIN', op: op(tap(900, 440, 'SPIN')) });
+    for (let k = 0; k < 11; k++) recordMiss(flaky, fp, { action: 'tap', target: 'SPIN' });
+    expect(chooseSpinOp({ struct: flaky, edits: null, pageId: fp, state: createReflexState() })).toBeNull();
 
     // 這一局沒轉動被降級後就不再用它(runner 連續 2 次沒轉動會這樣做)。
     const demoted = createReflexState();

@@ -46,6 +46,7 @@ describe('createSpinSettle', () => {
         return g.map((gray, i) => ({ gray, offsetMs: i * 100 }));
       },
     });
+    s.arm(); // 這些案例測的是停輪判定本身,先進入「等停輪」狀態
     return { s, push: (startedAt: number, g: Uint8Array[]) => { queue.push(g); return s.onSegment({ name: 's', buf: Buffer.from('x'), startedAt }); } };
   };
   const still = grid([{ x0: 0, y0: 0, x1: 10, y1: 10, v: 80 }]);
@@ -58,7 +59,8 @@ describe('createSpinSettle', () => {
     // 1000~3000ms:完全靜止
     await push(1000, Array.from({ length: 10 }, () => still));
     await push(2000, Array.from({ length: 10 }, () => still));
-    const r = await s.waitSettled({ after: 0, stillMs: 1500, sleep: async () => {}, now: () => 0, timeoutMs: 1 });
+    let now = 0;
+    const r = await s.waitSettled({ after: 0, stillMs: 1500, pollMs: 100, timeoutMs: 1000, sleep: async () => { now += 100; }, now: () => now });
     expect(r).toMatchObject({ ok: true, reason: 'still' });
     // 「從動變成靜」那一幀本身也是一次變化,所以最後動作時刻是第二段的第一幀 1000ms
     // (刻意保守:寧可多等一格,也不要把還在變的畫面當成已經停好)。解碼到 2900ms → 安靜 1900ms。
@@ -88,8 +90,39 @@ describe('createSpinSettle', () => {
     // 只盯下半(數字列);上半的轉輪/吉祥物動畫不該影響判定。
     const { s, push } = settleFor({ rois: [BOTTOM] });
     await push(0, [moving(10), moving(200), moving(10), moving(200)]);
-    const r = await s.waitSettled({ after: 0, stillMs: 100, timeoutMs: 0, sleep: async () => {}, now: () => 0 });
+    let now = 0;
+    const r = await s.waitSettled({ after: 0, stillMs: 100, timeoutMs: 200, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
     expect(r.reason).toBe('no_move'); // 下半從頭到尾沒變 → 沒看到動作
+  });
+
+  // 全程解碼會把容器 CPU 吃掉(實測每步 15.7 秒 → 30 秒),所以只在等停輪那段才解碼。
+  test('沒在等停輪時直接丟掉分段,不呼叫解碼', async () => {
+    let decodes = 0;
+    const clock = { t: 1000 };
+    const s = createSpinSettle({
+      rois: () => [TOP],
+      gridW: GW,
+      gridH: GH,
+      graceMs: 4000,
+      now: () => clock.t,
+      decode: async () => { decodes++; return []; },
+    });
+    // 預設沒武裝 → 不解碼
+    await s.onSegment({ name: 'a', buf: Buffer.from('x'), startedAt: 0 });
+    expect(decodes).toBe(0);
+    // 等停輪期間 → 解碼
+    s.arm();
+    await s.onSegment({ name: 'b', buf: Buffer.from('x'), startedAt: 0 });
+    expect(decodes).toBe(1);
+    // 等完了,但寬限期內的分段還要收(它們才涵蓋剛才那段等待)
+    s.disarm();
+    clock.t += 3000;
+    await s.onSegment({ name: 'c', buf: Buffer.from('x'), startedAt: 0 });
+    expect(decodes).toBe(2);
+    // 超過寬限期 → 不再解碼
+    clock.t += 2000;
+    await s.onSegment({ name: 'd', buf: Buffer.from('x'), startedAt: 0 });
+    expect(decodes).toBe(2);
   });
 
   test('解碼失敗不會中斷後續分段', async () => {
@@ -101,6 +134,7 @@ describe('createSpinSettle', () => {
       decode: async () => { throw new Error('ffmpeg boom'); },
       log: (m: string) => logs.push(m),
     });
+    s.arm();
     await s.onSegment({ name: 'bad', buf: Buffer.from('x'), startedAt: 0 });
     expect(s.stats.fails).toBe(1);
     expect(logs[0]).toContain('解碼失敗');

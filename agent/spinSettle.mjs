@@ -39,9 +39,14 @@ export function roiDelta(a, b, gw, gh, roi) {
  * @param {number} [o.threshold] 平均灰階差超過此值視為「有在動」
  */
 export function createSpinSettle({
-  rois, fps = 10, gridW = 72, gridH = 160, threshold = 2.5,
-  decode = decodeBoardFrames, log = () => {},
+  rois, fps = 6, gridW = 72, gridH = 160, threshold = 2.5, graceMs = 4000,
+  decode = decodeBoardFrames, log = () => {}, now = Date.now,
 }) {
+  // 只在「等停輪」那段時間解碼。全程解碼的代價很實際:1440x3088、60fps 的 2 秒分段,
+  // 每 2 秒要解上百張全解析度影格,把容器 CPU 吃掉之後整個主迴圈都被拖慢
+  // (實測每步 15.7 秒 → 30 秒)。armedUntil 之後還留 graceMs,因為分段是事後才拉回來的,
+  // 覆蓋等待區間的那一段往往在解除武裝之後才到。
+  let armedUntil = 0;
   let prev = null;
   let prevT = 0;
   let coveredUntil = 0;  // 已解碼到哪個時刻(epoch ms)
@@ -74,8 +79,13 @@ export function createSpinSettle({
      * 就回 false —— 呼叫端要退回截圖輪詢,否則每局都會乾等到逾時才知道沒資料。
      */
     healthy() { return frames > 0 || fails === 0; },
-    /** 掛在 liveVideo 的 onSegment;序列化處理(分段必須按順序比對)。 */
+    /** 開始等停輪:從現在起解碼進來的分段。 */
+    arm() { armedUntil = Infinity; },
+    /** 等完了:再收 graceMs 內到達的分段(它們才覆蓋剛才那段等待),之後就不解碼了。 */
+    disarm() { if (armedUntil === Infinity) armedUntil = now() + graceMs; },
+    /** 掛在 liveVideo 的 onSegment;序列化處理(分段必須按順序比對)。沒在等停輪就直接丟掉。 */
     onSegment(seg) {
+      if (now() > armedUntil) { prev = null; return chain; }
       chain = chain.then(() => ingest(seg), () => ingest(seg)).catch((e) => {
         fails++;
         log(`[spin-settle] 分段 ${seg?.name ?? '?'} 解碼失敗:${String(e?.message || e).slice(0, 180)}`);
@@ -89,7 +99,9 @@ export function createSpinSettle({
      */
     async waitSettled({ after, stillMs = 2000, timeoutMs = 15_000, pollMs = 200, sleep, now = Date.now }) {
       const t0 = now();
-      for (;;) {
+      // 迭代上限:逾時只看時間,萬一時鐘沒前進(或 sleep 被換成立即回傳)就會變成無窮忙迴圈。
+      const maxLoops = Math.max(2, Math.ceil(timeoutMs / Math.max(1, pollMs)) + 2);
+      for (let k = 0; k < maxLoops; k++) {
         await chain.catch(() => {});
         const movedAt = lastMotionAt > after ? lastMotionAt : 0;
         // 已解碼的時間軸上,最後一次動作之後安靜了多久(資料還沒到的部分不算安靜)。
@@ -102,6 +114,15 @@ export function createSpinSettle({
         }
         await sleep(pollMs);
       }
+      const movedAt = lastMotionAt > after ? lastMotionAt : 0;
+      return {
+        ok: false,
+        reason: movedAt ? 'timeout' : 'no_move',
+        stillMs: Math.max(0, coveredUntil - Math.max(lastMotionAt, after)),
+        movedAt,
+        waitedMs: now() - t0,
+        covered: coveredUntil - after,
+      };
     },
   };
 }
