@@ -6,6 +6,7 @@ import TaskIcon, { backendIcon } from './TaskIcon.tsx';
 import { modelLabel } from './modelProvider.ts';
 import { CaseVersionBadge } from './cases/CaseVersions.tsx';
 import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome.ts';
+import { reportLang } from './report/reportText.ts';
 import { usd4 } from './money.ts';
 import { fmtDur, formatDuration, taskDurationMs, taskRunDurationMs } from './duration.ts';
 import UserTag from './UserTag.tsx';
@@ -162,7 +163,8 @@ export default function TasksTable({
                   <TaskIcon
                     kind="state"
                     value={outcomeOf(x)}
-                    label={outcomeTip(x, (k) => t(k), locale === 'en' ? 'en' : 'zh')}
+                    // 後端的理由只有 { zh, en };reportLang 讓 ja/ko/zh-Hans 不會拿到繁中。
+                    label={outcomeTip(x, (k) => t(k), reportLang(locale))}
                   />
                 </span>
               </td>

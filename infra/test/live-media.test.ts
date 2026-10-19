@@ -7,7 +7,7 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: async (_c: unknown, cmd: { input: { Key: string } }) => `https://signed/${cmd.input.Key}`,
 }));
 const { listMediaSegments, readAudioLevels, withRecordingUrls } = await import('../lambda/api/liveMedia.js');
-// @ts-expect-error 無 .d.ts 的 .mjs 匯入
+// liveVideo 已經有 agent/liveVideo.d.mts,不需要 @ts-expect-error。
 const lv = await import('../../agent/liveVideo.mjs');
 // @ts-expect-error 無 .d.ts 的 .mjs 匯入
 const ma = await import('../../agent/mediaAudio.mjs');

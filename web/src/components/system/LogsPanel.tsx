@@ -5,9 +5,15 @@ import './LogsPanel.css';
 
 /** 與後端 systemLogs.ts 對齊。 */
 type LogKind = 'lambda' | 'ecs' | 'codebuild' | 'other';
-interface LogSource { id: string; logGroupName: string; kind: LogKind; label: string }
+/** 後端給的翻譯 key(穩定,不隨語系變)。 */
+type LogSourceId =
+  | 'api' | 'engine' | 'dispatcher' | 'ws-auth' | 'ws-connect' | 'ws-push'
+  | 'runner-exploration' | 'runner-web'
+  | 'update' | 'image-runner' | 'image-web' | 'installer'
+  | 'log-retention' | 's3-events' | 'custom-resource' | 'lambda-other' | 'other';
+interface LogSource { id: string; logGroupName: string; kind: LogKind; sourceId?: LogSourceId; label: string }
 type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
-interface LogRow { ts: number; source: string; logGroup: string; logStream?: string; level?: LogLevel; message: string }
+interface LogRow { ts: number; sourceId?: LogSourceId; source: string; logGroup: string; logStream?: string; level?: LogLevel; message: string }
 type LogQueryState = 'Scheduled' | 'Running' | 'Complete' | 'Failed' | 'Cancelled' | 'Timeout' | 'Unknown';
 interface LogQueryResult { status: LogQueryState; done: boolean; rows: LogRow[]; recordsMatched?: number }
 
@@ -49,6 +55,30 @@ const S = {
   truncated: ['只顯示最新 {n} 筆', 'Showing newest {n}', '只显示最新 {n} 条', '最新の {n} 件のみ表示', '최신 {n}건만 표시'] as L5,
 };
 
+/**
+ * 服務來源名稱。後端只回穩定 key(sourceId),顯示文字在這裡決定 ——
+ * 原本後端直接回繁中字串、前端照印,所以日文/英文介面的來源晶片與「來源」欄都是中文。
+ */
+const SRC: Record<LogSourceId, L5> = {
+  api: ['控制面 API', 'Control-plane API', '控制面 API', 'コントロールプレーン API', '컨트롤 플레인 API'],
+  engine: ['引擎 Engine', 'Engine', '引擎 Engine', 'エンジン', '엔진'],
+  dispatcher: ['分派器 Dispatcher', 'Dispatcher', '分派器 Dispatcher', 'ディスパッチャ', '디스패처'],
+  'ws-auth': ['WebSocket 授權', 'WebSocket authorizer', 'WebSocket 授权', 'WebSocket 認可', 'WebSocket 권한 부여'],
+  'ws-connect': ['WebSocket 連線', 'WebSocket connect', 'WebSocket 连接', 'WebSocket 接続', 'WebSocket 연결'],
+  'ws-push': ['WebSocket 推送', 'WebSocket push', 'WebSocket 推送', 'WebSocket プッシュ', 'WebSocket 푸시'],
+  'runner-exploration': ['Runner(真機 / Device Farm)', 'Runner (real device / Device Farm)', 'Runner(真机 / Device Farm)', 'ランナー(実機 / Device Farm)', '러너(실기기 / Device Farm)'],
+  'runner-web': ['Runner(Web 瀏覽器)', 'Runner (web browser)', 'Runner(Web 浏览器)', 'ランナー(Web ブラウザ)', '러너(웹 브라우저)'],
+  update: ['系統更新(CodeBuild)', 'System update (CodeBuild)', '系统更新(CodeBuild)', 'システム更新(CodeBuild)', '시스템 업데이트(CodeBuild)'],
+  'image-runner': ['映像建置(真機 runner)', 'Image build (device runner)', '镜像构建(真机 runner)', 'イメージビルド(実機ランナー)', '이미지 빌드(실기기 러너)'],
+  'image-web': ['映像建置(web runner)', 'Image build (web runner)', '镜像构建(web runner)', 'イメージビルド(web ランナー)', '이미지 빌드(web 러너)'],
+  installer: ['安裝器(CodeBuild)', 'Installer (CodeBuild)', '安装器(CodeBuild)', 'インストーラー(CodeBuild)', '설치 프로그램(CodeBuild)'],
+  'log-retention': ['其他(log 保留設定)', 'Other (log retention)', '其他(log 保留设置)', 'その他(ログ保持設定)', '기타(로그 보존 설정)'],
+  's3-events': ['其他(S3 事件)', 'Other (S3 events)', '其他(S3 事件)', 'その他(S3 イベント)', '기타(S3 이벤트)'],
+  'custom-resource': ['其他(自訂資源)', 'Other (custom resources)', '其他(自定义资源)', 'その他(カスタムリソース)', '기타(사용자 지정 리소스)'],
+  'lambda-other': ['其他 Lambda', 'Other Lambda', '其他 Lambda', 'その他の Lambda', '기타 Lambda'],
+  other: ['其他', 'Other', '其他', 'その他', '기타'],
+};
+
 const RANGES: { key: keyof typeof S; minutes: number }[] = [
   { key: 'm15', minutes: 15 },
   { key: 'h1', minutes: 60 },
@@ -67,6 +97,9 @@ export function LogsPanel() {
   const { locale } = useI18n();
   const i = IDX[locale] ?? 1;
   const tr = (v: L5) => v[i] ?? v[1];
+  /** 來源顯示名:認得 sourceId 就翻譯,否則退回後端給的字(舊後端 / 未知種類)。 */
+  const srcName = (sourceId: LogSourceId | undefined, fallback: string) =>
+    (sourceId && SRC[sourceId] ? tr(SRC[sourceId]) : fallback);
 
   const [sources, setSources] = useState<LogSource[]>([]);
   const [sourcesLoading, setSourcesLoading] = useState(true);
@@ -155,8 +188,9 @@ export function LogsPanel() {
 
   function download() {
     if (!rows || rows.length === 0) return;
+    // 下載的檔案跟著介面語系(使用者看到什麼就下載什麼)。
     const text = rows
-      .map((r) => `${new Date(r.ts).toISOString()}\t${r.source}\t${r.level ?? ''}\t${r.message}`)
+      .map((r) => `${new Date(r.ts).toISOString()}\t${srcName(r.sourceId, r.source)}\t${r.level ?? ''}\t${r.message}`)
       .join('\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
@@ -196,7 +230,7 @@ export function LogsPanel() {
                     title={s.logGroupName}
                     onClick={() => toggle(s.logGroupName)}
                   >
-                    {s.label}
+                    {srcName(s.sourceId, s.label)}
                   </button>
                 ))}
               </div>
@@ -251,7 +285,7 @@ export function LogsPanel() {
                   {shown.map((r, idx) => (
                     <div key={`${r.ts}-${idx}`} className={`syslog__line ${r.level ? `is-${r.level}` : ''}`}>
                       <span className="syslog__t">{hms(r.ts)}</span>
-                      <span className="syslog__src" title={r.logGroup}>{r.source}</span>
+                      <span className="syslog__src" title={r.logGroup}>{srcName(r.sourceId, r.source)}</span>
                       {r.level && <span className={`syslog__lv is-${r.level}`}>{r.level}</span>}
                       <span className="syslog__msg">{r.message}</span>
                     </div>
