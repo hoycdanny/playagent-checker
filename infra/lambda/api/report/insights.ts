@@ -31,20 +31,61 @@ const SYSTEM = `你是資深遊戲 QA 測試顧問,負責撰寫給客戶的正�
 你會收到一份由程式從測試證據計算出的結構化報告(JSON)。規則:
 - 只能根據提供的證據下結論;不可捏造步驟、數字、截圖內容。所有數字以輸入為準,不得重新計算或更改。
 - 區分「遊戲缺陷」與「AI 測試代理/測試環境問題」;後者不得說成遊戲缺陷。
+- profiles 說明這次套用了哪些報告樣板(通用 + 該遊戲類型)。請用該類型的專業角度解讀數字:
+  例如拉霸看 RTP 與中獎頻率是否偏離標稱值、三消看關卡失敗率、效能類看 fps 與記憶體成長。
+- metrics 是程式算出來的數字,必須被用到:summary 至少引用一個關鍵指標的數值。
+  source='ai_evaluation' 的數字由 AI 觀察彙總而來,可信度低於 'objective',提及時要說明這點。
+- metricsNotCollected 列出「沒量到」的指標:這些要說成「本次未覆蓋」,絕對不可當成 0 或當成通過。
+- thresholds 是生效的門檻、spec.values 是使用者填的遊戲設計規格(如標稱 RTP)。
+  指標與門檻/規格有落差時要明確講出「實際 X vs 門檻/規格 Y」。spec.values 沒有的項目表示客戶沒提供規格,
+  不可自行假設業界值來判定不合格,只能說「未提供規格,無法判定」。
+- coverage 與樣本數偏低時(例如 spin_count 只有數十局),結論必須保守:講觀察到的現象,
+  不要把短期樣本說成統計結論。dataQuality 有排除讀錯數值時,引用相關數字要附帶這個保留。
+- watchouts:針對數字逐條點出「值得注意的地方」,2~6 條。每條必須引用一個指標 id 或門檻,
+  並說明為什麼值得注意(偏離規格 / 樣本不足 / 與同類型常見值差距大 / 資料品質有疑慮)。
+  這裡只描述現象,不要寫怎麼修(怎麼修寫在 recommendations)。
 - 需求矩陣:把 testCase.testSteps 與 testCase.expectedResult 拆成逐條需求(每行/每個編號一條;若沒有案例步驟,改用測試目標拆成 2~6 條可驗證需求)。
   每條給 result(pass/fail/unclear/not_tested)、evidenceSteps(對應的步驟編號,取自 evidence/checks 的 step)、reason(判定依據,引用畫面名或 AI 觀察)、suggestion(fail/unclear 時的具體修正建議)。
 - recommendations:依優先級 P0(阻斷發布)/P1/P2 列 2~6 條可執行建議,owner 為 dev(遊戲開發修正)/qa(調整案例或知識庫)/env(測試環境)。
 - notes:針對 findings 或失敗 checks(以其 id 為 key)給比模板更具體的修正建議。
-- 數量上限:requirements 最多 8 條、recommendations 最多 5 條、notes 最多 5 條;evidenceSteps 每條最多 4 個。
+- 數量上限:requirements 最多 8 條、watchouts 最多 6 條、recommendations 最多 5 條、notes 最多 5 條;evidenceSteps 每條最多 4 個。
 - 文字欄位一律用使用者指定的語言撰寫,簡潔、專業;summary/rootCause 不超過 150 字,其餘每段不超過 70 字。
 - 字串內不得出現未跳脫的雙引號(需要引用時改用「」)。
 - 只輸出一個 JSON 物件,不要 markdown 圍欄或其他文字。格式:
-{"summary":"","rootCause":"","requirements":[{"text":"","result":"pass","evidenceSteps":[1],"reason":"","suggestion":""}],"recommendations":[{"priority":"P0","owner":"dev","text":"","relatedFindings":["DEF-001"]}],"notes":{"DEF-001":""}}`;
+{"summary":"","rootCause":"","watchouts":[""],"requirements":[{"text":"","result":"pass","evidenceSteps":[1],"reason":"","suggestion":""}],"recommendations":[{"priority":"P0","owner":"dev","text":"","relatedFindings":["DEF-001"]}],"notes":{"DEF-001":""}}`;
 
 export type InsightsLang = 'zh' | 'en';
 const LANG_NAME: Record<InsightsLang, string> = { zh: '繁體中文', en: 'English' };
 
 const cut = (s: unknown, n: number): string | undefined => (typeof s === 'string' && s ? s.slice(0, n) : undefined);
+
+/** 指標上限:類型專屬的先進,通用的補到這個數為止(控制 token)。 */
+const MAX_METRICS = 60;
+
+/**
+ * 送進模型的指標。
+ *
+ * 原本完全沒送 —— 模型在「沒看到任何數字」的情況下寫總結,所以它只能重述 checks 與
+ * findings 的文字。這裡只送真的有量到的(status==='ok' 且有值),並且把類型專屬的指標
+ * 排在通用指標前面:一份拉霸報告裡,observed_rtp 與 hit_frequency 比 tokens_total 重要。
+ */
+function metricsForModel(r: StructuredReport): Array<Record<string, unknown>> {
+  const collected = r.metrics.filter((m) => m.status === 'ok' && m.value !== null);
+  const genreFirst = [
+    ...collected.filter((m) => m.profile !== 'global'),
+    ...collected.filter((m) => m.profile === 'global'),
+  ];
+  return genreFirst.slice(0, MAX_METRICS).map((m) => ({
+    id: m.id,
+    label: m.label.zh,
+    value: m.value,
+    unit: m.unit,
+    group: m.group,
+    profile: m.profile,
+    // ai_evaluation 的數字是 AI 觀察彙總而來,可信度與 objective 不同,模型要知道差別。
+    source: m.source,
+  }));
+}
 
 /** 精簡輸入(控制 token 與延遲):只放判定需要的欄位。 */
 export function insightsInput(r: StructuredReport): Record<string, unknown> {
@@ -54,6 +95,7 @@ export function insightsInput(r: StructuredReport): Record<string, unknown> {
   // 取樣:每 N 步一筆,讓 LLM 看到完整流程的輪廓。
   const stride = Math.max(1, Math.ceil(r.evidence.length / 30));
   const outline = r.evidence.filter((_, i) => i % stride === 0).map((s) => `#${s.index} ${s.screen} → ${s.action}`);
+  const metrics = metricsForModel(r);
   return {
     testCase: {
       name: r.testCase.name,
@@ -68,6 +110,34 @@ export function insightsInput(r: StructuredReport): Record<string, unknown> {
     release: r.release.readiness,
     terminal: r.terminal,
     counts: r.counts,
+    // ── 以下是「程式算出來的數字」:模型只能解讀,不得重算或改動 ──
+    /** 這次套用了哪些報告樣板(通用 + 遊戲類型),讓模型知道該用哪個類型的專業角度看。 */
+    profiles: r.profiles.map((p) => ({ id: p.id, version: p.version, label: p.label.zh })),
+    metrics,
+    /** 指標被截掉的數量(模型不該說「沒有其他數據」)。 */
+    metricsOmitted: Math.max(0, r.metrics.filter((m) => m.status === 'ok' && m.value !== null).length - metrics.length),
+    /** 沒量到的指標 id:模型據此說「此項未覆蓋」,而不是當成 0。 */
+    metricsNotCollected: r.metrics.filter((m) => m.status !== 'ok' || m.value === null).map((m) => m.id).slice(0, 40),
+    /** 生效的門檻值(放行 / 風險規則用的),讓模型能說「超過門檻 X」。 */
+    thresholds: r.release.thresholds,
+    /** 使用者填的遊戲設計規格(例如標稱 RTP);未填的項目本來就不會被檢查。 */
+    spec: { values: r.spec.values, sources: r.spec.sources },
+    /** 觸發的放行規則(含該規則看的指標與理由)。 */
+    releaseHits: r.release.hits.map((h) => ({ ruleId: h.ruleId, outcome: h.outcome, metric: h.metric, reason: cut(h.reason.zh, 200) })),
+    /** 風險清單(程式依風險規則產生)。 */
+    risks: r.risks.slice(0, 12).map((x) => ({
+      id: x.id, level: x.level, title: x.title.zh,
+      evidence: cut(x.evidence.zh, 200), impact: cut(x.impact.zh, 160),
+    })),
+    /** 各品質面向分數。 */
+    dashboard: r.dashboard.map((d) => ({ dimension: d.dimension, score: d.score })),
+    /** 覆蓋率摘要:分母大但覆蓋少時,結論要保守。 */
+    coverage: {
+      feature: `${r.coverage.feature.filter((c) => c.covered).length}/${r.coverage.feature.length}`,
+      mechanic: `${r.coverage.mechanic.filter((c) => c.covered).length}/${r.coverage.mechanic.length}`,
+    },
+    /** 數據品質:被排除的讀錯數值等;有排除就不能把數字講得太肯定。 */
+    ...(r.dataQuality ? { dataQuality: r.dataQuality } : {}),
     checks: [
       ...failedChecks.slice(0, 25),
       ...passedChecks.slice(0, 15),
@@ -128,6 +198,13 @@ export function sanitizeInsights(raw: unknown, r: StructuredReport, model: strin
     recommendations.push({ priority, owner, text, relatedFindings: rel });
   }
   recommendations.sort((a, b) => a.priority.localeCompare(b.priority));
+  // 需要注意的點:字串陣列(容忍模型回 { zh, en } 物件),去空去重,最多 6 條。
+  const watchouts: L10n[] = [];
+  for (const it of Array.isArray(o['watchouts']) ? o['watchouts'].slice(0, 12) : []) {
+    const v = l10n(it, 300);
+    if (v && !watchouts.some((w) => w.zh === v.zh)) watchouts.push(v);
+    if (watchouts.length >= 6) break;
+  }
   const notes: Record<string, L10n> = {};
   if (typeof o['notes'] === 'object' && o['notes'] !== null) {
     for (const [k, v] of Object.entries(o['notes'] as Record<string, unknown>).slice(0, 12)) {
@@ -142,6 +219,7 @@ export function sanitizeInsights(raw: unknown, r: StructuredReport, model: strin
     lang,
     summary: l10n(o['summary'], 800) ?? { zh: r.statusReason.zh, en: r.statusReason.en },
     rootCause: l10n(o['rootCause'], 800) ?? { zh: '—', en: '—' },
+    watchouts,
     requirements,
     recommendations,
     notes,
@@ -203,7 +281,8 @@ export async function generateInsights(
   const br = deps?.bedrock ?? bedrock();
   const body = JSON.stringify({
     anthropic_version: 'bedrock-2023-05-31',
-    max_tokens: 3500,
+    // 多了 watchouts 一段(最多 6 條),輸出上限跟著放寬;截斷時 repairTruncatedJson 會接手。
+    max_tokens: 4200,
     temperature: 0,
     system: SYSTEM,
     messages: [

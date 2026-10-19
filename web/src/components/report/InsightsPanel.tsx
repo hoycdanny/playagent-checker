@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client.ts';
 import type { EvidenceStep, ReportInsights } from './reportTypes.ts';
 import { tr, txt, type RLang } from './reportText.ts';
@@ -15,6 +15,7 @@ export function InsightsPanel({
   lang,
   insights,
   onChange,
+  autoGenerate = false,
   evidence,
   onOpenImage,
   onGoFinding,
@@ -23,6 +24,8 @@ export function InsightsPanel({
   lang: RLang;
   insights?: InsightsMap;
   onChange: (m: InsightsMap) => void;
+  /** 任務已結束且還沒有分析 → 開啟報告時自動產生一次(結果會快取,不會重複付費)。 */
+  autoGenerate?: boolean;
   evidence: EvidenceStep[];
   onOpenImage: (url: string) => void;
   onGoFinding: (id: string) => void;
@@ -62,6 +65,19 @@ export function InsightsPanel({
     }
   };
 
+  // 任務已結束但還沒有分析 → 開啟報告時自動產生一次。
+  //
+  // 為什麼不在後端任務結束時產生:報告是在 GET /reports/{id} 當下才組出來的,
+  // 而 Lambda 回應後就凍結,沒辦法可靠地「回完再做」。放在這裡的另一個好處是
+  // 沒人看的報告不會付費;結果快取在 insights-{lang}.json,同一份報告只會產生一次。
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (!autoGenerate || !jobId || ins || autoRan.current) return;
+    autoRan.current = true;
+    void generate(false);
+    // generate 會自己擋重入;只在「從沒有分析」變成可產生時觸發一次。
+  }, [autoGenerate, jobId, ins]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const ownerText = (o: string) => txt(o === 'qa' ? 'ownerQa' : o === 'env' ? 'ownerEnv' : 'ownerDev', lang);
 
   return (
@@ -88,6 +104,19 @@ export function InsightsPanel({
               <p>{tr(ins.rootCause, lang)}</p>
             </article>
           </div>
+
+          {/* 需要注意的點:針對程式算出的指標逐條點出(舊的 insights 沒有這個欄位)。 */}
+          {(ins.watchouts?.length ?? 0) > 0 && (
+            <>
+              <h3 className="srep__h3">{txt('watchouts', lang)}</h3>
+              <p className="srep__note ins__hint">{txt('watchoutsHint', lang)}</p>
+              <ul className="ins__watch">
+                {ins.watchouts!.map((w, i) => (
+                  <li key={i}>{tr(w, lang)}</li>
+                ))}
+              </ul>
+            </>
+          )}
 
           {ins.recommendations.length > 0 && (
             <>

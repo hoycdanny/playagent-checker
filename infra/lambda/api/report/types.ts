@@ -683,6 +683,11 @@ export interface ReportInsights {
   lang: 'zh' | 'en';
   summary: L10n;
   rootCause: L10n;
+  /**
+   * 需要注意的點:針對「程式算出來的數字」逐條點出值得注意之處(每條須引用指標或門檻)。
+   * 與 recommendations 的差別是這裡不談該怎麼修,只講「這個數字不尋常 / 樣本不足 / 與規格不符」。
+   */
+  watchouts: L10n[];
   requirements: RequirementVerdict[];
   recommendations: Recommendation[];
   /** 對個別缺陷/判定的更具體修正建議(key = Finding.id 或 CheckItem.id)。 */

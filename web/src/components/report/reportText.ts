@@ -167,6 +167,11 @@ const T = {
   insightsFailed: ['AI 分析失敗,請稍後再試。', 'AI analysis failed. Please try again.'],
   insightsEmpty: ['尚未產生 AI 分析。AI 會依已計算的證據歸納需求驗證結果、根因與修正建議,不會更改任何數字。', 'No AI analysis yet. The AI summarizes requirement verdicts, root cause and fixes from the computed evidence without changing any numbers.'],
   rootCause: ['根因分析', 'Root Cause'],
+  watchouts: ['需要注意的點', 'Points to Watch'],
+  watchoutsHint: [
+    '依本次遊戲類型的報告樣板,逐條點出算出來的數字裡值得注意的地方(現象描述;怎麼修見修正建議)。',
+    'Notable observations in the computed metrics, judged against this genre’s report template (observations only; fixes are in Recommendations).',
+  ],
   recommendations: ['修正建議(依優先級)', 'Recommendations (by priority)'],
   owner: ['負責', 'Owner'],
   ownerDev: ['遊戲開發', 'Game dev'],
