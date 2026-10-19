@@ -14,6 +14,12 @@
 const DIR = '/data/local/tmp/pa_live';
 const NAME_RE = /^s\d{13}\.mp4$/;
 
+/** 分段檔名裡的裝置毫秒時間;認不出來就回 0(當成很舊,不會誤判成「很新」)。 */
+export function segTime(name) {
+  const m = /^s(\d{13})\.mp4$/.exec(String(name ?? ''));
+  return m ? Number(m[1]) : 0;
+}
+
 /** 依裝置螢幕比例算 screenrecord 尺寸(寬 540,高取偶數)。 */
 export function recordSize(w, h) {
   const W = 540;
@@ -39,9 +45,10 @@ export function completedSegments(lsOut) {
  * @param {string} o.size     screenrecord --size
  * @param {number} [o.maxBacklog] 積壓過多時只送最新幾段(維持低延遲)
  * @param {boolean} [o.preserveBacklog] 證據模式:不得丟段(盤面完整率優先)
+ * @param {number} [o.staleMs] 證據模式的落後上限:超過就還是要丟舊段(見 tick 的註解)
  * @param {(segment:{name:string,buf:Buffer,startedAt:number|null})=>Promise<unknown>} [o.onSegment] 拉回完整 MP4 後的本機證據分析
  */
-export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, preserveBacklog = false, onSegment, maxFailures = 10, log = () => {} }) {
+export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, preserveBacklog = false, staleMs = 20_000, onSegment, maxFailures = 10, log = () => {} }) {
   let timer = null;
   let busy = false;
   let active = false;
@@ -49,6 +56,8 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
   let lastOkAt = 0;
   let uploaded = 0;
   let failures = 0;
+  let dropped = 0;
+  let gaps = 0;
 
   async function tick() {
     if (busy || !active) return;
@@ -57,7 +66,21 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
       const done = completedSegments(await client.shell(`ls ${DIR} 2>/dev/null`, 8000));
       if (!done.length) return;
       // 一般即時畫面可丟舊段維持低延遲;盤面證據模式不得丟段,否則無法宣稱逐局完整。
-      const drop = !preserveBacklog && done.length > maxBacklog ? done.slice(0, done.length - maxBacklog) : [];
+      //
+      // 但「不得丟段」有個上限。裝置每 ~2.4 秒產一段全解析度影片,拉回 + 上傳 + 解碼的總成本
+      // 一旦超過這個節奏,積壓就只會單向變大 —— job-mvdyyr1j 實測影片落後從 5 秒一路長到 87 秒,
+      // 停輪判定拿到的畫面全是過期的,每局都判「盤面沒有轉動」,SPIN 迴圈整段失效。
+      // 一個落後 87 秒的量測沒有任何價值,所以落後超過 staleMs 就還是丟舊段:
+      // 寧可在證據裡留一個「有被記下來」的缺口,也不要讓整個量測爛掉。
+      const nowMs = Date.now();
+      const behindMs = nowMs - segTime(done[done.length - 1]);
+      const trim = preserveBacklog && behindMs > staleMs && done.length > maxBacklog;
+      const drop = (!preserveBacklog || trim) && done.length > maxBacklog ? done.slice(0, done.length - maxBacklog) : [];
+      if (trim && drop.length) {
+        gaps++;
+        dropped += drop.length;
+        log(`[live-video] 積壓落後 ${Math.round(behindMs / 100) / 10}s,丟掉最舊的 ${drop.length} 段以追上即時(證據累計缺口 ${dropped} 段 / ${gaps} 處)`);
+      }
       const send = done.slice(drop.length);
       const sent = [];
       for (const name of send) {
@@ -66,10 +89,9 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
         if (buf.length > 0) {
           await put(`${prefix}/live/${name}`, buf, 'video/mp4');
           if (onSegment) {
-            const m = /^s(\d{13})\.mp4$/.exec(name);
             // 證據分析失敗不能中斷即時影片上傳;slot capture 自己會在 manifest 記 analysisFailures。
             // Promise.resolve 包起來:消費端忘了回 Promise 也不能把整條上傳迴圈打掛。
-            await Promise.resolve(onSegment({ name, buf, startedAt: m ? Number(m[1]) : null }))
+            await Promise.resolve(onSegment({ name, buf, startedAt: segTime(name) || null }))
               .catch((e) => log(`[live-video] ${name} 證據分析失敗:${String(e?.message || e).slice(0, 200)}`));
           }
           uploaded++;
@@ -106,6 +128,8 @@ export function createLiveVideo({ client, put, prefix, size, maxBacklog = 3, pre
 
   return {
     get uploaded() { return uploaded; },
+    /** 為了追上即時而丟掉的段數 / 缺口處數(報告要誠實說證據有缺口)。 */
+    get gapStats() { return { dropped, gaps }; },
     /** circuit breaker 跳掉了(連續失敗太多次)→ 呼叫端不該再期待影片。 */
     get dead() { return dead; },
     /** 最近 8 秒內有成功上傳 → 前端可用影片;否則 runner 應回退截圖輪播。 */
