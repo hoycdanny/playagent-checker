@@ -28,6 +28,13 @@ export interface MetricContext {
   tokens?: { input: number; output: number };
   /** runner 效能中繼資料(啟動時間、累計耗電)。 */
   perfMeta?: PerfMeta;
+  /**
+   * runner 的 SPIN 迴圈逐局帳(report.json 的 rtp 欄位,method='spin-loop')。
+   *
+   * 這組樣本的品質比從 steps 重建的高:迴圈會先等盤面靜止再讀數字,而其他步驟的
+   * 數字是 AI 在任意時機讀的(可能讀到派彩滾動中的中間值)。所以 RTP 類指標優先用它。
+   */
+  spinLoop?: { rounds: number; totalBet: number; totalWin: number; rtpPercent: number };
 }
 
 // hold(長按,例如拉霸長按 SPIN 開 AutoSpin)、combo、pinch 也是對畫面的實際操作。
@@ -403,7 +410,9 @@ const BUILTIN: Record<string, Calc> = {
     return v.length >= 2 ? round2(v[v.length - 1]! - v[0]!) : null;
   },
   // Slot
-  spin_count: (c) => nz(spinSampleCount(c.steps)),
+  // 局數也以迴圈為準:它數的是「真的轉完並讀到數字」的付費局,重建法會把同一局的
+  // 多次回報與免費局一起算進去(實測迴圈 50 局 vs 重建 118 筆)。
+  spin_count: (c) => (c.spinLoop ? nz(c.spinLoop.rounds) : nz(spinSampleCount(c.steps))),
   autospin_spins: (c) => autospinRtp(c.steps)?.spins ?? null,
   autospin_rtp: (c) => autospinRtp(c.steps)?.rtp ?? null,
   win_count: (c) => nz0(spinTransactions(c.steps), (t) => t.filter((x) => x.win > 0).length),
@@ -412,14 +421,21 @@ const BUILTIN: Record<string, Calc> = {
     const t = spinTransactions(c.steps);
     return t.length ? pct(t.filter((x) => x.win > 0).length, t.length) : null;
   },
-  // AutoSpin(餘額差法)樣本較多時,總下注 / 總派彩 / RTP 一律取 RTP 帳務(與報告「RTP 帳務」表同一組數字)。
+  // 經濟類數字的來源優先序(三者都存在時只能挑一個,否則報告會自相矛盾):
+  //   1. SPIN 迴圈逐局帳(c.spinLoop)—— 每局都等盤面靜止後才讀,品質最高。
+  //   2. AutoSpin 餘額差帳(ledgerOf)—— 樣本多且是確定性餘額差。
+  //   3. 從 steps 重建的交易 —— 數字是 AI 在任意時機讀的,可能含派彩滾動中的中間值。
+  // 2026-10-19(job-mvfcpfig)實測:同一次測試,迴圈算 21.74%、重建算 15.79%,
+  // 而報告只用了重建的那個,於是封面訊息與指標表對不上。
   total_bet: (c) => {
+    if (c.spinLoop) return c.spinLoop.totalBet;
     const t = spinTransactions(c.steps);
     const led = ledgerOf(c);
     if (led && led.spins >= t.length) return led.wagered;
     return nz0(t, (x) => x.reduce((a, y) => a + y.bet, 0));
   },
   total_win: (c) => {
+    if (c.spinLoop) return c.spinLoop.totalWin;
     const t = spinTransactions(c.steps);
     const led = ledgerOf(c);
     if (led && led.spins >= t.length) return led.derivedWin;
@@ -427,6 +443,7 @@ const BUILTIN: Record<string, Calc> = {
   },
   /** 淨 RTP(已扣除量測區間內的非拉霸收入);區間內有金額未確認的贈送 → null(不可算)。 */
   observed_rtp: (c) => {
+    if (c.spinLoop) return c.spinLoop.rtpPercent;
     const t = spinTransactions(c.steps);
     const led = ledgerOf(c);
     if (led && led.spins >= t.length) return led.rtpNet;
