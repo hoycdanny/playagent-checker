@@ -449,6 +449,11 @@ export type MessageKey =
   | 'tasks.filterClear'
   | 'tasks.colActions'
   | 'tasks.filterState'
+  | 'tasks.search'
+  | 'tasks.searchPlaceholder'
+  | 'tasks.searchHint'
+  | 'tasks.copyId'
+  | 'tasks.copied'
   | 'tasks.filterAll'
   | 'tasks.rangeMin'
   | 'tasks.rangeMax'
@@ -1137,6 +1142,11 @@ const zhHant: Catalog = {
   'tasks.filterClear': '清除篩選',
   'tasks.colActions': '操作',
   'tasks.filterState': '狀態篩選',
+  'tasks.search': '搜尋',
+  'tasks.searchPlaceholder': '任務編號 / 案例 / 訊息',
+  'tasks.searchHint': '搜尋任務編號、案例名稱與版本、應用、裝置、結論訊息、送出者。用空白分隔多個條件(全部都要符合)。',
+  'tasks.copyId': '複製任務編號',
+  'tasks.copied': '已複製',
   'tasks.rangeMin': '最小',
   'tasks.rangeMax': '最大',
   'tasks.filterAll': '全部',
@@ -1825,6 +1835,11 @@ const en: Catalog = {
   'tasks.filterClear': 'Clear filters',
   'tasks.colActions': 'Actions',
   'tasks.filterState': 'Filter by state',
+  'tasks.search': 'Search',
+  'tasks.searchPlaceholder': 'Task id / case / message',
+  'tasks.searchHint': 'Search task id, case name and version, app, device, result message, submitter. Separate terms with spaces (all must match).',
+  'tasks.copyId': 'Copy task id',
+  'tasks.copied': 'Copied',
   'tasks.rangeMin': 'Min',
   'tasks.rangeMax': 'Max',
   'tasks.filterAll': 'All',
@@ -2517,6 +2532,11 @@ const zhHans: Catalog = {
   'tasks.filterClear': '清除筛选',
   'tasks.colActions': '操作',
   'tasks.filterState': '状态筛选',
+  'tasks.search': '搜索',
+  'tasks.searchPlaceholder': '任务编号 / 用例 / 消息',
+  'tasks.searchHint': '搜索任务编号、用例名称与版本、应用、设备、结论消息、提交者。用空格分隔多个条件(全部都要符合)。',
+  'tasks.copyId': '复制任务编号',
+  'tasks.copied': '已复制',
   'tasks.rangeMin': '最小',
   'tasks.rangeMax': '最大',
   'tasks.filterAll': '全部',
@@ -3204,6 +3224,11 @@ const ja: Catalog = {
   'tasks.filterClear': 'フィルターをクリア',
   'tasks.colActions': '操作',
   'tasks.filterState': '状態フィルター',
+  'tasks.search': '検索',
+  'tasks.searchPlaceholder': 'タスクID / ケース / メッセージ',
+  'tasks.searchHint': 'タスクID、ケース名とバージョン、アプリ、端末、結果メッセージ、送信者を検索します。スペース区切りで複数条件(すべて一致)。',
+  'tasks.copyId': 'タスクIDをコピー',
+  'tasks.copied': 'コピーしました',
   'tasks.rangeMin': '最小',
   'tasks.rangeMax': '最大',
   'tasks.filterAll': 'すべて',
@@ -3892,6 +3917,11 @@ const ko: Catalog = {
   'tasks.filterClear': '필터 지우기',
   'tasks.colActions': '작업',
   'tasks.filterState': '상태 필터',
+  'tasks.search': '검색',
+  'tasks.searchPlaceholder': '작업 ID / 케이스 / 메시지',
+  'tasks.searchHint': '작업 ID, 케이스 이름과 버전, 앱, 기기, 결과 메시지, 제출자를 검색합니다. 공백으로 여러 조건 구분(모두 일치).',
+  'tasks.copyId': '작업 ID 복사',
+  'tasks.copied': '복사됨',
   'tasks.rangeMin': '최소',
   'tasks.rangeMax': '최대',
   'tasks.filterAll': '전체',

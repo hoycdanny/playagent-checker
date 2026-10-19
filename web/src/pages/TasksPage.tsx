@@ -10,6 +10,7 @@ import { recommendedDefault, recommendStyle, sortByRecommend, starLabel } from '
 import { outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import RangeSlider from '../components/RangeSlider.tsx';
 import TasksTable from '../components/TasksTable.tsx';
+import { taskMatchesQuery } from '../components/taskSearch.ts';
 import DevicePicker from '../components/DevicePicker.tsx';
 import type { CaseVersionSummary } from '../components/cases/CaseVersions.tsx';
 import './ListPage.css';
@@ -51,6 +52,16 @@ interface TaskItem {
   verdict?: VerdictInfo;
   /** 送出任務的使用者。 */
   submittedBy?: string;
+  // 以下欄位後端本來就有回(表格也在用),之前只是沒宣告;自由文字搜尋要比對它們。
+  /** 執行時的案例名稱 / 版本快照(舊任務可能沒有)。 */
+  caseName?: string;
+  caseVersion?: string;
+  /** 結論或錯誤訊息(報告優先,否則執行狀態訊息)。 */
+  message?: string;
+  /** 測試內容(案例任務敘述,已截斷)。 */
+  task?: string;
+  /** 實際跑在哪一台裝置。 */
+  deviceModel?: string;
 }
 
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
@@ -188,6 +199,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   const [devicePickerOpen, setDevicePickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 自由文字搜尋:任務編號 / 案例 / 應用 / 裝置 / 訊息 / 送出者(見 taskSearch.ts)。
+  // 其餘篩選器都是「從既有值挑一個」,唯獨「我知道這個 jobId,它在哪一列」沒有入口。
+  const [query, setQuery] = useState<string>('');
   // 多欄位篩選:狀態 / 環境 / 位置 / 應用 / 三個模型欄(空字串 = 全部)。
   const [stateFilter, setStateFilter] = useState<string>('');
   const [backendFilter, setBackendFilter] = useState<string>('');
@@ -340,7 +354,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
 
   // 是否已套用任一篩選(用於顯示「清除篩選」)。
   const hasFilter = Boolean(
-    stateFilter ||
+    query.trim() ||
+      stateFilter ||
       backendFilter ||
       localityFilter ||
       appFilter ||
@@ -457,6 +472,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
 
   const filtered = tasks.filter(
     (x) =>
+      taskMatchesQuery(x, query, appById.get(x.appId)?.name) &&
       (!stateFilter || outcomeOf(x) === stateFilter) &&
       (!backendFilter || x.backend === backendFilter) &&
       (!localityFilter || x.locality === localityFilter) &&
@@ -867,6 +883,20 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
       )}
 
       <div className="tasks__filter">
+        {/* 自由文字搜尋放在最前面:它是唯一「我已經知道要找哪一筆」的入口,
+            其餘篩選器都是從既有值裡挑。 */}
+        <label className="tasks__filter-item tasks__filter-item--search">
+          <span className="tasks__filter-label">{t('tasks.search')}</span>
+          <input
+            type="search"
+            className="tasks__search-input"
+            value={query}
+            placeholder={t('tasks.searchPlaceholder')}
+            aria-label={t('tasks.searchHint')}
+            title={t('tasks.searchHint')}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
         {/* 篩選欄順序對齊表格欄位:狀態 →(建立時間無篩選)→ 應用程式 → 環境 → 位置 →
             步數 → 花費 → 控制遊戲 → 分析畫面 → 子代理。 */}
         <label className="tasks__filter-item">
@@ -991,6 +1021,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
             type="button"
             className="tasks__filter-clear"
             onClick={() => {
+              setQuery('');
               setStateFilter('');
               setBackendFilter('');
               setLocalityFilter('');

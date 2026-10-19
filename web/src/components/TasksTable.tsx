@@ -9,6 +9,7 @@ import { outcomeClass, outcomeOf, outcomeTip, type VerdictInfo } from './outcome
 import { usd4 } from './money.ts';
 import { fmtDur, formatDuration, taskDurationMs, taskRunDurationMs } from './duration.ts';
 import UserTag from './UserTag.tsx';
+import CopyId from './CopyId.tsx';
 
 /** 任務列(欄位為 TasksPage 與工作區共用的最小集合)。 */
 export interface TaskRow {
@@ -170,6 +171,11 @@ export default function TasksTable({
                 <Link to={`/tasks/${x.jobId}`} className="tasks__row-link" aria-label={`${t('tasks.view')} ${formatCreated(x.createdAt)}`}>
                   {formatCreated(x.createdAt)}
                 </Link>
+                {/* 任務編號:之前只存在於連結網址裡,畫面上找不到,所以拿到一個 jobId
+                    也沒辦法對上是哪一列。攤在時間下面一行,點一下可複製。 */}
+                <div className="tasks__jobid">
+                  <CopyId value={x.jobId} title={t('tasks.copyId')} copiedLabel={t('tasks.copied')} />
+                </div>
                 {x.submittedBy && (
                   <div className="tasks__by">
                     <UserTag user={x.submittedBy} prefix={t('tasks.submittedBy')} />
