@@ -100,6 +100,26 @@ export interface EngineInput {
   kbs?: EngineKb[];
 }
 
+/**
+ * runner 的 SPIN 迴圈逐局帳(report.json 的 rtp,method='spin-loop')。
+ *
+ * 只接 method='spin-loop':另一種是從 thinking 文字估的(computeRtpStats),品質不比
+ * 從 steps 重建的好,不該拿來覆蓋。欄位不全(舊任務)就回 undefined,指標自動退回舊算法。
+ */
+function spinLoopOf(v: unknown): { rounds: number; totalBet: number; totalWin: number; rtpPercent: number } | undefined {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  if (o['method'] !== 'spin-loop') return undefined;
+  const num = (k: string) => (typeof o[k] === 'number' && Number.isFinite(o[k]) ? (o[k] as number) : undefined);
+  const rounds = num('rounds');
+  const totalBet = num('totalBet');
+  const totalWin = num('totalWin');
+  const rtpPercent = num('rtpPercent');
+  if (rounds === undefined || totalBet === undefined || totalWin === undefined || rtpPercent === undefined) return undefined;
+  if (rounds <= 0 || totalBet <= 0) return undefined;
+  return { rounds, totalBet, totalWin, rtpPercent };
+}
+
 function slotCaptureOf(v: unknown): SlotCaptureManifest | undefined {
   if (!v || typeof v !== 'object') return undefined;
   const x = v as Partial<SlotCaptureManifest>;
@@ -1049,6 +1069,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
       pass: testedMech.reduce((a, m) => a + m.pass, 0),
       fail: testedMech.reduce((a, m) => a + m.fail, 0),
     },
+    ...(spinLoopOf(raw['rtp']) ? { spinLoop: spinLoopOf(raw['rtp'])! } : {}),
     ...(wallClockMs !== undefined && Number.isFinite(wallClockMs) ? { wallClockMs } : {}),
     ...(tokens ? { tokens } : {}),
     ...(perfMeta ? { perfMeta } : {}),

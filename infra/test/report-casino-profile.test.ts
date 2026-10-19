@@ -142,6 +142,30 @@ describe('slot 類型樣板:機台覆蓋與 RTP 樣本量', () => {
   });
 });
 
+/**
+ * 經濟類數字的來源優先序。job-mvfcpfig 實測:同一次測試,SPIN 迴圈逐局帳算 21.74%、
+ * 從 steps 重建算 15.79%,而報告只用了重建的那個 —— 封面訊息與指標表對不上。
+ */
+describe('observed_rtp / spin_count 的來源優先序', () => {
+  const ctxWith = (spinLoop?: MetricContext['spinLoop']): MetricContext =>
+    ({ steps: [], values: {}, ...(spinLoop ? { spinLoop } : {}) } as unknown as MetricContext);
+  const loop = { rounds: 50, totalBet: 165000, totalWin: 35875, rtpPercent: 21.74 };
+
+  test('有 SPIN 迴圈逐局帳時以它為準(每局都等停輪才讀,品質最高)', () => {
+    const c = ctxWith(loop);
+    expect(computeMetric({ kind: 'builtin', fn: 'observed_rtp' }, c)).toBe(21.74);
+    expect(computeMetric({ kind: 'builtin', fn: 'spin_count' }, c)).toBe(50);
+    expect(computeMetric({ kind: 'builtin', fn: 'total_bet' }, c)).toBe(165000);
+    expect(computeMetric({ kind: 'builtin', fn: 'total_win' }, c)).toBe(35875);
+  });
+
+  test('沒有迴圈帳時退回原本的重建算法(舊任務不受影響)', () => {
+    const c = ctxWith();
+    // steps 為空 → 重建不出交易 → null(未覆蓋),而不是 0
+    expect(computeMetric({ kind: 'builtin', fn: 'observed_rtp' }, c)).toBeNull();
+  });
+});
+
 describe('mergeProfiles', () => {
   test('參考區間會跟著合併(通用 + 類型)', () => {
     const m = mergeProfiles(['casino']);
