@@ -415,7 +415,7 @@ const PROFILES: GenreProfile[] = [
       { key: 'maxWinMultiplier', label: L('最大派彩倍率', 'Max Win Multiplier'), unit: 'x', hint: L('單次派彩不得超過「下注 × 倍率」,如 5000', 'A single win must not exceed bet × multiplier, e.g. 5000') },
       { key: 'rtpStdDev', label: L('單局報酬標準差 σ', 'Per-spin Std Dev σ'), unit: 'x', hint: L('PAR 表的單局報酬標準差(以投注額倍數計),用來算 RTP 信賴區間;未填時以 6 估算', 'Per-spin return standard deviation from the PAR sheet (in bet multiples), used for the RTP confidence interval; 6 is assumed when empty') },
     ],
-    thresholds: { rtpTolerancePp: 2, rtpMinSamples: 100, hitFrequencyTolerancePp: 5 },
+    thresholds: { rtpTolerancePp: 2, rtpMinSamples: 100, hitFrequencyTolerancePp: 5, balanceAccuracyMin: 98 },
     // ③ 類型參考區間:只寫進「需要注意的點」,不參與判定(見 types.ts 的 ReferenceBand)。
     referenceBands: [
       {
@@ -432,8 +432,18 @@ const PROFILES: GenreProfile[] = [
       },
       {
         // 大廳型 App 一個包裡有很多台機台,每台數學模型不同。只玩一台時,RTP 只代表那一台。
+        // 用 min: 2 而不是 max: 1 —— 區間的語意是「低於 min 或高於 max 才提醒」,
+        // 寫 max: 1 的話「剛好 1 台」落在範圍內,永遠不會觸發(實測 job-mvfcpfig 抓到)。
+        metric: 'balance_mismatch_count',
+        max: 0,
+        note: L(
+          '逐局的下注 / 贏分 / 餘額是 AI 從畫面讀出來的,偶發讀錯在所難免。餘額正確率仍高(例如 98% 以上)時,少數幾次不符通常是讀數問題而不是遊戲算錯帳;真的算錯帳會讓正確率明顯下降。請連同 dataQuality 裡被排除的讀數一起看。這是判讀提醒,不是驗收標準。',
+          'Per-round bet / win / balance values are read from the screen by the AI, so occasional misreads happen. While balance accuracy stays high (say above 98%), a few mismatches usually mean a misread rather than a ledger error; a real ledger bug drives accuracy down visibly. Read this together with the excluded values in dataQuality. An interpretation note, not an acceptance standard.',
+        ),
+      },
+      {
         metric: 'machines_played',
-        max: 1,
+        min: 2,
         note: L(
           '本次只在單一機台上取樣。大廳型 App(一個 App 內含多台機台)每台的數學模型與派彩表都不同,所以這份經濟類數據只代表這一台,不能推論整個 App。這是取樣範圍的說明,不是驗收標準。',
           'Only one machine was sampled. In hub-style apps each machine has its own math model and paytable, so these economy figures describe that machine only and do not generalise to the whole app. A note on sampling scope, not an acceptance standard.',
@@ -447,14 +457,19 @@ const PROFILES: GenreProfile[] = [
       { id: 'bet_vs_payout', type: 'bar', title: L('下注 vs 派彩', 'Bet vs Payout'), source: { kind: 'builtin', fn: 'bet_vs_payout' }, priority: 23 },
     ],
     riskRules: [
-      risk('balance_mismatch', 'balance_mismatch_count', '>', 0, 'critical', L('餘額/派彩不一致', 'Balance / payout inconsistency'), L('可能少算或多算玩家金額', 'Player funds may be miscalculated')),
+      // 用「正確率」而不是「不符次數 > 0」:逐局數字是 AI 從畫面讀的,偶發讀錯在所難免。
+      // 2026-10-19(job-mvfcpfig)實測:115 次檢查中 2 次不符(正確率 98.26%),驗收引擎
+      // 依「量級合理 ≥3 次且佔比 >20%」判定為 NEEDS_TRIAGE(不是遊戲缺陷),但舊的
+      // `> 0` 風險規則同時判 critical + NOT_READY —— 同一份證據兩個子系統結論相反。
+      // 改成看佔比後兩邊一致:真的算錯帳會讓正確率明顯掉下來,單次讀錯不會。
+      risk('balance_mismatch', 'balance_accuracy', '<', T('balanceAccuracyMin'), 'critical', L('餘額/派彩不一致', 'Balance / payout inconsistency'), L('可能少算或多算玩家金額', 'Player funds may be miscalculated')),
       risk('rtp_deviation', 'rtp_significant_deviation_pp', '>', T('rtpTolerancePp'), 'high', L('RTP 偏離規格', 'RTP deviates from spec'), L('數學模型或實作可能有誤', 'Math model or implementation may be wrong')),
       risk('hit_frequency_deviation', 'hit_frequency_deviation_pp', '>', T('hitFrequencyTolerancePp'), 'medium', L('Hit Frequency 偏離規格', 'Hit frequency deviates from spec'), L('中獎頻率與設計不符,影響玩家體感', 'Win frequency differs from design; affects player experience')),
       risk('bet_out_of_range', 'bet_out_of_range_count', '>', 0, 'high', L('下注額超出規格範圍', 'Bet outside spec range'), L('下注上下限未正確限制', 'Bet limits not enforced')),
       risk('win_cap', 'win_cap_violation_count', '>', 0, 'critical', L('派彩超過最大倍率', 'Win above max multiplier'), L('可能派彩錯誤', 'Possible payout error')),
     ],
     releaseRules: [
-      release('balance_mismatch', 'balance_mismatch_count', '>', 0, 'NOT_READY', L('餘額/派彩計算不一致', 'Balance / payout inconsistency')),
+      release('balance_mismatch', 'balance_accuracy', '<', T('balanceAccuracyMin'), 'NOT_READY', L('餘額/派彩計算不一致', 'Balance / payout inconsistency')),
       release('rtp_deviation', 'rtp_significant_deviation_pp', '>', T('rtpTolerancePp'), 'READY_WITH_RISK', L('RTP 偏離規格容差', 'RTP outside spec tolerance')),
       release('win_cap', 'win_cap_violation_count', '>', 0, 'NOT_READY', L('派彩超過最大倍率', 'Win above max multiplier')),
       release('bet_out_of_range', 'bet_out_of_range_count', '>', 0, 'READY_WITH_RISK', L('下注額超出規格範圍', 'Bet outside spec range')),
@@ -505,14 +520,15 @@ const PROFILES: GenreProfile[] = [
       { key: 'nominalReturnPct', label: L('標稱返還率', 'Nominal Return'), unit: '%', hint: L('該玩法的理論返還率(如輪盤 97.3)。未填時報告只列實測值,不判定是否合格', 'Theoretical return for this game, e.g. 97.3 for roulette. Left empty, the report states the observed value without judging it') },
     ],
     // ① 技術硬指標的門檻:局數不足時不讓報告下經濟類結論。
-    thresholds: { casinoMinRounds: 100 },
+    thresholds: { casinoMinRounds: 100, balanceAccuracyMin: 98 },
     charts: [timeline('balance', '餘額走勢', 'Balance Timeline', 20)],
     riskRules: [
       risk('bet_out_of_range', 'bet_out_of_range_count', '>', 0, 'high', L('下注額超出規格範圍', 'Bet outside spec range'), L('下注上下限未正確限制', 'Bet limits not enforced')),
-      risk('balance_mismatch', 'balance_mismatch_count', '>', 0, 'critical', L('餘額/派彩不一致', 'Balance / payout inconsistency'), L('可能少算或多算玩家金額', 'Player funds may be miscalculated')),
+      // 與 slot 同一個判準:看正確率而不是「不符次數 > 0」(見 slot 的註解)。
+      risk('balance_mismatch', 'balance_accuracy', '<', T('balanceAccuracyMin'), 'critical', L('餘額/派彩不一致', 'Balance / payout inconsistency'), L('可能少算或多算玩家金額', 'Player funds may be miscalculated')),
     ],
     releaseRules: [
-      release('balance_mismatch', 'balance_mismatch_count', '>', 0, 'NOT_READY', L('餘額/派彩計算不一致', 'Balance / payout inconsistency')),
+      release('balance_mismatch', 'balance_accuracy', '<', T('balanceAccuracyMin'), 'NOT_READY', L('餘額/派彩計算不一致', 'Balance / payout inconsistency')),
       release('casino_rounds_insufficient', 'casino_rounds', '<', T('casinoMinRounds'), 'INSUFFICIENT_TESTING', L('完成局數不足,經濟類數據不足以下結論', 'Too few settled rounds to conclude on economy metrics')),
     ],
     // ③ 類型參考區間:只寫進「需要注意的點」,不參與判定(見 types.ts 的 ReferenceBand)。
