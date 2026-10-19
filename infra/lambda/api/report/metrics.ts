@@ -543,6 +543,19 @@ export function computeMetric(calc: MetricCalc, ctx: MetricContext): number | nu
     }
     case 'spec':
       return typeof ctx.values[calc.key] === 'number' ? ctx.values[calc.key]! : null;
+    // 不同值的個數(例如玩過幾種玩法)。沒有任何一步回報過這個欄位 → null(未覆蓋),
+    // 而不是 0 —— 0 會被讀成「一種玩法都沒玩」。
+    case 'obs_distinct_count': {
+      const seen = new Set<string>();
+      let reported = false;
+      for (const s of ctx.steps) {
+        const v = s.obs?.[calc.key];
+        if (v === undefined || v === null || v === '') continue;
+        reported = true;
+        seen.add(String(v).trim().toLowerCase());
+      }
+      return reported ? seen.size : null;
+    }
     case 'obs_true_count': {
       const has = ctx.steps.some((s) => s.obs && calc.key in s.obs);
       return has ? ctx.steps.filter((s) => s.obs?.[calc.key] === true || s.obs?.[calc.key] === 'true').length : null;

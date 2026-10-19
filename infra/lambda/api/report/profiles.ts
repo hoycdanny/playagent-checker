@@ -436,8 +436,10 @@ const PROFILES: GenreProfile[] = [
   }),
   profile({
     id: 'casino',
+    version: '1.1',
     label: L('博弈/Casino', 'Casino'),
     modules: [
+      mod('game_select', '玩法選擇大廳', 'Game Select Hub', ['slots', 'fish', '棋牌', 'chess', 'card', '玩法', 'category']),
       mod('table_select', '桌台選擇', 'Table Select', ['table', '桌', 'room', '房間', 'hub']),
       mod('round', '牌局/回合', 'Round', ['round', '牌局', 'deal', '開獎'], true),
       mod('bet', '下注', 'Bet', ['bet', '下注', 'chip', '籌碼']),
@@ -445,21 +447,74 @@ const PROFILES: GenreProfile[] = [
       mod('responsible_gaming', '負責任博弈 UI', 'Responsible Gaming UI', ['limit', '限額', 'responsible', '自我限制']),
     ],
     mechanics: [mech('bet', '下注', 'Bet'), mech('payout', '派彩', 'Payout'), mech('game_rule', '遊戲規則', 'Game Rule'), mech('disconnect_recovery', '斷線恢復', 'Disconnect Recovery')],
-    observe: [obs('bet', '下注額', 'Bet', '本局下注額'), obs('win', '派彩', 'Payout', '本局派彩(未中填 0)'), obs('balance', '餘額', 'Balance', '餘額數字')],
+    // bet / win / balance 的 key 沿用與 slot 相同的名字,才能重用 total_bet / balance_accuracy
+    // 等既有的 builtin 計算器(餘額對帳那套邏輯不必重寫)。
+    observe: [
+      obs('bet', '下注額', 'Bet', '本局下注額'),
+      obs('win', '派彩', 'Payout', '本局派彩(未中填 0)'),
+      obs('balance', '餘額', 'Balance', '餘額數字'),
+      obs('round_settled', '本局已開獎結算', 'Round Settled', '這張畫面是否為一局剛開獎結算完的結果', 'boolean'),
+      obs('game_kind', '目前玩法', 'Game Kind', '目前在玩哪一種玩法(roulette / blackjack / baccarat / sicbo / slots / fish / cards;看不出來就不填)', 'string'),
+    ],
     metrics: [
+      // 樣本量與覆蓋:大廳型 App 常有多種玩法,只走一種就不能把結論說成整個 App 的。
+      metric('casino_rounds', '完成局數', 'Rounds Settled', 'count', 'genre', { kind: 'obs_true_count', key: 'round_settled' }, { source: 'ai_evaluation' }),
+      metric('games_played', '玩過的玩法數', 'Game Kinds Played', 'count', 'coverage', { kind: 'obs_distinct_count', key: 'game_kind' }, { source: 'ai_evaluation' }),
       metric('total_bet', '總下注', 'Total Bet', '', 'economy', 'total_bet', { source: 'ai_evaluation' }),
       metric('total_win', '總派彩', 'Total Payout', '', 'economy', 'total_win', { source: 'ai_evaluation' }),
+      // 下注實際走過的範圍:對照 spec 的 minBet / maxBet 才知道上下限有沒有真的被測到。
+      metric('bet_min_seen', '實測最小下注', 'Min Bet Observed', '', 'economy', { kind: 'obs_min', key: 'bet' }, { source: 'ai_evaluation' }),
+      metric('bet_max_seen', '實測最大下注', 'Max Bet Observed', '', 'economy', { kind: 'obs_max', key: 'bet' }, { source: 'ai_evaluation' }),
+      metric('balance_checks', '餘額一致性檢查數', 'Balance Checks', 'count', 'economy', 'balance_checks'),
       metric('balance_accuracy', '餘額正確率', 'Balance Accuracy', '%', 'economy', 'balance_accuracy', { higherIsBetter: true }),
       metric('balance_mismatch_count', '餘額不一致次數', 'Balance Mismatches', 'count', 'economy', 'balance_mismatch_count'),
       metric('bet_out_of_range_count', '下注超出規格範圍次數', 'Bets Outside Spec Range', 'count', 'economy', 'bet_out_of_range_count', { source: 'ai_evaluation' }),
     ],
+    // ② 遊戲設計規格:只有客戶知道,一律留空。沒填的項目報告只陳述實測值,不做判定。
     specValues: [
       { key: 'minBet', label: L('最小下注', 'Min Bet'), unit: '', hint: L('桌台允許的最小下注額', 'Minimum allowed table bet') },
       { key: 'maxBet', label: L('最大下注', 'Max Bet'), unit: '', hint: L('桌台允許的最大下注額', 'Maximum allowed table bet') },
+      { key: 'nominalReturnPct', label: L('標稱返還率', 'Nominal Return'), unit: '%', hint: L('該玩法的理論返還率(如輪盤 97.3)。未填時報告只列實測值,不判定是否合格', 'Theoretical return for this game, e.g. 97.3 for roulette. Left empty, the report states the observed value without judging it') },
     ],
+    // ① 技術硬指標的門檻:局數不足時不讓報告下經濟類結論。
+    thresholds: { casinoMinRounds: 100 },
     charts: [timeline('balance', '餘額走勢', 'Balance Timeline', 20)],
-    riskRules: [risk('bet_out_of_range', 'bet_out_of_range_count', '>', 0, 'high', L('下注額超出規格範圍', 'Bet outside spec range'), L('下注上下限未正確限制', 'Bet limits not enforced')), risk('balance_mismatch', 'balance_mismatch_count', '>', 0, 'critical', L('餘額/派彩不一致', 'Balance / payout inconsistency'), L('可能少算或多算玩家金額', 'Player funds may be miscalculated'))],
-    releaseRules: [release('balance_mismatch', 'balance_mismatch_count', '>', 0, 'NOT_READY', L('餘額/派彩計算不一致', 'Balance / payout inconsistency'))],
+    riskRules: [
+      risk('bet_out_of_range', 'bet_out_of_range_count', '>', 0, 'high', L('下注額超出規格範圍', 'Bet outside spec range'), L('下注上下限未正確限制', 'Bet limits not enforced')),
+      risk('balance_mismatch', 'balance_mismatch_count', '>', 0, 'critical', L('餘額/派彩不一致', 'Balance / payout inconsistency'), L('可能少算或多算玩家金額', 'Player funds may be miscalculated')),
+    ],
+    releaseRules: [
+      release('balance_mismatch', 'balance_mismatch_count', '>', 0, 'NOT_READY', L('餘額/派彩計算不一致', 'Balance / payout inconsistency')),
+      release('casino_rounds_insufficient', 'casino_rounds', '<', T('casinoMinRounds'), 'INSUFFICIENT_TESTING', L('完成局數不足,經濟類數據不足以下結論', 'Too few settled rounds to conclude on economy metrics')),
+    ],
+    // ③ 類型參考區間:只寫進「需要注意的點」,不參與判定(見 types.ts 的 ReferenceBand)。
+    referenceBands: [
+      {
+        metric: 'games_played',
+        min: 3,
+        note: L(
+          '賭場大廳型 App 通常有 4~6 種玩法(Slots / Fish / 棋牌等)。走過的玩法太少時,結論只代表已測玩法,不能當成整個 App 的品質。這是類型常見做法,不是驗收標準。',
+          'Casino hubs usually offer 4–6 game kinds (slots / fish / card games). With few kinds exercised, conclusions cover only what was played, not the whole app. This is a genre norm, not an acceptance standard.',
+        ),
+      },
+      {
+        metric: 'balance_checks',
+        min: 20,
+        note: L(
+          '餘額對帳次數低於 20 次時,餘額正確率的代表性有限(單次讀錯就會讓百分比大幅跳動)。這是樣本量提醒,不是驗收標準。',
+          'Below 20 balance checks the accuracy percentage is not representative (a single misread swings it a lot). This is a sample-size caveat, not an acceptance standard.',
+        ),
+      },
+      {
+        metric: 'casino_rounds',
+        min: 100,
+        minSamples: { metric: 'casino_rounds', value: 1 },
+        note: L(
+          '博弈類的返還率要數千局才會收斂;數十局只能看出「有沒有派彩、帳有沒有算錯」,不能談返還率是否符合設計。這是統計性質的提醒,不是驗收標準。',
+          'Casino return rates need thousands of rounds to converge; a few dozen rounds can only show whether payouts happen and the ledger adds up, not whether the return matches design. A statistical caveat, not an acceptance standard.',
+        ),
+      },
+    ],
     sections: ['economy'],
     scopes: ['economy', 'payment', 'network'],
   }),
@@ -811,6 +866,8 @@ export function mergeProfiles(genres: string[]): MergedProfile {
     scopes: uniqBy(picked.flatMap((p) => p.scopes), (s) => s),
     thresholds: Object.assign({}, ...picked.map((p) => p.thresholds ?? {})),
     specValues: uniqBy(picked.flatMap((p) => p.specValues ?? []), (v) => v.key),
+    // 參考區間只給 AI 分析用(不進判定);同一個指標只留第一個區間。
+    referenceBands: uniqBy(picked.flatMap((p) => p.referenceBands ?? []), (b) => b.metric),
     sources: picked.map((p) => ({ id: p.id, version: p.version, label: p.label })),
   };
 }

@@ -278,6 +278,8 @@ export type MetricCalc =
   | { kind: 'builtin'; fn: string }
   | { kind: 'obs_max' | 'obs_min' | 'obs_last' | 'obs_delta' | 'obs_count' | 'obs_increase_count' | 'obs_sum'; key: string }
   | { kind: 'obs_true_count'; key: string }
+  /** 不同值的個數(例如玩過幾種玩法:distinct game_kind)。字串與數字都算。 */
+  | { kind: 'obs_distinct_count'; key: string }
   | { kind: 'spec'; key: string };
 
 export interface MetricDefinition {
@@ -339,6 +341,32 @@ export interface ReleaseRule {
   reason: L10n;
 }
 
+/**
+ * 類型參考區間 —— 「這個類型常見的範圍」,**不參與 pass / fail 判定**。
+ *
+ * 報告裡的數字有三種性質:
+ *  ① 技術硬指標(crash / 餘額對帳 / 下注超限紅)—— 業界有共識,用 thresholds + riskRules /
+ *     releaseRules 判定。
+ *  ② 遊戲設計規格(標稱 RTP / 難度曲線)—— 只有客戶知道,放 specValues;沒填就「未提供規格,
+ *     無法判定」,絕不可自行假設業界值判不合格。
+ *  ③ 類型常見值(各玩法返還率 / 玩法覆蓋數)—— 有參考範圍但各遊戲差異很大。
+ *
+ * ReferenceBand 是③。它刻意**不進入報告引擎**:只在產生 AI 分析時被讀出來,附給模型寫進
+ * 「需要注意的點」。這樣「判定」只會用客戶給的規格與技術硬指標,而參考區間是顧問意見 ——
+ * 由結構(引擎根本看不到它)保證它不可能影響 pass / fail。
+ */
+export interface ReferenceBand {
+  /** 對哪個指標。 */
+  metric: string;
+  /** 常見範圍(可只給一邊)。 */
+  min?: number;
+  max?: number;
+  /** 樣本不足時連「參考」都不要提,避免用 20 局去談返還率。 */
+  minSamples?: { metric: string; value: number };
+  /** 這個區間的來源性質,會原文交給模型(必須說清楚「不是標準」)。 */
+  note: L10n;
+}
+
 export type ReportSection = 'progression' | 'economy';
 
 export type TestScopeId =
@@ -362,6 +390,8 @@ export interface GenreProfile {
   scopes: TestScopeId[];
   /** 預設門檻(可被 KB report-spec 覆寫)。 */
   thresholds?: Record<string, number>;
+  /** 類型參考區間:只給 AI 分析寫「需要注意的點」,不參與判定(見 ReferenceBand)。 */
+  referenceBands?: ReferenceBand[];
   /** 此類型客戶應填寫的規格值(如 Slot 的 Expected RTP)。 */
   specValues?: SpecValueDef[];
 }
