@@ -99,6 +99,53 @@ describe('insightsInput — 把算出來的數字餵給模型', () => {
   });
 });
 
+describe('insightsInput — 類型參考區間(政策③:只給 AI 寫注意事項,不參與判定)', () => {
+  /** casino 的區間:games_played ≥3、balance_checks ≥20、casino_rounds ≥100。 */
+  const casino = (metrics: Array<ReturnType<typeof metric>>) =>
+    insightsInput(fixture({
+      profiles: [{ id: 'casino', version: '1.1', label: L('博弈') }],
+      metrics,
+    })) as Record<string, any>;
+
+  test('只列落在常見範圍外的項目(在範圍內的不佔模型注意力)', () => {
+    const out = casino([
+      metric('games_played', 'casino', 2),    // < 3 → 要列
+      metric('balance_checks', 'casino', 50), // >= 20 → 不列
+      metric('casino_rounds', 'casino', 40),  // < 100 → 要列
+    ]);
+    const ms = out['referenceBands'].map((b: any) => b.metric);
+    expect(ms).toContain('games_played');
+    expect(ms).toContain('casino_rounds');
+    expect(ms).not.toContain('balance_checks');
+  });
+
+  test('附上實際值、常見範圍、偏高或偏低,以及區間性質的說明', () => {
+    const b = casino([metric('games_played', 'casino', 2)])['referenceBands'][0];
+    expect(b).toMatchObject({ metric: 'games_played', actual: 2, commonMin: 3, direction: 'below_common_range' });
+    // note 要原文帶過去,模型才能照實說「這不是驗收標準」
+    expect(b.note).toContain('不是驗收標準');
+  });
+
+  test('沒量到的指標不比對(不會拿 null 去跟區間比)', () => {
+    const out = casino([metric('games_played', 'casino', null, 'not_collected')]);
+    expect(out['referenceBands']).toEqual([]);
+  });
+
+  test('樣本不足時連「參考」都不提(不用 20 局去談返還率)', () => {
+    // casino_rounds 的區間要求 minSamples: casino_rounds >= 1
+    const zero = casino([metric('casino_rounds', 'casino', 0)]);
+    expect(zero['referenceBands'].map((b: any) => b.metric)).not.toContain('casino_rounds');
+  });
+
+  test('沒有套用該類型樣板時不會冒出別的類型的區間', () => {
+    const out = insightsInput(fixture({
+      profiles: [{ id: 'global', version: '1.0', label: L('通用') }],
+      metrics: [metric('games_played', 'global', 1)],
+    })) as Record<string, any>;
+    expect(out['referenceBands']).toEqual([]);
+  });
+});
+
 describe('sanitizeInsights — watchouts(需要注意的點)', () => {
   const r = fixture();
 

@@ -6,6 +6,7 @@
  * tenants/<t>/jobs/<id>/insights.json,之後 GET /reports/{id} 直接附上。
  */
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { getGenreProfile } from './profiles.js';
 import type {
   L10n,
   Recommendation,
@@ -41,8 +42,11 @@ const SYSTEM = `你是資深遊戲 QA 測試顧問,負責撰寫給客戶的正�
   不可自行假設業界值來判定不合格,只能說「未提供規格,無法判定」。
 - coverage 與樣本數偏低時(例如 spin_count 只有數十局),結論必須保守:講觀察到的現象,
   不要把短期樣本說成統計結論。dataQuality 有排除讀錯數值時,引用相關數字要附帶這個保留。
+- referenceBands 是「這個遊戲類型常見的範圍」,**不是驗收標準,也不可用來判定不合格**。
+  每筆附的 note 已寫明它的性質,寫進 watchouts 時要照實講(例如「類型常見區間約 X,本次 Y」),
+  並明確說它不作為判定依據。只有落在常見範圍外的項目才會出現在這個清單裡。
 - watchouts:針對數字逐條點出「值得注意的地方」,2~6 條。每條必須引用一個指標 id 或門檻,
-  並說明為什麼值得注意(偏離規格 / 樣本不足 / 與同類型常見值差距大 / 資料品質有疑慮)。
+  並說明為什麼值得注意(偏離客戶規格 / 樣本不足 / 落在類型常見區間外 / 資料品質有疑慮)。
   這裡只描述現象,不要寫怎麼修(怎麼修寫在 recommendations)。
 - 需求矩陣:把 testCase.testSteps 與 testCase.expectedResult 拆成逐條需求(每行/每個編號一條;若沒有案例步驟,改用測試目標拆成 2~6 條可驗證需求)。
   每條給 result(pass/fail/unclear/not_tested)、evidenceSteps(對應的步驟編號,取自 evidence/checks 的 step)、reason(判定依據,引用畫面名或 AI 觀察)、suggestion(fail/unclear 時的具體修正建議)。
@@ -61,6 +65,44 @@ const cut = (s: unknown, n: number): string | undefined => (typeof s === 'string
 
 /** 指標上限:類型專屬的先進,通用的補到這個數為止(控制 token)。 */
 const MAX_METRICS = 60;
+
+/**
+ * 類型參考區間(政策③)。只在這裡讀出來給模型寫「需要注意的點」——
+ * 報告引擎從頭到尾看不到它,所以它在結構上就不可能影響 pass / fail。
+ *
+ * 只送「實際落在區間外」的項目:落在常見範圍內的事情不值得佔模型的注意力與 token。
+ * 樣本不足時連提都不提(minSamples),避免用 20 局去談返還率。
+ */
+function referenceBandsForModel(r: StructuredReport): Array<Record<string, unknown>> {
+  const value = (id: string) => {
+    const m = r.metrics.find((x) => x.id === id);
+    return m && m.status === 'ok' ? m.value : null;
+  };
+  const out: Array<Record<string, unknown>> = [];
+  for (const p of r.profiles) {
+    const prof = getGenreProfile(p.id);
+    for (const b of prof?.referenceBands ?? []) {
+      const actual = value(b.metric);
+      if (actual === null) continue;
+      if (b.minSamples) {
+        const n = value(b.minSamples.metric);
+        if (n === null || n < b.minSamples.value) continue;
+      }
+      const below = b.min !== undefined && actual < b.min;
+      const above = b.max !== undefined && actual > b.max;
+      if (!below && !above) continue;
+      out.push({
+        metric: b.metric,
+        actual,
+        ...(b.min !== undefined ? { commonMin: b.min } : {}),
+        ...(b.max !== undefined ? { commonMax: b.max } : {}),
+        direction: below ? 'below_common_range' : 'above_common_range',
+        note: b.note.zh,
+      });
+    }
+  }
+  return out.slice(0, 8);
+}
 
 /**
  * 送進模型的指標。
@@ -96,6 +138,7 @@ export function insightsInput(r: StructuredReport): Record<string, unknown> {
   const stride = Math.max(1, Math.ceil(r.evidence.length / 30));
   const outline = r.evidence.filter((_, i) => i % stride === 0).map((s) => `#${s.index} ${s.screen} → ${s.action}`);
   const metrics = metricsForModel(r);
+  const bands = referenceBandsForModel(r);
   return {
     testCase: {
       name: r.testCase.name,
@@ -138,6 +181,11 @@ export function insightsInput(r: StructuredReport): Record<string, unknown> {
     },
     /** 數據品質:被排除的讀錯數值等;有排除就不能把數字講得太肯定。 */
     ...(r.dataQuality ? { dataQuality: r.dataQuality } : {}),
+    /**
+     * 類型參考區間比對結果(只列落在常見範圍外的)。**這不是驗收標準**:
+     * 每筆的 note 已說明它的性質,prompt 要求寫進 watchouts 時照實說「類型常見區間」。
+     */
+    referenceBands: bands,
     checks: [
       ...failedChecks.slice(0, 25),
       ...passedChecks.slice(0, 15),
