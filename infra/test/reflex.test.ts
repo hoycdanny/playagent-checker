@@ -16,6 +16,7 @@ import {
   cmdFromOp,
   coolSpinOp,
   createReflexState,
+  isPaidSpinTarget,
   opFromCmd,
   opTrust,
   pageSelfOps,
@@ -239,6 +240,20 @@ describe('SPIN loop and RTP', () => {
     expect(spinCooledDown(cooled, 'other', 0)).toBe(false);
     // 測試人員停用也一樣。
     expect(chooseSpinOp({ struct: s, edits: { opEdits: { [pick.key]: { disabled: true } } }, pageId: result, state: createReflexState() })).toBeNull();
+  });
+
+  // job-mvep70wb:導航腳本挑到同一顆 SPIN 時,runner 要改走 SPIN 迴圈的計數流程,
+  // 否則機台一直在轉卻一局都沒算到(218 步只記到 13 局)。
+  test('isPaidSpinTarget 認得付費 SPIN,排除 AutoSpin / 免費遊戲與非點擊動作', () => {
+    expect(isPaidSpinTarget('tap', 'SPIN')).toBe(true);
+    expect(isPaidSpinTarget('tap', '開始轉')).toBe(true);
+    expect(isPaidSpinTarget('hold', '旋轉')).toBe(true);
+    expect(isPaidSpinTarget('tap', 'AUTO SPIN')).toBe(false);
+    expect(isPaidSpinTarget('tap', 'FREE SPIN')).toBe(false);
+    expect(isPaidSpinTarget('tap', '免費旋轉')).toBe(false);
+    expect(isPaidSpinTarget('swipe', 'SPIN')).toBe(false);
+    expect(isPaidSpinTarget('tap', 'COLLECT')).toBe(false);
+    expect(isPaidSpinTarget('tap', undefined)).toBe(false);
   });
 
   test('chooseSpinOp picks the trusted SPIN, not AutoSpin / free spin', () => {

@@ -41,6 +41,19 @@ const GAMEPLAY_RE = /spin|旋轉|旋转|轉動|转动|\bbet\b|下注|押注|auto
 /** SPIN 按鈕。 */
 const SPIN_RE = /spin|旋轉|旋转|轉動|转动|開始轉|开始转/i;
 
+/**
+ * 這個操作是不是「轉一局付費 SPIN」。AutoSpin / 免費遊戲的按鈕不算付費局。
+ *
+ * 匯出的原因:RTP 任務裡,導航用的記憶腳本也可能挑到同一顆 SPIN 按鈕。
+ * job-mvep70wb 實測:chooseSpinOp 因為成功率不足(46/26)拒絕它,但導航腳本照按 ——
+ * 機台真的在轉,卻一局都沒被算到,218 步只記到 13 局。按了就要算。
+ */
+export function isPaidSpinTarget(kind, target) {
+  const t = String(target ?? '');
+  return (kind === 'tap' || kind === 'hold') && SPIN_RE.test(t) && !/auto|free|免費|免费/i.test(t);
+}
+const isSpinTarget = isPaidSpinTarget;
+
 const norm = (s) => String(s ?? '').toLowerCase().replace(/[\s「」『』"'()()\[\]【】:,。.、_\-]+/g, '');
 
 /**
@@ -302,9 +315,6 @@ export function chooseSpinOp({ struct, edits, pageId, version, state, step = 0 }
   const page = struct?.pages?.[pageId];
   if (!page || page.transient) return null;
   const opEdits = edits?.opEdits ?? {};
-  // AutoSpin / 免費遊戲的按鈕不是「付費一局」,不放進迴圈。
-  const isSpinTarget = (kind, target) => (kind === 'tap' || kind === 'hold')
-    && SPIN_RE.test(String(target ?? '')) && !/auto|free|免費|免费/i.test(String(target ?? ''));
 
   const cands = [];
   for (const s of pageSelfOps(page, pageId, opEdits)) {

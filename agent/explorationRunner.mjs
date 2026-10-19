@@ -58,7 +58,7 @@ import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure, identifyPage } from './memoryGraph.mjs';
-import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, coolSpinOp, createReflexState, opFromCmd, parseSpinCount, rtpSummary } from './reflex.mjs';
+import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, coolSpinOp, createReflexState, isPaidSpinTarget, opFromCmd, parseSpinCount, rtpSummary, spinCooledDown } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
 
@@ -1537,6 +1537,22 @@ async function main() {
         const d = chooseReflex({ struct, edits: appMemory.edits, pageId: here.pageId, task: TASK, focus, version: appVersion, state: reflexState });
         const c = d ? cmdFromOp(d.op, cw, ch) : null;
         if (d && c) {
+          // 導航腳本挑到的剛好是付費 SPIN 按鈕:這一下按下去機台就會轉一局,所以要走 SPIN 迴圈
+          // 的流程(等停輪 + 讀數字 + 計入局數),不能當成單純的換頁操作。
+          // job-mvep70wb 實測:chooseSpinOp 因成功率不足(46/26)拒絕這顆按鈕,導航腳本卻照按,
+          // 機台一直在轉但一局都沒算到 —— 218 步只記到 13 局。按了就要算。
+          const isSpinPick = rtpLoop.target > 0 && !rtpLoop.done && isPaidSpinTarget(c.action, d.target);
+          // 冷卻中的 SPIN 要真的停手:讓 AI 去把擋住盤面的東西處理掉,導航腳本不能繞過去照按。
+          const cooling = isSpinPick && spinCooledDown(reflexState, d.key, i);
+          const asSpin = isSpinPick && !cooling;
+          if (cooling) {
+            console.log(`[SPIN 迴圈] 導航腳本挑到的 SPIN 還在冷卻中,這一步交回 AI`);
+          } else if (asSpin) {
+            reflexCmd = { ...c, target: d.target, screen: nameOf(here.pageId),
+              reflex: { kind: 'spin', key: d.key, round: rtpLoop.paid + 1, of: rtpLoop.target },
+              thinking: `[SPIN 迴圈] 第 ${rtpLoop.paid + 1}/${rtpLoop.target} 局:照記憶點「${d.target}」(導航腳本挑到的同一顆 SPIN)。` };
+            reflexNotes.push(`在「${nameOf(here.pageId)}」${c.action}「${d.target}」`);
+          } else {
           const how = { route: '照路線', named: '目標點名', popup: '關彈窗', verified: '人工確認', dominant: '主要出口' }[d.reason] ?? d.reason;
           const trustTxt = d.trust === 'verified' ? '人工確認' : `成功 ${d.hits} / 失敗 ${d.misses}`;
           reflexCmd = { ...c, target: d.target, screen: nameOf(here.pageId),
@@ -1545,6 +1561,7 @@ async function main() {
           reflexPending = { key: d.key, from: here.pageId, to: d.toPageId, cross: d.cross, waits: 0 };
           reflexState.chain++;
           reflexNotes.push(`在「${nameOf(here.pageId)}」${c.action}「${d.target}」`);
+          }
         }
       }
     }
