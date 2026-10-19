@@ -11,10 +11,7 @@
  * 名稱不在這裡:genre 的顯示名稱已經有 i18n key(`genre.<genre>`,五語系齊全),
  * 直接用 `t(genreLabelKey(genre))` 即可,不要再維護第二份。
  */
-
-/** [繁中, English, 简中, 日本語, 한국어] */
-type L5 = readonly [string, string, string, string, string];
-const IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
+import { loc5, pick5, type L5 } from '../../i18n/locale5.ts';
 
 const DESC: Record<string, L5> = {
   slot: [
@@ -243,8 +240,7 @@ const DESC: Record<string, L5> = {
 export function builtinKbDescription(genre: string | undefined, locale: string): string | undefined {
   if (!genre) return undefined;
   const v = DESC[genre];
-  if (!v) return undefined;
-  return v[IDX[locale] ?? 1] ?? v[1];
+  return v ? pick5(v, loc5(locale)) : undefined;
 }
 
 /** 內建知識庫 id(`kb-builtin-<genre>`)→ genre;不是內建的回 undefined。 */

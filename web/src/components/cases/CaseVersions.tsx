@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
-import { reportLang, type RLang } from '../report/reportText.ts';
+import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
 import UserTag from '../UserTag.tsx';
 import './CaseVersions.css';
 
@@ -19,34 +19,44 @@ export interface CaseVersionSummary {
   yaml?: string;
 }
 
+// 原本只有繁中 / 英文,所以日文 / 韓文介面拿到英文。改成五語系(見 i18n/locale5.ts)。
 const T = {
-  title: ['版本紀錄', 'Version history'],
+  title: ['版本紀錄', 'Version history', '版本记录', 'バージョン履歴', '버전 기록'],
   hint: [
     '每次儲存都會產生一個不可修改的版本號(台北時間 YYYY-MMDD-HHmm-SSss)。切換版本只會改變「目前使用中」的內容,不會改動或刪除任何版本;測試報告會記錄執行時使用的版本。',
     'Every save creates an immutable version id (Taipei time YYYY-MMDD-HHmm-SSss). Switching only changes which version is in use; no version is ever modified or deleted. Reports record the version they ran with.',
+    '每次保存都会产生一个不可修改的版本号(台北时间 YYYY-MMDD-HHmm-SSss)。切换版本只会改变「目前使用中」的内容,不会改动或删除任何版本;测试报告会记录执行时使用的版本。',
+    '保存ごとに変更不可のバージョン ID(台北時間 YYYY-MMDD-HHmm-SSss)が作られます。切り替えても「使用中」の内容が変わるだけで、どのバージョンも変更・削除されません。レポートには実行時のバージョンが記録されます。',
+    '저장할 때마다 변경 불가능한 버전 ID(타이베이 시간 YYYY-MMDD-HHmm-SSss)가 생성됩니다. 전환하면 "사용 중" 내용만 바뀌고 어떤 버전도 수정·삭제되지 않습니다. 리포트에는 실행 시 사용한 버전이 기록됩니다.',
   ],
-  active: ['使用中', 'In use'],
-  preview: ['預覽', 'Preview'],
-  hide: ['收合', 'Hide'],
-  activate: ['切換為使用中', 'Use this version'],
-  activating: ['切換中…', 'Switching…'],
-  confirm: ['切換到版本 {v}?編輯器中未儲存的修改會被取代。', 'Switch to version {v}? Unsaved edits in the editor will be replaced.'],
-  basedOn: ['基於', 'based on'],
-  create: ['建立', 'Created'],
-  edit: ['編輯', 'Edited'],
-  baseline: ['基準(既有內容)', 'Baseline (existing)'],
-  empty: ['尚無版本。', 'No versions yet.'],
-  loadError: ['無法載入版本紀錄。', 'Could not load versions.'],
-  current: ['目前版本', 'Current version'],
-  copy: ['複製版本號', 'Copy version id'],
-  copied: ['已複製', 'Copied'],
-} as const;
-const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+  active: ['使用中', 'In use', '使用中', '使用中', '사용 중'],
+  preview: ['預覽', 'Preview', '预览', 'プレビュー', '미리보기'],
+  hide: ['收合', 'Hide', '收起', '閉じる', '접기'],
+  activate: ['切換為使用中', 'Use this version', '切换为使用中', 'このバージョンを使う', '이 버전 사용'],
+  activating: ['切換中…', 'Switching…', '切换中…', '切り替え中…', '전환 중…'],
+  confirm: [
+    '切換到版本 {v}?編輯器中未儲存的修改會被取代。',
+    'Switch to version {v}? Unsaved edits in the editor will be replaced.',
+    '切换到版本 {v}?编辑器中未保存的修改会被取代。',
+    'バージョン {v} に切り替えますか?エディターの未保存の変更は置き換えられます。',
+    '버전 {v}(으)로 전환하시겠습니까? 편집기의 저장하지 않은 변경은 대체됩니다.',
+  ],
+  basedOn: ['基於', 'based on', '基于', 'ベース', '기반'],
+  create: ['建立', 'Created', '建立', '作成', '생성'],
+  edit: ['編輯', 'Edited', '编辑', '編集', '편집'],
+  baseline: ['基準(既有內容)', 'Baseline (existing)', '基准(既有内容)', 'ベースライン(既存内容)', '기준(기존 내용)'],
+  empty: ['尚無版本。', 'No versions yet.', '尚无版本。', 'まだバージョンがありません。', '아직 버전이 없습니다.'],
+  loadError: ['無法載入版本紀錄。', 'Could not load versions.', '无法载入版本记录。', 'バージョン履歴を読み込めません。', '버전 기록을 불러올 수 없습니다.'],
+  current: ['目前版本', 'Current version', '当前版本', '現在のバージョン', '현재 버전'],
+  copy: ['複製版本號', 'Copy version id', '复制版本号', 'バージョン ID をコピー', '버전 ID 복사'],
+  copied: ['已複製', 'Copied', '已复制', 'コピーしました', '복사됨'],
+} as const satisfies Record<string, L5>;
+const tx = (k: keyof typeof T, lang: Loc5) => pick5(T[k] as L5, lang);
 
 /** 版本號徽章(等寬字,可點擊複製)。 */
 export function CaseVersionBadge({ version, title }: { version?: string; title?: string }) {
   const { locale } = useI18n();
-  const lang = reportLang(locale);
+  const lang = loc5(locale);
   const [copied, setCopied] = useState(false);
   if (!version) return null;
   return (
@@ -83,7 +93,7 @@ export function CaseVersions({
   onActivated?: (v: { version: string; name: string; yaml: string }) => void;
 }) {
   const { locale } = useI18n();
-  const lang = reportLang(locale);
+  const lang = loc5(locale);
   const [items, setItems] = useState<CaseVersionSummary[]>([]);
   const [active, setActive] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);

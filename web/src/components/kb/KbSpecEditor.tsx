@@ -1,8 +1,7 @@
 import type { ExcludeKey, L10n, ReportSpecInput, TemplateDescriptor } from './kbTypes.ts';
 import { SCOPES } from './kbTypes.ts';
-import { kt, tr } from './kbText.ts';
+import { kt, tr, type KbLang } from './kbText.ts';
 import { SCOPE_TEXT } from '../report/reportText.ts';
-import type { RLang } from '../report/reportText.ts';
 import './KbSpecEditor.css';
 
 /**
@@ -20,7 +19,7 @@ export function KbSpecEditor({
   onChange?: (next: ReportSpecInput) => void;
   genreTemplate?: TemplateDescriptor;
   globalTemplate?: TemplateDescriptor;
-  lang: RLang;
+  lang: KbLang;
 }) {
   const ro = !onChange;
   const set = (patch: Partial<ReportSpecInput>) => onChange?.(clean({ ...spec, ...patch }));
@@ -197,7 +196,7 @@ function Inherited({
 }: {
   title: string;
   t: TemplateDescriptor;
-  lang: RLang;
+  lang: KbLang;
   ro: boolean;
   excluded: (k: ExcludeKey) => Set<string>;
   toggle: (k: ExcludeKey, id: string, enabled: boolean) => void;
