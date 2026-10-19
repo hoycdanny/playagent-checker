@@ -15,7 +15,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import IconSelect, { type IconSelectOption } from '../components/IconSelect.tsx';
 import { KbSpecEditor } from '../components/kb/KbSpecEditor.tsx';
-import { kbLang, kt, tr } from '../components/kb/kbText.ts';
+import { kbLang, kt, tr, type KbLang } from '../components/kb/kbText.ts';
 import { builtinKbDescription, genreFromBuiltinKbId } from '../components/kb/builtinKbText.ts';
 import type { KbKind, KbListResponse, KbUsage, KnowledgeBase, ReportSpecInput } from '../components/kb/kbTypes.ts';
 import './ListPage.css';
@@ -547,7 +547,7 @@ export default function KnowledgePage() {
 }
 
 /** 卡片上的規格摘要(你改了什麼)。 */
-function SpecSummary({ spec, lang }: { spec?: ReportSpecInput; lang: 'zh' | 'en' }) {
+function SpecSummary({ spec, lang }: { spec?: ReportSpecInput; lang: KbLang }) {
   if (!spec) return null;
   const parts: string[] = [];
   const v = Object.keys(spec.values ?? {}).length;

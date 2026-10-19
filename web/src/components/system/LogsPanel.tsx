@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
+import { loc5, pick5, type L5 } from '../../i18n/locale5.ts';
 import './LogsPanel.css';
 
 /** 與後端 systemLogs.ts 對齊。 */
@@ -17,9 +18,6 @@ interface LogRow { ts: number; sourceId?: LogSourceId; source: string; logGroup:
 type LogQueryState = 'Scheduled' | 'Running' | 'Complete' | 'Failed' | 'Cancelled' | 'Timeout' | 'Unknown';
 interface LogQueryResult { status: LogQueryState; done: boolean; rows: LogRow[]; recordsMatched?: number }
 
-/** [繁中, English, 简中, 日本語, 한국어] */
-type L5 = readonly [string, string, string, string, string];
-const IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
 
 const S = {
   section: ['集中日誌', 'Centralized logs', '集中日志', '集中ログ', '통합 로그'] as L5,
@@ -95,8 +93,8 @@ const POLL_LIMIT = 40; // ~52s 上限,避免卡死輪詢
  */
 export function LogsPanel() {
   const { locale } = useI18n();
-  const i = IDX[locale] ?? 1;
-  const tr = (v: L5) => v[i] ?? v[1];
+  const lang = loc5(locale);
+  const tr = (v: L5) => pick5(v, lang);
   /** 來源顯示名:認得 sourceId 就翻譯,否則退回後端給的字(舊後端 / 未知種類)。 */
   const srcName = (sourceId: LogSourceId | undefined, fallback: string) =>
     (sourceId && SRC[sourceId] ? tr(SRC[sourceId]) : fallback);
