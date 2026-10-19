@@ -351,7 +351,7 @@ const RPG_BASE = {
 const PROFILES: GenreProfile[] = [
   profile({
     id: 'slot',
-    version: '1.2',
+    version: '1.3',
     label: L('拉霸/Slot', 'Slot'),
     modules: [
       mod('machine_select', '機台選擇/大廳', 'Machine Select / Hub', ['slots', '機台', 'machine', 'hub', '大廳']),
@@ -378,6 +378,9 @@ const PROFILES: GenreProfile[] = [
       obs('autospin_left', 'AutoSpin 剩餘次數', 'AutoSpin Remaining', 'AutoSpin 進行中時 SPIN 鈕上顯示的剩餘次數(數字;未啟動不填)'),
       // 非拉霸收入(RTP 帳務必須扣除):只在彈窗上「清楚寫出」贈送金幣時填加總後的數字;被遮擋 / 看不清 / 要估算就不填。
       obs('non_slot_credit', '非拉霸收入', 'Non-slot Credit', '升級 / 任務 / 登入 / 活動彈窗上清楚寫出的贈送金幣合計(數字;10K 寫 10000;被遮擋、看不清或需要估算就不填)'),
+      // 大廳型 App(老子有錢 / FaFaFa 這類)一個 App 裡有很多台機台,每台的數學模型都不同。
+      // 不記機台名的話,報告會把多台混在一起算 RTP,那個數字沒有意義。
+      obs('machine_kind', '機台名稱', 'Machine', '目前在玩哪一台機台的名稱(畫面上標示的機台名,如 Fortune Rabbit;看不出來就不填)', 'string'),
     ],
     metrics: [
       metric('spin_count', 'Spin 次數', 'Spin Count', 'count', 'genre', 'spin_count', { source: 'ai_evaluation' }),
@@ -401,6 +404,7 @@ const PROFILES: GenreProfile[] = [
       metric('hit_frequency_deviation_pp', 'Hit Frequency 偏差(樣本足夠時)', 'Hit Frequency Deviation (sufficient samples)', 'pp', 'genre', 'hit_frequency_deviation_pp', { source: 'ai_evaluation' }),
       metric('bet_out_of_range_count', '下注超出規格範圍次數', 'Bets Outside Spec Range', 'count', 'economy', 'bet_out_of_range_count', { source: 'ai_evaluation' }),
       metric('win_cap_violation_count', '派彩超過最大倍率次數', 'Wins Above Max Multiplier', 'count', 'economy', 'win_cap_violation_count', { source: 'ai_evaluation' }),
+      metric('machines_played', '玩過的機台數', 'Machines Played', 'count', 'coverage', { kind: 'obs_distinct_count', key: 'machine_kind' }, { source: 'ai_evaluation' }),
     ],
     // 典型老虎機規格值(由客戶在 clone 後的知識庫填寫;AI 不會自行假設)。
     specValues: [
@@ -412,6 +416,30 @@ const PROFILES: GenreProfile[] = [
       { key: 'rtpStdDev', label: L('單局報酬標準差 σ', 'Per-spin Std Dev σ'), unit: 'x', hint: L('PAR 表的單局報酬標準差(以投注額倍數計),用來算 RTP 信賴區間;未填時以 6 估算', 'Per-spin return standard deviation from the PAR sheet (in bet multiples), used for the RTP confidence interval; 6 is assumed when empty') },
     ],
     thresholds: { rtpTolerancePp: 2, rtpMinSamples: 100, hitFrequencyTolerancePp: 5 },
+    // ③ 類型參考區間:只寫進「需要注意的點」,不參與判定(見 types.ts 的 ReferenceBand)。
+    referenceBands: [
+      {
+        // 2026-10 實測:同一款遊戲各跑 50 局付費 SPIN,算出來的 RTP 分別是 20.68%、
+        // 662.65%、579.85%。這不是 bug,是 50 局的統計極限(單局報酬標準差 σ≈6 時,
+        // 50 局的 95% 區間約 ±166pp)。沒有這條提醒,報告會把 662% 講得像真的。
+        metric: 'spin_count',
+        min: 1000,
+        minSamples: { metric: 'spin_count', value: 1 },
+        note: L(
+          '拉霸的 RTP 要數千局才會收斂。單局報酬標準差 σ 約 6 時,50 局的 95% 信賴區間約 ±166 個百分點、500 局約 ±53 個百分點 —— 局數不足時實測 RTP 只能當「有沒有派彩、帳有沒有算對」的旁證,不能用來判斷是否符合標稱值。這是統計性質的提醒,不是驗收標準。',
+          'Slot RTP needs thousands of spins to converge. With a per-spin return σ of about 6, the 95% interval is roughly ±166 percentage points at 50 spins and ±53 at 500. Below that, the observed RTP only corroborates that payouts happen and the ledger adds up; it cannot show whether the game matches its nominal RTP. A statistical caveat, not an acceptance standard.',
+        ),
+      },
+      {
+        // 大廳型 App 一個包裡有很多台機台,每台數學模型不同。只玩一台時,RTP 只代表那一台。
+        metric: 'machines_played',
+        max: 1,
+        note: L(
+          '本次只在單一機台上取樣。大廳型 App(一個 App 內含多台機台)每台的數學模型與派彩表都不同,所以這份經濟類數據只代表這一台,不能推論整個 App。這是取樣範圍的說明,不是驗收標準。',
+          'Only one machine was sampled. In hub-style apps each machine has its own math model and paytable, so these economy figures describe that machine only and do not generalise to the whole app. A note on sampling scope, not an acceptance standard.',
+        ),
+      },
+    ],
     charts: [
       timeline('balance', '餘額走勢', 'Balance Timeline', 20),
       { id: 'rtp_convergence', type: 'line', title: L('累積 RTP 收斂', 'Cumulative RTP'), source: { kind: 'builtin', fn: 'rtp_convergence' }, threshold: { spec: 'expectedRtp' }, priority: 21, xLabel: L('Spin 次數', 'Spins'), yLabel: L('%', '%') },
