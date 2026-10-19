@@ -96,6 +96,30 @@ describe('createSpinSettle', () => {
     expect(r).toMatchObject({ ok: false, reason: 'stale' });
   });
 
+  // 全解析度分段解碼要近 10 秒(現實的 1/4 速),落後只會越來越大 —— 每局先白等 20 秒再退回
+  // 截圖,等於每局多付 20 秒學費。所以落後時早點認輸,連續兩局就永久改走截圖。
+  test('已經落後就不白等整個 timeout;連續兩局追不上就放棄影片判定', async () => {
+    const logs: string[] = [];
+    const s = createSpinSettle({ rois: () => [TOP], gridW: GW, gridH: GH, decode: async () => [], log: (m: string) => logs.push(m) });
+    const wait = () => {
+      let now = 0;
+      return s.waitSettled({
+        after: 10_000, stillMs: 500, timeoutMs: 20_000, pollMs: 100, staleProbeMs: 500,
+        sleep: async () => { now += 100; }, now: () => now,
+      });
+    };
+    const r1 = await wait();
+    expect(r1).toMatchObject({ ok: false, reason: 'stale' });
+    expect(r1.waitedMs).toBeLessThan(1000); // 沒有白等 20 秒
+    expect(s.healthy()).toBe(true); // 第一次還給機會
+
+    const r2 = await wait();
+    expect(r2.reason).toBe('stale');
+    expect(s.stats.givenUp).toBe(true);
+    expect(s.healthy()).toBe(false);
+    expect(logs.some((m) => /放棄影片判定/.test(m))).toBe(true);
+  });
+
   test('有解到按下動作之後的畫面、但一直沒動 → no_move(真的沒按到)', async () => {
     const { s, push } = settleFor();
     await push(10_000, Array.from({ length: 10 }, () => still));
@@ -167,10 +191,12 @@ describe('createSpinSettle', () => {
       decode: async () => [{ gray: grid(), offsetMs: 0 }],
     });
     s.arm();
-    await s.onSegment({ name: 'a', buf: Buffer.from('x'), startedAt: 0 });
+    // 解碼進度(1000ms)已經走過「送出動作」那一刻(500ms),所以不是落後,只是盤面沒動。
+    await s.onSegment({ name: 'a', buf: Buffer.from('x'), startedAt: 1000 });
     let now = 0;
     for (let k = 0; k < 5; k++) {
-      await s.waitSettled({ after: 0, stillMs: 100, timeoutMs: 100, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
+      const r = await s.waitSettled({ after: 500, stillMs: 100, timeoutMs: 100, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
+      expect(r.reason).toBe('no_move');
     }
     expect(s.stats.frames).toBe(1);
     expect(s.healthy()).toBe(true);

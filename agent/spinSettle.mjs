@@ -20,6 +20,19 @@ const FULL_ROI = Object.freeze({ x: 0, y: 0, w: 1, h: 1 });
 /** 一幀都沒拿到時還願意試幾局(分段是事後拉回的,開場可能真的還沒到)。 */
 const GRACE_ATTEMPTS = 2;
 
+/**
+ * 連續幾局「解碼進度追不上」就徹底放棄影片這條路。
+ *
+ * job-mvejz8kq 實測:全解析度(1440x3088)的 2 秒分段,解碼要將近 10 秒 —— 解碼速度只有
+ * 現實時間的四分之一,所以 coveredUntil 每局都更落後(26s → 40s → 66s → 89s),永遠追不回來。
+ * 每局先白等 timeoutMs 再退回截圖,等於每局多花 20 秒;而截圖輪詢實測 3 次取樣、約 14 秒
+ * 就能穩定判定靜止。追不上就該認輸,不要每局都重新付這筆學費。
+ */
+const STALE_GIVEUP = 2;
+
+/** 已經落後時最多再等多久(等不到就認定追不上,不必白等整個 timeoutMs)。 */
+const STALE_PROBE_MS = 5000;
+
 /** 網格上某個區域(0~1 比例)的平均灰階差 0~255。區域落在網格外會被夾住。 */
 export function roiDelta(a, b, gw, gh, roi) {
   const x0 = Math.max(0, Math.min(gw - 1, Math.floor(roi.x * gw)));
@@ -59,6 +72,8 @@ export function createSpinSettle({
   let frames = 0;
   let fails = 0;
   let attempts = 0;
+  let staleStreak = 0;
+  let givenUp = false;
 
   /**
    * 逾時的原因。'stale' = 解碼到的時間軸還沒走到「送出動作」那一刻,所以我們根本沒看過
@@ -84,14 +99,14 @@ export function createSpinSettle({
   }
 
   return {
-    get stats() { return { segs, frames, fails, attempts, coveredUntil, lastMotionAt }; },
+    get stats() { return { segs, frames, fails, attempts, staleStreak, givenUp, coveredUntil, lastMotionAt }; },
     /**
      * 影片這條路還能不能用。只要拿到過影格就算可用;一幀都沒拿到時只寬容 GRACE_ATTEMPTS 局
      * (分段是事後才拉回來的,第一局可能真的還沒到),之後就回 false 讓呼叫端退回截圖輪詢。
      * 不能無條件回 true:job-mvd8vsfb 實測即時影片開場就掛掉,但 fails 一直是 0
      * (分段根本沒進來,連解碼都沒發生),結果每局都乾等 30 秒到逾時才判「沒有轉動」。
      */
-    healthy() { return frames > 0 || attempts < GRACE_ATTEMPTS; },
+    healthy() { return !givenUp && (frames > 0 || attempts < GRACE_ATTEMPTS); },
     /** 開始等停輪:從現在起解碼進來的分段。 */
     arm() { armedUntil = Infinity; },
     /** 等完了:再收 graceMs 內到達的分段(它們才覆蓋剛才那段等待),之後就不解碼了。 */
@@ -110,33 +125,35 @@ export function createSpinSettle({
      * @param {number} o.after 送出動作的時刻(epoch ms):之後必須看到動作,才算真的有轉
      * @returns {Promise<{ok:boolean, reason:'still'|'timeout'|'no_move', stillMs:number, movedAt:number, waitedMs:number, covered:number}>}
      */
-    async waitSettled({ after, stillMs = 2000, timeoutMs = 15_000, pollMs = 200, sleep, now = Date.now }) {
+    async waitSettled({ after, stillMs = 2000, timeoutMs = 15_000, pollMs = 200, sleep, now = Date.now, staleProbeMs = STALE_PROBE_MS }) {
       attempts++;
       const t0 = now();
       // 迭代上限:逾時只看時間,萬一時鐘沒前進(或 sleep 被換成立即回傳)就會變成無窮忙迴圈。
       const maxLoops = Math.max(2, Math.ceil(timeoutMs / Math.max(1, pollMs)) + 2);
+      const done = (ok, reason, quiet, movedAt) => {
+        if (reason === 'stale') {
+          staleStreak++;
+          if (staleStreak >= STALE_GIVEUP && !givenUp) {
+            givenUp = true;
+            log(`[spin-settle] 解碼追不上現實(連續 ${staleStreak} 局還沒解到動作當下),放棄影片判定,之後都用截圖輪詢`);
+          }
+        } else staleStreak = 0;
+        return { ok, reason, stillMs: Math.max(0, quiet), movedAt, waitedMs: now() - t0, covered: coveredUntil - after };
+      };
       for (let k = 0; k < maxLoops; k++) {
         await chain.catch(() => {});
         const movedAt = lastMotionAt > after ? lastMotionAt : 0;
         // 已解碼的時間軸上,最後一次動作之後安靜了多久(資料還沒到的部分不算安靜)。
         const quiet = Math.max(0, coveredUntil - Math.max(lastMotionAt, after));
-        if (movedAt && quiet >= stillMs) {
-          return { ok: true, reason: 'still', stillMs: quiet, movedAt, waitedMs: now() - t0, covered: coveredUntil - after };
-        }
-        if (now() - t0 >= timeoutMs) {
-          return { ok: false, reason: timedOutReason(movedAt, after), stillMs: quiet, movedAt, waitedMs: now() - t0, covered: coveredUntil - after };
-        }
+        if (movedAt && quiet >= stillMs) return done(true, 'still', quiet, movedAt);
+        const waited = now() - t0;
+        // 已經落後到連「動作當下」都還沒解到:再等也只是等解碼慢慢爬,不必白等整個 timeoutMs。
+        if (coveredUntil <= after && waited >= staleProbeMs) return done(false, 'stale', quiet, movedAt);
+        if (waited >= timeoutMs) return done(false, timedOutReason(movedAt, after), quiet, movedAt);
         await sleep(pollMs);
       }
       const movedAt = lastMotionAt > after ? lastMotionAt : 0;
-      return {
-        ok: false,
-        reason: timedOutReason(movedAt, after),
-        stillMs: Math.max(0, coveredUntil - Math.max(lastMotionAt, after)),
-        movedAt,
-        waitedMs: now() - t0,
-        covered: coveredUntil - after,
-      };
+      return done(false, timedOutReason(movedAt, after), coveredUntil - Math.max(lastMotionAt, after), movedAt);
     },
   };
 }
