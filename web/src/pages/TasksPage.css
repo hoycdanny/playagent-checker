@@ -136,6 +136,27 @@
   white-space: nowrap;
 }
 
+/* 自由文字搜尋:比下拉寬一些(要容得下一整個任務編號),但不要吃掉整列。 */
+.tasks__filter-item--search {
+  flex: 1 1 220px;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.tasks__search-input {
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--surface);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.tasks__search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
 /* 篩選下拉:高度統一、緊湊(同一行要塞下較多欄位,故 min-width 收小)。 */
 .tasks__filter select {
   min-width: 96px;
@@ -191,6 +212,11 @@
 .tasks__created {
   color: var(--text-tertiary);
   font-size: 13px;
+}
+/* 任務編號(建立時間下方一行等寬小字;點一下複製) */
+.tasks__jobid {
+  margin-left: -3px;
+  max-width: 16em;
 }
 /* 送出者(建立時間下方一行小字;完整 email 在提示裡) */
 .tasks__by {
