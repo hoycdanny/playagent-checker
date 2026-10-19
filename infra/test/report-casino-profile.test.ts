@@ -60,9 +60,18 @@ describe('casino 類型樣板', () => {
 
   // 政策①:只有技術硬指標與樣本量參與判定。
   test('判定只用技術硬指標與局數,不用任何類型參考值', () => {
-    expect(p.releaseRules.map((r) => r.metric).sort()).toEqual(['balance_mismatch_count', 'casino_rounds']);
-    expect(p.riskRules.map((r) => r.metric).sort()).toEqual(['balance_mismatch_count', 'bet_out_of_range_count']);
-    expect(p.thresholds).toMatchObject({ casinoMinRounds: 100 });
+    expect(p.releaseRules.map((r) => r.metric).sort()).toEqual(['balance_accuracy', 'casino_rounds']);
+    expect(p.riskRules.map((r) => r.metric).sort()).toEqual(['balance_accuracy', 'bet_out_of_range_count']);
+    expect(p.thresholds).toMatchObject({ casinoMinRounds: 100, balanceAccuracyMin: 98 });
+  });
+
+  // 逐局數字是 AI 讀畫面來的,偶發讀錯在所難免。看「不符次數 > 0」會讓一次讀錯就判 critical,
+  // 和驗收引擎(≥3 次且佔比 >20% 才算遊戲缺陷)結論相反 —— job-mvfcpfig 實測踩到。
+  test('餘額判定看正確率而不是不符次數(與驗收引擎同一個判準)', () => {
+    expect(p.riskRules.find((r) => r.id === 'balance_mismatch')).toMatchObject({
+      metric: 'balance_accuracy', op: '<', value: { threshold: 'balanceAccuracyMin' },
+    });
+    expect(p.releaseRules.map((r) => r.metric)).not.toContain('balance_mismatch_count');
   });
 
   // 政策③的核心保證:參考區間的指標不得出現在任何判定規則裡。
@@ -101,9 +110,12 @@ describe('slot 類型樣板:機台覆蓋與 RTP 樣本量', () => {
     expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('spin_count');
   });
 
+  // 區間語意是「低於 min 或高於 max 才提醒」,所以「只玩一台」要寫成 min: 2。
+  // 寫 max: 1 的話剛好 1 台會落在範圍內而永遠不觸發(實測 job-mvfcpfig 抓到過)。
   test('只玩一台機台時說明取樣範圍(大廳型 App 每台數學模型不同)', () => {
     const band = (p.referenceBands ?? []).find((b) => b.metric === 'machines_played')!;
-    expect(band.max).toBe(1);
+    expect(band.min).toBe(2);
+    expect(band.max).toBeUndefined();
     expect(band.note.zh).toContain('不是驗收標準');
     expect(p.observe.map((o) => o.key)).toContain('machine_kind');
     expect(p.observe.find((o) => o.key === 'machine_kind')!.type).toBe('string');
@@ -112,6 +124,17 @@ describe('slot 類型樣板:機台覆蓋與 RTP 樣本量', () => {
 
   test('機台覆蓋數不參與判定', () => {
     expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('machines_played');
+  });
+
+  test('餘額判定改看正確率,少量不符降級為判讀提醒', () => {
+    expect(p.riskRules.find((r) => r.id === 'balance_mismatch')).toMatchObject({
+      metric: 'balance_accuracy', op: '<', value: { threshold: 'balanceAccuracyMin' },
+    });
+    expect(p.thresholds).toMatchObject({ balanceAccuracyMin: 98 });
+    expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('balance_mismatch_count');
+    const band = (p.referenceBands ?? []).find((b) => b.metric === 'balance_mismatch_count')!;
+    expect(band.max).toBe(0);
+    expect(band.note.zh).toContain('不是驗收標準');
   });
 
   test('版本跟著內容一起升(內建知識庫的版本是從這裡來的)', () => {
