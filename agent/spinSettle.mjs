@@ -60,6 +60,13 @@ export function createSpinSettle({
   let fails = 0;
   let attempts = 0;
 
+  /**
+   * 逾時的原因。'stale' = 解碼到的時間軸還沒走到「送出動作」那一刻,所以我們根本沒看過
+   * 那段畫面 —— 這是量測落後,不能說成「盤面沒有轉動」(job-mvdyyr1j 實測積壓到落後 87 秒,
+   * 每一局都被說成沒轉動,SPIN 按鈕還因此被冷卻)。
+   */
+  const timedOutReason = (movedAt, after) => (movedAt ? 'timeout' : (coveredUntil <= after ? 'stale' : 'no_move'));
+
   async function ingest({ buf, startedAt }) {
     if (!Buffer.isBuffer(buf) || !buf.length) return;
     const start = Number.isFinite(startedAt) ? startedAt : Date.now();
@@ -117,14 +124,14 @@ export function createSpinSettle({
           return { ok: true, reason: 'still', stillMs: quiet, movedAt, waitedMs: now() - t0, covered: coveredUntil - after };
         }
         if (now() - t0 >= timeoutMs) {
-          return { ok: false, reason: movedAt ? 'timeout' : 'no_move', stillMs: quiet, movedAt, waitedMs: now() - t0, covered: coveredUntil - after };
+          return { ok: false, reason: timedOutReason(movedAt, after), stillMs: quiet, movedAt, waitedMs: now() - t0, covered: coveredUntil - after };
         }
         await sleep(pollMs);
       }
       const movedAt = lastMotionAt > after ? lastMotionAt : 0;
       return {
         ok: false,
-        reason: movedAt ? 'timeout' : 'no_move',
+        reason: timedOutReason(movedAt, after),
         stillMs: Math.max(0, coveredUntil - Math.max(lastMotionAt, after)),
         movedAt,
         waitedMs: now() - t0,

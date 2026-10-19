@@ -1,21 +1,24 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
-import { completedSegments, createLiveVideo, recordSize } from '../../agent/liveVideo.mjs';
+import { completedSegments, createLiveVideo, recordSize, segTime } from '../../agent/liveVideo.mjs';
 
 const SEG_A = 's1700000000000.mp4';
 const SEG_B = 's1700000000002.mp4';
 
-/** 假裝置:mkdir 回 started、ls 回兩段(最新那段會被當成還在寫而略過)。 */
-function fakeClient(opts: { lsFails?: boolean } = {}) {
+/** 假裝置:mkdir 回 started、ls 回指定的段落清單(最新那段會被當成還在寫而略過)。 */
+function fakeClient(opts: { lsFails?: boolean; segments?: string[] } = {}) {
   const shell = vi.fn(async (cmd: string) => {
     if (/mkdir/.test(cmd)) return 'started';
     if (/^ls /.test(cmd)) {
       if (opts.lsFails) throw new Error('socket hang up');
-      return `${SEG_A}\n${SEG_B}\n`;
+      return `${(opts.segments ?? [SEG_A, SEG_B]).join('\n')}\n`;
     }
     return 'stopped';
   });
   return { shell, pullFile: vi.fn(async () => Buffer.from('mp4').toString('base64')) };
 }
+
+/** 從 t0 往後每 2 秒一段,共 n 段(檔名就是裝置毫秒時間)。 */
+const segsFrom = (t0: number, n: number) => Array.from({ length: n }, (_, i) => `s${t0 + i * 2000}.mp4`);
 
 describe('recordSize / completedSegments', () => {
   test('依螢幕比例算出寬 540、高取偶數的尺寸', () => {
@@ -27,6 +30,12 @@ describe('recordSize / completedSegments', () => {
     expect(completedSegments(`${SEG_A} ${SEG_B}`)).toEqual([SEG_A]);
     expect(completedSegments('')).toEqual([]);
     expect(completedSegments('不是分段的檔名.txt')).toEqual([]);
+  });
+
+  test('segTime 讀檔名裡的裝置時間;認不出來回 0(當成很舊,不會誤判成很新)', () => {
+    expect(segTime(SEG_A)).toBe(1700000000000);
+    expect(segTime('garbage.mp4')).toBe(0);
+    expect(segTime(undefined)).toBe(0);
   });
 });
 
@@ -106,6 +115,56 @@ describe('createLiveVideo', () => {
     const callsAfter = client.shell.mock.calls.length;
     await vi.advanceTimersByTimeAsync(5000);
     expect(client.shell.mock.calls.length).toBe(callsAfter);
+  });
+
+  // 證據模式原則上不丟段,但積壓到落後太久時,停輪判定拿到的畫面已經沒有意義。
+  // job-mvdyyr1j 實測:落後從 5s 長到 87s,每局都被判「盤面沒有轉動」。
+  test('證據模式:沒落後就一段都不丟', async () => {
+    const now = Date.now();
+    const client = fakeClient({ segments: segsFrom(now - 6000, 4) }); // 最新那段還在寫 → 送 3 段
+    const logs: string[] = [];
+    const lv = createLiveVideo({
+      client,
+      put: vi.fn(async () => undefined),
+      prefix: 'jobs/j1',
+      size: '540x960',
+      preserveBacklog: true,
+      maxBacklog: 1,
+      staleMs: 20_000,
+      log: (m: string) => logs.push(m),
+    });
+    await lv.start();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(lv.uploaded).toBe(3);
+    expect(lv.gapStats).toEqual({ dropped: 0, gaps: 0 });
+    expect(logs.some((m) => /丟掉最舊/.test(m))).toBe(false);
+  });
+
+  test('證據模式:落後超過上限就丟舊段追上,並把缺口記下來', async () => {
+    const now = Date.now();
+    // 最新「已錄完」的那段是 40 秒前的 → 落後遠超過 staleMs
+    const client = fakeClient({ segments: segsFrom(now - 60_000, 11) });
+    const logs: string[] = [];
+    const lv = createLiveVideo({
+      client,
+      put: vi.fn(async () => undefined),
+      prefix: 'jobs/j1',
+      size: '540x960',
+      preserveBacklog: true,
+      maxBacklog: 2,
+      staleMs: 20_000,
+      log: (m: string) => logs.push(m),
+    });
+    await lv.start();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    // 10 段已錄完,只留最新 2 段
+    expect(lv.uploaded).toBe(2);
+    expect(lv.gapStats).toEqual({ dropped: 8, gaps: 1 });
+    expect(logs.some((m) => /丟掉最舊的 8 段/.test(m))).toBe(true);
+    // 丟掉的段落也要從裝置刪乾淨
+    expect(client.shell.mock.calls.some(([c]) => /rm -f .*s\d{13}\.mp4/.test(c))).toBe(true);
   });
 
   test('啟動指令沒回 started 就當啟動失敗', async () => {

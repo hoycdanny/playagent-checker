@@ -86,6 +86,24 @@ describe('createSpinSettle', () => {
     expect(r).toMatchObject({ ok: false, reason: 'no_move' });
   });
 
+  // job-mvdyyr1j 實測:積壓讓解碼進度落後到 87 秒,每一局都被說成「盤面沒有轉動」,
+  // SPIN 按鈕還因此被冷卻。我們根本沒看過那段畫面,就不能對它下結論。
+  test('解碼進度還沒走到送出動作那一刻 → stale(量測落後,不是盤面沒轉)', async () => {
+    const { s, push } = settleFor();
+    await push(0, [moving(10), moving(200), moving(10)]); // 都是「按下 SPIN 之前」的畫面
+    let now = 0;
+    const r = await s.waitSettled({ after: 10_000, stillMs: 500, timeoutMs: 300, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
+    expect(r).toMatchObject({ ok: false, reason: 'stale' });
+  });
+
+  test('有解到按下動作之後的畫面、但一直沒動 → no_move(真的沒按到)', async () => {
+    const { s, push } = settleFor();
+    await push(10_000, Array.from({ length: 10 }, () => still));
+    let now = 0;
+    const r = await s.waitSettled({ after: 9_000, stillMs: 5_000, timeoutMs: 300, pollMs: 100, sleep: async () => { now += 100; }, now: () => now });
+    expect(r).toMatchObject({ ok: false, reason: 'no_move' });
+  });
+
   test('只盯指定區域:區域外的動畫不算畫面在動', async () => {
     // 只盯下半(數字列);上半的轉輪/吉祥物動畫不該影響判定。
     const { s, push } = settleFor({ rois: [BOTTOM] });

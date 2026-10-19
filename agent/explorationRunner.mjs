@@ -2566,10 +2566,12 @@ async function main() {
       if (spinSettle?.healthy()) {
         const r = await spinSettle.waitSettled({ after: t1, stillMs: SPIN_STILL_MS, timeoutMs: SPIN_SETTLE_MAX_MS, sleep })
           .finally(() => spinSettle.disarm());
-        // 一幀都沒解到就說「沒有轉動」是量測失敗,不是遊戲沒反應 —— 不能拿它去扣 SPIN 按鈕的
-        // 可信度(實測這樣會把 24/11 的按鈕扣成 24/17 而被停用,之後整段都回去走 VLM)。
-        if (r.reason === 'no_move' && spinSettle.stats.frames === 0) {
-          console.log(`[SPIN 迴圈] 即時影片沒有任何影格(等了 ${Math.round(r.waitedMs / 100) / 10}s),改用截圖輪詢判定停輪`);
+        // 量測失敗不等於遊戲沒反應,不能拿它去扣 SPIN 按鈕的可信度(實測這樣會把 24/11 的
+        // 按鈕扣成 24/17 而被停用,之後整段都回去走 VLM)。兩種量測失敗:
+        //   frames === 0 → 影片這條路根本沒資料(例如串流掛了)。
+        //   reason 'stale' → 解碼進度還沒走到按下 SPIN 那一刻(積壓落後),等於沒看過。
+        if (r.reason === 'stale' || (r.reason === 'no_move' && spinSettle.stats.frames === 0)) {
+          console.log(`[SPIN 迴圈] 影片${r.reason === 'stale' ? `落後 ${Math.round((Date.now() - t1 - r.covered) / 100) / 10}s,還沒解到按下 SPIN 的那一刻` : '沒有任何影格'}(等了 ${Math.round(r.waitedMs / 100) / 10}s),改用截圖輪詢判定停輪`);
         } else {
           settledByVideo = true;
           why = r.reason;
