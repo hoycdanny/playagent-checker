@@ -41,17 +41,25 @@ function fakePorts(over: Partial<SystemLogsPorts> = {}): SystemLogsPorts & { sta
 }
 
 describe('classify / listLogSources', () => {
-  test('每個服務對應到友善名稱與種類', () => {
-    expect(classify(G.api)).toEqual({ kind: 'lambda', label: '控制面 API' });
-    expect(classify(G.engine).label).toBe('引擎 Engine');
-    expect(classify(G.dispatcher).label).toBe('分派器 Dispatcher');
-    expect(classify(G.wsAuth).label).toBe('WebSocket 授權');
-    expect(classify(G.runnerExp)).toEqual({ kind: 'ecs', label: 'Runner(真機 / Device Farm)' });
+  // 顯示文字由前端的語系表決定,後端只負責「這是哪一種服務」。所以這裡斷言的是穩定 id;
+  // label 只是給舊前端與下載檔用的繁中預設值。
+  test('每個服務對應到穩定 id 與種類', () => {
+    expect(classify(G.api)).toEqual({ kind: 'lambda', id: 'api', label: '控制面 API' });
+    expect(classify(G.engine).id).toBe('engine');
+    expect(classify(G.dispatcher).id).toBe('dispatcher');
+    expect(classify(G.wsAuth).id).toBe('ws-auth');
+    expect(classify(G.runnerExp)).toMatchObject({ kind: 'ecs', id: 'runner-exploration' });
     expect(classify(G.runnerWeb).kind).toBe('ecs');
-    expect(classify(G.update)).toEqual({ kind: 'codebuild', label: '系統更新(CodeBuild)' });
+    expect(classify(G.update)).toMatchObject({ kind: 'codebuild', id: 'update' });
     expect(classify(G.imgBuild).kind).toBe('codebuild');
-    expect(classify('/aws/lambda/Other-Thing').label).toBe('其他 Lambda');
-    expect(classify('weird-group').kind).toBe('other');
+    expect(classify('/aws/lambda/Other-Thing').id).toBe('lambda-other');
+    expect(classify('weird-group')).toMatchObject({ kind: 'other', id: 'other' });
+  });
+
+  test('每個 id 都有繁中預設名稱(下載檔與舊前端要靠它)', () => {
+    for (const g of Object.values(G)) {
+      expect(classify(g).label).not.toBe('');
+    }
   });
 
   test('主要服務排在輔助 Lambda 之前,且去重', async () => {
@@ -63,7 +71,9 @@ describe('classify / listLogSources', () => {
     const sources = await listLogSources(ports);
     expect(sources.map((s) => s.logGroupName)).toEqual([G.api, G.engine, G.logRetention]);
     expect(sources).toHaveLength(3); // 去重
-    expect(sources[0]!.label).toBe('控制面 API');
+    expect(sources[0]!.sourceId).toBe('api');
+    // 排序要看 id 而不是顯示字串,否則換語系就會換順序。
+    expect(sources.map((s) => s.sourceId)).toEqual(['api', 'engine', 'log-retention']);
   });
 });
 
@@ -168,7 +178,7 @@ describe('detectLevel / parseInsightsTs / rowFromFields / getLogQuery', () => {
       { field: '@ptr', value: 'ignored' },
     ]);
     expect(row.logGroup).toBe(G.engine);
-    expect(row.source).toBe('引擎 Engine');
+    expect(row.sourceId).toBe('engine');
     expect(row.level).toBe('ERROR');
     expect(row.logStream).toBe('exploration/abc');
     expect(row.ts).toBe(Date.parse('2026-10-13T14:00:00.000Z'));
@@ -192,7 +202,7 @@ describe('detectLevel / parseInsightsTs / rowFromFields / getLogQuery', () => {
     expect(r.done).toBe(true);
     expect(r.status).toBe('Complete');
     expect(r.rows).toHaveLength(1);
-    expect(r.rows[0]!.source).toBe('控制面 API');
+    expect(r.rows[0]!.sourceId).toBe('api');
     expect(r.recordsMatched).toBe(2);
   });
 

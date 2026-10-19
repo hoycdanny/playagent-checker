@@ -9,6 +9,7 @@ import TaskIcon, { backendIcon } from '../components/TaskIcon.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
 import { CaseVersionBadge } from '../components/cases/CaseVersions.tsx';
 import { outcomeClass, outcomeKey, outcomeOf, outcomeTip, type VerdictInfo } from '../components/outcome.ts';
+import { reportLang } from '../components/report/reportText.ts';
 import './ListPage.css';
 import './TasksPage.css';
 import './ReportsPage.css';
@@ -416,7 +417,9 @@ export default function ReportsPage({ appId: lockedApp }: { appId?: string } = {
                       </td>
                       <td className="tasks__col-icon">
                         <span className={`tasks__state-link ${outcomeClass(outcomeOf(x))}`}>
-                          <TaskIcon kind="state" value={outcomeOf(x)} label={outcomeTip(x, (k) => t(k), locale === 'en' ? 'en' : 'zh')} />
+                          {/* 結論理由是後端的 { zh, en } 雙語資料。原本寫 locale === 'en' ? 'en' : 'zh',
+                              所以日文 / 韓文 / 簡中介面全都拿到繁中理由;reportLang 只有 zh* 才給 zh。 */}
+                          <TaskIcon kind="state" value={outcomeOf(x)} label={outcomeTip(x, (k) => t(k), reportLang(locale))} />
                         </span>
                       </td>
                       <td className="tasks__created" title={relativeTime(x.createdAt, locale)}>

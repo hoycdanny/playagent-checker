@@ -19,7 +19,9 @@ export interface LogSource {
   id: string;
   logGroupName: string;
   kind: LogKind;
-  /** 給人看的名稱(繁中,前端會依語系自行處理顯示,但後端先給一個合理預設)。 */
+  /** 翻譯用的穩定 key:前端依自己的語系表決定顯示文字。 */
+  sourceId: LogSourceId;
+  /** 繁中預設名稱(舊前端與下載的 .txt 用;前端認得 sourceId 時以 sourceId 為準)。 */
   label: string;
 }
 
@@ -51,7 +53,9 @@ export interface NormalizedQuery {
 export interface LogRow {
   /** epoch 毫秒。 */
   ts: number;
-  /** 來源的 friendly label。 */
+  /** 翻譯用的穩定 key(「來源」欄顯示哪一國語言由前端決定)。 */
+  sourceId: LogSourceId;
+  /** 來源的繁中預設名稱(舊前端相容用)。 */
   source: string;
   logGroup: string;
   logStream?: string;
@@ -102,47 +106,93 @@ const MAX_LIMIT = 1000;
 const MAX_PATTERN = 500;
 
 /**
- * 依 log group 名稱分類並給一個友善名稱。
+ * 來源種類的穩定識別碼。這是給前端翻譯用的 key —— 前端(LogsPanel)有自己的五語系表,
+ * 後端只負責說「這是哪一種服務」,不負責決定顯示哪一國語言的字。
+ *
+ * 原本後端直接回繁中 label,前端照印,所以日文 / 英文介面的來源晶片與「來源」欄
+ * 全都是中文(使用者實際回報的問題)。
+ */
+export type LogSourceId =
+  | 'api' | 'engine' | 'dispatcher' | 'ws-auth' | 'ws-connect' | 'ws-push'
+  | 'runner-exploration' | 'runner-web'
+  | 'update' | 'image-runner' | 'image-web' | 'installer'
+  | 'log-retention' | 's3-events' | 'custom-resource' | 'lambda-other' | 'other';
+
+/**
+ * 後端的繁中預設名稱。保留它的理由:
+ *  1. 舊前端(部署時間差)還在讀 label,不能一次拔掉;
+ *  2. 下載的 .txt 與伺服器端日誌仍需要一個可讀的名字。
+ * 前端認得 sourceId 時一律以 sourceId 為準。
+ */
+const SOURCE_LABEL_ZH: Record<LogSourceId, string> = {
+  api: '控制面 API',
+  engine: '引擎 Engine',
+  dispatcher: '分派器 Dispatcher',
+  'ws-auth': 'WebSocket 授權',
+  'ws-connect': 'WebSocket 連線',
+  'ws-push': 'WebSocket 推送',
+  'runner-exploration': 'Runner(真機 / Device Farm)',
+  'runner-web': 'Runner(Web 瀏覽器)',
+  update: '系統更新(CodeBuild)',
+  'image-runner': '映像建置(真機 runner)',
+  'image-web': '映像建置(web runner)',
+  installer: '安裝器(CodeBuild)',
+  'log-retention': '其他(log 保留設定)',
+  's3-events': '其他(S3 事件)',
+  'custom-resource': '其他(自訂資源)',
+  'lambda-other': '其他 Lambda',
+  other: '其他',
+};
+
+/** log group 名稱 → 種類 + 穩定 id。 */
+function classifyId(logGroupName: string): { kind: LogKind; id: LogSourceId } {
+  const n = logGroupName;
+  // 固定命名(我們自己指定的)。
+  if (/\/playagent\/[^/]+\/runner-exploration$/.test(n)) return { kind: 'ecs', id: 'runner-exploration' };
+  if (/\/playagent\/[^/]+\/runner-web$/.test(n)) return { kind: 'ecs', id: 'runner-web' };
+  if (/\/playagent\/[^/]+\/update$/.test(n)) return { kind: 'codebuild', id: 'update' };
+  if (n === '/aws/codebuild/playagent-runner-build') return { kind: 'codebuild', id: 'image-runner' };
+  if (n === '/aws/codebuild/playagent-web-runner-build') return { kind: 'codebuild', id: 'image-web' };
+  if (n.startsWith('/aws/codebuild/playagent-installer')) return { kind: 'codebuild', id: 'installer' };
+  // Lambda:看 logical id 片段判斷角色。
+  if (n.startsWith('/aws/lambda/')) {
+    if (/-ApiFn/i.test(n)) return { kind: 'lambda', id: 'api' };
+    if (/-EngineFn/i.test(n)) return { kind: 'lambda', id: 'engine' };
+    if (/-DispatcherFn/i.test(n)) return { kind: 'lambda', id: 'dispatcher' };
+    if (/-WsAuthorizer/i.test(n)) return { kind: 'lambda', id: 'ws-auth' };
+    if (/-WsConnect/i.test(n)) return { kind: 'lambda', id: 'ws-connect' };
+    if (/-WsPush|-WsBroadcast/i.test(n)) return { kind: 'lambda', id: 'ws-push' };
+    // CDK 的輔助 Lambda(log 保留、S3 通知、自訂資源)也屬於系統的一部分,照列。
+    if (/LogRetention/i.test(n)) return { kind: 'lambda', id: 'log-retention' };
+    if (/BucketNotifications/i.test(n)) return { kind: 'lambda', id: 's3-events' };
+    if (/CustomResource|AwsCustom|Provider/i.test(n)) return { kind: 'lambda', id: 'custom-resource' };
+    return { kind: 'lambda', id: 'lambda-other' };
+  }
+  return { kind: 'other', id: 'other' };
+}
+
+/**
+ * 依 log group 名稱分類並給穩定 id + 繁中預設名稱。
  * Lambda 群組名形如 /aws/lambda/<stage>-<Stack>-<LogicalId><hash>;
  * ECS runner / 更新 CodeBuild 用固定的 /playagent/<stage>/... 名稱。
  */
-export function classify(logGroupName: string): { kind: LogKind; label: string } {
-  const n = logGroupName;
-  // 固定命名(我們自己指定的)。
-  if (/\/playagent\/[^/]+\/runner-exploration$/.test(n)) return { kind: 'ecs', label: 'Runner(真機 / Device Farm)' };
-  if (/\/playagent\/[^/]+\/runner-web$/.test(n)) return { kind: 'ecs', label: 'Runner(Web 瀏覽器)' };
-  if (/\/playagent\/[^/]+\/update$/.test(n)) return { kind: 'codebuild', label: '系統更新(CodeBuild)' };
-  if (n === '/aws/codebuild/playagent-runner-build') return { kind: 'codebuild', label: '映像建置(真機 runner)' };
-  if (n === '/aws/codebuild/playagent-web-runner-build') return { kind: 'codebuild', label: '映像建置(web runner)' };
-  if (n.startsWith('/aws/codebuild/playagent-installer')) return { kind: 'codebuild', label: '安裝器(CodeBuild)' };
-  // Lambda:看 logical id 片段判斷角色。
-  if (n.startsWith('/aws/lambda/')) {
-    if (/-ApiFn/i.test(n)) return { kind: 'lambda', label: '控制面 API' };
-    if (/-EngineFn/i.test(n)) return { kind: 'lambda', label: '引擎 Engine' };
-    if (/-DispatcherFn/i.test(n)) return { kind: 'lambda', label: '分派器 Dispatcher' };
-    if (/-WsAuthorizer/i.test(n)) return { kind: 'lambda', label: 'WebSocket 授權' };
-    if (/-WsConnect/i.test(n)) return { kind: 'lambda', label: 'WebSocket 連線' };
-    if (/-WsPush|-WsBroadcast/i.test(n)) return { kind: 'lambda', label: 'WebSocket 推送' };
-    // CDK 的輔助 Lambda(log 保留、S3 通知、自訂資源)也屬於系統的一部分,照列。
-    if (/LogRetention/i.test(n)) return { kind: 'lambda', label: '其他(log 保留設定)' };
-    if (/BucketNotifications/i.test(n)) return { kind: 'lambda', label: '其他(S3 事件)' };
-    if (/CustomResource|AwsCustom|Provider/i.test(n)) return { kind: 'lambda', label: '其他(自訂資源)' };
-    return { kind: 'lambda', label: '其他 Lambda' };
-  }
-  return { kind: 'other', label: '其他' };
+export function classify(logGroupName: string): { kind: LogKind; id: LogSourceId; label: string } {
+  const c = classifyId(logGroupName);
+  return { ...c, label: SOURCE_LABEL_ZH[c.id] };
 }
 
 /** 來源排序權重:主要服務在前,輔助/其他在後。 */
 const KIND_ORDER: Record<LogKind, number> = { lambda: 0, ecs: 1, codebuild: 2, other: 3 };
-const LABEL_ORDER = [
-  '控制面 API', '引擎 Engine', '分派器 Dispatcher',
-  'WebSocket 授權', 'WebSocket 連線', 'WebSocket 推送',
-  'Runner(真機 / Device Farm)', 'Runner(Web 瀏覽器)',
-  '系統更新(CodeBuild)', '映像建置(真機 runner)', '映像建置(web runner)', '安裝器(CodeBuild)',
+/** 排序依穩定 id(不是顯示字串)—— 否則換語系就會換順序。 */
+const ID_ORDER: LogSourceId[] = [
+  'api', 'engine', 'dispatcher',
+  'ws-auth', 'ws-connect', 'ws-push',
+  'runner-exploration', 'runner-web',
+  'update', 'image-runner', 'image-web', 'installer',
 ];
-function labelRank(label: string): number {
-  const i = LABEL_ORDER.indexOf(label);
-  return i === -1 ? LABEL_ORDER.length : i;
+function idRank(id: LogSourceId): number {
+  const i = ID_ORDER.indexOf(id);
+  return i === -1 ? ID_ORDER.length : i;
 }
 
 /** 列出所有可查詢來源(主要服務在前,「其他」殿後)。 */
@@ -154,11 +204,11 @@ export async function listLogSources(ports: SystemLogsPorts): Promise<LogSource[
     if (!g.logGroupName || seen.has(g.logGroupName)) continue;
     seen.add(g.logGroupName);
     const c = classify(g.logGroupName);
-    sources.push({ id: g.logGroupName, logGroupName: g.logGroupName, kind: c.kind, label: c.label });
+    sources.push({ id: g.logGroupName, logGroupName: g.logGroupName, kind: c.kind, sourceId: c.id, label: c.label });
   }
   sources.sort((a, b) =>
     KIND_ORDER[a.kind] - KIND_ORDER[b.kind] ||
-    labelRank(a.label) - labelRank(b.label) ||
+    idRank(a.sourceId) - idRank(b.sourceId) ||
     a.logGroupName.localeCompare(b.logGroupName));
   return sources;
 }
@@ -252,9 +302,11 @@ export function rowFromFields(fields: { field: string; value: string }[]): LogRo
   const logRaw = get('@log');
   const logGroup = logRaw.includes(':') ? logRaw.slice(logRaw.indexOf(':') + 1) : logRaw;
   const message = get('@message');
+  const c = classify(logGroup);
   const row: LogRow = {
     ts: parseInsightsTs(get('@timestamp')),
-    source: classify(logGroup).label,
+    sourceId: c.id,
+    source: c.label,
     logGroup,
     message,
   };

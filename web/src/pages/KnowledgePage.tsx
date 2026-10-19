@@ -16,6 +16,7 @@ import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/Genr
 import IconSelect, { type IconSelectOption } from '../components/IconSelect.tsx';
 import { KbSpecEditor } from '../components/kb/KbSpecEditor.tsx';
 import { kbLang, kt, tr } from '../components/kb/kbText.ts';
+import { builtinKbDescription, genreFromBuiltinKbId } from '../components/kb/builtinKbText.ts';
 import type { KbKind, KbListResponse, KbUsage, KnowledgeBase, ReportSpecInput } from '../components/kb/kbTypes.ts';
 import './ListPage.css';
 import './KnowledgePage.css';
@@ -105,11 +106,29 @@ export default function KnowledgePage() {
     if (form) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [form?.id, form?.mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * 內建樣板的名稱 / 說明在後端是單一繁中字串(同一份定義也是餵給 agent 的知識來源),
+   * 所以日文 / 英文介面原本都印繁中。顯示改用前端的多語系表:
+   * 名稱沿用既有的 genre i18n key,說明用 builtinKbDescription;認不出來就退回後端的字。
+   * 使用者自己建的知識庫是自己打的名字,當然照原樣顯示。
+   */
+  const kbName = (kb: KnowledgeBase) => (kb.builtin && kb.genre ? t(genreLabelKey(kb.genre)) : kb.name);
+  const kbDesc = (kb: KnowledgeBase) =>
+    (kb.builtin ? builtinKbDescription(kb.genre, locale) : undefined) ?? kb.description;
+  /** 「基於某個樣板」的來源名稱:來源是內建樣板時同樣翻譯。 */
+  const clonedFromName = (c: { id: string; name: string }) => {
+    const g = genreFromBuiltinKbId(c.id);
+    return g && (GENRES as readonly string[]).includes(g) ? t(genreLabelKey(g as Genre)) : c.name;
+  };
+
   const needle = q.trim().toLowerCase();
+  // 搜尋同時比對原始名稱與翻譯後的名稱 / 說明(使用者搜的是畫面上看到的字)。
   const match = (k: KnowledgeBase) =>
     !needle ||
-    [k.name, k.description, k.genre ? t(genreLabelKey(k.genre)) : '', k.clonedFrom?.name].filter(Boolean).join(' ').toLowerCase().includes(needle);
-  const shownTemplates = templates.filter(match).sort((a, b) => a.name.localeCompare(b.name));
+    [k.name, kbName(k), k.description, kbDesc(k), k.genre ? t(genreLabelKey(k.genre)) : '', k.clonedFrom?.name]
+      .filter(Boolean).join(' ').toLowerCase().includes(needle);
+  // 依「顯示出來的名稱」排序,否則換語系後卡片順序還是照繁中的筆畫排。
+  const shownTemplates = templates.filter(match).sort((a, b) => kbName(a).localeCompare(kbName(b), locale));
   const shownMine = mine.filter((k) => (showArchived || !k.archived) && match(k));
 
   const templateFor = (genre: string | undefined) =>
@@ -133,7 +152,8 @@ export default function KnowledgePage() {
   }
 
   async function onClone(kb: KnowledgeBase) {
-    const suggested = `${kb.name}${kt('cloneSuffix', lang)}`;
+    // 複製內建樣板時,建議名稱用翻譯後的樣板名(使用者看到的就是那個名字)。
+    const suggested = `${kbName(kb)}${kt('cloneSuffix', lang)}`;
     const name = window.prompt(kt('cloneName', lang), suggested);
     if (name === null) return;
     setBusyId(kb.id);
@@ -242,14 +262,14 @@ export default function KnowledgePage() {
           <div className="kb__form-head">
             <h2 className="kb__form-title">
               {readOnly ? kt('editorView', lang) : form.mode === 'edit' ? kt('editorEdit', lang) : kt('editorCreate', lang)}
-              {editingKb && <span className="kb__form-sub">{editingKb.name}</span>}
+              {editingKb && <span className="kb__form-sub">{kbName(editingKb)}</span>}
             </h2>
             <div className="kb__badges">
               {editingKb?.builtin && <span className="kb__builtin-badge">{kt('builtin', lang)} · {kt('readOnly', lang)}</span>}
               {editingKb?.version && <span className="kb__kind-badge">v{editingKb.version}</span>}
               {typeof editingKb?.revision === 'number' && <span className="kb__kind-badge">{kt('revision', lang)} r{editingKb.revision}</span>}
               {editingKb?.clonedFrom && (
-                <span className="kb__kind-badge">{kt('basedOn', lang)} {editingKb.clonedFrom.name}{editingKb.clonedFrom.version ? ` v${editingKb.clonedFrom.version}` : ''}</span>
+                <span className="kb__kind-badge">{kt('basedOn', lang)} {clonedFromName(editingKb.clonedFrom)}{editingKb.clonedFrom.version ? ` v${editingKb.clonedFrom.version}` : ''}</span>
               )}
             </div>
           </div>
@@ -398,7 +418,7 @@ export default function KnowledgePage() {
                   <div className="kb__card-head">
                     <span className="kb__card-title">
                       {kb.genre && <GenreIcon genre={kb.genre} size={20} />}
-                      <span className="kb__card-name" title={kb.name}>{kb.name}</span>
+                      <span className="kb__card-name" title={kbName(kb)}>{kbName(kb)}</span>
                     </span>
                     <span className="kb__badges">
                       <span className="kb__builtin-badge">{kt('builtin', lang)}</span>
@@ -408,7 +428,7 @@ export default function KnowledgePage() {
                       )}
                     </span>
                   </div>
-                  {kb.description && <p className="kb__card-desc">{kb.description}</p>}
+                  {kbDesc(kb) && <p className="kb__card-desc">{kbDesc(kb)}</p>}
                   {p && (
                     <ul className="kb__stats">
                       <li><b>{p.modules.length}</b> {kt('modules', lang)}</li>
@@ -454,7 +474,7 @@ export default function KnowledgePage() {
                   </span>
                 </div>
                 {kb.clonedFrom && (
-                  <p className="kb__based">{kt('basedOn', lang)} {kb.clonedFrom.name}{kb.clonedFrom.version ? ` v${kb.clonedFrom.version}` : ''}{typeof kb.clonedFrom.revision === 'number' ? ` r${kb.clonedFrom.revision}` : ''}</p>
+                  <p className="kb__based">{kt('basedOn', lang)} {clonedFromName(kb.clonedFrom)}{kb.clonedFrom.version ? ` v${kb.clonedFrom.version}` : ''}{typeof kb.clonedFrom.revision === 'number' ? ` r${kb.clonedFrom.revision}` : ''}</p>
                 )}
                 {kb.description && <p className="kb__card-desc">{kb.description}</p>}
                 <SpecSummary spec={kb.reportSpec} lang={lang} />

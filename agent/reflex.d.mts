@@ -3,13 +3,27 @@ import type { GraphOp, GraphStructure } from './memoryGraph.mjs';
 import type { EditsLike } from './operatorMemory.mjs';
 
 export declare const REFLEX_MIN_HITS: number;
+export declare const REFLEX_MIN_HITS_POPUP: number;
+export declare const REFLEX_MIN_HITS_SPIN: number;
 export declare const REFLEX_MAX_CHAIN: number;
+export declare const SPIN_HIT_RATIO: number;
+export declare const SPIN_COOLDOWN_STEPS: number;
 export interface ReflexState {
   demoted: Set<string>;
+  /** SPIN 操作的冷卻:key → 可以重新啟用的步數。 */
+  spinCooldown: Map<string, number>;
   recent: string[];
   chain: number;
   crossVersionFailed: boolean;
 }
+/** 這個操作是不是「轉一局付費 SPIN」(AutoSpin / 免費遊戲不算)。 */
+export declare function isPaidSpinTarget(kind: string | undefined, target: string | undefined): boolean;
+/** 這個 SPIN 操作的成功紀錄夠不夠好(成功率門檻,不要求零失敗)。 */
+export declare function spinOpReliable(e?: { hitCount?: number; missCount?: number }): boolean;
+/** 暫時擋下這個 SPIN 操作(不是永久停用);回可以重新啟用的步數。 */
+export declare function coolSpinOp(state: ReflexState | null | undefined, key: string, step: number, steps?: number): number;
+/** 這個 SPIN 操作還在冷卻中嗎。 */
+export declare function spinCooledDown(state: ReflexState | null | undefined, key: string, step: number): boolean;
 export declare function createReflexState(): ReflexState;
 export declare function opFromCmd(cmd: Record<string, unknown> | null | undefined, cw: number, ch: number, o?: { version?: string; at?: string }): GraphOp | null;
 export declare function cmdFromOp(op: unknown, cw: number, ch: number): Record<string, unknown> | null;
@@ -51,6 +65,8 @@ export declare function chooseSpinOp(c: {
   pageId: string;
   version?: string;
   state: ReflexState;
+  /** 目前步數(用來判斷冷卻是否已過期)。 */
+  step?: number;
 }): { key: string; op: GraphOp; target: string; trust: string } | null;
 export declare function rtpSummary(
   rounds: Array<{ bet?: number; win?: number }>,
