@@ -87,6 +87,38 @@ describe('casino 類型樣板', () => {
   });
 });
 
+describe('slot 類型樣板:機台覆蓋與 RTP 樣本量', () => {
+  const p = getGenreProfile('slot')!;
+
+  // 2026-10 實測:同一款遊戲各跑 50 局,RTP 分別算出 20.68% / 662.65% / 579.85%。
+  // 那不是 bug 而是 50 局的統計極限,報告必須講出這件事而不是把 662% 當結論。
+  test('局數不足時提醒 RTP 不會收斂,而且不參與判定', () => {
+    const band = (p.referenceBands ?? []).find((b) => b.metric === 'spin_count')!;
+    expect(band.min).toBe(1000);
+    expect(band.note.zh).toMatch(/收斂|信賴區間/);
+    expect(band.note.zh).toContain('不是驗收標準');
+    // 判定仍然只看 rtp_significant_deviation_pp(它自己有 rtpMinSamples 把關)
+    expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('spin_count');
+  });
+
+  test('只玩一台機台時說明取樣範圍(大廳型 App 每台數學模型不同)', () => {
+    const band = (p.referenceBands ?? []).find((b) => b.metric === 'machines_played')!;
+    expect(band.max).toBe(1);
+    expect(band.note.zh).toContain('不是驗收標準');
+    expect(p.observe.map((o) => o.key)).toContain('machine_kind');
+    expect(p.observe.find((o) => o.key === 'machine_kind')!.type).toBe('string');
+    expect(p.metrics.map((m) => m.id)).toContain('machines_played');
+  });
+
+  test('機台覆蓋數不參與判定', () => {
+    expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('machines_played');
+  });
+
+  test('版本跟著內容一起升(內建知識庫的版本是從這裡來的)', () => {
+    expect(p.version).toBe('1.3');
+  });
+});
+
 describe('mergeProfiles', () => {
   test('參考區間會跟著合併(通用 + 類型)', () => {
     const m = mergeProfiles(['casino']);
