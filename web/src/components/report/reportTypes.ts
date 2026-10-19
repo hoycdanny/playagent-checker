@@ -95,6 +95,8 @@ export interface ReportInsights {
   lang: 'zh' | 'en';
   summary: L10n;
   rootCause: L10n;
+  /** 需要注意的點:逐條針對算出來的數字(舊報告沒有這個欄位)。 */
+  watchouts?: L10n[];
   requirements: Array<{ id: string; text: string; result: RequirementResult; evidenceSteps: number[]; reason: L10n; suggestion?: L10n }>;
   recommendations: Array<{ priority: 'P0' | 'P1' | 'P2'; owner: 'dev' | 'qa' | 'env'; text: L10n; relatedFindings: string[] }>;
   notes: Record<string, L10n>;

@@ -33,6 +33,14 @@ const PERF_CHARTS = new Set(['fps_line', 'frametime_bar', 'cpu_line', 'gpu_line'
 const COVERAGE_CHARTS = new Set(['state_bar']);
 const VISUAL_CATS = new Set(['graphics', 'animation', 'ui']);
 
+/**
+ * 哪些執行狀態算「跑完了」—— 只有這些才自動產生 AI 分析。
+ * 執行中就產生的話,數字還在變,分析一打開就過時。
+ */
+const INSIGHTS_AUTO_STATES = new Set([
+  'pass', 'fail', 'error', 'cancelled', 'budget_exceeded', 'dead',
+]);
+
 type SectionId =
   | 'cover' | 'acceptance' | 'boardCapture' | 'executive' | 'insights' | 'verdicts' | 'environment' | 'scope' | 'dashboard' | 'coverage' | 'results' | 'modules'
   | 'genre' | 'mechanics' | 'progression' | 'economy' | 'performance' | 'stability' | 'visual' | 'ux'
@@ -346,6 +354,8 @@ export function StructuredReportView({
             lang={lang}
             {...(insights ? { insights } : {})}
             onChange={setInsights}
+            // 執行中的任務不自動產生(數字還在變,分析馬上就過時);終局才自動跑一次。
+            autoGenerate={INSIGHTS_AUTO_STATES.has(r.terminal.state)}
             evidence={r.evidence}
             onOpenImage={onOpenImage}
             onGoFinding={goFinding}
