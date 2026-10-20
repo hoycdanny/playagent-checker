@@ -12,6 +12,7 @@ import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
 import { gestureBody, type PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { getTakeover, sendTakeoverGesture, setTakeover as setTakeoverApi } from '../api/takeover.ts';
+import { TakeoverScriptSave } from '../components/tasks/TakeoverScriptSave.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
 import { RecordingPlayer, type PlayControl, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
 import { DeviceLogsPanel, useDeviceLog, type LogChunk } from '../components/tasks/DeviceLogsPanel.tsx';
@@ -671,6 +672,8 @@ export default function TaskDetailPage() {
                   {...(isWeb ? { consoleLog } : {})}
                   cursorStep={cursorStep}
                 />
+                {/* 【學習 B】接管錄到的手動操作 → 存成可重跑的測試案例。 */}
+                <TakeoverScriptSave jobId={jobId} {...(appId ? { appId } : {})} />
               </div>
             ) : null
           ) : midTab === 'analysis' ? (
