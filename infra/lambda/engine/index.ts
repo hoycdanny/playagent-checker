@@ -140,6 +140,10 @@ async function readJobMeta(
   deviceArn?: string;
   deviceModel?: string;
   osVersion?: string;
+  /** 模擬器:要跑的 Android 版本(主機 userdata 從 job.json 讀,engine 不需轉傳)。 */
+  androidVersion?: string;
+  /** Device Farm:挑手機還是平板。 */
+  formFactor?: string;
   genres: string[];
   controls?: { ids: string[]; source: 'case' | 'genre'; keys?: CaseKey[] };
   maxHours?: number;
@@ -165,6 +169,8 @@ async function readJobMeta(
       deviceArn?: string;
       deviceModel?: string;
       osVersion?: string;
+      androidVersion?: string;
+      formFactor?: string;
       genres?: string[];
       controls?: { ids?: unknown; source?: string; keys?: unknown };
       maxHours?: number;
@@ -184,6 +190,8 @@ async function readJobMeta(
       ...(job.deviceArn ? { deviceArn: job.deviceArn } : {}),
       ...(job.deviceModel ? { deviceModel: job.deviceModel } : {}),
       ...(job.osVersion ? { osVersion: job.osVersion } : {}),
+      ...(job.androidVersion ? { androidVersion: job.androidVersion } : {}),
+      ...(job.formFactor ? { formFactor: job.formFactor } : {}),
       genres: Array.isArray(job.genres) ? job.genres.filter((g): g is string => typeof g === 'string') : [],
       ...(job.controls
         ? {
@@ -532,6 +540,8 @@ export async function handler(event: EngineEvent): Promise<void> {
           // deviceModel 僅顯示用;osVersion(若無明選 ARN)收斂 OS 區間讓挑機更貼近所選版本。
           ...(meta.deviceArn ? { deviceArn: meta.deviceArn } : {}),
           ...(meta.deviceModel ? { deviceModel: meta.deviceModel } : {}),
+          // 機型(手機/平板):沒明選裝置時才用得上 —— 有 ARN 就已經決定是哪一台了。
+          ...(!meta.deviceArn && meta.formFactor ? { formFactor: meta.formFactor } : {}),
           ...(() => {
             if (meta.deviceArn) return {}; // 已指定裝置就不必再靠 OS 區間挑
             const v = meta.osVersion ? parseFloat(meta.osVersion) : NaN;

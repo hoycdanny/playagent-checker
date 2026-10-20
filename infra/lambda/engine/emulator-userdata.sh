@@ -89,11 +89,23 @@ uplog() { aws s3 cp /var/log/emulator-bootstrap.log "s3://$BUCKET/$PREFIX/bootst
 # 那些客製反而會覆蓋 Docker 自己的規則、把原本能通的網路弄壞(playagent 舊版連不上網的根因)。
 aws s3 cp "s3://$BUCKET/$PREFIX/job.json" /tmp/job.json || true
 RW=$(jq -r '.display.width // 1080' /tmp/job.json 2>/dev/null || echo 1080); RH=$(jq -r '.display.height // 1920' /tmp/job.json 2>/dev/null || echo 1920)
-writestatus running "pulling redroid image" 0; uplog
-retry 5 docker pull redroid/redroid:15.0.0-latest
+# Android 版本:使用者在送出任務時選的。
+# 映像名由 API 端解析好寫進 job.json(lambda/api/deviceOptions.ts 的白名單)——
+# 這裡「不」自己用版本號組 tag:版本與 tag 之間沒有通用公式(8.1 的 tag 是 8.1.0-latest,
+# 不是 8.1.0.0),自己組會悄悄拉到不存在的映像,主機只會回報「開機逾時」。
+AV=$(jq -r '.androidVersion // "15"' /tmp/job.json 2>/dev/null || echo 15)
+IMG=$(jq -r '.androidImage // "redroid/redroid:15.0.0-latest"' /tmp/job.json 2>/dev/null || echo "redroid/redroid:15.0.0-latest")
+# 防呆:只接受 redroid 官方 repo 的合法形狀,擋掉被竄改的 job.json 指向任意映像。
+echo "$IMG" | grep -Eq '^redroid/redroid:[0-9]+(\.[0-9]+)*-latest$' || IMG="redroid/redroid:15.0.0-latest"
+writestatus running "pulling Android $AV image" 0; uplog
+# 拉不到就「失敗」,不退回其他版本:穩定度測試若實際跑了別的 OS 版本,結果就是假的。
+if ! retry 5 docker pull "$IMG"; then
+  echo "!!! 拉不到 $IMG"; uplog
+  writestatus error "找不到 Android $AV 的容器映像($IMG)。請改選其他版本。" 0; selfterm; exit 1
+fi
 docker rm -f android 2>/dev/null || true
 docker run -d --privileged --name android --restart unless-stopped -m 12g \
-  -p 0.0.0.0:5555:5555 redroid/redroid:15.0.0-latest \
+  -p 0.0.0.0:5555:5555 "$IMG" \
   androidboot.redroid_gpu_mode=guest androidboot.redroid_width="$RW" androidboot.redroid_height="$RH" \
   ro.setupwizard.mode=OPTIONAL
 sleep 5
@@ -202,7 +214,7 @@ writestatus running "AI agent starting" 0; uplog
 PA_DRIVER=adb PA_ADB_SERIAL=127.0.0.1:5555 PA_PLATFORM=android \
 PA_JOB="$JOB_ID" PA_TENANT="$TENANT_ID" PA_APP="$APP_ID" PA_BUCKET="$BUCKET" PA_PREFIX="$PREFIX" \
 PA_DATA_REGION="$AWS_DEFAULT_REGION" PA_VLM="$VLM_MODEL" PA_AGENT_MODEL="$AGENT_MODEL" PA_SUBAGENT_MODEL="$SUBAGENT_MODEL" \
-PA_PKG="$PKG" PA_TASK="$TASK" PA_MAXSTEPS="$MAX_STEPS" PA_DEVICE_MODEL="Redroid $(uname -m)" \
+PA_PKG="$PKG" PA_TASK="$TASK" PA_MAXSTEPS="$MAX_STEPS" PA_DEVICE_MODEL="Redroid Android $AV ($(uname -m)) ${RW}x${RH}" \
 PA_DEADLINE_MS="$DEADLINE_MS" \
 node /opt/runner/explorationRunner.mjs > /var/log/runner.log 2>&1 || true
 aws s3 cp /var/log/runner.log "s3://$BUCKET/$PREFIX/runner.log" 2>/dev/null || true

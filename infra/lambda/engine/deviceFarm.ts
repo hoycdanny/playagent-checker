@@ -15,6 +15,7 @@ import {
   type UploadType,
 } from '@aws-sdk/client-device-farm';
 import { createHash } from 'node:crypto';
+import { formFactorFilterValues } from '../api/deviceOptions.js';
 
 /**
  * Device Farm Remote Access Session 管理(移植自 game-ai-qa src/device/deviceFarm.ts,
@@ -58,13 +59,19 @@ export async function listRemoteAccessDevices(
   platform: DevicePlatform | undefined,
   maxOsVersion?: number,
   minOsVersion?: number,
+  /** 'PHONE'(預設,維持舊行為)/ 'TABLET' / 'ANY'(不加機型過濾)。 */
+  formFactor?: string,
 ): Promise<Device[]> {
   const response = await client.send(
     new ListDevicesCommand({
       filters: [
         { attribute: 'PLATFORM', operator: 'EQUALS', values: [platformFilterValue(platform)] },
         { attribute: 'AVAILABILITY', operator: 'EQUALS', values: ['AVAILABLE', 'HIGHLY_AVAILABLE'] },
-        { attribute: 'FORM_FACTOR', operator: 'EQUALS', values: ['PHONE'] },
+        // 機型:原本硬編碼只挑手機,所以真機池裡的平板完全用不到。
+        // ANY 時不加這個 filter(手機與平板都可以);未指定時維持原本只挑手機的行為。
+        ...(formFactorFilterValues(formFactor) ? [
+          { attribute: 'FORM_FACTOR' as const, operator: 'EQUALS' as const, values: formFactorFilterValues(formFactor)! },
+        ] : []),
         { attribute: 'REMOTE_ACCESS_ENABLED', operator: 'EQUALS', values: ['TRUE'] },
       ],
     }),
@@ -247,12 +254,22 @@ async function resolveDeviceArn(
   deviceArn: string | undefined,
   maxOsVersion: number | undefined,
   minOsVersion: number | undefined,
+  formFactor: string | undefined,
 ): Promise<string> {
   if (deviceArn) return deviceArn;
-  const devices = await listRemoteAccessDevices(client, platform, maxOsVersion, minOsVersion);
+  const devices = await listRemoteAccessDevices(client, platform, maxOsVersion, minOsVersion, formFactor);
   if (devices.length === 0) {
+    // 訊息要帶上條件:使用者選了「平板 + Android 11」而挑不到時,只說「沒有可用手機」
+    // 會讓人以為是服務故障,而不是「這組條件目前沒有機器」。
+    const want = [
+      formFactor === 'TABLET' ? '平板' : formFactor === 'ANY' ? '手機或平板' : '手機',
+      minOsVersion !== undefined || maxOsVersion !== undefined
+        ? `OS ${minOsVersion ?? '?'}~${maxOsVersion ?? '?'}`
+        : '',
+    ].filter(Boolean).join('、');
     throw new Error(
-      `Device Farm 中沒有可用的 ${platformFilterValue(platform)} 手機(需支援 Remote Access)。`,
+      `Device Farm 中沒有符合條件的 ${platformFilterValue(platform)} 裝置(${want};需支援 Remote Access)。`
+      + '請放寬機型或 OS 版本條件後重試。',
     );
   }
   return devices[0]!.arn!;
@@ -299,6 +316,8 @@ export interface CreateSessionParams {
   deviceArn?: string;
   maxOsVersion?: number;
   minOsVersion?: number;
+  /** 'PHONE'(預設)/ 'TABLET' / 'ANY'。 */
+  formFactor?: string;
   namePrefix?: string;
 }
 
@@ -313,6 +332,7 @@ export async function createSession(
     params.deviceArn,
     params.maxOsVersion,
     params.minOsVersion,
+    params.formFactor,
   );
   if (params.appArn) await assertAppUploadUsable(client, params.appArn);
 
