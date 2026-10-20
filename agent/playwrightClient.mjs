@@ -17,6 +17,7 @@
  */
 import { chromium } from 'playwright';
 import { normalizeKey } from './keyNames.mjs';
+import { buildPageSignature } from './pageSignature.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -109,6 +110,37 @@ export class PlaywrightClient {
   /** 視埠尺寸 [w,h]。 */
   async getScreenSize() {
     return [this.#w, this.#h];
+  }
+
+  /**
+   * 頁面「互動狀態」指紋:用來判斷頁面對我們的操作有沒有反應。
+   *
+   * 為什麼不能只靠截圖 pHash
+   * ────────────────────────
+   * pHash 是 32x32 灰階感知雜湊(1024 bit),門檻必須留餘裕給裝飾性動畫(輪播、特效、
+   * 廣告)當雜訊,於是「在輸入框打一個字」這種真實進展根本偵測不到 —— 驗證碼欄只佔
+   * 32x32 網格裡約 8 格,改一個數字大概翻 1~2 格,離門檻差得遠。實測 job-mvgdtt5i:
+   * 驗證碼欄 8 → 80 → 080 每一步都有效,pHash 全部回報「畫面沒變」。
+   * DOM 剛好相反:輪播換圖不影響表單狀態,而打一個字一定改到 input.value。
+   *
+   * 刻意只取「互動狀態」,不取整頁文字
+   * ────────────────────────
+   * 若把 body.innerText 放進指紋,輪播文字一換就等於「頁面有反應」,護欄會在這類頁面
+   * 永不觸發。改成:網址 + 表單欄位狀態 + 焦點 + 節點總數。節點總數負責抓「新增/移除
+   * 元素」(錯誤訊息、彈窗),但對「既有節點換文字/換圖」不敏感 —— 正是我們要的取捨。
+   *
+   * 機密邊界:密碼欄只取長度,不取值、也不取雜湊(短密碼的雜湊可離線暴力還原)。
+   * 其餘欄位取長度 + 非密碼學雜湊。本指紋只在記憶體比對,不寫 S3、不進 step/trace/報告。
+   *
+   * @returns {Promise<string|null>} 指紋字串;取不到(頁面正在導航等)回 null
+   */
+  async pageStateSignature() {
+    try {
+      // buildPageSignature 必須自包含:evaluate 是把函式原始碼送進頁面執行,閉包不會過去。
+      return await this.#page.evaluate(buildPageSignature);
+    } catch {
+      return null;
+    }
   }
 
   /** web 截圖像素 == 點擊座標,不需換算;保留同介面。 */

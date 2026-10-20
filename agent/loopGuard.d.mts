@@ -1,6 +1,6 @@
 /** 型別宣告:agent/loopGuard.mjs(infra 測試會引用)。 */
 
-/** 判死原因。'no_response' = 做了動作畫面沒反應;'repeat' = 拿不到變化訊號時的退路。 */
+/** 判死依據。'no_response' = 做了動作但所有訊號都沒反應;'repeat' = 拿不到訊號時的退路。 */
 export type LoopReason = 'no_response' | 'repeat';
 
 export interface LoopObservation {
@@ -10,12 +10,13 @@ export interface LoopObservation {
   step: number;
   /** 這一步準備執行的動作。 */
   action: string;
-  /** 上一步實際執行的動作(screenChanged 的成因)。 */
+  /** 上一步實際執行的動作(changed 的成因)。 */
   prevAction?: string | null;
-  /** 上一步執行後畫面有沒有變。 */
-  screenChanged: boolean;
-  /** 這一步有沒有算出 pHash;false = 拿不到變化訊號,改走退路判準。 */
-  haveChangeSignal?: boolean;
+  /**
+   * 上一步執行後狀態有沒有變。呼叫端可以餵多個訊號的聯集
+   * (例如 DOM 指紋變了 或 截圖 pHash 變了)。null = 完全拿不到訊號,走退路判準。
+   */
+  changed: boolean | null;
 }
 
 export interface LoopVerdict {
