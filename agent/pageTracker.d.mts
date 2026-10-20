@@ -21,6 +21,8 @@ export interface PageTracker {
   canClosePopup(): boolean;
   /** 取走「分頁切換了」的說明(取走即清空)。 */
   consumeNote(): string;
+  /** 某個分頁的序號(1 起算);沒納管過回 0。console log 用它標示來源分頁。 */
+  indexOf(p: TrackedPage): number;
 }
 
 /** 分頁網址;已關閉的 Page 回 'about:blank' 而不拋錯。 */
@@ -29,6 +31,9 @@ export declare function safePageUrl(p: TrackedPage | null | undefined): string;
 export declare function createPageTracker(o: {
   context: TrackedContext;
   page: TrackedPage;
+  /** 作用中分頁換人時呼叫(帶到前景、重綁即時串流)。 */
   onActiveChange?: (p: TrackedPage) => unknown;
+  /** 納管一個新分頁時呼叫(掛 console 監聽);idx 為分頁序號,1 起算。 */
+  onPageAdded?: (p: TrackedPage, idx: number) => unknown;
   log?: (m: string) => unknown;
 }): PageTracker;
