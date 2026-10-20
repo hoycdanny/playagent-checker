@@ -6,6 +6,7 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
+import { DeviceOptionError, parseAndroidVersion, parseFormFactor, redroidImage } from './deviceOptions.js';
 import { effectiveState, isTerminal, type TaskState } from './status.js';
 import { computeUsageSpend, PricingError, resolvePrice, type TokenUsage } from './pricing.js';
 
@@ -64,6 +65,12 @@ export interface JobRecord {
   deviceModel?: string;
   /** 提交時選的 Android 版本(顯示用;deviceArn 已隱含版本)。 */
   osVersion?: string;
+  /** 模擬器:要跑的 Android 版本(顯示用)。 */
+  androidVersion?: string;
+  /** 模擬器:解析好的容器映像名(userdata 直接用,不自己組)。 */
+  androidImage?: string;
+  /** Device Farm:挑機時限定手機或平板(ANY = 不限)。 */
+  formFactor?: string;
   /** 提交時選的共用知識庫 id 快照(執行時據此讀取並注入 Markdown)。 */
   knowledgeBaseIds?: string[];
   /** 提交時 App 的遊戲類型快照(主類型在前);報告引擎據此合併 GenreProfile。 */
@@ -93,17 +100,25 @@ export interface JobDisplay {
 /** GameLift Streams 單一 session 總像素上限(1920×1080)。 */
 export const WINDOWS_MAX_PIXELS = 2_073_600;
 
-/** 解析度校驗:寬高為 320~4096 的偶數;Windows 另限總像素 ≤ 2,073,600。 */
+/**
+ * 解析度校驗:寬高為 320~4096 的偶數;Windows 另限總像素 ≤ 2,073,600。
+ *
+ * 模擬器(Redroid)也吃這個值 —— 容器裡沒有真正的「機型」概念,畫面尺寸決定 App 走
+ * 手機版面還是平板版面,所以「用模擬器測平板」就是給它平板解析度。
+ * emulator-userdata.sh 本來就會讀 job.json 的 display,但先前這裡只對 windows 放行,
+ * 等於那條路永遠拿不到值、固定跑 1080×1920。
+ */
 export function parseDisplay(raw: unknown, backend: Backend): JobDisplay | undefined {
   if (raw === undefined || raw === null || raw === '') return undefined;
-  if (backend !== 'windows') return undefined;
+  if (backend !== 'windows' && backend !== 'emulator') return undefined;
   if (typeof raw !== 'object') throw new ValidationError('display 必須是 { width, height }');
   const r = raw as Record<string, unknown>;
   const width = Number(r['width']);
   const height = Number(r['height']);
   const ok = (n: number) => Number.isInteger(n) && n >= 320 && n <= 4096 && n % 2 === 0;
   if (!ok(width) || !ok(height)) throw new ValidationError('解析度寬高必須是 320~4096 的偶數');
-  if (width * height > WINDOWS_MAX_PIXELS) {
+  // 總像素上限只是 GameLift Streams 的限制,模擬器沒有這條。
+  if (backend === 'windows' && width * height > WINDOWS_MAX_PIXELS) {
     throw new ValidationError(`Windows 解析度總像素不可超過 ${WINDOWS_MAX_PIXELS}(1920×1080);${width}×${height} 太大`);
   }
   return { width, height };
@@ -217,6 +232,10 @@ interface SubmitInput {
   deviceModel?: string;
   /** Device Farm:所選 Android 版本(顯示用;deviceArn 已隱含版本)。 */
   osVersion?: string;
+  /** 模擬器:要跑的 Android 版本(決定 Redroid image tag)。 */
+  androidVersion?: string;
+  /** Device Farm:要挑手機還是平板(ANY = 不限)。 */
+  formFactor?: string;
 }
 
 /** 提交前校驗請求形狀(存在性校驗於 core 內另做,需 S3)。 */
@@ -286,6 +305,20 @@ export function validateSubmit(body: unknown): SubmitInput {
     backend === 'devicefarm' && typeof b['osVersion'] === 'string' && b['osVersion'] !== ''
       ? (b['osVersion'] as string)
       : undefined;
+  // 大量測系統穩定度:讓送出任務時能指定 OS 版本與機型。
+  //   - 模擬器:androidVersion 決定 Redroid image tag(白名單,見 deviceOptions.ts)
+  //   - Device Farm:formFactor 決定挑手機還是平板(真機池兩種都有,先前被硬編碼成只挑手機)
+  // 兩個欄位都只在對應後端有意義;帶到別的後端會回 undefined 而不是悄悄存起來,
+  // 否則使用者會以為自己選了卻完全沒作用。
+  let androidVersion: string | undefined;
+  let formFactor: string | undefined;
+  try {
+    androidVersion = parseAndroidVersion(b['androidVersion'], backend);
+    formFactor = parseFormFactor(b['formFactor'], backend);
+  } catch (err) {
+    if (err instanceof DeviceOptionError) throw new ValidationError(err.message);
+    throw err;
+  }
   // 指定案例版本(可選;不帶則用案例目前使用中的版本)。
   const rawCaseVersion = b['caseVersion'];
   if (rawCaseVersion !== undefined && rawCaseVersion !== null && rawCaseVersion !== '') {
@@ -313,6 +346,8 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(deviceArn ? { deviceArn } : {}),
     ...(deviceModel ? { deviceModel } : {}),
     ...(osVersion ? { osVersion } : {}),
+    ...(androidVersion ? { androidVersion } : {}),
+    ...(formFactor ? { formFactor } : {}),
   };
 }
 
@@ -355,6 +390,13 @@ export async function createJob(
     ...(input.display ? { display: input.display } : {}),
     ...(input.deviceArn ? { deviceArn: input.deviceArn } : {}),
     ...(input.deviceModel ? { deviceModel: input.deviceModel } : {}),
+    ...(input.androidVersion ? { androidVersion: input.androidVersion } : {}),
+    // 完整映像名在這裡解析好再落 job.json:userdata 不自己組字串,
+    // 否則 8.1 這種「版本與 tag 沒有通用公式」的情況會悄悄拉錯映像。
+    ...(input.androidVersion && redroidImage(input.androidVersion)
+      ? { androidImage: redroidImage(input.androidVersion)! }
+      : {}),
+    ...(input.formFactor ? { formFactor: input.formFactor } : {}),
     ...(input.osVersion ? { osVersion: input.osVersion } : {}),
     ...(extra?.artifactKey ? { artifactKey: extra.artifactKey } : {}),
     ...(extra?.artifactLabel ? { artifactLabel: extra.artifactLabel } : {}),

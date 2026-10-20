@@ -112,7 +112,8 @@ async function listCloudDevices(): Promise<CloudDevice[]> {
         filters: [
           { attribute: 'PLATFORM', operator: 'EQUALS', values: ['ANDROID'] },
           { attribute: 'AVAILABILITY', operator: 'EQUALS', values: ['AVAILABLE', 'HIGHLY_AVAILABLE'] },
-          { attribute: 'FORM_FACTOR', operator: 'EQUALS', values: ['PHONE'] },
+          // 機型不過濾:真機池裡手機與平板都要列出來,讓使用者自己挑
+          // (先前硬編碼成只列手機,所以平板完全看不到)。每台的 formFactor 會回給前端篩選。
           { attribute: 'REMOTE_ACCESS_ENABLED', operator: 'EQUALS', values: ['TRUE'] },
         ],
         ...(nextToken ? { nextToken } : {}),
