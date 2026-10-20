@@ -15,7 +15,8 @@
     "synth": "npm run synth --workspace infra",
     "test:infra": "npm run test --workspace infra",
     "test:worker": "npm run test --workspace worker",
-    "deploy:latest": "node scripts/deploy-latest.mjs"
+    "deploy:latest": "node scripts/deploy-latest.mjs",
+    "upgrade:updater": "node scripts/upgrade-updater.mjs"
   },
   "engines": {
     "node": ">=22"
