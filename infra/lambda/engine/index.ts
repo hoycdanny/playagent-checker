@@ -455,6 +455,9 @@ export async function handler(event: EngineEvent): Promise<void> {
         prefix: `tenants/${event.tenantId}/jobs/${event.jobId}`,
         url,
         ...(resolvedVlmModel ? { vlmModel: resolvedVlmModel } : {}),
+        // 三個 Agent 協作:決策(agent seat)與輔助(subagent seat)模型也交給 web runner。
+        ...(seatModel('agent') ? { agentModel: seatModel('agent')! } : {}),
+        ...(seatModel('subagent') ? { subagentModel: seatModel('subagent')! } : {}),
         ...(task ? { caseTask: task } : {}),
         ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
       });

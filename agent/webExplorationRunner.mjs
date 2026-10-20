@@ -22,12 +22,13 @@ import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } fr
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
 import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, operatorTurnNote, routesPromptSection, routeTurnNote, screenHintsFor, operatorGestureCmd, POINT_ONLY_TEXT, DRAG_ONLY_TEXT } from './operatorMemory.mjs';
 import { foldSystemIntoFirstUser } from './converseShape.mjs';
-import { accumulate, addUsage, createUsageLedger, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
+import { accumulate, addUsage, createUsageLedger, mergeByModel, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
 import { normalizeKey, KEY_IDS } from './keyNames.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { createLoopGuard } from './loopGuard.mjs';
+import { createAgentTeam, normalizeElements, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure } from './memoryGraph.mjs';
 import { opFromCmd } from './reflex.mjs';
@@ -44,6 +45,12 @@ const DATA_REGION = process.env.PA_DATA_REGION || process.env.AWS_REGION || 'us-
 const BEDROCK_VLM_FALLBACK = 'qwen.qwen3-vl-235b-a22b';
 const _vlmRaw = process.env.PA_VLM || 'us.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const VLM = _vlmRaw === 'uitars' ? BEDROCK_VLM_FALLBACK : _vlmRaw;
+// 決策 Agent(agent seat)/ 輔助 Agent(subagent seat)模型;engine 依任務設定注入,空 = 不啟用。
+// 與 Device Farm runner 共用 agentTeam.mjs,語意完全一致:
+//   視覺 Agent(VLM)看圖並列出可操作元件 → 決策 Agent 選動作 → 輔助 Agent 背景核對效果與完成宣告。
+// 兩個都留空時,行為退回原本的「單一 VLM 同時判座標+決策」,不影響既有任務。
+const AGENT_MODEL = (process.env.PA_AGENT_MODEL || '').trim();
+const SUBAGENT_MODEL = (process.env.PA_SUBAGENT_MODEL || '').trim();
 // 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。真值只在 type 到頁面那一刻替換,不改寫 TASK。
 const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 死循環 / 取消 / 連續失敗才停)。
@@ -264,11 +271,15 @@ async function main() {
   let knowledge = '';
   let evidence = null; // 證據協議(由類型知識庫決定)
   let controls = null; // 操作方式協議(engine 依測試腳本 controls: / keys: 組成)
+  // 「以測項為主」:案例帶結構化測項時為 true(engine 寫進 context.json)。
+  // 影響決策/輔助 Agent 的提示語氣:只做腳本列出的測項,不照知識庫延伸。
+  let scripted = false;
   try {
     const ctx = JSON.parse(await (await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${PREFIX}/context.json` }))).Body.transformToString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
     if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
     if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
+    if (ctx && ctx.scripted === true) scripted = true;
   } catch { /* 無則略過 */ }
   // 舊案例只勾了手機觸控方案(搖桿、技能鍵…,多半是依類型自動預選)→ 在網頁上沒有意義,
   // 維持舊行為(不限定動作、不注入手機操作說明),避免把原本能用的鍵盤擋掉。
@@ -295,7 +306,23 @@ async function main() {
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
   // 路線裡的畫面名:優先用測試人員改的名字(路線是他們畫的);畫面已不存在回空字串。
   const routePageName = (id) => appMemory.edits?.renames?.[id] ?? struct.pages?.[id]?.name ?? '';
-  const system = buildSystemPrompt(knowledge, evidence, controls) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName);
+  // 三個 Agent 協作(與 Device Farm runner 同一套 agentTeam.mjs):
+  //   視覺 Agent(VLM)看圖、列出可操作元件 → 決策 Agent 選動作 → 輔助 Agent 背景核對。
+  // 沒給模型或 PA_AGENT_TEAM=0 → 只用視覺 Agent(舊行為)。任何呼叫失敗也自動退回只用視覺 Agent。
+  const team = process.env.PA_AGENT_TEAM !== '0' && (AGENT_MODEL || SUBAGENT_MODEL)
+    ? createAgentTeam({
+      bedrock, ConverseCommand, agentModel: AGENT_MODEL, subagentModel: SUBAGENT_MODEL, task: TASK,
+      controlsPrompt: controls?.prompt ?? '', knowledge, scripted, put: s3put, prefix: PREFIX,
+      log: (m) => console.log(m),
+    })
+    : null;
+  if (team) console.log(`[team] 決策 Agent=${AGENT_MODEL || '(未啟用)'} 輔助 Agent=${SUBAGENT_MODEL || '(未啟用)'}`);
+  const stepPlans = new Map(); // 步驟 index → 決策 Agent 這一步的決定
+  let teamPending = null;      // 輔助 Agent 對上一步的背景核對(不擋主迴圈)
+
+  // 決策 Agent 要能從「可操作元件清單」裡挑,視覺 Agent 就得每步回報 elements。
+  const system = buildSystemPrompt(knowledge, evidence, controls) + hintsPromptSection(appMemory.hints, (id) => struct.pages?.[id]?.name ?? id) + routesPromptSection(appMemory.edits?.routes, routePageName)
+    + (team?.enabled.agent ? VISION_ELEMENTS_NOTE : '');
   // 記憶命中追蹤(以本次開始前的記憶為基準;見 memoryTrace.mjs)。
   const memTrace = createMemoryTrace({ struct, hints: appMemory.hints, edits: appMemory.edits, knowledge, knowledgeLimit: 4000 });
   console.log(memTrace.startupLog());
@@ -310,6 +337,7 @@ async function main() {
   let lastPhash = null, stuckCount = 0;
   let lastPageSig = null; // 上一步的 DOM 互動狀態指紋(只在記憶體,不落 S3)
   const loopGuard = createLoopGuard({ limit: 8 });
+  let teamDoneRejects = 0; // 輔助 Agent 否決「完成」的次數(有上限,避免弱模型反覆否決)
   let consecParseFail = 0;
 
   await writeStatus('running', 'AI 網頁探索執行中', 0);
@@ -422,6 +450,47 @@ async function main() {
     }
     const { cmd, usage, rawText, trace } = decided;
     const vlmMs = Date.now() - tVlm;
+
+    // ── 決策 Agent 接管動作選擇(agent seat)
+    // 視覺 Agent 負責「看到什麼、有哪些可操作元件」,決策 Agent 負責「這一步該做什麼」。
+    // 測試人員親手點/拖的那一步不交給決策 Agent(他的意圖最優先)。
+    let decisionMs = 0;
+    if (team?.enabled.agent && !pointCmd && !cmd.parseFailed) {
+      // 等輔助 Agent 對上一步的核對(多半已在這一步的 VLM 等待時間內做完)。
+      if (teamPending) {
+        const settled = await Promise.race([teamPending.then(() => true), sleep(5000).then(() => false)]);
+        if (settled) teamPending = null;
+      }
+      const tDec = Date.now();
+      const elements = normalizeElements(cmd.elements, cw, ch);
+      const visionAction = cmd.action;
+      const res = await team.decideAction({
+        index: i,
+        observation: { screen: cmd.screen, seen: typeof cmd.seen === 'string' ? cmd.seen : '', thinking: String(cmd.thinking || ''), ...(cmd.obs ? { obs: cmd.obs } : {}) },
+        elements,
+        suggestion: { action: cmd.action, target: typeof cmd.target === 'string' ? cmd.target : '', dir: typeof cmd.dir === 'string' ? cmd.dir : '' },
+        screenChanged: anyChanged,
+        allowedActions: allowedActions ? [...allowedActions] : WEB_ACTIONS,
+        dims: { cw, ch },
+        operator: operator.active.slice(-3).map((c2) => c2.text),
+        runnerNote: stuckCount > 0 ? `畫面已連續 ${stuckCount} 步沒有變化` : '',
+      }).catch(() => null);
+      decisionMs = Date.now() - tDec;
+      if (res) {
+        stepPlans.set(i, res.decision);
+        if (res.cmd) {
+          // 用決策的動作取代視覺的建議(保留視覺的畫面名 / 描述 / 證據欄位)。
+          for (const k of ['x', 'y', 'x2', 'y2', 'dir', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'key', 'repeat', 'target']) delete cmd[k];
+          Object.assign(cmd, res.cmd);
+          if (res.decision.expect) cmd.expect = res.decision.expect;
+          cmd.decidedBy = 'agent';
+          if (visionAction !== cmd.action) cmd.visionSuggested = visionAction;
+        } else {
+          cmd.decidedBy = 'vision';
+        }
+      }
+    }
+
     messages.push(makeAssistantTurn(rawText));
     if (usage) accumulate(tok, usage);
 
@@ -502,6 +571,10 @@ async function main() {
       // 「畫面沒變但 DOM 有變」這類只看 screenChanged 會誤判的情形。
       ...(anyChanged === null ? {} : { stateChanged: anyChanged }),
       ...evidenceFields(cmd, cmd.action),
+      // 三個 Agent 協作:這一步的動作是誰決定的、視覺 Agent 原本想做什麼、決策花了多久。
+      ...(cmd.decidedBy ? { decidedBy: cmd.decidedBy } : {}),
+      ...(cmd.visionSuggested ? { visionSuggested: cmd.visionSuggested } : {}),
+      ...(decisionMs > 0 ? { decisionMs } : {}),
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),
       ...(newCmds.length && !cmd.parseFailed ? { operatorCommands: newCmds.map((c) => ({ id: c.id, text: c.text })) } : {}),
@@ -531,6 +604,49 @@ async function main() {
     }
     struct.lastUpdatedAt = new Date().toISOString();
     await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
+
+    // ── 輔助 Agent 背景核對(subagent seat)
+    // 這一步看到的畫面 = 上一步動作的結果 → 判斷上一步有沒有生效,寫回上一步的紀錄。
+    // 刻意不 await:掛在 teamPending,讓它跟下一步的 VLM 呼叫並行,不拖慢主迴圈。
+    if (team?.enabled.subagent) {
+      const idx = i;
+      const observation = {
+        screen: screenName,
+        seen: typeof cmd.seen === 'string' ? cmd.seen : '',
+        thinking: String(cmd.thinking || ''),
+        ...(cmd.obs ? { obs: cmd.obs } : {}),
+      };
+      const actionText = `${cmd.action}${cmd.key ? ` key=${cmd.key}` : ''}`;
+      const prevStep = steps.find((s) => s.index === idx - 1);
+      const prevPlan = stepPlans.get(idx - 1) ?? null;
+      const changed = anyChanged;
+      const work = async () => {
+        const rv = idx > 0
+          ? await team.review({
+            index: idx,
+            prevAction: prevStep ? `${prevStep.action}${prevStep.key ? ` key=${prevStep.key}` : ''}` : '',
+            prevPlan,
+            observation,
+            screenChanged: changed,
+          }).catch(() => null)
+          : null;
+        if (rv && prevStep) {
+          prevStep.review = { effect: rv.effect, ...(rv.note ? { note: rv.note } : {}), ...(rv.issues.length ? { issues: rv.issues } : {}) };
+          await s3put(`${PREFIX}/steps/${prevStep.index}.json`, JSON.stringify(prevStep), 'application/json').catch(() => {});
+        }
+        const cur = steps.find((s) => s.index === idx);
+        if (rv && cur && Object.keys(rv.facts).length) {
+          cur.facts = rv.facts;
+          await s3put(`${PREFIX}/steps/${idx}.json`, JSON.stringify(cur), 'application/json').catch(() => {});
+        }
+        team.record({ index: idx, screen: observation.screen, action: actionText, effect: rv?.effect });
+        await team.maybeSummarize(idx).catch(() => {});
+      };
+      teamPending = (teamPending ?? Promise.resolve()).then(work, work);
+    } else if (team) {
+      // 只啟用決策 Agent 時也要記步驟歷史,決策 Agent 才看得到「最近做過什麼」。
+      team.record({ index: i, screen: screenName, action: cmd.action });
+    }
 
     await writeStatus('running', `第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
 
@@ -575,7 +691,32 @@ async function main() {
     if (consecParseFail >= 10) { finalState = 'error'; finalMsg = `VLM 連續 ${consecParseFail} 次回應無法解析為有效動作 —— 模型輸出格式異常,已中止(避免誤判為完成)。`; break; }
     // 模型呼叫失敗時 decide() 回 done:這是 AI 測試代理失敗,不可判 pass。
     if (cmd.action === 'done' && trace && trace.ok === false) { finalState = 'error'; finalMsg = String(cmd.thinking || '模型呼叫失敗'); break; }
-    if (cmd.action === 'done') { finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break; }
+    if (cmd.action === 'done') {
+      // ── 輔助 Agent 核對「完成」宣告(subagent seat)
+      // 【以測項為主】案例帶結構化測項且已走到最後一項並宣告完成 → 權威完成,不讓輔助 Agent
+      // (靠知識庫/弱模型)用知識庫延伸出來的理由逼測試繼續。這是「只叫它進畫面就結束」卻被
+      // 硬測下去、最後誤判失敗的根因修正,與 Device Farm runner 同一套判準。
+      const reachedAllItems = team && team.scriptTotal >= 1 && team.scriptStep >= team.scriptTotal;
+      const authoritativeDone = scripted && reachedAllItems;
+      // 測試人員這一步下了指令 → 以他的意思為準,不核對。
+      const operatorDirected = Boolean(pointCmd) || newCmds.length > 0;
+      // scripted 時最多核對 1 次就放行,避免弱模型反覆否決;一般探索維持 3 次。
+      const vetoCap = scripted ? 1 : 3;
+      const vd = team?.enabled.subagent && !operatorDirected && !authoritativeDone && teamDoneRejects < vetoCap
+        ? await team.verifyDone({ index: i, observation: { screen: screenName, thinking: cmd.thinking, ...(cmd.obs ? { obs: cmd.obs } : {}) } }).catch(() => null)
+        : null;
+      if (vd && vd.ok === false) {
+        teamDoneRejects++;
+        // 這一步改記成等待:它沒有對頁面做任何事,報告不該把它當成一次有效操作。
+        step.action = 'wait'; step.override = 'reject_done'; step.doneCheck = vd; delete step.expect;
+        await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+        controlNote = scripted
+          ? `\n【提醒|測項為主】還差:${vd.missing || '腳本項目未完成'}。只需完成測試腳本列出的測項;知識庫僅供理解網站,不要延伸腳本以外的操作。所有測項完成後即可 done。`
+          : `\n【輔助 Agent 核對】你宣告測試完成,但還缺:${vd.missing || '腳本還沒全部完成'}。請繼續完成測試腳本,不要再提早 done。`;
+        continue;
+      }
+      finalState = 'pass'; finalMsg = cmd.thinking || '流程完成'; break;
+    }
     // AI 思考期間按了停止:不要再把動作送到頁面。
     if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
     // 實際操作用視埠像素座標。
@@ -623,12 +764,30 @@ async function main() {
   clearInterval(liveTimer);
   await stopScreencast().catch(() => {});
 
+  // 等輔助 Agent 對最後一步的核對落地,否則最後一筆 review 會來不及寫進報告。
+  if (teamPending) await Promise.race([teamPending, sleep(15000)]).catch(() => {});
+
   console.log(memTrace.summaryLog());
   await s3put(`${PREFIX}/memory-usage.json`, JSON.stringify(memTrace.summary()), 'application/json').catch(() => {});
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
   // 結束前才按停止:以使用者的「停止」為準;真的完成(pass)則保留。
   if (finalState !== 'pass' && finalState !== 'cancelled' && await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; }
-  const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w: VP_W || 1280, h: VP_H || 800 }, vlmModel: VLM, runnerVersion: RUNNER_VERSION, ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}), stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges }, tokens: tok, tokensByModel: vlmLedger.byModel(), generatedAt: new Date().toISOString() };
+  const report = {
+    jobId: JOB, state: finalState, message: finalMsg, task: TASK,
+    device: { w: VP_W || 1280, h: VP_H || 800 },
+    vlmModel: VLM, runnerVersion: RUNNER_VERSION,
+    ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}),
+    // 三個 Agent 協作:tokens 是三席合計,tokensBySeat 分開記(費用頁依各席位的模型單價分別計算)。
+    ...(team ? {
+      tokensBySeat: { vlm: { ...tok }, agent: { ...team.tokens.agent }, subagent: { ...team.tokens.subagent } },
+      seatModels: { vlm: VLM, ...(AGENT_MODEL ? { agent: AGENT_MODEL } : {}), ...(SUBAGENT_MODEL ? { subagent: SUBAGENT_MODEL } : {}) },
+    } : {}),
+    stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges },
+    tokens: team ? addUsage(addUsage(tok, team.tokens.agent), team.tokens.subagent) : { ...tok },
+    // 依「實際呼叫的模型」記的 token(含重問、備援模型、快取)—— 費用以它為準。
+    tokensByModel: mergeByModel(vlmLedger.byModel(), team?.tokensByModel?.() ?? {}),
+    generatedAt: new Date().toISOString(),
+  };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);
   await client.quit().catch(() => {});
