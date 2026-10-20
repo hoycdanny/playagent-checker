@@ -60,18 +60,20 @@ describe('casino 類型樣板', () => {
 
   // 政策①:只有技術硬指標與樣本量參與判定。
   test('判定只用技術硬指標與局數,不用任何類型參考值', () => {
-    expect(p.releaseRules.map((r) => r.metric).sort()).toEqual(['balance_accuracy', 'casino_rounds']);
-    expect(p.riskRules.map((r) => r.metric).sort()).toEqual(['balance_accuracy', 'bet_out_of_range_count']);
-    expect(p.thresholds).toMatchObject({ casinoMinRounds: 100, balanceAccuracyMin: 98 });
+    expect(p.releaseRules.map((r) => r.metric).sort()).toEqual(['balance_mismatch_plausible_count', 'casino_rounds']);
+    expect(p.riskRules.map((r) => r.metric).sort()).toEqual(['balance_mismatch_plausible_count', 'bet_out_of_range_count']);
+    expect(p.thresholds).toMatchObject({ casinoMinRounds: 100, balanceMismatchMax: 2 });
   });
 
   // 逐局數字是 AI 讀畫面來的,偶發讀錯在所難免。看「不符次數 > 0」會讓一次讀錯就判 critical,
-  // 和驗收引擎(≥3 次且佔比 >20% 才算遊戲缺陷)結論相反 —— job-mvfcpfig 實測踩到。
-  test('餘額判定看正確率而不是不符次數(與驗收引擎同一個判準)', () => {
+  // 和驗收引擎(量級合理 ≥3 次才算遊戲缺陷)結論相反 —— job-mvfcpfig 實測踩到。
+  test('餘額判定與 slot 同一個判準(量級合理次數,不是總不符數或正確率)', () => {
     expect(p.riskRules.find((r) => r.id === 'balance_mismatch')).toMatchObject({
-      metric: 'balance_accuracy', op: '<', value: { threshold: 'balanceAccuracyMin' },
+      metric: 'balance_mismatch_plausible_count', op: '>', value: { threshold: 'balanceMismatchMax' },
     });
-    expect(p.releaseRules.map((r) => r.metric)).not.toContain('balance_mismatch_count');
+    const ruleMetrics = [...p.riskRules, ...p.releaseRules].map((r) => r.metric);
+    expect(ruleMetrics).not.toContain('balance_mismatch_count');
+    expect(ruleMetrics).not.toContain('balance_accuracy');
   });
 
   // 政策③的核心保證:參考區間的指標不得出現在任何判定規則裡。
@@ -126,12 +128,16 @@ describe('slot 類型樣板:機台覆蓋與 RTP 樣本量', () => {
     expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('machines_played');
   });
 
-  test('餘額判定改看正確率,少量不符降級為判讀提醒', () => {
+  // 看「量級合理」的次數而不是總不符數或正確率:總數含讀錯位數那種,正確率在小樣本下
+  // 太敏感(job-mvfve9ax 實測 21 次檢查 2 次不符 = 90.48%,98% 門檻等於零容忍)。
+  test('餘額判定鏡像驗收引擎的「量級合理 ≥3 次」', () => {
     expect(p.riskRules.find((r) => r.id === 'balance_mismatch')).toMatchObject({
-      metric: 'balance_accuracy', op: '<', value: { threshold: 'balanceAccuracyMin' },
+      metric: 'balance_mismatch_plausible_count', op: '>', value: { threshold: 'balanceMismatchMax' },
     });
-    expect(p.thresholds).toMatchObject({ balanceAccuracyMin: 98 });
-    expect([...p.riskRules, ...p.releaseRules].map((r) => r.metric)).not.toContain('balance_mismatch_count');
+    expect(p.thresholds).toMatchObject({ balanceMismatchMax: 2 });
+    const ruleMetrics = [...p.riskRules, ...p.releaseRules].map((r) => r.metric);
+    expect(ruleMetrics).not.toContain('balance_mismatch_count');
+    expect(ruleMetrics).not.toContain('balance_accuracy');
     const band = (p.referenceBands ?? []).find((b) => b.metric === 'balance_mismatch_count')!;
     expect(band.max).toBe(0);
     expect(band.note.zh).toContain('不是驗收標準');
