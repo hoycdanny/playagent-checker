@@ -308,6 +308,7 @@ async function main() {
   let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
   const tok = { input: 0, output: 0 };
   let lastPhash = null, stuckCount = 0;
+  let lastPageSig = null; // 上一步的 DOM 互動狀態指紋(只在記憶體,不落 S3)
   const loopGuard = createLoopGuard({ limit: 8 });
   let consecParseFail = 0;
 
@@ -339,10 +340,34 @@ async function main() {
     try { shot = await client.takeScreenshot(); } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
     await s3put(`${PREFIX}/screenshots/${i}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
 
+    const prevPhash = lastPhash;
     const curPhash = MAGICK ? pHashHex(shot) : null;
-    const screenChanged = lastPhash && curPhash ? pHashHamming(lastPhash, curPhash) > 40 : true;
-    if (lastPhash && !screenChanged) stuckCount++; else stuckCount = 0;
+    const screenChanged = prevPhash && curPhash ? pHashHamming(prevPhash, curPhash) > 40 : true;
     lastPhash = curPhash;
+    // 給護欄用的 pHash 訊號:要分清「沒變」與「根本沒有訊號」。screenChanged 在第一步或
+    // 缺 ImageMagick 時會是 true(對 prompt 提示合理),但那不代表「量到了變化」。
+    const phashSignal = prevPhash && curPhash ? screenChanged : null;
+
+    // 頁面互動狀態指紋(DOM):pHash 偵測不到「在輸入框打一個字」,DOM 一定抓得到。
+    // 兩者互補 —— 表單靠 DOM、canvas 遊戲靠 pHash,見 loopGuard.mjs 的判準演進說明。
+    // 指紋只在記憶體比對,不寫 S3、不進 step/trace/報告(密碼欄本身也只取長度)。
+    const prevPageSig = lastPageSig;
+    const curPageSig = await client.pageStateSignature().catch(() => null);
+    const pageChanged = prevPageSig && curPageSig ? curPageSig !== prevPageSig : null;
+    lastPageSig = curPageSig;
+
+    // 聯集:任一訊號看到反應就算有反應;至少有一個訊號但都沒看到反應 → false;
+    // 兩個訊號都拿不到 → null,護欄走「同畫面名計數」退路。
+    const anyChanged = pageChanged === null && phashSignal === null
+      ? null
+      : pageChanged === true || phashSignal === true;
+
+    // 凍結計數:接同一個聯集訊號。只看 pHash 的話,純填表單(pHash 對「多一個字」不敏感)
+    // 會被誤算成連續凍結,撐到 STUCK_ABORT_STEPS 就誤判「畫面連續 24 步無變化」。
+    if (anyChanged === false) stuckCount++; else stuckCount = 0;
+    // 下游(記憶地圖的「操作無效」記錄)統一用聯集訊號;拿不到訊號時當作「有變」,
+    // 不要把「不知道」記成「這個操作沒用」—— 那會汙染記憶地圖,讓以後的任務不敢再試。
+    const effectiveChanged = anyChanged === null ? true : anyChanged;
 
     const dimNow = pngSize(Buffer.from(shot, 'base64'));
     const origW = dimNow ? dimNow.w : (VP_W || 1280);
@@ -353,7 +378,8 @@ async function main() {
     const ssDim = { w: cw, h: ch };
     const dimHint =
       `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高)。座標請用「這張圖的絕對像素」:左上 (0,0),右下 (${cw},${ch})。把座標對到元件本身的正中心。` +
-      (stuckCount >= 2 ? `【注意】畫面已連續 ${stuckCount + 1} 步沒變化——換一個明顯不同的位置或改用 swipe 捲動。` : (i > 0 && !screenChanged ? '上一步後畫面沒變,換個位置或做法。' : ''));
+      // 用聯集訊號:別在模型剛成功輸入一個字時告訴它「畫面沒變」,那會逼它放棄正確做法。
+      (stuckCount >= 2 ? `【注意】畫面已連續 ${stuckCount + 1} 步沒變化——換一個明顯不同的位置或改用 swipe 捲動。` : (i > 0 && anyChanged === false ? '上一步後畫面沒變,換個位置或做法。' : ''));
     const freshCmds = await operator.poll();
     for (const c of freshCmds) await operator.ack(c, { status: 'received', step: i, screen: prevScreen || undefined });
     // 上一步回應無法解析的指令延續到這一步,仍以「剛下的指令」注入。
@@ -472,6 +498,9 @@ async function main() {
       at: new Date(t0).toISOString(),
       vlmMs,
       ...(i > 0 && curPhash ? { screenChanged } : {}),
+      // 護欄實際採用的聯集訊號(DOM 或 pHash)。單獨記下來,事後才查得出
+      // 「畫面沒變但 DOM 有變」這類只看 screenChanged 會誤判的情形。
+      ...(anyChanged === null ? {} : { stateChanged: anyChanged }),
       ...evidenceFields(cmd, cmd.action),
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),
@@ -489,7 +518,7 @@ async function main() {
     if (isNew) await s3put(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
     // 記憶命中(在 recordTransition 之前判斷,才分得出是不是舊記憶)。
     const memHit = memTrace.onStep({
-      pageId: pid, screenName, prevPageId, navAction, prevTarget, screenChanged,
+      pageId: pid, screenName, prevPageId, navAction, prevTarget, screenChanged: effectiveChanged,
       injectedHints: scoped, action: cmd.action, target: typeof cmd.target === 'string' ? cmd.target : '',
     });
     step.memory = memHit;
@@ -497,7 +526,7 @@ async function main() {
     await s3put(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json').catch(() => {});
     if (prevPageId && pid) {
       if (prevPageId !== pid) recordTransition(struct, prevPageId, pid, { action: navAction, target: prevTarget, op: navOp });
-      else if (!screenChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
+      else if (!effectiveChanged) recordMiss(struct, pid, { action: navAction, target: prevTarget });
       else if (navOp) recordSelfOp(struct, pid, { action: navAction, target: prevTarget, op: navOp });
     }
     struct.lastUpdatedAt = new Date().toISOString();
@@ -505,7 +534,7 @@ async function main() {
 
     await writeStatus('running', `第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
 
-    // 凍結畫面中止:畫面連續多步完全沒變(phash 不變)→ 可能載入卡死/被外部驗證阻擋/需人工。
+    // 凍結畫面中止:DOM 與畫面連續多步都沒變 → 可能載入卡死/被外部驗證阻擋/需人工。
     // 前 STUCK_WAIT_STEPS 步只耐心等待(可能仍在載入),超過硬上限仍全無變化 → 判定 error 結束,
     // 避免步數無上限的任務在雲端無止盡空轉計費。(對齊真機 runner 的耐心+中止策略。)
     if (stuckCount >= 3) {
@@ -523,17 +552,17 @@ async function main() {
       }
     }
 
-    // 死循環偵測:只有「做了動作、畫面卻完全沒反應」才算卡死(判準與理由見 loopGuard.mjs)。
-    // 2026-10-20(job-mvg3h10o):原本一律照「畫面名」計數,把登入表單誤殺 —— 一張登入表單
-    // 本來就是同一個畫面要走十幾步,被判死那 8 步裡有 7 步畫面確實在變,當時距離登入完成
-    // 只差「按完驗證碼 4/1/0 + 按登入」4 個動作。
+    // 死循環偵測:只有「做了動作、DOM 與畫面都沒反應」才算卡死(判準演進見 loopGuard.mjs)。
+    // 2026-10-20 兩次實機誤殺都是同一個坑的不同層:
+    //   job-mvg3h10o —— 照「畫面名」計數,登入表單本來就要在一個畫面走十幾步 → 誤殺
+    //   job-mvgdtt5i —— 改看 pHash,但 pHash 偵測不到「輸入框多一個字」,表單每步都算沒變 → 又誤殺
+    // 現在餵「DOM 指紋 或 pHash」的聯集,兩個訊號都看不到反應才計數。
     const loop = loopGuard.observe({
       screen: screenName,
       step: i,
       action: cmd.action,
       prevAction,
-      screenChanged,
-      haveChangeSignal: curPhash != null,
+      changed: anyChanged,
     });
     if (loop.abort) {
       finalState = 'fail';
