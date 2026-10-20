@@ -30,6 +30,10 @@ export interface WebRunParams {
   prefix: string; // tenants/<t>/jobs/<jobId>
   url: string; // 起始網址(engine 已從 case/app 解析)
   vlmModel?: string;
+  /** 決策 Agent 模型(agent seat);runner 每步規劃目標。空 = 不啟用,退回單一 VLM 席位。 */
+  agentModel?: string;
+  /** 輔助 Agent 模型(subagent seat);runner 每步核對效果、核對完成宣告。空 = 不啟用。 */
+  subagentModel?: string;
   caseTask?: string;
   /** 步數上限;未給代表無上限。 */
   maxSteps?: number;
@@ -56,6 +60,10 @@ export async function startWebRun(params: WebRunParams): Promise<WebRunResult> {
     { name: 'PA_PREFIX', value: params.prefix },
     { name: 'PA_DATA_REGION', value: DATA_REGION },
     { name: 'PA_VLM', value: params.vlmModel ?? '' },
+    // 三個 Agent 協作(與 Device Farm runner 同一套 agentTeam):決策與輔助席位的模型。
+    // 留空 = runner 不啟用該席位,退回「單一 VLM 同時判座標+決策」的舊行為。
+    { name: 'PA_AGENT_MODEL', value: params.agentModel ?? '' },
+    { name: 'PA_SUBAGENT_MODEL', value: params.subagentModel ?? '' },
     { name: 'PA_TASK', value: params.caseTask ?? '' },
     // 使用者選 UI-TARS 定位:把 endpoint 名傳給 runner(需 endpoint 已 InService)。
     ...(params.vlmModel === 'uitars' && UITARS_ENDPOINT

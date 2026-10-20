@@ -65,10 +65,12 @@ interface TaskItem {
 }
 
 /** 需要選「控制遊戲(agent)」「子代理(subagent)」模型的後端。
- *  web runner 只有單一 VLM 座位(同時判座標+決策),沒有獨立的 agent/subagent 座位,
- *  故 web 不開放這兩欄(開放了設定也不會被 runner 使用,只會誤導使用者)。 */
-const AGENT_SUBAGENT_BACKENDS = new Set(['emulator', 'devicefarm', 'attached']);
-/** 需要選 VLM 模型(判畫面座標,web 上同時兼任決策)的後端。web 也開放選擇(single-seat)。 */
+ *  2026-10-20:web runner 原本只有單一 VLM 座位(同時判座標+決策),所以這裡不開放 web。
+ *  現在 webExplorationRunner 已接上與 Device Farm 同一套 agentTeam.mjs
+ *  (視覺 Agent 看圖列元件 → 決策 Agent 選動作 → 輔助 Agent 背景核對),故 web 一併開放。
+ *  兩個席位留空時,runner 會自動退回原本的單一 VLM 行為。 */
+const AGENT_SUBAGENT_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
+/** 需要選 VLM 模型(看畫面、判座標)的後端。未選決策 Agent 時,VLM 同時兼任決策。 */
 const VLM_BACKENDS = new Set(['web', 'emulator', 'devicefarm', 'attached']);
 
 interface ModelEntry {
