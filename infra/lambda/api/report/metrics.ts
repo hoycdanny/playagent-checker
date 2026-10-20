@@ -13,7 +13,17 @@ function ledgerOf(c: { steps: EvidenceStep[]; values: Record<string, number> }):
 }
 
 export interface MetricContext {
+  /**
+   * AI 自己做的步驟 —— **不含測試人員接管期間的手動操作**(step.by === 'operator')。
+   *
+   * 為什麼預設就排除:這裡幾乎每個指標都是在描述「AI 做得怎麼樣」(成功率、無效輸出比例、
+   * 低信心次數…)。接管模式下人幫 AI 過了關,若把那些步驟算進來,報告會說是 AI 自己做到的。
+   * 放在 context 層一次濾掉,而不是逐一修十幾個計算器 —— 後者以後新增 ai_* 指標必定會漏。
+   * 需要「整場」資料的指標(總步數、畫面轉換數)請明確改用 allSteps。
+   */
   steps: EvidenceStep[];
+  /** 整場所有步驟(含人工接管)。只有「描述這場測試」而非「評價 AI」的指標才該用它。 */
+  allSteps: EvidenceStep[];
   findings: Finding[];
   aiFailures: Finding[];
   terminalState: string;
@@ -275,7 +285,12 @@ function screenIsLoading(screen: string): boolean {
 
 const BUILTIN: Record<string, Calc> = {
   ai_action_count: (c) => c.steps.filter(isInteractive).length,
-  total_steps: (c) => c.steps.length,
+  // 整場步數(含人工接管);「AI 做了幾步」是上面的 ai_action_count。
+  total_steps: (c) => c.allSteps.length,
+  /** 測試人員接管期間的手動操作步數。報告要分開呈現,不能混進 AI 的數字。 */
+  operator_step_count: (c) => c.allSteps.filter((s) => s.by === 'operator').length,
+  /** 整場有多少比例是人工接管完成的 —— 這個比例越高,AI 的指標越不能代表產品品質。 */
+  operator_step_rate: (c) => pct(c.allSteps.filter((s) => s.by === 'operator').length, c.allSteps.length),
   ai_successful_actions: (c) => {
     const ok = c.steps.filter((s) => isInteractive(s) && (s.assertion === 'pass' || (s.assertion === undefined && s.effective === true))).length;
     return c.steps.some((s) => s.assertion !== undefined || s.effective !== undefined) ? ok : null;
@@ -317,6 +332,7 @@ const BUILTIN: Record<string, Calc> = {
     return r.attempts && c.steps.some((s) => s.effective !== undefined) ? pct(r.success, r.attempts) : null;
   },
   invalid_action_count: (c) => c.steps.filter((s) => s.parseFailed).length,
+  // 分母是 AI 自己的步數:人工接管的步驟不會有 AI 輸出,放進分母會把比例稀釋成假的好看。
   invalid_action_rate: (c) => pct(c.steps.filter((s) => s.parseFailed).length, c.steps.length),
   model_error_count: (c) => c.steps.filter((s) => s.modelError).length,
   runner_override_count: (c) => c.steps.filter((s) => s.override).length,
@@ -335,7 +351,8 @@ const BUILTIN: Record<string, Calc> = {
   unique_screens: (c) => new Set(c.steps.map((s) => s.screen)).size,
   screen_transitions: (c) => {
     let n = 0;
-    for (let i = 1; i < c.steps.length; i++) if (c.steps[i]!.screen !== c.steps[i - 1]!.screen) n++;
+    // 畫面轉換是「這場測試走過哪些畫面」,人工接管走的也算,所以用 allSteps。
+    for (let i = 1; i < c.allSteps.length; i++) if (c.allSteps[i]!.screen !== c.allSteps[i - 1]!.screen) n++;
     return n;
   },
   avg_step_ms: (c) => avg(c.steps.map((s) => s.durationMs).filter((x): x is number => typeof x === 'number')),

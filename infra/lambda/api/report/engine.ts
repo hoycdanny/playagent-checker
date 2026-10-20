@@ -309,6 +309,9 @@ export function normalizeSteps(rawSteps: unknown, opts: { legacySlot: boolean })
     const v = num(s['vlmMs']); if (v !== undefined) step.vlmMs = v;
     if (typeof s['screenshotKey'] === 'string') step.screenshotKey = s['screenshotKey'];
     if (typeof s['annotatedKey'] === 'string') step.annotatedKey = s['annotatedKey'];
+    // 接管模式的手動操作:runner 寫 by='operator' + takeover=true。
+    // 沒讀出來的話欄位永遠是空的,指標也就永遠排除不掉(這是加這段的唯一理由)。
+    if (s['by'] === 'operator' || s['takeover'] === true) step.by = 'operator';
     out.push(step);
     prevResults.push(assertionOf(s['prevResult']));
     changed.push(typeof s['screenChanged'] === 'boolean' ? (s['screenChanged'] as boolean) : undefined);
@@ -1054,8 +1057,12 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const tokensRaw = raw['tokens'] as { input?: number; output?: number } | undefined;
   const tokens = typeof tokensRaw?.input === 'number' && typeof tokensRaw.output === 'number' ? { input: tokensRaw.input, output: tokensRaw.output } : undefined;
 
+  // 指標分流:steps = AI 自己做的,allSteps = 整場(含測試人員接管的手動操作)。
+  // 接管模式下人幫 AI 過關,若混在一起,報告會把人的成果算成 AI 的成功率。
+  const aiSteps = steps.filter((s) => s.by !== 'operator');
   const ctx: MetricContext = {
-    steps,
+    steps: aiSteps,
+    allSteps: steps,
     findings,
     aiFailures,
     terminalState: state,

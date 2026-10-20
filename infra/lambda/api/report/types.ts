@@ -119,6 +119,11 @@ export interface PerfMeta {
 
 /** 正規化後的一步 AI 執行證據(Observe → Reason → Action → Result → Assertion)。 */
 export interface EvidenceStep {
+  /**
+   * 這一步是誰做的。'operator' = 測試人員接管時手動操作;未給 = AI。
+   * 指標計算會把 operator 的步驟排除在「AI 表現」之外(見 metrics.ts 的 MetricContext)。
+   */
+  by?: 'ai' | 'operator';
   index: number;
   at?: string;
   /** Observed State(AI 標的畫面名)。 */
