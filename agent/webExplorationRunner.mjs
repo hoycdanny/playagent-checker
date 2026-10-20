@@ -404,8 +404,12 @@ async function main() {
     const ds = MAGICK ? resizeToSmartB64(shot, origW, origH) : { b64: shot, w: origW, h: origH, bytes: Math.floor((shot.length * 3) / 4), format: 'png' };
     const cw = ds.w, ch = ds.h, visionFmt = ds.format;
     const ssDim = { w: cw, h: ch };
+    // 分頁切換(點連結開了新視窗 / 彈出視窗關掉):畫面會整個換掉。一定要告訴模型原因,
+    // 否則它看到的是毫無關聯的新畫面,會以為自己上一步做錯而亂改做法。
+    const pageSwitchNote = client.consumePageSwitchNote();
     const dimHint =
       `這張截圖尺寸為 ${cw}x${ch} 像素(寬x高)。座標請用「這張圖的絕對像素」:左上 (0,0),右下 (${cw},${ch})。把座標對到元件本身的正中心。` +
+      (pageSwitchNote ? `【分頁已切換】${pageSwitchNote}` : '') +
       // 用聯集訊號:別在模型剛成功輸入一個字時告訴它「畫面沒變」,那會逼它放棄正確做法。
       (stuckCount >= 2 ? `【注意】畫面已連續 ${stuckCount + 1} 步沒變化——換一個明顯不同的位置或改用 swipe 捲動。` : (i > 0 && anyChanged === false ? '上一步後畫面沒變,換個位置或做法。' : ''));
     const freshCmds = await operator.poll();
@@ -570,6 +574,9 @@ async function main() {
       // 護欄實際採用的聯集訊號(DOM 或 pHash)。單獨記下來,事後才查得出
       // 「畫面沒變但 DOM 有變」這類只看 screenChanged 會誤判的情形。
       ...(anyChanged === null ? {} : { stateChanged: anyChanged }),
+      // 這一步換了分頁(開新視窗 / 彈出視窗關閉)。報告與除錯都需要:否則「畫面突然變成
+      // 另一個網站」看起來像 AI 亂跳,實際上是連結開了新分頁。
+      ...(pageSwitchNote ? { pageSwitched: true, pageCount: client.pageCount } : {}),
       ...evidenceFields(cmd, cmd.action),
       // 三個 Agent 協作:這一步的動作是誰決定的、視覺 Agent 原本想做什麼、決策花了多久。
       ...(cmd.decidedBy ? { decidedBy: cmd.decidedBy } : {}),

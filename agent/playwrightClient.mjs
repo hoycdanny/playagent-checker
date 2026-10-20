@@ -18,8 +18,11 @@
 import { chromium } from 'playwright';
 import { normalizeKey } from './keyNames.mjs';
 import { buildPageSignature } from './pageSignature.mjs';
+import { createPageTracker, safePageUrl } from './pageTracker.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+
 
 /**
  * 按鍵按住時間(毫秒)與連按間隔。要大於雲端容器裡遊戲的一幀(低 fps 時 100–200 ms),
@@ -47,9 +50,17 @@ const KEYS = {
 export class PlaywrightClient {
   #browser;
   #context;
+  /**
+   * 「作用中分頁」。截圖、DOM 指紋、點擊、按鍵全部走這個物件,所以只要把它換掉,
+   * 整個 runner 就自然跟著看新分頁 —— 不需要改任何呼叫點。
+   */
   #page;
+  /** 分頁追蹤(開新視窗 / 彈出視窗關閉時決定作用中分頁);規則見 pageTracker.mjs。 */
+  #tracker;
   #w;
   #h;
+  /** 目前的 CDP screencast 設定與卸除函式;切換分頁時要重綁,否則即時畫面會停在舊分頁。 */
+  #cast = null;
 
   constructor(browser, context, page, viewport) {
     this.#browser = browser;
@@ -57,6 +68,38 @@ export class PlaywrightClient {
     this.#page = page;
     this.#w = viewport.width;
     this.#h = viewport.height;
+    this.#tracker = createPageTracker({
+      context,
+      page,
+      log: (m) => console.log(m),
+      // 切到新分頁時:帶到前景(headless 不帶會不重繪)+ 把即時串流接到新分頁。
+      onActiveChange: (p) => {
+        this.#page = p;
+        void (async () => {
+          try { await p.bringToFront(); } catch { /* 分頁可能已關閉 */ }
+          await this.#rebindCast();
+        })();
+      },
+    });
+  }
+
+  /**
+   * 目前該操作的分頁。彈出視窗可能自己關掉,對已關閉的 Page 操作會拋錯並中斷整個 runner,
+   * 所以每次碰頁面之前都先問 tracker 一次。
+   */
+  #ensureAlive() {
+    this.#page = this.#tracker.active();
+    return this.#page;
+  }
+
+  /** 取走「分頁切換了」的說明(取走即清空)。runner 把它加進該回合給 AI 的訊息。 */
+  consumePageSwitchNote() {
+    return this.#tracker.consumeNote();
+  }
+
+  /** 目前開著的分頁數(供 runner 記錄/除錯)。 */
+  get pageCount() {
+    return this.#tracker.count;
   }
 
   /**
@@ -98,12 +141,18 @@ export class PlaywrightClient {
 
   /** 目前頁面 URL(供 trace/報告呈現)。 */
   currentUrl() {
-    try { return this.#page.url(); } catch { return ''; }
+    try { return this.#ensureAlive().url(); } catch { return ''; }
   }
 
   /** 截圖 → base64 PNG(視埠)。 */
   async takeScreenshot() {
-    const buf = await this.#page.screenshot({ type: 'png' });
+    const p = this.#ensureAlive();
+    // 剛開的分頁可能還停在 about:blank(還沒導航完)。直接截圖會得到一張全白圖,
+    // 模型看到空白畫面會亂猜。給一小段寬限期等它開始載入;等不到就照截(不拖住主迴圈)。
+    if (safePageUrl(p) === 'about:blank') {
+      await p.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => {});
+    }
+    const buf = await p.screenshot({ type: 'png' });
     return Buffer.from(buf).toString('base64');
   }
 
@@ -137,7 +186,7 @@ export class PlaywrightClient {
   async pageStateSignature() {
     try {
       // buildPageSignature 必須自包含:evaluate 是把函式原始碼送進頁面執行,閉包不會過去。
-      return await this.#page.evaluate(buildPageSignature);
+      return await this.#ensureAlive().evaluate(buildPageSignature);
     } catch {
       return null;
     }
@@ -154,6 +203,8 @@ export class PlaywrightClient {
    * 座標為「裝置/視埠像素」(runner 已從 smart-resize 空間換算回視埠像素)。
    */
   async act(cmd) {
+    // 彈出視窗可能自己關掉;先確認作用中分頁還活著,否則對已關閉的 Page 操作會整個拋錯。
+    this.#ensureAlive();
     switch (cmd.action) {
       case 'tap': {
         // 預設左鍵;測試腳本把滑鼠右鍵/中鍵定義了用途時,模型可給 "button":"right"|"middle"。
@@ -236,7 +287,15 @@ export class PlaywrightClient {
         break;
       }
       case 'back': {
-        await this.#page.goBack({ waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => {});
+        // 在「新開的分頁」上按返回:這個分頁沒有上一頁可回(goBack 回 null),
+        // 正確語意是關掉它回到原本的分頁 —— 否則 AI 會卡在彈出視窗裡出不來。
+        const cur = this.#ensureAlive();
+        const canClose = this.#tracker.canClosePopup();
+        const nav = await cur.goBack({ waitUntil: 'domcontentloaded', timeout: 20_000 }).catch(() => null);
+        if (!nav && canClose) {
+          // close 事件會把作用中分頁切回上一個並留下說明給 AI。
+          await cur.close().catch(() => {});
+        }
         break;
       }
       case 'launch': {
@@ -264,11 +323,34 @@ export class PlaywrightClient {
    * @returns stop() 停止 screencast
    */
   async startScreencast(onFrame, options = {}) {
+    // 記住設定:切換分頁時要用同一組參數在新分頁上重新開 screencast,
+    // 否則即時畫面會永遠停在舊分頁(使用者會以為任務卡住了)。
+    this.#cast = { onFrame, options, detach: null };
+    await this.#rebindCast();
+    return async () => {
+      const c = this.#cast;
+      this.#cast = null;
+      if (c?.detach) await c.detach().catch(() => {});
+    };
+  }
+
+  /** 把 screencast 接到目前的作用中分頁(先卸掉舊的)。沒設定過就什麼都不做。 */
+  async #rebindCast() {
+    if (!this.#cast) return;
+    const prev = this.#cast.detach;
+    this.#cast.detach = null;
+    if (prev) await prev().catch(() => {});
+    if (!this.#cast) return; // 重綁途中被 stop 了
+    this.#cast.detach = await this.#attachCast(this.#cast.onFrame, this.#cast.options);
+  }
+
+  /** 在目前分頁開 CDP screencast;回傳卸除函式。 */
+  async #attachCast(onFrame, options = {}) {
     const quality = options.quality ?? 55;
     const everyNth = Math.max(1, options.everyNthFrame ?? 1);
     let cdp;
     try {
-      cdp = await this.#context.newCDPSession(this.#page);
+      cdp = await this.#context.newCDPSession(this.#ensureAlive());
     } catch (err) {
       // CDP 不可用(理論上 Chromium 一定有);回傳 no-op 停止函式,不影響主流程。
       return async () => {};
