@@ -256,6 +256,18 @@ export async function findRunningBuild(ports: SystemUpdatePorts): Promise<BuildP
   return null;
 }
 
+/**
+ * CodeBuild 因「同時只能跑一個 build」而拒絕 StartBuild。
+ * 實際錯誤:AccountLimitExceededException —— 名字看起來像帳號額度,其實是專案的
+ * concurrentBuildLimit(見 infra/lib/updater-stack.ts),所以也一併比對訊息內容。
+ */
+export function isConcurrencyRejection(err: unknown): boolean {
+  const e = err as { name?: unknown; message?: unknown } | null;
+  const name = typeof e?.name === 'string' ? e.name : '';
+  const msg = typeof e?.message === 'string' ? e.message : '';
+  return name === 'AccountLimitExceededException' || /concurrent build limit/i.test(msg);
+}
+
 export interface StartUpdateInput {
   ref: string;
   by: string;
@@ -304,7 +316,18 @@ export async function startUpdate(
   const stillRunning = await findRunningBuild(ports);
   if (stillRunning) throw new UpdateError(`已有更新正在執行(${stillRunning.buildId}),請等它結束`);
 
-  const buildId = await ports.startBuild({ ref: input.ref, by: input.by, runTests: input.runTests !== false });
+  // CodeBuild 的 concurrentBuildLimit: 1 是最後一道擋關。極端競態下(兩個請求幾乎同時
+  // 通過上面的檢查)它會丟 AccountLimitExceededException —— 那串原始錯誤對使用者毫無意義,
+  // 而且會讓人以為「系統壞了」,其實只是「另一個更新正在跑」。翻成同一句人看得懂的話。
+  let buildId: string;
+  try {
+    buildId = await ports.startBuild({ ref: input.ref, by: input.by, runTests: input.runTests !== false });
+  } catch (err) {
+    if (isConcurrencyRejection(err)) {
+      throw new UpdateError('已有更新正在執行,請等它結束再試');
+    }
+    throw err;
+  }
   // 先記一筆 started,build 自己結束時會再補 success/failed。
   const history = await ports.readHistory().catch(() => []);
   await ports

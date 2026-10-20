@@ -107,3 +107,27 @@ describe('startUpdate:其他既有把關不能被改壞', () => {
     expect(calls.startBuild).toBe(1);
   });
 });
+
+describe('CodeBuild 的並行上限被觸發時,要給人看得懂的訊息', () => {
+  test('AccountLimitExceededException → 翻成「已有更新正在執行」', async () => {
+    const { ports } = makePorts({ running: [null, null] });
+    ports.startBuild = async () => {
+      const e = new Error('Concurrent build limit exceeded. This build project has a limit of 1 concurrent build(s).');
+      e.name = 'AccountLimitExceededException';
+      throw e;
+    };
+    await expect(startUpdate(ports, 'o/r', { ref: 'main', by: 'me' })).rejects.toThrow(/已有更新正在執行/);
+  });
+
+  test('只靠訊息內容也認得出來(SDK 改了錯誤名稱時不會漏)', async () => {
+    const { ports } = makePorts({ running: [null, null] });
+    ports.startBuild = async () => { throw new Error('Concurrent build limit exceeded'); };
+    await expect(startUpdate(ports, 'o/r', { ref: 'main', by: 'me' })).rejects.toThrow(UpdateError);
+  });
+
+  test('其他錯誤照原樣往上拋(不要把真正的故障偽裝成並行問題)', async () => {
+    const { ports } = makePorts({ running: [null, null] });
+    ports.startBuild = async () => { throw new Error('IAM role not authorized'); };
+    await expect(startUpdate(ports, 'o/r', { ref: 'main', by: 'me' })).rejects.toThrow(/IAM role not authorized/);
+  });
+});
