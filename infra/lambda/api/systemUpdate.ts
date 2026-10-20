@@ -277,6 +277,7 @@ export async function startUpdate(
   const token = await ports.readToken();
   if (!isValidRef(input.ref)) throw new UpdateError('版本字串格式不正確(只接受 tag / 分支 / commit sha)');
 
+  // 早期檢查:讓使用者在按下按鈕時就看到「已經有更新在跑」,不用等。
   const running = await findRunningBuild(ports);
   if (running) throw new UpdateError(`已有更新正在執行(${running.buildId}),請等它結束`);
 
@@ -288,6 +289,20 @@ export async function startUpdate(
   // 存在性檢查:避免把不存在的字串傳進 CodeBuild(那會在 build 中段才失敗)。
   const sha = await resolveSha(ports, token ?? '', repo, input.ref);
   if (!sha) throw new UpdateError(`GitHub 上找不到版本 ${input.ref}`);
+
+  // ── 再檢查一次,就在啟動前 ──
+  //
+  // 上面那次檢查到這裡之間夾了一次 GitHub API 往返(數秒)。兩個人(或同一個人點兩下)
+  // 都會通過第一次檢查,然後兩個 build 一起跑 —— 兩個 cdk deploy 搶同一個 changeset,
+  // 第二個以 `Cannot delete ChangeSet in status CREATE_IN_PROGRESS` 失敗。
+  // 實測這個專案最近 20 次 build 的 5 次失敗,每一次都是這樣來的(都在另一次成功的 7~8 秒內)。
+  //
+  // 把檢查壓到啟動前可以把窗口從「數秒」縮到「毫秒級」。這仍是 check-then-act,
+  // 不是真正的互斥 —— 真正的互斥由 CodeBuild 專案的 concurrentBuildLimit: 1 擋
+  // (見 infra/lib/updater-stack.ts)。兩層都要:這一層負責給出好的錯誤訊息,
+  // 那一層負責在極端競態下真的擋住。
+  const stillRunning = await findRunningBuild(ports);
+  if (stillRunning) throw new UpdateError(`已有更新正在執行(${stillRunning.buildId}),請等它結束`);
 
   const buildId = await ports.startBuild({ ref: input.ref, by: input.by, runTests: input.runTests !== false });
   // 先記一筆 started,build 自己結束時會再補 success/failed。
