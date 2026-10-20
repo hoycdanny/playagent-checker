@@ -37,7 +37,7 @@ COPY exploration-runner.package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
 # 複製 runner 與其模組。
-COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs memoryTrace.mjs perfMonitor.mjs liveVideo.mjs mediaAudio.mjs moveFeedback.mjs deviceLogs.mjs agentTeam.mjs obsGuard.mjs adbClient.mjs windowsClient.mjs spinWatch.mjs converseShape.mjs tokenUsage.mjs scriptTracker.mjs reflex.mjs slotBoardTracker.mjs slotVideoCapture.mjs spinSettle.mjs slotPayout.mjs ./
+COPY explorationRunner.mjs appiumClient.mjs deviceFarmRefresh.mjs deviceFarmSetup.mjs imageTools.mjs apkMerge.mjs uitarsClient.mjs secretsResolver.mjs evidenceProtocol.mjs memoryGraph.mjs operatorMemory.mjs memoryTrace.mjs perfMonitor.mjs liveVideo.mjs mediaAudio.mjs moveFeedback.mjs deviceLogs.mjs agentTeam.mjs obsGuard.mjs adbClient.mjs windowsClient.mjs spinWatch.mjs converseShape.mjs tokenUsage.mjs scriptTracker.mjs reflex.mjs slotBoardTracker.mjs slotVideoCapture.mjs spinSettle.mjs slotPayout.mjs takeover.mjs ./
 
 # 上面這份清單是逐檔列的,新增 runner 模組一定要同步加進來 —— 漏了不會在建置時報錯,
 # 而是容器一啟動就 ERR_MODULE_NOT_FOUND(實測 job-mvd28c6f:缺 spinSettle.mjs,
