@@ -22,8 +22,24 @@ const T = {
   pointSent: ['已送出,馬上在裝置上點擊', 'Sent — tapping on the device now'],
   dragSent: ['已送出,馬上在裝置上拖曳', 'Sent — dragging on the device now'],
   dragTime: ['拖曳 {s} 秒', '{s}s drag'],
+  takeover: ['接管(自己操作)', 'Take over (drive it yourself)'],
+  takeoverOn: ['接管中 · AI 已暫停', 'You are driving · AI paused'],
+  takeoverHint: ['直接點或拖畫面就會立刻執行,不用再按送出。AI 在接管期間不會動作,也不計費。', 'Click or drag the screen and it runs immediately — no submit needed. The AI is paused and not billed while you drive.'],
+  takeoverBusy: ['執行中…', 'Running…'],
+  takeoverFail: ['送不出去,請再試一次', 'Could not send — try again'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+
+/** 接管模式的圖示:一隻手(= 我自己來)。 */
+function HandIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d="M8 13V5.5a1.5 1.5 0 0 1 3 0V12" />
+      <path d="M11 11.5V4.5a1.5 1.5 0 0 1 3 0V12" />
+      <path d="M14 11.5v-1a1.5 1.5 0 0 1 3 0V16a5 5 0 0 1-5 5h-1a6 6 0 0 1-6-6v-2.5a1.5 1.5 0 0 1 3 0" />
+    </svg>
+  );
+}
 
 function CrosshairIcon() {
   return (
@@ -74,6 +90,9 @@ export function LiveScreen({
   point,
   onPoint,
   onSendPoint,
+  takeover,
+  onTakeover,
+  onTakeoverGesture,
 }: {
   jobId: string;
   isLive: boolean;
@@ -91,6 +110,12 @@ export function LiveScreen({
   onPoint?: (p: PickPoint | null) => void;
   /** 「直接點這裡」:只送位置,runner 直接在裝置上執行(不經 AI)。 */
   onSendPoint?: (p: PickPoint) => Promise<void>;
+  /** 接管模式開著嗎(AI 暫停,由測試人員自己操作)。 */
+  takeover?: boolean;
+  /** 切換接管模式。 */
+  onTakeover?: (enabled: boolean) => Promise<void>;
+  /** 接管中的手勢:點了就直接送出執行(不用再按送出)。 */
+  onTakeoverGesture?: (p: PickPoint) => Promise<void>;
 }) {
   const [ps, setPs] = useState<LivePlayerState>({ playing: false });
   const [aspect, setAspect] = useState(9 / 20);
@@ -101,8 +126,31 @@ export function LiveScreen({
   const handleAspect = (a: number) => { setAspect(a); onAspect?.(a); };
   const open = () => openLivePopout(jobId, aspect);
   const delay = ps.delaySec !== undefined ? Math.max(1, Math.round(ps.delaySec)) : undefined;
-  // 「指定點擊」要使用者主動開啟;平常觀看不顯示藍框,點畫面仍是開新視窗。
-  const pickable = isLive && !!onPoint && pickMode;
+  // 接管中:整個畫面一直可操作,點了就直接執行(不需要先開「指定點擊」、也不用按送出)。
+  // 非接管:「指定點擊」要使用者主動開啟;平常觀看不顯示藍框,點畫面仍是開新視窗。
+  const takeoverOn = !!takeover;
+  const pickable = isLive && (takeoverOn ? !!onTakeoverGesture : (!!onPoint && pickMode));
+  const [tkBusy, setTkBusy] = useState(0);   // 飛行中的手勢數(連續點擊不互相阻擋)
+  const [tkErr, setTkErr] = useState(false);
+  const [tkToggling, setTkToggling] = useState(false);
+
+  // 接管中的手勢:立刻送出。刻意不因為「上一個還沒回」就擋住下一個 ——
+  // 手動操作常是連續快點,擋住會讓人以為沒反應;每筆各自有 id,runner 依序執行。
+  async function runTakeoverGesture(p: PickPoint) {
+    if (!onTakeoverGesture) return;
+    setTkErr(false);
+    setTkBusy((n) => n + 1);
+    try { await onTakeoverGesture(p); } catch { setTkErr(true); } finally { setTkBusy((n) => Math.max(0, n - 1)); }
+  }
+
+  async function toggleTakeover() {
+    if (!onTakeover || tkToggling) return;
+    setTkToggling(true);
+    try {
+      await onTakeover(!takeoverOn);
+      if (!takeoverOn) { setPickMode(false); onPoint?.(null); } // 進接管就關掉「指定點擊」,避免兩套操作混在一起
+    } catch { setTkErr(true); } finally { setTkToggling(false); }
+  }
 
   async function sendPoint() {
     if (!point || !onSendPoint || sending) return;
@@ -145,7 +193,13 @@ export function LiveScreen({
       alt={alt}
       onState={setPs}
       onAspect={handleAspect}
-      {...(pickable ? { onPick: (p: PickPoint) => onPoint!(p), marker: point ?? null } : {})}
+      {...(pickable
+        ? {
+            // 接管中直接執行;非接管維持「先選位置、再按送出」(那時可以附一句文字說明給 AI)。
+            onPick: (p: PickPoint) => { if (takeoverOn) void runTakeoverGesture(p); else onPoint!(p); },
+            marker: takeoverOn ? null : (point ?? null),
+          }
+        : {})}
     />
   );
 
@@ -157,9 +211,10 @@ export function LiveScreen({
             {player}
           </button>
         )}
-        {pickable && !point && !sentAt && <span className="livescreen__hint">{tx('pickHint', lang)}</span>}
+        {takeoverOn && <span className="livescreen__hint">{tx('takeoverHint', lang)}</span>}
+        {!takeoverOn && pickable && !point && !sentAt && <span className="livescreen__hint">{tx('pickHint', lang)}</span>}
         {sentAt > 0 && <span className="livescreen__note is-ok" role="status">{tx(sentDrag ? 'dragSent' : 'pointSent', lang)}</span>}
-        {pickable && point && (
+        {!takeoverOn && pickable && point && (
           <div className="livescreen__pick" role="group" aria-label={tx(point.to ? 'dragTitle' : 'pickTitle', lang)}>
             <span className="livescreen__pick-pos">
               {point.to ? '↗' : <InfoIcon name="pin" size={13} />} {formatPick(point)}
@@ -180,8 +235,28 @@ export function LiveScreen({
           <span className={`livescreen__mode ${ps.playing ? 'is-live' : ''}`}>
             {ps.playing ? `${tx('realtime', lang)}${delay ? ` · ~${delay}s` : ''}` : tx('frames', lang)}
           </span>
+          {takeoverOn && (
+            <span className="livescreen__takeover" role="status">
+              {tx('takeoverOn', lang)}{tkBusy > 0 ? ` · ${tx('takeoverBusy', lang)}` : ''}
+            </span>
+          )}
+          {tkErr && <span className="livescreen__note is-bad" role="alert">{tx('takeoverFail', lang)}</span>}
           <span className="livescreen__spacer" />
-          {onPoint && (
+          {onTakeover && (
+            <button
+              type="button"
+              className={`livescreen__btn ${takeoverOn ? 'is-on' : ''}`}
+              onClick={() => void toggleTakeover()}
+              disabled={tkToggling}
+              aria-pressed={takeoverOn}
+              title={tx('takeover', lang)}
+              aria-label={tx('takeover', lang)}
+            >
+              <HandIcon />
+            </button>
+          )}
+          {/* 接管中不顯示「指定點擊」:兩套操作邏輯混在一起會讓人不知道點了會發生什麼事。 */}
+          {onPoint && !takeoverOn && (
             <button
               type="button"
               className={`livescreen__btn ${pickMode ? 'is-on' : ''}`}
