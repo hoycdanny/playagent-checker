@@ -271,6 +271,9 @@ export default function TaskDetailPage() {
   // ── 時間軸(像影音剪輯軟體):一個共用播放頭,錄影 / 步驟 / AI 呼叫 / 聲音 / 裝置 log 都跟著它 ──
   const isDevice = backend === 'devicefarm' || backend === 'emulator';
   const logcat = useDeviceLog<LogChunk>(jobId ?? '', 'logcat', isLive, !!jobId && isDevice);
+  // 網頁任務:瀏覽器 console(等同 Chrome DevTools 的 Console);與 logcat 同格式、同一條管線。
+  const isWeb = backend === 'web';
+  const consoleLog = useDeviceLog<LogChunk>(jobId ?? '', 'console', isLive, !!jobId && isWeb);
   const summaryTraces = useTraces(jobId ?? '', isLive, !!jobId, 'summary');
   const [videoDur, setVideoDur] = useState<Record<string, number>>({});
   const onDuration = useCallback((name: string, sec: number) => {
@@ -632,12 +635,14 @@ export default function TaskDetailPage() {
                   jobId={jobId}
                   isLive={isLive}
                   device={isDevice}
+                  browser={isWeb}
                   levels={audioLevels}
                   steps={soundStepRefs}
                   onSeek={seekTo}
                   cursor={cursor}
                   origin={timeline.origin}
                   {...(isDevice ? { logcat } : {})}
+                  {...(isWeb ? { consoleLog } : {})}
                   cursorStep={cursorStep}
                 />
               </div>

@@ -29,6 +29,7 @@ import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { createLoopGuard } from './loopGuard.mjs';
 import { createAgentTeam, normalizeElements, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
+import { createBrowserLogs } from './browserLogs.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure } from './memoryGraph.mjs';
 import { opFromCmd } from './reflex.mjs';
@@ -266,6 +267,11 @@ async function main() {
 
   await writeStatus('running', '瀏覽器啟動中', 0);
   const client = await PlaywrightClient.create({ width: VP_W || 1280, height: VP_H || 800, url: START_URL });
+
+  // 瀏覽器 console log(任務詳情頁的「Console」分頁;相當於 Chrome DevTools 的 Console)。
+  // 立刻訂閱:設定之前發生的事件沒人收。輸出成 logcat 格式,沿用真機那條 devlogs 管線。
+  const browserLogs = createBrowserLogs({ put: s3put, prefix: PREFIX, log: (m) => console.log(m) });
+  if (process.env.PA_CONSOLE_LOGS !== '0') client.onBrowserLog((e) => browserLogs.push(e));
 
   // 讀注入知識(engine 已組 context.json)。
   let knowledge = '';
@@ -655,6 +661,9 @@ async function main() {
       team.record({ index: i, screen: screenName, action: cmd.action });
     }
 
+    // 瀏覽器 console:把這一步累積的訊息寫成一個片段(沒有訊息就不寫,不產生空檔案)。
+    await browserLogs.collect(i, client.currentUrl()).catch(() => {});
+
     await writeStatus('running', `第 ${i + 1} 步:${cmd.action} @ ${screenName}`, steps.length);
 
     // 凍結畫面中止:DOM 與畫面連續多步都沒變 → 可能載入卡死/被外部驗證阻擋/需人工。
@@ -774,6 +783,10 @@ async function main() {
   // 等輔助 Agent 對最後一步的核對落地,否則最後一筆 review 會來不及寫進報告。
   if (teamPending) await Promise.race([teamPending, sleep(15000)]).catch(() => {});
 
+  // 最後一批 console 訊息(最後一步之後、以及結束途中發生的)也要寫出去。
+  await browserLogs.collect(steps.length, client.currentUrl()).catch(() => {});
+  console.log(`[console] 共 ${browserLogs.stats.all} 則(錯誤 ${browserLogs.stats.error}、警告 ${browserLogs.stats.warn})`);
+
   console.log(memTrace.summaryLog());
   await s3put(`${PREFIX}/memory-usage.json`, JSON.stringify(memTrace.summary()), 'application/json').catch(() => {});
   const nodes = Object.values(struct.pages).map((p) => ({ id: p.id, name: p.name, screenshotKey: `${MEM_PREFIX}/screenshots/${p.id}.png` }));
@@ -789,6 +802,8 @@ async function main() {
       tokensBySeat: { vlm: { ...tok }, agent: { ...team.tokens.agent }, subagent: { ...team.tokens.subagent } },
       seatModels: { vlm: VLM, ...(AGENT_MODEL ? { agent: AGENT_MODEL } : {}), ...(SUBAGENT_MODEL ? { subagent: SUBAGENT_MODEL } : {}) },
     } : {}),
+    // 瀏覽器 console 統計:報告引擎可據此提「網站有 N 個 JS 錯誤」這類發現。
+    consoleStats: browserLogs.stats,
     stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges },
     tokens: team ? addUsage(addUsage(tok, team.tokens.agent), team.tokens.subagent) : { ...tok },
     // 依「實際呼叫的模型」記的 token(含重問、備援模型、快取)—— 費用以它為準。

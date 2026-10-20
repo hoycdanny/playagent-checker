@@ -34,10 +34,21 @@ export function safePageUrl(p) {
  * @param {(p:object)=>unknown} [o.onActiveChange] 作用中分頁換人時呼叫(帶到前景、重綁串流)
  * @param {(m:string)=>unknown} [o.log]
  */
-export function createPageTracker({ context, page, onActiveChange = () => {}, log = () => {} }) {
+export function createPageTracker({ context, page, onActiveChange = () => {}, onPageAdded = () => {}, log = () => {} }) {
   let pages = [page];
   let active = page;
   let note = '';
+  /** 分頁序號(1 起算):console log 借 logcat 的 pid 欄位呈現「這是哪一個分頁」。 */
+  let nextIndex = 1;
+  const indexOf = new Map();
+
+  /** 納管一個分頁:編號 + 監聽關閉 + 通知呼叫端(掛 console 監聽)。 */
+  function adopt(p) {
+    if (indexOf.has(p)) return;
+    indexOf.set(p, nextIndex++);
+    watch(p);
+    try { onPageAdded(p, indexOf.get(p)); } catch { /* 監聽掛不上不影響主流程 */ }
+  }
 
   const alive = () => pages.filter((p) => p && !p.isClosed());
 
@@ -60,16 +71,16 @@ export function createPageTracker({ context, page, onActiveChange = () => {}, lo
     try { onActiveChange(p); } catch { /* 切換失敗不影響主流程 */ }
   }
 
-  // 規則 3:起始載入期間已存在的其他分頁先納管,但不切過去。
+  // 起始分頁先編 1 號,再納管起始載入期間已存在的其他分頁(規則 3:不切過去)。
+  adopt(page);
   for (const p of context.pages()) {
-    if (p !== page) { pages.unshift(p); watch(p); }
+    if (p !== page) { pages.unshift(p); adopt(p); }
   }
-  watch(page);
 
   // 規則 1:之後冒出來的新分頁一律切過去。
   context.on('page', (p) => {
     pages.push(p);
-    watch(p);
+    adopt(p);
     note = `剛才的操作開啟了新分頁,畫面已切換到新分頁(${safePageUrl(p)})。這是正常的,請依新分頁的內容繼續;要回到原本的分頁就用 back。`;
     setActive(p);
   });
@@ -102,6 +113,11 @@ export function createPageTracker({ context, page, onActiveChange = () => {}, lo
       const n = note;
       note = '';
       return n;
+    },
+
+    /** 某個分頁的序號(1 起算);沒納管過回 0。 */
+    indexOf(p) {
+      return indexOf.get(p) ?? 0;
     },
   };
 }

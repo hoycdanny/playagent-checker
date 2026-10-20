@@ -2,17 +2,22 @@
  * 真機 log(runner agent/deviceLogs.mjs 每步上傳):
  *   jobs/<id>/devlogs/logcat/<序號6位>.txt   logcat 片段(App 全部 + 系統 W/E + crash)
  *   jobs/<id>/devlogs/audio/<序號6位>.json   音效播放器 / 聲音輸出狀態快照
+ *   jobs/<id>/devlogs/console/<序號6位>.txt  網頁任務的瀏覽器 console
+ *                                            (agent/browserLogs.mjs;刻意用與 logcat 相同的
+ *                                             行格式,前端 parseLogcat / LogcatView 直接重用)
  * 依序號分頁讀取(StartAfter 游標);任務詳情頁展開「裝置 Log」時才呼叫。
  */
 import { GetObjectCommand, ListObjectsV2Command, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
 
-export type DeviceLogKind = 'logcat' | 'audio';
-export const DEVICE_LOG_KINDS: readonly DeviceLogKind[] = ['logcat', 'audio'];
+export type DeviceLogKind = 'logcat' | 'audio' | 'console';
+export const DEVICE_LOG_KINDS: readonly DeviceLogKind[] = ['logcat', 'audio', 'console'];
 
 const NAME_RE: Record<DeviceLogKind, RegExp> = {
   logcat: /^\d{6}\.txt$/,
   audio: /^\d{6}\.json$/,
+  // 網頁任務的瀏覽器 console(agent/browserLogs.mjs 每步上傳,格式與 logcat 相同)。
+  console: /^\d{6}\.txt$/,
 };
 
 /** 單次回應內容預算(位元組,保守估計:中文字以 2 bytes 計)。 */
@@ -54,7 +59,7 @@ export async function readDeviceLogs(
     try {
       const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${prefix}${name}` }));
       const body = (await obj.Body?.transformToString()) ?? '';
-      if (kind === 'logcat') return { name, text: body.slice(0, 400_000) };
+      if (kind === 'logcat' || kind === 'console') return { name, text: body.slice(0, 400_000) };
       return { name, data: JSON.parse(body) as unknown };
     } catch {
       return { name };

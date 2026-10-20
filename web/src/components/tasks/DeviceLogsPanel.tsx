@@ -29,6 +29,14 @@ const T = {
   ],
   logcat: ["裝置", "Device", "设备", "デバイス", "기기"],
   audio: ["音效", "Sound", "音效", "サウンド", "사운드"],
+  consoleTab: ["Console", "Console", "Console", "Console", "Console"],
+  consoleHint: [
+    "瀏覽器的 console 訊息、未捕捉的 JavaScript 錯誤、失敗的網路請求與對話框(等同 Chrome DevTools 的 Console)",
+    "Browser console messages, uncaught JavaScript errors, failed network requests and dialogs (same as Chrome DevTools Console)",
+    "浏览器的 console 信息、未捕获的 JavaScript 错误、失败的网络请求与对话框(等同 Chrome DevTools 的 Console)",
+    "ブラウザの console メッセージ、未捕捉の JavaScript エラー、失敗したネットワークリクエストとダイアログ(Chrome DevTools の Console 相当)",
+    "브라우저 console 메시지, 처리되지 않은 JavaScript 오류, 실패한 네트워크 요청 및 대화상자(Chrome DevTools Console과 동일)"
+  ],
   lvAll: [
     "全部",
     "Everything",
@@ -303,18 +311,20 @@ async function readAll<I>(jobId: string, kind: string, after: string | undefined
  * 「數據分析」與「Token 用量」原本也是這裡的分頁,已拉到任務詳情頁的上層分頁列
  * (LiveAnalysisView / UsageView),這裡只留逐步的 log 與三個 Agent 的互動紀錄。
  */
-type Tab = 'logcat' | 'audio' | AgentSeat;
-const TAB_LABEL: Record<Tab, keyof typeof T> = { logcat: 'logcat', audio: 'audio', vlm: 'agentVlm', agent: 'agentMain', subagent: 'agentSub' };
-const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { vlm: 'agentVlmHint', agent: 'agentMainHint', subagent: 'agentSubHint' };
+type Tab = 'logcat' | 'audio' | 'console' | AgentSeat;
+const TAB_LABEL: Record<Tab, keyof typeof T> = { logcat: 'logcat', audio: 'audio', console: 'consoleTab', vlm: 'agentVlm', agent: 'agentMain', subagent: 'agentSub' };
+const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { console: 'consoleHint', vlm: 'agentVlmHint', agent: 'agentMainHint', subagent: 'agentSubHint' };
 
 /**
  * 任務詳情頁右欄「日誌檢視」:裝置系統 Log / 音效播放狀態(真機才有)+ 三個 AI Agent 每一步的互動紀錄。
  * device=false(非真機)時只顯示 AI Agent 分頁。lang 保留相容;文案依介面語系(五語)。
  */
-export function DeviceLogsPanel({ jobId, isLive, device = true, levels, steps, onSeek, cursor, origin, logcat, cursorStep }: {
+export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false, levels, steps, onSeek, cursor, origin, logcat, consoleLog, cursorStep }: {
   jobId: string;
   isLive: boolean;
   device?: boolean;
+  /** 網頁任務:多一個「Console」分頁(瀏覽器 console,等同 Chrome DevTools)。 */
+  browser?: boolean;
   lang?: RLang;
   /** 錄影聲音時間軸(音效分頁對照「有沒有真的聽到」)。 */
   levels?: AudioLevels | null;
@@ -328,23 +338,31 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, levels, steps, o
   origin?: number;
   /** 外層已讀好的 logcat(時間軸也要用,避免讀兩次)。 */
   logcat?: DeviceLogState<LogChunk>;
+  /** 外層已讀好的瀏覽器 console(格式與 logcat 相同,共用 LogcatView)。 */
+  consoleLog?: DeviceLogState<LogChunk>;
   /** 播放頭所在的步驟(AI 分頁標出這一步)。 */
   cursorStep?: number | null;
 }) {
   const { locale: loc } = useI18n();
   const ownLog = useDeviceLog<LogChunk>(jobId, 'logcat', isLive, device && !logcat);
   const log = logcat ?? ownLog;
+  const ownConsole = useDeviceLog<LogChunk>(jobId, 'console', isLive, browser && !consoleLog);
+  const consoleChunks = consoleLog ?? ownConsole;
   const sync: TimeSync = { ...(cursor !== undefined ? { cursor } : {}), ...(origin !== undefined ? { origin } : {}), ...(onSeek ? { onSeek } : {}) };
   // 點 AI 紀錄的步驟 → 播放頭跳到那一步開始。
   const stepStart = useMemo(() => new Map((steps ?? []).map((s) => [s.index, s.t])), [steps]);
   const pickStep = onSeek ? (index: number) => { const t = stepStart.get(index); if (t !== undefined) onSeek(t, false); } : undefined;
   // 順序:裝置 → 音效 → 視覺 → 決策 → 輔助(視覺 → 決策 → 輔助 = 每一步的執行順序)。
   // 預設:真機停在裝置;非真機停在視覺。
+  // 網頁任務:Console 擺第一個(測網頁時最常看的就是它,等同開 DevTools)。
   const agentTabs: Tab[] = ['vlm', 'agent', 'subagent'];
-  const tabs: Tab[] = device ? ['logcat', 'audio', ...agentTabs] : agentTabs;
-  // 頁面剛載入時還不知道是不是真機任務(device 會從 false 變 true):使用者沒點過分頁前,預設跟著 device 走。
+  const tabs: Tab[] = device
+    ? ['logcat', 'audio', ...agentTabs]
+    : browser ? ['console', ...agentTabs] : agentTabs;
+  // 頁面剛載入時還不知道是哪種任務(device / browser 會從 false 變 true):
+  // 使用者沒點過分頁前,預設跟著任務類型走。
   const [picked, setTab] = useState<Tab | null>(null);
-  const tab: Tab = picked && tabs.includes(picked) ? picked : device ? 'logcat' : 'vlm';
+  const tab: Tab = picked && tabs.includes(picked) ? picked : device ? 'logcat' : browser ? 'console' : 'vlm';
   const isAgent = tab === 'vlm' || tab === 'agent' || tab === 'subagent';
   const traces = useTraces(jobId, isLive, isAgent, isAgent ? (tab as AgentSeat) : 'summary');
   const hint = TAB_HINT[tab];
@@ -371,6 +389,9 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, levels, steps, o
       {hint && <p className="devlogs__muted">{tx(hint, loc)}</p>}
       {tab === 'logcat' ? (
         <LogcatView jobId={jobId} log={log} sync={sync} />
+      ) : tab === 'console' ? (
+        // 瀏覽器 console 與 logcat 行格式相同,直接共用同一個檢視(等級/來源篩選、時間軸連動)。
+        <LogcatView jobId={jobId} log={consoleChunks} sync={sync} />
       ) : tab === 'audio' ? (
         <AudioView jobId={jobId} isLive={isLive} log={log} sync={sync} {...(levels !== undefined ? { levels } : {})} {...(steps ? { steps } : {})} />
       ) : (
@@ -390,7 +411,7 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, levels, steps, o
 }
 
 /** 讀取並(執行中時)每 5 秒以游標續讀。enabled = false 不讀(外層已經讀好傳進來)。 */
-export function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio', isLive: boolean, enabled = true): DeviceLogState<I> {
+export function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio' | 'console', isLive: boolean, enabled = true): DeviceLogState<I> {
   const [items, setItems] = useState<I[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
