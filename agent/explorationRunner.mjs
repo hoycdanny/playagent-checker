@@ -50,6 +50,7 @@ import { createMediaRecorder } from './mediaAudio.mjs';
 import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
 import { createAgentTeam, normalizeElements, screenFromSeen, scriptSteps, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
+import { createTakeover } from './takeover.mjs';
 import { createScriptTracker, DEFAULT_ITEM_BUDGET } from './scriptTracker.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapAsync, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
@@ -934,6 +935,13 @@ async function main() {
   if (appMemory.hints.length) console.log(`應用記憶:載入 ${appMemory.hints.length} 條使用者教學`);
   // 測試人員即時指令通道(聊天室 → commands/*.json,每步輪詢)。
   const operator = createOperatorChannel({ s3, bucket: BUCKET, jobPrefix: PREFIX, cmds: S3CMDS });
+  // 接管模式(與 web runner 共用 takeover.mjs):測試人員自己操作裝置時不呼叫 VLM,
+  // 延遲從 5~10 秒降到輪詢間隔,接管期間也不產生模型費用。
+  const takeover = createTakeover({
+    s3, bucket: BUCKET, jobPrefix: PREFIX, cmds: S3CMDS, log: (m) => console.log(m),
+  });
+  /** 接管期間的操作序列(【學習 B】結束後寫出,可轉成可重跑的測試腳本)。 */
+  const takeoverScript = [];
   // 載入時先收斂舊格式的雜亂資料(重複節點/自環/wait 邊),之後以新規則增量更新;
   // 使用者在記憶地圖刪掉的畫面/路徑先移除(只套刪除,改名留在讀取端)。
   const struct = applyEdits(compactStructure(await loadStructure()), appMemory.edits, { renames: false, addedEdges: false });
@@ -1335,10 +1343,103 @@ async function main() {
     }
   };
 
+  /**
+   * 接管模式:執行一筆手動操作並記成一步(與 web runner 同語意,見 webExplorationRunner)。
+   * 標 by='operator',報告才分得出「這步是人做的」(見 report/metrics.ts 的 MetricContext)。
+   */
+  const applyTakeoverAction = async (act, idx) => {
+    const t0 = Date.now();
+    let shot = null;
+    try { shot = await client.takeScreenshot(); } catch { /* 截不到就不附圖,動作照做 */ }
+    const dim = shot ? pngSize(Buffer.from(shot, 'base64')) : null;
+    const dw = dim ? dim.w : w;
+    const dh = dim ? dim.h : h;
+    if (shot) s3putBg(`${PREFIX}/screenshots/${idx}.png`, Buffer.from(shot, 'base64'), 'image/png');
+    // Appium 的點擊空間 == 截圖像素空間;解析度可能因轉向而變,所以每次都對一次。
+    await client.setCoordinateSpace(dw, dh).catch(() => null);
+    const px = (p) => ({ x: Math.round(p.x * dw), y: Math.round(p.y * dh) });
+    let deviceCmd = null;
+    if (act.kind === 'tap') deviceCmd = { action: 'tap', ...px(act.point) };
+    else if (act.kind === 'drag') {
+      const a = px(act.point); const b = px(act.to);
+      deviceCmd = { action: 'swipe', x: a.x, y: a.y, x2: b.x, y2: b.y, durationMs: act.dragMs, drag: true };
+    } else if (act.kind === 'key') deviceCmd = { action: 'key', key: act.key, repeat: act.repeat, ...(act.holdMs ? { holdMs: act.holdMs } : {}) };
+    else if (act.kind === 'type') deviceCmd = { action: 'type', text: act.text };
+    else if (act.kind === 'back') deviceCmd = { action: 'back' };
+    let ok = false;
+    if (deviceCmd) {
+      // 手動輸入同樣可用 ${帳號} 佔位符;真值只在送到裝置那一刻替換,不落 S3。
+      if (deviceCmd.action === 'type' && deviceCmd.text) {
+        const sub = await substituteText(deviceCmd.text, appCredentials).catch(() => null);
+        if (sub) deviceCmd.text = sub.text;
+      }
+      try { await client.act(deviceCmd); ok = true; } catch (e) { console.warn('[takeover] 動作失敗:', e?.message || e); }
+    }
+    const screenName = steps[steps.length - 1]?.screen || `手動操作 ${idx}`;
+    const step = {
+      index: idx,
+      action: deviceCmd?.action ?? 'wait',
+      screen: screenName,
+      thinking: `測試人員接管:${act.kind}`,
+      by: 'operator',
+      takeover: true,
+      ...(deviceCmd?.x != null ? { x: deviceCmd.x, y: deviceCmd.y, deviceX: deviceCmd.x, deviceY: deviceCmd.y } : {}),
+      ...(deviceCmd?.x2 != null ? { x2: deviceCmd.x2, y2: deviceCmd.y2, deviceX2: deviceCmd.x2, deviceY2: deviceCmd.y2 } : {}),
+      ...(act.kind === 'key' ? { key: act.key, ...(act.repeat > 1 ? { repeat: act.repeat } : {}) } : {}),
+      ...(shot ? { screenshotKey: `${PREFIX}/screenshots/${idx}.png` } : {}),
+      durationMs: Date.now() - t0,
+      at: new Date(t0).toISOString(),
+      ...(ok ? {} : { actionFailed: true }),
+    };
+    steps.push(step);
+    s3putBg(`${PREFIX}/steps/${idx}.json`, JSON.stringify(step), 'application/json');
+
+    // 【學習 A】記進記憶地圖:同一個畫面下次卡住時,AI 會重用這一招。
+    // 接管時沒有 VLM 畫面名,用「上一個已知畫面名 + pHash」認頁面(findMatch 會以 pHash 合併)。
+    if (ok && shot && MAGICK) {
+      const ph = pHashHex(shot);
+      const { pageId } = upsertPage(struct, { name: screenName, pHash: ph ?? '' });
+      if (pageId && deviceCmd) {
+        recordSelfOp(struct, pageId, {
+          action: deviceCmd.action,
+          target: `測試人員示範(${act.kind})`,
+          op: opFromCmd(deviceCmd, dw, dh),
+        });
+        struct.lastUpdatedAt = new Date().toISOString();
+        s3putBg(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json');
+      }
+    }
+    // 【學習 B】操作序列(打字只存原字串/佔位符,絕不存憑證真值)。
+    takeoverScript.push({
+      seq: takeoverScript.length, kind: act.kind, screen: screenName,
+      ...(act.point ? { point: act.point } : {}),
+      ...(act.to ? { to: act.to, dragMs: act.dragMs } : {}),
+      ...(act.key ? { key: act.key, repeat: act.repeat } : {}),
+      ...(act.text ? { text: act.text } : {}),
+      at: new Date(t0).toISOString(), ok,
+    });
+    await takeover.ack(act, {
+      status: 'applied', step: idx, direct: true,
+      ...(deviceCmd?.x != null ? { device: { x: deviceCmd.x, y: deviceCmd.y, ...(deviceCmd.x2 != null ? { x2: deviceCmd.x2, y2: deviceCmd.y2 } : {}) } } : {}),
+    });
+    await writeStatus('running', `第 ${idx + 1} 步:測試人員接管(${act.kind})`, steps.length);
+  };
+
   for (let i = 0; i < MAX_STEPS; i++) {
     curStep = i;
     // 取消旗標檢查。
     if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
+
+    // ── 接管模式:測試人員自己操作裝置,AI 完全不介入(不呼叫 VLM)。
+    // 沒有待辦操作時原地等 250ms 再看一次,並把 i 退回去 —— 空等不該消耗步數上限。
+    if (await takeover.enabled(1000)) {
+      const acts = await takeover.poll();
+      if (acts.length === 0) { await sleep(250); i -= 1; continue; }
+      let n = 0;
+      for (const a of acts) { await applyTakeoverAction(a, i + n); n += 1; }
+      i += n - 1; // for 的 i++ 會再加 1,合計剛好推進 n 步
+      continue;
+    }
 
     // 執行時間:這段連線到第 WRAP_MIN 分鐘 → 長時模式換新連線;否則這一步當最後一步收尾。
     if (!wrapUpAsked && SESSION_ARN && Date.now() - segStartedAt >= WRAP_MIN * 60_000) {
@@ -2826,6 +2927,14 @@ async function main() {
   // 前端據此判斷要不要顯示 RTP 圖表(見 computeRtpStats 註解)。
   // 結束前才按停止(例如最後一步正好卡住/出錯):以使用者的「停止」為準;真的完成(pass)則保留。
   if (finalState !== 'pass' && finalState !== 'cancelled' && await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; }
+  // 【學習 B】接管期間的操作序列:寫出供「轉成可重跑的測試腳本」使用。
+  if (takeoverScript.length > 0) {
+    await s3put(`${PREFIX}/takeover-script.json`, JSON.stringify({
+      jobId: JOB, platform: PLATFORM, package: PKG,
+      actions: takeoverScript, generatedAt: new Date().toISOString(),
+    }), 'application/json').catch(() => {});
+    console.log(`[takeover] 已記錄 ${takeoverScript.length} 個手動操作,可轉成測試腳本`);
+  }
   if (finalState === 'pass') updateScriptProgress(team, { allDone: true });
   // SPIN 迴圈有逐局數字 → 以它為準(含餘額交叉驗算與 95% 信賴區間);否則照舊從 thinking 文字估。
   const loopRtp = rtpLoop.rounds.length ? rtpSummary(rtpLoop.rounds, { startBalance: rtpLoop.startBalance, endBalance: rtpLoop.endBalance }) : null;
