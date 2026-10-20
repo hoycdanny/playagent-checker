@@ -78,22 +78,34 @@ export interface SpinTxn {
   bet: number;
   win: number;
   balance?: number;
+  /**
+   * 與上一筆交易在原始步序上「沒有隔著會動到餘額的回報」。
+   *
+   * spinTransactions 會刻意丟掉 AutoSpin 累計、Bonus / 免費遊戲、以及 runner 說沒等到靜止的
+   * 回報。但那些回合照樣會動到餘額,所以一旦中間掉了一筆,餘額遞推的基準就不成立 ——
+   * 把倖存的相鄰兩筆當成連續兩局去對帳會憑空生出大量「不一致」。
+   */
+  contiguous?: boolean;
 }
 
 /** 由觀測欄位(bet/win/balance)重建每一次 spin;同一 spin 連續重複回報只算一次。 */
 export function spinTransactions(steps: EvidenceStep[]): SpinTxn[] {
   const txns: SpinTxn[] = [];
   let lastSig = '';
+  // 自上一筆交易以來,有沒有掉過「會動到餘額」的回報(掉過 → 遞推鏈斷,不可對帳)。
+  let brokeChain = false;
   for (const s of steps) {
     const o = s.obs;
+    // 收掉獎勵 / 贈送金幣也會動到餘額,但它不是一次 spin;遇到就讓鏈斷掉。
+    if (o && toNum(o['non_slot_credit']) !== null) brokeChain = true;
     if (!o) continue;
     // AutoSpin 進行中的觀測是「多次 spin 之後的累計狀態」,不是單次 spin 結果(改走 autospinRtp 餘額差法),
     // 不可當成逐次交易,否則餘額一致性檢查會誤報大量不一致。
-    if (toNum(o['autospin_left']) !== null) continue;
+    if (toNum(o['autospin_left']) !== null) { brokeChain = true; continue; }
     // Bonus / Free Spins 期間不扣注、派彩於結算時一次入帳,逐格比對必然「不一致」,不列入逐次交易。
-    if (o['bonus'] === true) continue;
+    if (o['bonus'] === true) { brokeChain = true; continue; }
     // runner 明確回報「沒等到畫面靜止」:數字可能讀在派彩滾動途中,不可拿去做餘額對帳。
-    if (s.settled === false) continue;
+    if (s.settled === false) { brokeChain = true; continue; }
     const bet = toNum(o['bet']);
     if (bet === null || bet <= 0) continue;
     const spun = o['spun'] === true || s.mechanic === 'spin';
@@ -103,7 +115,8 @@ export function spinTransactions(steps: EvidenceStep[]): SpinTxn[] {
     // 沒有明確 spun 旗標時,用「數值組合改變」視為新的一次 spin 結果。
     if (!spun && sig === lastSig) continue;
     lastSig = sig;
-    txns.push({ step: s.index, bet, win, ...(balance !== undefined ? { balance } : {}) });
+    txns.push({ step: s.index, bet, win, ...(balance !== undefined ? { balance } : {}), contiguous: !brokeChain });
+    brokeChain = false;
   }
   return txns;
 }
@@ -159,25 +172,45 @@ const MISREAD_BET_MULTIPLE = 100;
  *   差額是投注額的數千倍)—— 這是少讀/多讀一位數,不是遊戲算錯帳。
  * 只有 plausible 才可以升級成遊戲缺陷,否則單純的看錯字會讓整份報告判失敗(AC-G03)。
  */
-export function balanceChecks(txns: SpinTxn[]): { checked: number; mismatches: SpinTxn[]; plausible: SpinTxn[]; misread: SpinTxn[] } {
+export function balanceChecks(txns: SpinTxn[]): {
+  checked: number;
+  mismatches: SpinTxn[];
+  plausible: SpinTxn[];
+  misread: SpinTxn[];
+  /** 鏈斷掉而跳過的對帳數(中間有 Bonus / AutoSpin / 未靜止 / 贈送金幣)。 */
+  skippedChainBreaks: number;
+  /** 讀在「派彩入帳前」的快照數(差額剛好等於贏分,見下方說明)。 */
+  preCredit: SpinTxn[];
+} {
   let checked = 0;
+  let skippedChainBreaks = 0;
   const mismatches: SpinTxn[] = [];
   const plausible: SpinTxn[] = [];
   const misread: SpinTxn[] = [];
+  const preCredit: SpinTxn[] = [];
   for (let i = 1; i < txns.length; i++) {
     const prev = txns[i - 1]!;
     const cur = txns[i]!;
     if (prev.balance === undefined || cur.balance === undefined) continue;
+    // 遞推鏈斷了(中間有被濾掉的回合會動到餘額)→ 這一筆無法對帳,也不算進分母。
+    if (cur.contiguous === false) { skippedChainBreaks++; continue; }
     const expected = prev.balance - cur.bet + cur.win;
     const tol = Math.max(1, Math.abs(expected) * 0.005);
-    checked++;
     const gap = Math.abs(cur.balance - expected);
-    if (gap <= tol) continue;
+    if (gap <= tol) { checked++; continue; }
+    // 「派彩入帳前的快照」:下注已扣、WIN 欄已顯示金額,但餘額還沒加上去 —— 差額會剛好
+    // 等於那筆贏分。2026-10-19(job-mvfve9ax)實測:step 9 bet=1320 win=7099,
+    // 餘額 998680 正好 = 1000000 − 1320,派彩尚未入帳。這是讀數時機,不是遊戲算錯帳,
+    // 所以不算一次有效對帳(也不算不一致),只記在 preCredit 供報告說明。
+    if (cur.win > 0 && Math.abs(gap - cur.win) <= tol) { preCredit.push(cur); continue; }
+    // 上一筆是入帳前快照 → 這一筆的遞推基準本身就少了那筆贏分。
+    if (prev.win > 0 && Math.abs(gap - prev.win) <= tol) { preCredit.push(cur); continue; }
+    checked++;
     mismatches.push(cur);
     if (gap > cur.bet * MISREAD_BET_MULTIPLE) misread.push(cur);
     else plausible.push(cur);
   }
-  return { checked, mismatches, plausible, misread };
+  return { checked, mismatches, plausible, misread, skippedChainBreaks, preCredit };
 }
 
 // ───────── 內建計算器 ─────────
@@ -490,6 +523,18 @@ const BUILTIN: Record<string, Calc> = {
   },
   // AutoSpin 模式下兩次觀測之間跨了多次 spin / Bonus 結算,逐次餘額比對不成立 → 不收集(避免誤報 Critical)。
   balance_checks: (c) => (autospinRtp(c.steps) ? null : nz(balanceChecks(spinTransactions(c.steps)).checked)),
+  /**
+   * 「量級合理」的不一致次數 —— 風險與放行規則看這個,不看總不符數也不看正確率。
+   *
+   * 理由:總不符數含讀錯位數的那種(misread),而正確率在小樣本下太敏感
+   * (job-mvfve9ax 實測 21 次檢查、2 次不符 → 90.48%,98% 的門檻等於零容忍)。
+   * 驗收引擎判「遊戲算錯帳」的條件是「量級合理 ≥3 次」,規則看同一個數字兩邊才會一致。
+   */
+  balance_mismatch_plausible_count: (c) => {
+    if (autospinRtp(c.steps)) return null;
+    const r = balanceChecks(spinTransactions(c.steps));
+    return r.checked ? r.plausible.length : null;
+  },
   balance_mismatch_count: (c) => {
     if (autospinRtp(c.steps)) return null;
     const r = balanceChecks(spinTransactions(c.steps));

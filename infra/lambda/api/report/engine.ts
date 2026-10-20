@@ -584,7 +584,7 @@ function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleO
   const txns = spinTransactions(steps);
   // AutoSpin 模式(餘額差法)下觀測不是逐次 spin,不做逐次餘額比對(見 metrics.balance_checks)。
   const bc = autospinRtp(steps)
-    ? { checked: 0, mismatches: [] as typeof txns, plausible: [] as typeof txns, misread: [] as typeof txns }
+    ? { checked: 0, mismatches: [] as typeof txns, plausible: [] as typeof txns, misread: [] as typeof txns, skippedChainBreaks: 0, preCredit: [] as typeof txns }
     : balanceChecks(txns);
   if (bc.mismatches.length > 0) {
     const first = (bc.plausible[0] ?? bc.mismatches[0])!;
