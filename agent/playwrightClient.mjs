@@ -61,6 +61,8 @@ export class PlaywrightClient {
   #h;
   /** 目前的 CDP screencast 設定與卸除函式;切換分頁時要重綁,否則即時畫面會停在舊分頁。 */
   #cast = null;
+  /** 瀏覽器 console / 錯誤 / 失敗請求的接收端(runner 設定;等同 DevTools 的 Console)。 */
+  #logSink = null;
 
   constructor(browser, context, page, viewport) {
     this.#browser = browser;
@@ -72,6 +74,8 @@ export class PlaywrightClient {
       context,
       page,
       log: (m) => console.log(m),
+      // 每個分頁(含之後開的新分頁)都要掛 console 監聽,否則新分頁的錯誤會漏掉。
+      onPageAdded: (p, idx) => this.#attachLogs(p, idx),
       // 切到新分頁時:帶到前景(headless 不帶會不重繪)+ 把即時串流接到新分頁。
       onActiveChange: (p) => {
         this.#page = p;
@@ -95,6 +99,63 @@ export class PlaywrightClient {
   /** 取走「分頁切換了」的說明(取走即清空)。runner 把它加進該回合給 AI 的訊息。 */
   consumePageSwitchNote() {
     return this.#tracker.consumeNote();
+  }
+
+  /**
+   * 訂閱瀏覽器 console / 未捕捉錯誤 / 失敗請求 / 對話框 —— 等同 DevTools 的 Console 分頁。
+   * 要在 create() 之後「立刻」呼叫:設定之前發生的事件沒有人收,會漏掉。
+   * 已經開著的分頁會補掛,之後開的新分頁由 pageTracker 的 onPageAdded 自動掛。
+   * @param {(e:{type?:string,level?:string,tag?:string,msg:string,at?:number,pageIndex?:number})=>unknown} cb
+   */
+  onBrowserLog(cb) {
+    this.#logSink = cb;
+    for (const p of this.#context.pages()) this.#attachLogs(p, this.#tracker.indexOf(p) || 1);
+  }
+
+  /**
+   * 把一個分頁的瀏覽器事件接到 #logSink。同一個分頁重複呼叫會重複掛,所以用旗標擋住
+   * (onBrowserLog 的補掛與 onPageAdded 可能都碰到同一個分頁)。
+   */
+  #attachLogs(page, pageIndex) {
+    if (!this.#logSink || page.__paLogsAttached) return;
+    page.__paLogsAttached = true;
+    const emit = (e) => {
+      try { this.#logSink?.({ at: Date.now(), pageIndex, ...e }); } catch { /* 收集端錯誤不影響測試 */ }
+    };
+    // console.log / warn / error / info / debug…
+    page.on('console', (m) => {
+      let where = '';
+      try {
+        const l = m.location();
+        if (l?.url) where = ` @ ${String(l.url).split('/').pop()}:${l.lineNumber ?? 0}`;
+      } catch { /* 位置拿不到就不寫 */ }
+      emit({ type: m.type(), tag: 'console', msg: `${m.text()}${where}` });
+    });
+    // 未捕捉的例外 / Promise rejection:DevTools 會紅字顯示的那種。
+    page.on('pageerror', (err) => {
+      emit({ level: 'E', tag: 'page-error', msg: `${err?.name || 'Error'}: ${err?.message || String(err)} ${err?.stack || ''}` });
+    });
+    // 請求失敗(連不上、被阻擋、CORS、逾時)。
+    page.on('requestfailed', (req) => {
+      let why = '';
+      try { why = req.failure()?.errorText || ''; } catch { /* ignore */ }
+      emit({ level: 'W', tag: 'network', msg: `${req.method()} ${req.url()} 失敗 ${why}` });
+    });
+    // HTTP 4xx / 5xx:畫面可能看不出來,但常是「按了沒反應」的真正原因。
+    page.on('response', (res) => {
+      try {
+        const s = res.status();
+        if (s >= 400) emit({ level: s >= 500 ? 'E' : 'W', tag: 'network', msg: `HTTP ${s} ${res.url()}` });
+      } catch { /* ignore */ }
+    });
+    // alert / confirm / prompt:Playwright 預設會自動關掉,但它會卡住頁面,一定要記下來。
+    page.on('dialog', (d) => {
+      let msg = '';
+      try { msg = `${d.type()} ${d.message()}`; } catch { /* ignore */ }
+      emit({ level: 'W', tag: 'dialog', msg: `出現對話框:${msg}` });
+    });
+    // 分頁崩潰(Aw, Snap!)。
+    page.on('crash', () => emit({ level: 'F', tag: 'page-error', msg: '分頁崩潰(crash)' }));
   }
 
   /** 目前開著的分頁數(供 runner 記錄/除錯)。 */
