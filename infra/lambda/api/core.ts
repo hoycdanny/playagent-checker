@@ -72,6 +72,15 @@ import { ACCEPTANCE_STANDARD_TAG } from './report/acceptance.js';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { listMediaSegments, readAudioLevels, withRecordingUrls } from './liveMedia.js';
 import { DEVICE_LOG_KINDS, readDeviceLogs, type DeviceLogKind } from './deviceLogs.js';
+import {
+  readTakeoverScript,
+  readTakeoverState,
+  takeoverScriptToYaml,
+  TakeoverValidationError,
+  validateTakeoverAction,
+  writeTakeoverAction,
+  writeTakeoverState,
+} from './takeover.js';
 import { generateInsights } from './report/insights.js';
 import { CATALOG, modelsForSeat, type Seat, type Channel, type CoordSystem } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
@@ -1741,6 +1750,44 @@ export async function handleRequest(
             console.warn('[ask] failed', err);
             return json(502, { error: `AI 問答失敗:${err instanceof Error ? err.message : String(err)}` });
           }
+        }
+        // ── 接管模式(測試人員自己操作畫面;runner 接管期間不呼叫 VLM)──
+        //   GET  /tasks/{id}/takeover            → { enabled }
+        //   PUT  /tasks/{id}/takeover            body { enabled }
+        //   POST /tasks/{id}/takeover/input      body { kind, point?, to?, dragMs?, key?, text? }
+        //   GET  /tasks/{id}/takeover/script     → 手動操作序列 + 可直接存成案例的 YAML
+        const takeoverMatch = /^\/tasks\/([^/]+)\/takeover$/.exec(req.path);
+        if (takeoverMatch && (req.method === 'GET' || req.method === 'PUT')) {
+          const jobId = takeoverMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          if (req.method === 'GET') return json(200, await readTakeoverState(s3, deps.bucket, tenant.tenantId, jobId));
+          const enabled = (req.body as { enabled?: unknown } | undefined)?.enabled;
+          if (typeof enabled !== 'boolean') return json(400, { error: 'enabled 必須是 true 或 false' });
+          return json(200, await writeTakeoverState(s3, deps.bucket, tenant.tenantId, jobId, enabled, tenant.email ?? undefined));
+        }
+        const takeoverInputMatch = req.method === 'POST' && /^\/tasks\/([^/]+)\/takeover\/input$/.exec(req.path);
+        if (takeoverInputMatch) {
+          const jobId = takeoverInputMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          try {
+            const action = validateTakeoverAction(req.body);
+            return json(202, await writeTakeoverAction(s3, deps.bucket, tenant.tenantId, jobId, action, tenant.email ?? undefined));
+          } catch (err) {
+            if (err instanceof TakeoverValidationError) return json(400, { error: err.message });
+            throw err;
+          }
+        }
+        const takeoverScriptMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/takeover\/script$/.exec(req.path);
+        if (takeoverScriptMatch) {
+          const jobId = takeoverScriptMatch[1]!;
+          if (!isValidJobId(jobId)) return json(400, { error: 'jobId 格式不正確' });
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          const script = await readTakeoverScript(s3, deps.bucket, tenant.tenantId, jobId);
+          if (!script) return json(404, { error: '這次測試沒有接管操作紀錄' });
+          const name = `接管錄製 ${jobId}`;
+          return json(200, { ...script, yaml: takeoverScriptToYaml(script, name), suggestedName: name });
         }
         const devLogMatch = req.method === 'GET' && /^\/tasks\/([^/]+)\/device-logs$/.exec(req.path);
         if (devLogMatch) {

@@ -30,6 +30,7 @@ import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { createLoopGuard } from './loopGuard.mjs';
 import { createAgentTeam, normalizeElements, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { createBrowserLogs } from './browserLogs.mjs';
+import { createTakeover } from './takeover.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure } from './memoryGraph.mjs';
 import { opFromCmd } from './reflex.mjs';
@@ -273,6 +274,13 @@ async function main() {
   const browserLogs = createBrowserLogs({ put: s3put, prefix: PREFIX, log: (m) => console.log(m) });
   if (process.env.PA_CONSOLE_LOGS !== '0') client.onBrowserLog((e) => browserLogs.push(e));
 
+  // 接管模式:測試人員自己操作畫面時,不呼叫 VLM(省掉 5~10 秒延遲,也不產生模型費用)。
+  const takeover = createTakeover({
+    s3, bucket: BUCKET, jobPrefix: PREFIX,
+    cmds: { ListObjectsV2Command, GetObjectCommand, PutObjectCommand },
+    log: (m) => console.log(m),
+  });
+
   // 讀注入知識(engine 已組 context.json)。
   let knowledge = '';
   let evidence = null; // 證據協議(由類型知識庫決定)
@@ -344,6 +352,8 @@ async function main() {
   let lastPageSig = null; // 上一步的 DOM 互動狀態指紋(只在記憶體,不落 S3)
   const loopGuard = createLoopGuard({ limit: 8 });
   let teamDoneRejects = 0; // 輔助 Agent 否決「完成」的次數(有上限,避免弱模型反覆否決)
+  // 【AI 學習 B】測試人員接管期間的操作順序,結束後寫出,供「轉成可重跑測試腳本」使用。
+  const takeoverScript = [];
   let consecParseFail = 0;
 
   await writeStatus('running', 'AI 網頁探索執行中', 0);
@@ -367,8 +377,105 @@ async function main() {
   if (liveTimer.unref) liveTimer.unref();
   const stopScreencast = await client.startScreencast((b64) => { liveLatest = b64; }, { quality: 55, maxWidth: 1280, maxHeight: 800 }).catch(() => async () => {});
 
+  /** 接管中的輪詢間隔(毫秒)。這就是手動操作的延遲上限 —— 不經 VLM。 */
+  const TAKEOVER_POLL_MS = 250;
+  /**
+   * 接管模式:執行一筆手動操作並記成一步。
+   * 刻意記成完整的 step(含截圖),因為報告、記憶地圖、產生腳本都要它;
+   * 但標 by='operator',報告才分得出「這步是人做的,不是 AI 做的」。
+   */
+  const applyTakeoverAction = async (act, idx) => {
+    const t0 = Date.now();
+    let shot = null;
+    try { shot = await client.takeScreenshot(); } catch { /* 截不到就不附圖,動作照做 */ }
+    const dim = shot ? pngSize(Buffer.from(shot, 'base64')) : null;
+    const w = dim ? dim.w : (VP_W || 1280);
+    const h = dim ? dim.h : (VP_H || 800);
+    if (shot) await s3put(`${PREFIX}/screenshots/${idx}.png`, Buffer.from(shot, 'base64'), 'image/png').catch(() => {});
+    // 相對座標 → 當前畫面像素(接管期間視埠可能和前端預覽不同,所以每次重算)。
+    const px = (p) => ({ x: Math.round(p.x * w), y: Math.round(p.y * h) });
+    let deviceCmd = null;
+    if (act.kind === 'tap') deviceCmd = { action: 'tap', ...px(act.point) };
+    else if (act.kind === 'drag') {
+      const a = px(act.point); const b = px(act.to);
+      deviceCmd = { action: 'swipe', x: a.x, y: a.y, x2: b.x, y2: b.y, durationMs: act.dragMs, drag: true };
+    } else if (act.kind === 'key') deviceCmd = { action: 'key', key: act.key, repeat: act.repeat, ...(act.holdMs ? { holdMs: act.holdMs } : {}) };
+    else if (act.kind === 'type') deviceCmd = { action: 'type', text: act.text };
+    else if (act.kind === 'back') deviceCmd = { action: 'back' };
+    let ok = false;
+    if (deviceCmd) {
+      // 憑證替換:手動輸入也可以用 ${帳號} 這類佔位符,真值只在送到頁面那一刻替換。
+      if (deviceCmd.action === 'type' && deviceCmd.text) {
+        const sub = await substituteText(deviceCmd.text, appCredentials).catch(() => null);
+        if (sub) deviceCmd.text = sub.text;
+      }
+      try { await client.act(deviceCmd); ok = true; } catch (e) { console.warn('[takeover] 動作失敗:', e?.message || e); }
+    }
+    const screenName = prevScreen || `手動操作 ${idx}`;
+    const step = {
+      index: idx,
+      action: deviceCmd?.action ?? 'wait',
+      screen: screenName,
+      thinking: `測試人員接管:${act.kind}`,
+      // 報告引擎據此把這步排除在 AI 指標之外(成功率、步數都不該算在 AI 身上)。
+      by: 'operator',
+      takeover: true,
+      ...(deviceCmd?.x != null ? { x: deviceCmd.x, y: deviceCmd.y, deviceX: deviceCmd.x, deviceY: deviceCmd.y } : {}),
+      ...(deviceCmd?.x2 != null ? { x2: deviceCmd.x2, y2: deviceCmd.y2, deviceX2: deviceCmd.x2, deviceY2: deviceCmd.y2 } : {}),
+      ...(act.kind === 'key' ? { key: act.key, ...(act.repeat > 1 ? { repeat: act.repeat } : {}) } : {}),
+      url: client.currentUrl(),
+      ...(shot ? { screenshotKey: `${PREFIX}/screenshots/${idx}.png` } : {}),
+      durationMs: Date.now() - t0,
+      at: new Date(t0).toISOString(),
+      ...(ok ? {} : { actionFailed: true }),
+    };
+    steps.push(step);
+    await s3put(`${PREFIX}/steps/${idx}.json`, JSON.stringify(step), 'application/json').catch(() => {});
+
+    // 【AI 學習 A】把這個手動操作記進記憶地圖:同一個畫面下次卡住時,AI 會重用這一招。
+    // 沒有 VLM 就沒有畫面名,所以用「上一個已知畫面名 + pHash」認頁面(findMatch 會用 pHash 合併)。
+    if (ok && shot && MAGICK) {
+      const ph = pHashHex(shot);
+      const { pageId } = upsertPage(struct, { name: screenName, pHash: ph ?? '' });
+      if (pageId && deviceCmd) {
+        const op = opFromCmd({ ...deviceCmd, x: deviceCmd.x, y: deviceCmd.y }, w, h);
+        recordSelfOp(struct, pageId, { action: deviceCmd.action, target: `測試人員示範(${act.kind})`, op });
+        struct.lastUpdatedAt = new Date().toISOString();
+        await s3put(`${MEM_PREFIX}/structure.json`, JSON.stringify(struct), 'application/json').catch(() => {});
+      }
+    }
+    // 【AI 學習 B】照順序留一份手動操作紀錄,之後可轉成可重跑的測試腳本。
+    takeoverScript.push({
+      seq: takeoverScript.length,
+      kind: act.kind,
+      screen: screenName,
+      url: client.currentUrl(),
+      ...(act.point ? { point: act.point } : {}),
+      ...(act.to ? { to: act.to, dragMs: act.dragMs } : {}),
+      ...(act.key ? { key: act.key, repeat: act.repeat } : {}),
+      // 打字內容可能含憑證佔位符:存原字串(佔位符),絕不存替換後的真值。
+      ...(act.text ? { text: act.text } : {}),
+      at: new Date(t0).toISOString(),
+      ok,
+    });
+    await takeover.ack(act, { status: 'applied', step: idx, direct: true, ...(deviceCmd?.x != null ? { device: { x: deviceCmd.x, y: deviceCmd.y, ...(deviceCmd.x2 != null ? { x2: deviceCmd.x2, y2: deviceCmd.y2 } : {}) } } : {}) });
+    await writeStatus('running', `第 ${idx + 1} 步:測試人員接管(${act.kind})`, steps.length);
+  };
+
   for (let i = 0; i < MAX_STEPS; i++) {
     if (await cancelRequested()) { finalState = 'cancelled'; finalMsg = '使用者取消'; break; }
+
+    // ── 接管模式:測試人員自己操作,AI 完全不介入(不呼叫 VLM → 沒有 5~10 秒延遲、不計費)。
+    // 沒有待辦操作時原地等 250ms 再看一次,並把 i 退回去 —— 空等不該消耗步數上限。
+    if (await takeover.enabled(1000)) {
+      const acts = await takeover.poll();
+      if (acts.length === 0) { await sleep(TAKEOVER_POLL_MS); i -= 1; continue; }
+      let n = 0;
+      for (const a of acts) { await applyTakeoverAction(a, i + n); n += 1; }
+      i += n - 1; // for 的 i++ 會再加 1,合計剛好推進 n 步
+      continue;
+    }
+
     const t0 = Date.now();
     let shot;
     try { shot = await client.takeScreenshot(); } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續截圖失敗'; break; } continue; }
@@ -785,6 +892,15 @@ async function main() {
 
   // 最後一批 console 訊息(最後一步之後、以及結束途中發生的)也要寫出去。
   await browserLogs.collect(steps.length, client.currentUrl()).catch(() => {});
+
+  // 【AI 學習 B】接管期間的操作序列:寫出供「轉成可重跑的測試腳本」使用。
+  if (takeoverScript.length > 0) {
+    await s3put(`${PREFIX}/takeover-script.json`, JSON.stringify({
+      jobId: JOB, startUrl: START_URL, platform: 'web',
+      actions: takeoverScript, generatedAt: new Date().toISOString(),
+    }), 'application/json').catch(() => {});
+    console.log(`[takeover] 已記錄 ${takeoverScript.length} 個手動操作,可轉成測試腳本`);
+  }
   console.log(`[console] 共 ${browserLogs.stats.all} 則(錯誤 ${browserLogs.stats.error}、警告 ${browserLogs.stats.warn})`);
 
   console.log(memTrace.summaryLog());
@@ -804,6 +920,8 @@ async function main() {
     } : {}),
     // 瀏覽器 console 統計:報告引擎可據此提「網站有 N 個 JS 錯誤」這類發現。
     consoleStats: browserLogs.stats,
+    // 接管統計:報告要分開講「AI 做了幾步 / 人工接管幾步」,不能把人做的算在 AI 身上。
+    ...(takeover.stats.actions > 0 ? { takeoverStats: takeover.stats } : {}),
     stepCount: steps.length, steps, navGraph: { nodes, edges: struct.edges },
     tokens: team ? addUsage(addUsage(tok, team.tokens.agent), team.tokens.subagent) : { ...tok },
     // 依「實際呼叫的模型」記的 token(含重問、備援模型、快取)—— 費用以它為準。
