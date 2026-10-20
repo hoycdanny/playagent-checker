@@ -105,6 +105,10 @@ const GLOBAL_MODULES: ModuleDef[] = [
 const GLOBAL_METRICS: MetricDefinition[] = [
   // Summary
   metric('ai_action_count', 'AI 操作次數', 'AI Actions', 'count', 'summary', 'ai_action_count'),
+  // 接管模式:人工操作要和 AI 的數字分開呈現。沒有這兩項的話,讀者看到的「AI 操作次數」
+  // 會少於總步數卻不知道差額去哪裡了,反而更容易誤讀。
+  metric('operator_step_count', '人工接管步數', 'Manual Steps', 'count', 'summary', 'operator_step_count'),
+  metric('operator_step_rate', '人工接管比例', 'Manual Step Share', '%', 'summary', 'operator_step_rate'),
   metric('ai_successful_actions', 'AI 成功操作次數', 'AI Successful Actions', 'count', 'summary', 'ai_successful_actions'),
   metric('ai_action_success_rate', 'AI 操作成功率', 'AI Action Success Rate', '%', 'ai_reliability', 'ai_action_success_rate', { higherIsBetter: true }),
   metric('assertion_pass_rate', '檢查通過率', 'Check Pass Rate', '%', 'summary', 'assertion_pass_rate', { dimension: 'functional', higherIsBetter: true, source: 'ai_evaluation' }),
