@@ -27,6 +27,7 @@ import { PlaywrightClient } from './playwrightClient.mjs';
 import { normalizeKey, KEY_IDS } from './keyNames.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
+import { createLoopGuard } from './loopGuard.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure } from './memoryGraph.mjs';
 import { opFromCmd } from './reflex.mjs';
@@ -307,8 +308,7 @@ async function main() {
   let finalMsg = Number.isFinite(MAX_STEPS) ? '達步數上限仍未完成' : '探索結束';
   const tok = { input: 0, output: 0 };
   let lastPhash = null, stuckCount = 0;
-  const screenSeen = new Map();
-  const LOOP_ABORT_LIMIT = 8;
+  const loopGuard = createLoopGuard({ limit: 8 });
   let consecParseFail = 0;
 
   await writeStatus('running', 'AI 網頁探索執行中', 0);
@@ -523,10 +523,23 @@ async function main() {
       }
     }
 
-    // 死循環偵測:同畫面名反覆出現 → 提早收斂。
-    const seen = (screenSeen.get(screenName) || 0) + 1;
-    screenSeen.set(screenName, seen);
-    if (seen >= LOOP_ABORT_LIMIT) { finalState = 'fail'; finalMsg = `偵測到死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進,提早結束。`; break; }
+    // 死循環偵測:只有「做了動作、畫面卻完全沒反應」才算卡死(判準與理由見 loopGuard.mjs)。
+    // 2026-10-20(job-mvg3h10o):原本一律照「畫面名」計數,把登入表單誤殺 —— 一張登入表單
+    // 本來就是同一個畫面要走十幾步,被判死那 8 步裡有 7 步畫面確實在變,當時距離登入完成
+    // 只差「按完驗證碼 4/1/0 + 按登入」4 個動作。
+    const loop = loopGuard.observe({
+      screen: screenName,
+      step: i,
+      action: cmd.action,
+      prevAction,
+      screenChanged,
+      haveChangeSignal: curPhash != null,
+    });
+    if (loop.abort) {
+      finalState = 'fail';
+      finalMsg = loopGuard.message(screenName, loop.seen, loop.reason);
+      break;
+    }
 
     // 連續解析失敗 = 模型輸出異常(AI 測試失敗),中止並明確回報。
     consecParseFail = cmd.parseFailed ? consecParseFail + 1 : 0;
