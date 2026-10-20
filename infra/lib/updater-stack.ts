@@ -106,6 +106,15 @@ export class UpdaterStack extends Stack {
     this.project = new codebuild.Project(this, 'SelfUpdate', {
       projectName: props.projectName,
       description: '從 GitHub 指定版本重新部署整個平台(由管理介面觸發)',
+      // 同時只允許一個更新 build。這是 AWS 層的硬性互斥,不依賴呼叫端的檢查。
+      //
+      // 為什麼需要:實測這個專案最近 20 次 build 有 5 次失敗,**每一次**都在另一次成功的
+      // 7~8 秒內啟動,錯誤都是 `Cannot delete ChangeSet in status CREATE_IN_PROGRESS`
+      // —— 兩個 cdk deploy 搶同一個具名 changeset,第二個死。
+      // API 端雖然有 findRunningBuild 檢查,但那是 check-then-act,而且中間還夾著一次
+      // GitHub API 往返(數秒),兩次點擊很容易都通過檢查。對使用者的體感就是「經常升級失敗」,
+      // 而且常常是「其實已經升級成功了,卻收到失敗通知」。
+      concurrentBuildLimit: 1,
       // 沒有 CodeBuild source:倉庫是私有的,改由 buildspec 自己用 token clone,
       // 不必為此建 GitHub connection。
       buildSpec: codebuild.BuildSpec.fromObject(buildSpec()),
@@ -125,6 +134,9 @@ export class UpdaterStack extends Stack {
         // 映像建置專案用的角色(本 stack 建的);沒帶時腳本才退回舊的手動角色名。
         PA_IMAGE_BUILD_ROLE_ARN: { value: this.imageBuildRole.roleArn },
         PA_HISTORY_KEY: { value: UPDATE_HISTORY_KEY },
+        // 更新器自己的 stack 名。buildspec 最後會單獨部署它(自我更新),
+        // 否則更新器的任何修正都永遠送不到使用者手上 —— 見 buildSpec() 裡的說明。
+        PA_UPDATER_STACK: { value: Stack.of(this).stackName },
         PA_STATE_PARAM: { value: props.stateParamName },
         PA_NODE_VERSION: { value: NODE_VERSION },
         PA_FOUNDATION_STACK: { value: props.frontendConfigStacks.foundation },
@@ -166,6 +178,18 @@ export class UpdaterStack extends Stack {
     role.addToPrincipalPolicy(new iam.PolicyStatement({
       actions: ['codebuild:CreateProject', 'codebuild:UpdateProject', 'codebuild:BatchGetProjects', 'codebuild:StartBuild', 'codebuild:BatchGetBuilds'],
       resources: props.imageBuildProjects.map((p) => `arn:aws:codebuild:${this.region}:${this.account}:project/${p}`),
+    }));
+    // 部署前檢查:讀所有目標 stack 的狀態,確認都在「可以更新」的狀態才動手。
+    // 必須涵蓋全部目標 stack —— 只授權其中幾個的話,其餘會 AccessDenied,
+    // 而檢查腳本分不出「拒絕」與「不存在」,就會靜默放行(等於沒檢查)。
+    // 另外讀 CDKToolkit 以回報 bootstrap 版本。DescribeStacks 是唯讀,不含任何變更權限。
+    role.addToPrincipalPolicy(new iam.PolicyStatement({
+      actions: ['cloudformation:DescribeStacks'],
+      resources: [
+        ...props.targetStacks.map((name) => `arn:aws:cloudformation:${this.region}:${this.account}:stack/${name}/*`),
+        `arn:aws:cloudformation:${this.region}:${this.account}:stack/${Stack.of(this).stackName}/*`,
+        `arn:aws:cloudformation:${this.region}:${this.account}:stack/CDKToolkit/*`,
+      ],
     }));
     // 產生 web/.env:只讀這兩個 stack 的 Outputs(唯讀,不含任何變更權限)。
     role.addToPrincipalPolicy(new iam.PolicyStatement({
@@ -247,6 +271,21 @@ function buildSpec(): Record<string, unknown> {
           // 保險:確認 API 位址真的被編進前端 bundle。
           'API_URL="$(grep "^VITE_API_URL=" web/.env | cut -d= -f2-)"; grep -rqF "$API_URL" web/dist/assets || { echo "web build does not contain VITE_API_URL"; exit 1; }',
           'cd /tmp/src/infra',
+          // ── 部署前檢查:先確認每個 stack 都處於「可以更新」的狀態 ──
+          //
+          // 為什麼需要:CloudFormation 對處於 *_IN_PROGRESS / ROLLBACK_COMPLETE /
+          // UPDATE_ROLLBACK_FAILED 的 stack 一律拒絕更新。一旦使用者遇過一次失敗的更新
+          // (例如兩個更新互撞),stack 可能就卡在這些狀態 —— 之後每一次升級都會失敗,
+          // 而 cdk 丟出的錯誤訊息很難讓人知道該做什麼。這就是「經常升級失敗」會變成
+          // 「永遠升級失敗」的路徑。
+          //
+          // 這裡提前擋下並印出具體該怎麼辦,而不是讓它在部署中段丟一個難解的錯。
+          // 「查不到狀態」要和「stack 不存在」分開:前者多半是權限或 API 問題,
+          // 混在一起會讓檢查靜默放行。查不到時只警告、不阻擋(阻擋會讓人完全無法升級)。
+          'bash -c \'set -uo pipefail; bad=0; for s in $PA_TARGET_STACKS; do if st="$(aws cloudformation describe-stacks --stack-name "$s" --query "Stacks[0].StackStatus" --output text 2>/tmp/cfn.err)"; then :; else if grep -qi "does not exist" /tmp/cfn.err; then st=MISSING; else st=UNKNOWN; fi; fi; echo "stack $s = $st"; case "$st" in *_IN_PROGRESS) echo "  x 這個 stack 正在變更中。可能有另一個更新在跑,或上一次更新還沒結束 —— 請等它結束再更新。"; bad=1;; ROLLBACK_COMPLETE) echo "  x 這個 stack 第一次建立就失敗了,CloudFormation 不允許更新,必須先刪掉它再重新部署。"; bad=1;; UPDATE_ROLLBACK_FAILED) echo "  x 上一次更新回滾失敗。請在 CloudFormation 主控台對這個 stack 執行 Continue rollback,完成後再更新。"; bad=1;; CREATE_COMPLETE|UPDATE_COMPLETE|UPDATE_ROLLBACK_COMPLETE|IMPORT_COMPLETE) : ;; MISSING) echo "  - 尚未建立,會在這次部署時建立。";; UNKNOWN) echo "  ! 查不到狀態(權限或 API 問題),略過這個 stack 的檢查:$(tr -d "\\n" < /tmp/cfn.err | cut -c1-200)";; *) echo "  x 無法從 $st 這個狀態更新。"; bad=1;; esac; done; if [ "$bad" = "1" ]; then echo "部署前檢查未通過:有 stack 不在可更新狀態,已中止 —— 沒有做任何變更。"; exit 1; fi; echo "部署前檢查通過"\'',
+          // CDK bootstrap 版本:太舊的 bootstrap 會讓新版 CDK 部署失敗,而錯誤訊息
+          // (「requires bootstrap stack version X」)對沒碰過 CDK 的人毫無線索。先講清楚。
+          'bash -c \'v="$(aws cloudformation describe-stacks --stack-name CDKToolkit --query "Stacks[0].Outputs[?OutputKey==\\\`BootstrapVersion\\\`].OutputValue" --output text 2>/dev/null || echo "")"; if [ -z "$v" ] || [ "$v" = "None" ]; then echo "warn: 讀不到 CDK bootstrap 版本(可能未 bootstrap);若部署失敗請執行 npx cdk bootstrap"; else echo "cdk bootstrap version = $v"; if [ "$v" -lt 6 ] 2>/dev/null; then echo "warn: bootstrap 版本偏舊($v)。若部署因 bootstrap 版本失敗,請執行 npx cdk bootstrap 後重試。"; fi; fi\' || true',
           'npx cdk deploy $PA_TARGET_STACKS --require-approval never --concurrency 2 --progress events',
           'cd /tmp/src',
           // agent/ 有變更才重建 runner 映像(docker build 很慢);判不出來就重建。
@@ -255,6 +294,21 @@ function buildSpec(): Record<string, unknown> {
           'if [ -n "$PREV" ] && git cat-file -e "$PREV^{commit}" 2>/dev/null; then if git diff --name-only "$PREV" "$PA_SHA" -- agent | grep -q .; then NEED=1; else NEED=0; fi; fi',
           'echo "rebuild runner images: $NEED"',
           'if [ "$NEED" = "1" ]; then cd /tmp/src/agent/sagemaker && npm ci --omit=dev && node cloudBuildRunner.mjs && node cloudBuildWebRunner.mjs; fi',
+          // ── 最後:更新器更新自己 ──
+          //
+          // 為什麼需要:PA_TARGET_STACKS 刻意不含 Updater,所以更新器自己的程式碼
+          // (buildspec、並行上限、部署前檢查)永遠不會被更新 —— 使用者會一直跑著當初
+          // 部署的那一版更新器。結果是:更新器的任何修正都送不到使用者手上,
+          // 「升級失敗」的毛病會一直存在。這是「從任何版本都能升級」的真正障礙。
+          //
+          // 為什麼放在最後、而且安全:正在執行的這個 build 早就把 buildspec 讀進來了,
+          // 改掉 CodeBuild 專案的定義不會影響當前這一輪,下一次更新才會用到新的。
+          //
+          // 為什麼失敗不算整體失敗:平台本身此時已經部署成功了。更新器沒更新到的話,
+          // 下一次更新仍然可以用舊版更新器跑 —— 把整個更新報成失敗會誤導使用者,
+          // 讓他們以為新版沒上線。所以只大聲警告,並留在 log 裡。
+          'cd /tmp/src/infra',
+          'npx cdk deploy "$PA_UPDATER_STACK" --require-approval never --progress events || echo "warn: 更新器自我更新失敗(平台已更新成功)。下一次更新會繼續用舊版更新器;請人工執行 npx cdk deploy $PA_UPDATER_STACK。"',
         ],
       },
       post_build: {
