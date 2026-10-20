@@ -11,6 +11,7 @@ import { BootTimeline } from '../components/tasks/BootTimeline.tsx';
 import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
 import { gestureBody, type PickPoint } from '../components/tasks/LivePlayer.tsx';
+import { getTakeover, sendTakeoverGesture, setTakeover as setTakeoverApi } from '../api/takeover.ts';
 import { StepSound } from '../components/tasks/StepSound.tsx';
 import { RecordingPlayer, type PlayControl, type SeekRequest } from '../components/tasks/RecordingPlayer.tsx';
 import { DeviceLogsPanel, useDeviceLog, type LogChunk } from '../components/tasks/DeviceLogsPanel.tsx';
@@ -186,6 +187,28 @@ export default function TaskDetailPage() {
   const [liveFrameUrl, setLiveFrameUrl] = useState<string | null>(null);
   // 測試人員在即時畫面上選的位置(可「直接點這裡」在裝置上執行,或在聊天室加說明一起送)。
   const [pickPoint, setPickPoint] = useState<PickPoint | null>(null);
+  // 接管模式:開著時 runner 不呼叫 VLM,點畫面就直接執行(延遲從 5~10 秒降到輪詢間隔)。
+  const [takeover, setTakeover] = useState(false);
+  // 開關狀態以後端為準:同一個任務可能在別的裝置/分頁被切換過。
+  useEffect(() => {
+    if (!jobId || !isLive) return;
+    let stop = false;
+    const read = async () => {
+      try { const s = await getTakeover(jobId); if (!stop) setTakeover(s.enabled); } catch { /* 讀不到就維持現狀 */ }
+    };
+    void read();
+    const timer = setInterval(() => void read(), 5000);
+    return () => { stop = true; clearInterval(timer); };
+  }, [jobId, isLive]);
+  async function toggleTakeover(next: boolean) {
+    if (!jobId) return;
+    const s = await setTakeoverApi(jobId, next);
+    setTakeover(s.enabled);
+  }
+  async function sendTakeoverPoint(p: PickPoint) {
+    if (!jobId) return;
+    await sendTakeoverGesture(jobId, p);
+  }
   async function sendPoint(p: PickPoint) {
     if (!jobId) return;
     await apiPost(`/tasks/${jobId}/commands`, { ...gestureBody(p), remember: false, ...(latestScreen ? { screen: latestScreen } : {}) });
@@ -541,6 +564,9 @@ export default function TaskDetailPage() {
               point={pickPoint}
               onPoint={setPickPoint}
               onSendPoint={sendPoint}
+              takeover={takeover}
+              onTakeover={toggleTakeover}
+              onTakeoverGesture={sendTakeoverPoint}
               {...(audioLevels?.state ? { audioState: audioLevels.state } : {})}
             />
           ) : hasRecording && audioLevels ? (

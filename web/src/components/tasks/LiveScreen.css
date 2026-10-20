@@ -316,3 +316,22 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* 接管模式:測試人員自己操作。狀態要一眼看得出來 —— 不然會以為 AI 卡住了。 */
+.livescreen__takeover {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #b45309;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.livescreen__note.is-bad {
+  color: #b91c1c;
+  font-size: 12px;
+}
