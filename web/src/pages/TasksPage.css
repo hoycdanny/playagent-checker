@@ -626,16 +626,30 @@
   .tform__wide { grid-column: auto; }
 }
 
-/* 在哪裡跑:這一步要決定的事排成一列。
-   用 auto-fit 而不是固定欄數,因為欄位數會隨執行環境變(真機 3 個、模擬器 4 個)——
-   固定三欄的話模擬器的第 4 個欄位會自己掉到下一行。auto-fit 會把多出來的空軌收掉,
-   所以 3 個欄位就是 3 等欄、4 個就是 4 等欄,寬度不夠才換行。 */
-.tform__grid--row { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-/* 只有一個欄位(Web 不需要裝置條件)時,不要讓下拉拉成整頁寬 */
-.tform__grid--row > .tasks__field { max-width: 460px; }
-/* 執行環境的適用情境與限制:橫跨整排,長句子才讀得順 */
+/* 在哪裡跑:這一步要決定的事排成一列,而且要把整列填滿。
+   欄位數會隨執行環境變(真機 3 個、模擬器 4 個),所以不能固定欄數 ——
+   固定三欄時模擬器的第 4 個欄位會掉到下一行。
+
+   grid 的 auto-fit 在這裡也不行,原因很不直覺:auto-fit 只收掉「空的」軌道,
+   而底下的說明區是 grid-column: 1 / -1,它占滿了每一軌,於是沒有一軌是空的。
+   結果就是按 200px 切出一堆窄軌全部留著,欄位只用到前三軌,右邊空一大塊。
+
+   flex 沒有軌道的概念,剩下的空間就平均分給真正存在的欄位:3 個是 3 等分、
+   4 個是 4 等分,說明區用 flex-basis: 100% 自己占一列,不會影響上面的分法。 */
+.tform__grid--row {
+  display: flex;
+  flex-wrap: wrap;
+}
+.tform__grid--row > .tasks__field { flex: 1 1 200px; }
+/* 只有一個欄位(Web 不需要裝置條件)時,不要把那個下拉拉成整頁寬。
+   「第一個、且後面只剩說明區」= 這一列只有一個欄位。 */
+.tform__grid--row > .tasks__field:only-child,
+.tform__grid--row > .tasks__field:first-child:nth-last-child(2) {
+  flex: 0 1 460px;
+}
+/* 執行環境的適用情境與限制:自己獨占一整列,長句子才讀得順 */
 .tform__runtime-detail {
-  grid-column: 1 / -1;
+  flex-basis: 100%;
   display: flex;
   flex-direction: column;
   gap: 2px;
