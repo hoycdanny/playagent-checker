@@ -669,6 +669,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     setBackend(r.backend);
                     setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
                   }}
+                  hintClass="tasks__field-hint"
                 />
               </label>
               {/* 第 2 步:測試機型態。放在裝置之前,因為它要「過濾」下面那份清單 ——
