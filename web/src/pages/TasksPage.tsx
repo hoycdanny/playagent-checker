@@ -3,7 +3,7 @@ import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from 
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
-import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, type FormFactor } from '../components/tasks/DeviceOptionSelect.tsx';
+import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, deviceFilterHint, type FormFactor } from '../components/tasks/DeviceOptionSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
@@ -188,7 +188,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   // 模擬器:Android 版本與螢幕尺寸(螢幕尺寸決定 App 走手機或平板版面)。
   const [androidVersion, setAndroidVersion] = useState('15');
   const [emuScreen, setEmuScreen] = useState({ width: 1080, height: 1920 });
-  // Device Farm:挑手機還是平板(真機池兩種都有)。
+  // Device Farm:挑手機還是平板(真機池兩種都有)。這一步會過濾下面的裝置清單。
   const [formFactor, setFormFactor] = useState<FormFactor>('PHONE');
   const [vlmModel, setVlmModel] = useState('');
   const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
@@ -201,10 +201,21 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   // Device Farm 執行時長(段數):'1' 單段 / '2' / '4' / '0' 不限。
   const [maxSegments, setMaxSegments] = useState('1');
   const [budgetUsd, setBudgetUsd] = useState('');
-  // Device Farm 裝置選擇:真機池清單 + 使用者所選裝置 ARN(空 = 讓引擎自動挑第一台可用)。
+  // Device Farm 裝置選擇:真機池清單 + 使用者所選裝置 ARN(空 = 自動派發)。
+  // 流程刻意是「執行環境 → 機型態 → 過濾後的機型」:機型態先收斂清單,再挑機或交給自動派發。
   const [cloudDevices, setCloudDevices] = useState<CloudDevice[]>([]);
   const [deviceArn, setDeviceArn] = useState('');
   const [devicePickerOpen, setDevicePickerOpen] = useState(false);
+  // 機型態過濾後的清單。ANY = 不過濾;其餘比對每台的 formFactor。
+  const filteredDevices = useMemo(
+    () => (formFactor === 'ANY' ? cloudDevices : cloudDevices.filter((d) => (d.formFactor || 'PHONE') === formFactor)),
+    [cloudDevices, formFactor],
+  );
+  // 換了機型態之後,原本選的那台可能已經不在清單裡 —— 必須清掉,
+  // 不然會送出「機型態=平板、裝置=某支手機」這種自相矛盾的設定,而且畫面上看不出哪裡不對。
+  useEffect(() => {
+    if (deviceArn && !filteredDevices.some((d) => d.arn === deviceArn)) setDeviceArn('');
+  }, [deviceArn, filteredDevices]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 自由文字搜尋:任務編號 / 案例 / 應用 / 裝置 / 訊息 / 送出者(見 taskSearch.ts)。
@@ -658,6 +669,14 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   hintClass="tasks__field-hint"
                 />
               </label>
+              {/* 第 2 步:測試機型態。放在裝置之前,因為它要「過濾」下面那份清單 ——
+                  先看到 90 台混在一起再找平板,是反過來的。 */}
+              {backend === 'devicefarm' && (
+                <label className="tasks__field">
+                  <FormFactorSelect value={formFactor} onChange={setFormFactor} labelClass="tasks__label" hintClass="tasks__field-hint" />
+                </label>
+              )}
+              {/* 第 3 步:過濾後的機型。自動派發 = 由系統在符合機型態的機器裡挑第一台可用。 */}
               {backend === 'devicefarm' && (
                 <div className="tasks__field">
                   <span className="tasks__label">{t('tasks.device')}</span>
@@ -691,7 +710,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                       </div>
                     );
                   })()}
-                  <span className="tasks__field-hint">{t('tasks.deviceHint')}</span>
+                  <span className="tasks__field-hint">
+                    {deviceFilterHint(formFactor, filteredDevices.length, locale)}
+                  </span>
                 </div>
               )}
               {(backend === 'emulator' || backend === 'windows') && (
@@ -715,13 +736,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   </label>
                 </>
               )}
-              {/* Device Farm:已明選某一台真機時不顯示機型 —— 那台的機型已經定了,
-                  再給一個會互相矛盾的選項只會讓人困惑。 */}
-              {backend === 'devicefarm' && !deviceArn && (
-                <label className="tasks__field">
-                  <FormFactorSelect value={formFactor} onChange={setFormFactor} labelClass="tasks__label" hintClass="tasks__field-hint" />
-                </label>
-              )}
+
               {runtimeById(runtimeId)?.long && (
                 <label className="tasks__field">
                   <span className="tasks__label">{t('tasks.runDuration')}</span>
@@ -738,7 +753,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
           </fieldset>
           {devicePickerOpen && (
             <DevicePicker
-              devices={cloudDevices}
+              devices={filteredDevices}
               value={deviceArn}
               onSelect={(d) => {
                 setDeviceArn(d?.arn ?? '');
