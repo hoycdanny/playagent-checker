@@ -11,7 +11,7 @@ import { I18nProvider } from '../i18n/I18nProvider.tsx';
  *   1. 執行環境欄位裡塞了「適用情境 / 限制」兩段長文字,所以得佔兩欄,一列只剩一格。
  *   2. 欄位數會隨執行環境變(真機 3 個、模擬器 4 個),固定三欄時第 4 個必定掉到下一行。
  *
- * jsdom 不實作 grid,量不到實際欄位位置,所以這裡守的是讓那一列成立的結構條件:
+ * jsdom 不做版面計算,量不到實際欄位位置,所以這裡守的是讓那一列成立的結構條件:
  * 欄位數不超過欄數上限、長文字不在欄位裡、而且每欄都是「標題 → 控制項 → 說明」
  * (說明擺控制項前面的話,行數不同的說明會把各欄下拉推到不同高度)。
  */
@@ -35,7 +35,10 @@ vi.mock('../api/client.ts', () => ({
 
 const { default: TasksPage } = await import('./TasksPage.tsx');
 
-/** .tform__grid--row 的 minmax(200px, 1fr):一列最多四欄。 */
+/**
+ * .tform__grid--row 的 flex-basis 是 200px:一列放四欄需要約 860px,
+ * 超過四欄就一定會換行,不管視窗多寬。
+ */
 const MAX_COLUMNS = 4;
 
 beforeEach(() => {
@@ -130,8 +133,8 @@ describe('執行環境的長文字不在欄位裡', () => {
     expect(detail).not.toBeNull();
     expect(detail!.textContent).toContain('適用情境');
     expect(detail!.textContent).toContain('限制');
-    // 說明區是欄位列的兄弟節點(CSS 用 grid-column: 1 / -1 橫跨整排),
-    // 不是任何一欄的子孫 —— 塞回欄位裡就會再把那一欄撐成兩格寬。
+    // 說明區是欄位列的兄弟節點(CSS 用 flex-basis: 100% 獨占一整列),
+    // 不是任何一欄的子孫 —— 塞回欄位裡就會再把那一欄撐寬。
     for (const f of fields()) expect(f.contains(detail!)).toBe(false);
     expect(fields()[0]!.textContent).not.toContain('適用情境');
   });
