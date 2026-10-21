@@ -51,11 +51,36 @@ const T = {
     '실제 기기 풀에는 폰과 태블릿이 모두 있습니다. "제한 없음"은 가장 먼저 사용 가능한 기기를 선택합니다.',
   ] as L5,
   any: ['不限', 'Any', '不限', '指定なし', '제한 없음'] as L5,
+  matched: [
+    '符合「{kind}」的有 {n} 台。可指定其中一台,或留「自動派發」由系統挑第一台可用的。',
+    '{n} {kind} device(s) match. Pick one, or leave it on auto-assign to use the first available.',
+    '符合「{kind}」的有 {n} 台。可指定其中一台,或留「自动派发」由系统挑第一台可用的。',
+    '「{kind}」に一致する端末は {n} 台です。指定するか、自動割り当てのままにできます。',
+    '"{kind}" 조건에 맞는 기기가 {n}대 있습니다. 직접 지정하거나 자동 배정으로 두세요.',
+  ] as L5,
+  noneMatch: [
+    '目前沒有符合這個機型態的可用機器。請改選其他機型態,或稍後再試(真機可用性隨時變化)。',
+    'No available devices match this device type right now. Try another type or retry later — availability changes constantly.',
+    '目前没有符合这个机型态的可用机器。请改选其他机型态,或稍后再试(真机可用性随时变化)。',
+    '現在この機種に一致する利用可能な端末がありません。別の機種を選ぶか、後で再試行してください。',
+    '현재 이 기기 종류에 맞는 사용 가능한 기기가 없습니다. 다른 종류를 선택하거나 나중에 다시 시도하세요.',
+  ] as L5,
 } as const;
 
 const SCREEN_LABEL: Record<string, keyof typeof T> = {
   phone: 'phone', 'phone-tall': 'phoneTall', tablet: 'tablet', 'tablet-land': 'tabletLand',
 };
+
+/**
+ * 機型態過濾後的提示:直接講「符合條件的有幾台」。
+ * 數量為 0 時要明確說出來 —— 否則使用者只看到一個空清單,不知道是沒機器還是功能壞了。
+ */
+export function deviceFilterHint(ff: FormFactor, count: number, locale: string): string {
+  const L = loc5(locale);
+  if (count === 0) return pick5(T.noneMatch, L);
+  const kind = pick5(ff === 'TABLET' ? T.tablet : ff === 'ANY' ? T.any : T.phone, L);
+  return pick5(T.matched, L).replace('{n}', String(count)).replace('{kind}', kind);
+}
 
 /** 模擬器:Android 版本。 */
 export function AndroidVersionSelect({ value, onChange, labelClass, hintClass }: {
