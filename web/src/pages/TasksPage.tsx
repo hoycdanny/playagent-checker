@@ -3,6 +3,7 @@ import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from 
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
+import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, type FormFactor } from '../components/tasks/DeviceOptionSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
@@ -184,6 +185,11 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   const [maxHours, setMaxHours] = useState(6);
   // Windows 啟動時的畫面解析度(GameLift Streams 虛擬螢幕)。
   const [display, setDisplay] = useState<Display>({ width: 1920, height: 1080 });
+  // 模擬器:Android 版本與螢幕尺寸(螢幕尺寸決定 App 走手機或平板版面)。
+  const [androidVersion, setAndroidVersion] = useState('15');
+  const [emuScreen, setEmuScreen] = useState({ width: 1080, height: 1920 });
+  // Device Farm:挑手機還是平板(真機池兩種都有)。
+  const [formFactor, setFormFactor] = useState<FormFactor>('PHONE');
   const [vlmModel, setVlmModel] = useState('');
   const [vlmModels, setVlmModels] = useState<ModelEntry[]>([]);
   const [agentModel, setAgentModel] = useState('');
@@ -395,6 +401,10 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         ...(backend === 'devicefarm' && maxSegments !== '1' ? { maxSegments: Number(maxSegments) } : {}),
         ...(backend === 'emulator' || backend === 'windows' ? { maxHours: effectiveHours(backend, maxHours) } : {}),
         ...(backend === 'windows' ? { display } : {}),
+        // 模擬器:Android 版本 + 螢幕尺寸(= 手機/平板版面)。
+        ...(backend === 'emulator' ? { androidVersion, display: emuScreen } : {}),
+        // Device Farm:機型。沒有明選裝置時才有意義 —— 有 ARN 就已經決定是哪一台了。
+        ...(backend === 'devicefarm' && !deviceArn ? { formFactor } : {}),
         // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
         ...(backend === 'devicefarm' && deviceArn
           ? (() => {
@@ -693,6 +703,24 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                 <div className="tasks__field">
                   <DisplaySelect value={display} onChange={setDisplay} labelClass="tasks__label" hintClass="tasks__field-hint" />
                 </div>
+              )}
+              {/* 模擬器:大量測系統穩定度時逐一換 Android 版本;平板版面靠螢幕尺寸。 */}
+              {backend === 'emulator' && (
+                <>
+                  <label className="tasks__field">
+                    <AndroidVersionSelect value={androidVersion} onChange={setAndroidVersion} labelClass="tasks__label" hintClass="tasks__field-hint" />
+                  </label>
+                  <label className="tasks__field">
+                    <EmulatorScreenSelect value={emuScreen} onChange={setEmuScreen} labelClass="tasks__label" hintClass="tasks__field-hint" />
+                  </label>
+                </>
+              )}
+              {/* Device Farm:已明選某一台真機時不顯示機型 —— 那台的機型已經定了,
+                  再給一個會互相矛盾的選項只會讓人困惑。 */}
+              {backend === 'devicefarm' && !deviceArn && (
+                <label className="tasks__field">
+                  <FormFactorSelect value={formFactor} onChange={setFormFactor} labelClass="tasks__label" hintClass="tasks__field-hint" />
+                </label>
               )}
               {runtimeById(runtimeId)?.long && (
                 <label className="tasks__field">
