@@ -126,6 +126,36 @@ describe('欄位內部順序:標題 → 控制項 → 說明', () => {
   });
 });
 
+describe('每一欄都要有自己的說明', () => {
+  /**
+   * 同一列裡只有某一欄的控制項底下是空的,看起來像那一欄漏了東西 ——
+   * 執行環境原本就是這樣(說明全被移到底下的長文字區),整列因此高低不齊。
+   * CSS 另外用 min-height 補齊一兩行的落差,但「完全沒有說明」補不出來。
+   */
+  const everyFieldHasHint = (fields: Element[]) => {
+    for (const f of fields) {
+      const hint = f.querySelector('.tasks__field-hint')?.textContent?.trim() ?? '';
+      expect(hint.length, `「${f.querySelector('.tasks__label')?.textContent}」底下沒有說明`).toBeGreaterThan(0);
+    }
+  };
+
+  test('真機', async () => {
+    const { fields } = await openForm('a1', 'devicefarm-android');
+    everyFieldHasHint(fields());
+  });
+
+  test('模擬器', async () => {
+    const { fields, setRuntime } = await openForm('a1', 'devicefarm-android');
+    setRuntime('emulator-android');
+    everyFieldHasHint(fields());
+  });
+
+  test('Windows', async () => {
+    const { fields } = await openForm('a3', 'windows');
+    everyFieldHasHint(fields());
+  });
+});
+
 describe('執行環境的長文字不在欄位裡', () => {
   test('適用情境與限制放在橫跨整排的說明區,不是執行環境那一欄', async () => {
     const { grid, fields } = await openForm('a1', 'devicefarm-android');

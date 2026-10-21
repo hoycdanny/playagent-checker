@@ -339,26 +339,32 @@ export function defaultRuntime(platform: string | undefined): Runtime {
  * 兩者分開是因為它們需要的寬度差一個量級:下拉跟隔壁的機型態、裝置一樣是一欄就夠,
  * 長文字塞進同一欄會被擠成細長一條,還會把同一列的其他欄位往下推。
  */
-export function RuntimeSelect({ platform, value, onChange }: {
+export function RuntimeSelect({ platform, value, onChange, hintClass }: {
   /** 已選 App 的平台;未選 App 時不限平台。 */
   platform?: string;
   value: RuntimeId;
   onChange: (r: Runtime) => void;
+  hintClass: string;
 }) {
   const { locale } = useI18n();
   const li = LOC_IDX[locale] ?? 1;
   return (
-    <select value={value} onChange={(e) => { const r = runtimeById(e.target.value); if (r) onChange(r); }}>
-      {RUNTIMES.map((r) => {
-        const wrongPlatform = !!platform && r.platform !== platform;
-        const suffix = !r.available ? `(${T.building[li]})` : wrongPlatform ? `(${T.otherPlatform[li]})` : '';
-        return (
-          <option key={r.id} value={r.id} disabled={!r.available || wrongPlatform}>
-            {LABEL[r.id][li]}{suffix}
-          </option>
-        );
-      })}
-    </select>
+    <>
+      <select value={value} onChange={(e) => { const r = runtimeById(e.target.value); if (r) onChange(r); }}>
+        {RUNTIMES.map((r) => {
+          const wrongPlatform = !!platform && r.platform !== platform;
+          const suffix = !r.available ? `(${T.building[li]})` : wrongPlatform ? `(${T.otherPlatform[li]})` : '';
+          return (
+            <option key={r.id} value={r.id} disabled={!r.available || wrongPlatform}>
+              {LABEL[r.id][li]}{suffix}
+            </option>
+          );
+        })}
+      </select>
+      {/* 一行短說明。這一句留在欄位裡(而不是跟著長文字下去),否則同一列裡只有
+          這一欄的下拉底下是空的,看起來像漏了東西。 */}
+      <span className={hintClass}>{T.hint[li]}</span>
+    </>
   );
 }
 
@@ -373,7 +379,6 @@ export function RuntimeDetail({ value, className, hintClass }: { value: RuntimeI
   if (!selected) return null;
   return (
     <div className={className}>
-      <span className={hintClass}>{T.hint[li]}</span>
       <span className={hintClass}>
         <strong>{T.use[li]}</strong>:{DETAIL[selected.id].use[li]}
       </span>

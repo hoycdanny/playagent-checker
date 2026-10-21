@@ -641,19 +641,27 @@
   flex-wrap: wrap;
 }
 .tform__grid--row > .tasks__field { flex: 1 1 200px; }
+/* 各欄的說明長度不一(一行到兩行),高度跟著差一截,整列就會看起來高低不齊。
+   留兩行的空間,短的那幾欄補齊 —— 與 AI 模型那三張卡用的是同一招。
+   同一欄的第二段說明(長時執行的補充)不再墊高,否則那一欄會變成四行。 */
+.tform__grid--row > .tasks__field > .tasks__field-hint { min-height: 2.8em; }
+.tform__grid--row > .tasks__field > .tasks__field-hint + .tasks__field-hint { min-height: 0; }
 /* 只有一個欄位(Web 不需要裝置條件)時,不要把那個下拉拉成整頁寬。
    「第一個、且後面只剩說明區」= 這一列只有一個欄位。 */
 .tform__grid--row > .tasks__field:only-child,
 .tform__grid--row > .tasks__field:first-child:nth-last-child(2) {
   flex: 0 1 460px;
 }
-/* 執行環境的適用情境與限制:自己獨占一整列,長句子才讀得順 */
+/* 執行環境的適用情境與限制:自己獨占一整列,長句子才讀得順。
+   加一條分隔線,否則它看起來像第一欄底下多出來的一段散句。 */
 .tform__runtime-detail {
   flex-basis: 100%;
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
 }
 .tform .tasks__field { min-width: 0; }
 .tform .tasks__field > select,
