@@ -618,13 +618,28 @@
   align-items: start;
   margin-top: var(--space-2);
 }
-/* 測試什麼 / 在哪裡跑:固定三欄(寬欄位佔兩欄),版本號與裝置卡不會被擠窄 */
+/* 測試什麼:固定三欄(寬欄位佔兩欄),版本號不會被擠窄 */
 .tform__grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .tform__wide { grid-column: span 2; }
-.tform__runtime { grid-column: span 2; }
 @media (max-width: 900px) {
   .tform__grid--3 { grid-template-columns: minmax(0, 1fr); }
-  .tform__wide, .tform__runtime { grid-column: auto; }
+  .tform__wide { grid-column: auto; }
+}
+
+/* 在哪裡跑:這一步要決定的事排成一列。
+   用 auto-fit 而不是固定欄數,因為欄位數會隨執行環境變(真機 3 個、模擬器 4 個)——
+   固定三欄的話模擬器的第 4 個欄位會自己掉到下一行。auto-fit 會把多出來的空軌收掉,
+   所以 3 個欄位就是 3 等欄、4 個就是 4 等欄,寬度不夠才換行。 */
+.tform__grid--row { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+/* 只有一個欄位(Web 不需要裝置條件)時,不要讓下拉拉成整頁寬 */
+.tform__grid--row > .tasks__field { max-width: 460px; }
+/* 執行環境的適用情境與限制:橫跨整排,長句子才讀得順 */
+.tform__runtime-detail {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .tform .tasks__field { min-width: 0; }
 .tform .tasks__field > select,
@@ -646,12 +661,16 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 一列四欄時這張卡只有約 250px:裝置名長的話讓「更換」掉到下一行,
+     總比把按鈕推出卡片外好。 */
+  flex-wrap: wrap;
   gap: var(--space-2);
   padding: 6px 6px 6px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
 }
+.tform .tasks__device-current { overflow-wrap: anywhere; }
 
 /* AI 模型:每個角色一張卡 */
 .tform__seats { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--space-3); }

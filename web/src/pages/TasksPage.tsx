@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
-import { DisplaySelect, HoursSelect, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
+import { DisplaySelect, HoursSelect, RuntimeDetail, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
 import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, deviceFilterHint, type FormFactor } from '../components/tasks/DeviceOptionSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
@@ -654,8 +654,11 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
           {/* ② 在哪裡跑 */}
           <fieldset className="tform__sec">
             <legend className="tform__legend"><span className="tform__num">2</span>{ft('secWhere')}</legend>
-            <div className="tform__grid tform__grid--3">
-              <label className="tasks__field tform__runtime">
+            {/* 一列排完這一步要決定的事(執行環境 → 機型態 → 機型 / Android 版本)。
+                欄數由實際欄位數決定(auto-fit),所以 3 個欄位是 3 等欄、4 個是 4 等欄,
+                不會出現「第 4 個自己掉到下一行」。 */}
+            <div className="tform__grid tform__grid--row">
+              <label className="tasks__field">
                 <span className="tasks__label">{t('tasks.backend')}</span>
                 {/* 全部執行環境都列出;不適用此 App 平台或建置中的停用。 */}
                 <RuntimeSelect
@@ -666,7 +669,6 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     setBackend(r.backend);
                     setMaxSegments(r.long ? (maxSegments === '1' ? '2' : maxSegments) : '1');
                   }}
-                  hintClass="tasks__field-hint"
                 />
               </label>
               {/* 第 2 步:測試機型態。放在裝置之前,因為它要「過濾」下面那份清單 ——
@@ -749,6 +751,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   {maxSegments !== '1' && <span className="tasks__field-hint" role="note">{t('tasks.runLongNote')}</span>}
                 </label>
               )}
+              {/* 所選環境的適用情境與限制:橫跨整排放在欄位底下,長句子才讀得順,
+                  也不會把同一列的欄位撐開。 */}
+              <RuntimeDetail value={runtimeId} className="tform__runtime-detail" hintClass="tasks__field-hint" />
             </div>
           </fieldset>
           {devicePickerOpen && (
