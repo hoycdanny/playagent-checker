@@ -236,13 +236,15 @@ export function HoursSelect({ value, onChange, labelClass, hintClass, backend }:
   const isWin = backend === 'windows';
   const options: readonly number[] = isWin ? WINDOWS_HOUR_OPTIONS : HOUR_OPTIONS;
   const shown = options.includes(value) ? value : options[0]!;
+  // 順序是 標題 → 控制項 → 說明,與同一列的其他欄位一致;
+  // 說明擺在控制項之前的話,行數不同的說明會把各欄的下拉推到不同高度。
   return (
     <>
       <span className={labelClass}>{HT.label[li]}</span>
-      <span className={hintClass}>{isWin ? WHT.hint[li] : HT.hint[li]}</span>
       <select value={shown} onChange={(e) => onChange(Number(e.target.value))}>
         {options.map((h) => <option key={h} value={h}>{(HT.hours[li] ?? HT.hours[1]).replace('{n}', String(h))}</option>)}
       </select>
+      <span className={hintClass}>{isWin ? WHT.hint[li] : HT.hint[li]}</span>
     </>
   );
 }
@@ -295,7 +297,6 @@ export function DisplaySelect({ value, onChange, labelClass, hintClass }: { valu
   return (
     <>
       <span className={labelClass}>{DT.label[li]}</span>
-      <span className={hintClass}>{DT.hint[li]}</span>
       <select
         value={custom ? 'custom' : String(presetIdx)}
         onChange={(e) => {
@@ -317,6 +318,7 @@ export function DisplaySelect({ value, onChange, labelClass, hintClass }: { valu
             onChange={(e) => onChange({ ...value, height: Number(e.target.value) })} style={{ width: 96 }} />
         </span>
       )}
+      <span className={hintClass}>{DT.hint[li]}</span>
       {err && <span className={hintClass} role="alert" style={{ color: 'var(--danger, #c0392b)' }}>{err}</span>}
     </>
   );
@@ -330,41 +332,54 @@ export function defaultRuntime(platform: string | undefined): Runtime {
   return RUNTIMES.find((r) => r.platform === p && r.available) ?? RUNTIMES[0]!;
 }
 
-export function RuntimeSelect({ platform, value, onChange, hintClass }: {
+/**
+ * 執行環境下拉。
+ *
+ * 只有下拉本身 —— 「適用情境 / 限制」那兩段長文字由 RuntimeDetail 另外畫。
+ * 兩者分開是因為它們需要的寬度差一個量級:下拉跟隔壁的機型態、裝置一樣是一欄就夠,
+ * 長文字塞進同一欄會被擠成細長一條,還會把同一列的其他欄位往下推。
+ */
+export function RuntimeSelect({ platform, value, onChange }: {
   /** 已選 App 的平台;未選 App 時不限平台。 */
   platform?: string;
   value: RuntimeId;
   onChange: (r: Runtime) => void;
-  hintClass: string;
 }) {
   const { locale } = useI18n();
   const li = LOC_IDX[locale] ?? 1;
-  const selected = runtimeById(value);
   return (
-    <>
-      <select value={value} onChange={(e) => { const r = runtimeById(e.target.value); if (r) onChange(r); }}>
-        {RUNTIMES.map((r) => {
-          const wrongPlatform = !!platform && r.platform !== platform;
-          const suffix = !r.available ? `(${T.building[li]})` : wrongPlatform ? `(${T.otherPlatform[li]})` : '';
-          return (
-            <option key={r.id} value={r.id} disabled={!r.available || wrongPlatform}>
-              {LABEL[r.id][li]}{suffix}
-            </option>
-          );
-        })}
-      </select>
+    <select value={value} onChange={(e) => { const r = runtimeById(e.target.value); if (r) onChange(r); }}>
+      {RUNTIMES.map((r) => {
+        const wrongPlatform = !!platform && r.platform !== platform;
+        const suffix = !r.available ? `(${T.building[li]})` : wrongPlatform ? `(${T.otherPlatform[li]})` : '';
+        return (
+          <option key={r.id} value={r.id} disabled={!r.available || wrongPlatform}>
+            {LABEL[r.id][li]}{suffix}
+          </option>
+        );
+      })}
+    </select>
+  );
+}
+
+/**
+ * 所選執行環境的適用情境與硬限制:在送出之前就看得到,不要等跑完才發現做不到。
+ * 放在欄位列底下橫跨整排,長句子才讀得順。
+ */
+export function RuntimeDetail({ value, className, hintClass }: { value: RuntimeId; className?: string; hintClass: string }) {
+  const { locale } = useI18n();
+  const li = LOC_IDX[locale] ?? 1;
+  const selected = runtimeById(value);
+  if (!selected) return null;
+  return (
+    <div className={className}>
       <span className={hintClass}>{T.hint[li]}</span>
-      {/* 所選環境的適用情境與硬限制:在送出之前就看得到,不要等跑完才發現做不到。 */}
-      {selected && (
-        <>
-          <span className={hintClass}>
-            <strong>{T.use[li]}</strong>:{DETAIL[selected.id].use[li]}
-          </span>
-          <span className={hintClass}>
-            <strong>{T.limit[li]}</strong>:{DETAIL[selected.id].limit[li]}
-          </span>
-        </>
-      )}
-    </>
+      <span className={hintClass}>
+        <strong>{T.use[li]}</strong>:{DETAIL[selected.id].use[li]}
+      </span>
+      <span className={hintClass}>
+        <strong>{T.limit[li]}</strong>:{DETAIL[selected.id].limit[li]}
+      </span>
+    </div>
   );
 }
