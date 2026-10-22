@@ -5,6 +5,8 @@ node_modules/
 dist/
 web/dist/
 infra/cdk.out/
+# Windows 主機套件的組裝輸出(約 180 MB,setup.mjs 每次重建)
+worker/windows-host/gamelift/.build/
 
 # CDK
 *.js.map
