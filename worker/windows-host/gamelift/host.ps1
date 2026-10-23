@@ -217,6 +217,8 @@ $gpu = (Get-CimInstance Win32_VideoController | Select-Object -First 1).Name
 $env:PA_DEVICE_MODEL = "Windows Server 2022 · $gpu · $($scr.Width)x$($scr.Height)"
 Log "display $($scr.Width)x$($scr.Height) gpu=$gpu"
 if (Test-Path "$root\im\magick.exe") { $env:PA_MAGICK = "$root\im\magick.exe" } else { Log 'ImageMagick 不在套件內:座標校正 / pHash 會停用' }
+# ffmpeg:即時影片(ddagrab + NVENC 擷取桌面,2 秒一段)。缺少就只有 2fps 截圖串流。
+if (Test-Path "$root\ff\ffmpeg.exe") { $env:PA_FFMPEG = "$root\ff\ffmpeg.exe" } else { Log 'ffmpeg 不在套件內:即時影片會停用,只有截圖串流' }
 $node = Join-Path $root 'node\node.exe'
 if (-not (Test-Path $node)) { Fail "套件缺少 node\node.exe" }
 Status 'running' "遊戲已安裝($($game.Name)),AI 測試啟動中"

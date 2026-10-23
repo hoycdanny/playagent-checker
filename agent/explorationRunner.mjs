@@ -44,6 +44,7 @@ import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
 import { createSession, setupDeviceFarmSession } from './deviceFarmSetup.mjs';
 import { createObsGuard } from './obsGuard.mjs';
 import { createLiveVideo, recordSize } from './liveVideo.mjs';
+import { createWindowsCapture } from './windowsCapture.mjs';
 import { createSlotVideoCapture } from './slotVideoCapture.mjs';
 import { createSpinSettle } from './spinSettle.mjs';
 import { createMediaRecorder } from './mediaAudio.mjs';
@@ -1021,6 +1022,16 @@ async function main() {
       log: (m) => console.log(m),
     });
   };
+  /**
+   * Windows 主機的即時影片:ffmpeg 在本機擷取桌面,分段命名與 Android 那條相同。
+   * 沒有 onSegment 消費端 —— 逐局盤面擷取與停輪判定都是 Android 拉霸專用。
+   */
+  const makeWindowsCapture = () => createWindowsCapture({
+    ffmpeg: process.env.PA_FFMPEG || '',
+    put: s3put,
+    prefix: PREFIX,
+    log: (m) => console.log(m),
+  });
   // 【停輪判定:影片版】RTP 任務才建。用即時錄影的影格判斷靜止,不佔 Appium 連線。
   const spinSettle = rtpLoop.target > 0
     ? createSpinSettle({
@@ -1132,12 +1143,16 @@ async function main() {
     : null;
   let slotCaptureSummary = null;
   if (slotCapture) console.log('[slot-capture] Fu Xing Gao Zhao 3 逐局盤面擷取已啟用(影片 10 FPS)');
-  // 即時影片(screenrecord 2 秒分段,30+ fps):Android 才有;啟動失敗就只用截圖輪播。
+  // 即時影片(2 秒分段):Android 走 screenrecord,Windows 走本機 ffmpeg(ddagrab/NVENC)。
+  // 兩者產出的 S3 分段命名相同,所以 API 與前端不分平台。啟動失敗就只用截圖輪播。
   let liveVideo = null;
-  if (PLATFORM === 'android' && process.env.PA_LIVE_VIDEO !== '0') {
+  if (process.env.PA_LIVE_VIDEO !== '0' && (PLATFORM === 'android' || DRIVER === 'windows')) {
     try {
-      liveVideo = makeLiveVideo();
-      await liveVideo.start();
+      liveVideo = DRIVER === 'windows' ? makeWindowsCapture() : makeLiveVideo();
+      // 兩邊的 start() 合約不同:Android 那條成功時回 undefined、失敗時丟錯;
+      // Windows 那條回 boolean(擷取方式全試過都不行時回 false,不丟錯 —— 影片是加分不是必要)。
+      // 所以只把「明確的 false」當失敗,不能寫成 !await start()(那會把 Android 的 undefined 也砍掉)。
+      if ((await liveVideo.start()) === false) liveVideo = null;
     } catch (e) {
       console.warn('[live-video] 無法啟動,改用截圖輪播:', e?.message || e);
       liveVideo = null;
