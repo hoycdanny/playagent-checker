@@ -86,16 +86,46 @@ function RunInstaller($exe, $argList, $label) {
   FlushLog
   $t0 = Get-Date
   $p = Start-Process -FilePath $exe -ArgumentList $argList -PassThru
-  if (-not $p.WaitForExit($installTimeoutSec * 1000)) {
-    Log "安裝程式超過 $installTimeoutSec 秒沒有結束($label),判定卡住並終止" 'E' 'install'
-    # Kill(true) 連子程序一起殺,但那是 .NET 5+ 才有;PowerShell 5.1 走 .NET Framework 要退回 Kill()。
-    try { $p.Kill($true) } catch { try { $p.Kill() } catch { Log "終止安裝程式失敗:$_" 'W' 'install' } }
-    FlushLog
-    return $false
+  <#
+    不要等安裝程式自己結束。
+    
+    實測(Gamania Games Manager 1.5.0.2):靜默安裝其實成功了,但安裝程式裝完之後
+    「不會退出」—— 它顯示成功對話框並把自己留在前景。-Wait 就這樣等一個已經做完事的
+    程序,等到 session 被 GameLift 逾時收掉。第一次踩到時白燒了一小時。
+    
+    所以改成等「結果」而不是等「程序」:每 3 秒看一次目標目錄有沒有出現 exe,
+    出現且連續兩輪數量不再增加(還在寫檔就會繼續增加)就視為裝好,收掉安裝程式往下走。
+    逾時仍然保留當最後防線。
+  #>
+  $stableRounds = 0
+  $lastCount = 0
+  $deadline = (Get-Date).AddSeconds($installTimeoutSec)
+  while ((Get-Date) -lt $deadline) {
+    if ($p.WaitForExit(3000)) {
+      $p.Refresh()
+      $code = try { $p.ExitCode } catch { '?' }
+      Log "安裝程式自行結束($label)exit=$code 耗時 $([int]((Get-Date) - $t0).TotalSeconds)s,裝出 $((GameExes).Count) 個 exe" 'I' 'install'
+      FlushLog
+      return $true
+    }
+    $n = (GameExes).Count
+    if ($n -gt 0 -and $n -eq $lastCount) { $stableRounds++ } else { $stableRounds = 0 }
+    $lastCount = $n
+    if ($stableRounds -ge 2) {
+      Log "安裝程式仍在執行但目標目錄已穩定($n 個 exe,耗時 $([int]((Get-Date) - $t0).TotalSeconds)s);視為安裝完成並收掉它" 'I' 'install'
+      KillTree $p
+      FlushLog
+      return $true
+    }
   }
-  Log "安裝程式結束($label)exit=$($p.ExitCode) 耗時 $([int]((Get-Date) - $t0).TotalSeconds)s" 'I' 'install'
+  Log "安裝程式超過 $installTimeoutSec 秒沒有結束且沒有裝出東西($label),判定卡住並終止" 'E' 'install'
+  KillTree $p
   FlushLog
-  return $true
+  return $false
+}
+function KillTree($p) {
+  # Kill(true) 連子程序一起殺,但那是 .NET 5+ 才有;PowerShell 5.1 走 .NET Framework 要退回 Kill()。
+  try { $p.Kill($true) } catch { try { $p.Kill() } catch { Log "終止安裝程式失敗:$_" 'W' 'install' } }
 }
 function GameExes { @(Get-ChildItem "$work\game" -Recurse -Filter *.exe -ErrorAction SilentlyContinue) }
 
@@ -195,11 +225,17 @@ Log "runner 已啟動 pid=$($rp.Id)" 'I' 'runner'
 # 每 30 秒 flush 一次:runner 自己會即時寫步驟與截圖,但主機這一層的紀錄不能等到它結束 ——
 # session 被逾時砍掉時,沒 flush 的部分就永遠看不到了。
 while (-not $rp.WaitForExit(30000)) { FlushLog }
-Log "runner 結束 exit=$($rp.ExitCode)" 'I' 'runner'
+# Refresh() 之後才讀得到 ExitCode(Start-Process -PassThru 回來的物件不會自己更新,
+# 直接讀會是空值 —— 之前 log 裡那個「exit=」就是這樣來的)。
+$rp.Refresh()
+$runnerExit = try { $rp.ExitCode } catch { '?' }
+Log "runner 結束 exit=$runnerExit" 'I' 'runner'
 # runner 的 stderr 尾段也送進主機 log:runner 自己炸掉時,錯誤訊息只在這個檔案裡,
 # 而那正是使用者最需要看到的東西(否則畫面上只有一個沒有原因的失敗)。
 try {
-  $errTail = @(Get-Content "$work\runner.err.log" -Tail 120 -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.Trim() })
+  # -Encoding UTF8 不能省:runner 的訊息是中文,用預設編碼讀會變成「è¼‰å…¥」這種亂碼,
+  # 等於把唯一的錯誤線索讀壞。實際發生過。
+  $errTail = @(Get-Content "$work\runner.err.log" -Tail 120 -Encoding UTF8 -ErrorAction SilentlyContinue | Where-Object { $_ -and $_.Trim() })
   if ($errTail.Count -gt 0) {
     Log "runner stderr 尾段($($errTail.Count) 行):" 'E' 'runner'
     foreach ($line in $errTail) { Log $line 'E' 'runner' }
@@ -216,7 +252,7 @@ foreach ($pair in @(@('runner.out.log', 'runner.log'), @('runner.err.log', 'runn
 try {
   $null = Read-S3Object -BucketName $env:PA_BUCKET -Key "$($env:PA_PREFIX)/status.json" -File "$work\st.json" -Region $region
   $st = (Get-Content "$work\st.json" -Raw | ConvertFrom-Json).state
-  if ($st -eq 'running') { Status 'error' "runner 結束(exit $($rp.ExitCode))但沒有寫入結果,見 runner.err.log" }
+  if ($st -eq 'running') { Status 'error' "runner 結束(exit $runnerExit)但沒有寫入結果,見主機 log 的 runner stderr 尾段" }
 } catch { Log "status check failed: $_" }
 # 結束遊戲 → 應用結束 → stream session 結束(停止計費)
 Get-Process -Name $game.BaseName -ErrorAction SilentlyContinue | Stop-Process -Force
