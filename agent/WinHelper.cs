@@ -141,6 +141,23 @@ public static class WinHelper
         return false;
     }
 
+    /// 目前前景視窗所屬的程序名稱(不含 .exe);取不到回空字串。
+    ///
+    /// 用途:啟動器型的遊戲(例如 Gamania Games Manager → 新楓之谷)真正的遊戲是**另一個程序**,
+    /// 我們啟動的那個 exe 交棒後可能就結束了。只盯著啟動的 exe 會得到兩個錯誤結論:
+    /// 「程序不在了 = 當掉了,重開」以及「前景不是它 = 失焦了,搶回來」——
+    /// 前者會在遊戲上面一直重開啟動器,後者會把焦點從遊戲搶走。
+    /// 所以要能問「現在前景到底是誰」,把它學進追蹤名單。
+    public static string ForegroundName()
+    {
+        var fg = GetForegroundWindow();
+        if (fg == IntPtr.Zero) return "";
+        int pid; GetWindowThreadProcessId(fg, out pid);
+        if (pid == 0) return "";
+        try { return Process.GetProcessById(pid).ProcessName; }
+        catch { return ""; }
+    }
+
     public static bool Focus(string processName)
     {
         var h = MainWindowOf(processName);

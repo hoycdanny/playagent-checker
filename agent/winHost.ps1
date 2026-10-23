@@ -30,6 +30,7 @@ while ($true) {
       'kill' { Get-Process -Name ([string]$a.name) -ErrorAction SilentlyContinue | Stop-Process -Force; $true }
       'running' { [bool](Get-Process -Name ([string]$a.name) -ErrorAction SilentlyContinue) }
       'foreground' { [WinHelper]::IsForeground([string]$a.name) }
+      'fgname' { [WinHelper]::ForegroundName() }
       'focus' { [WinHelper]::Focus([string]$a.name) }
       'rect' { [WinHelper]::WindowRect([string]$a.name) }
       'quit' { exit 0 }
