@@ -31,7 +31,9 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..');
-const REGION = process.env.AWS_REGION ?? 'us-east-2';
+// 平台部署在 us-west-2。預設值原本是 us-east-2(早期 PoC 的區域),忘記設 AWS_REGION 就會
+// 把 Application / Stream Group / SSM 全建到沒人讀的區域,而症狀跟「完全沒建」一模一樣。
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const TOOLS = process.env.PA_TOOLS_DIR ?? join(tmpdir(), 'pa-gls-tools');
 const BUILD = join(HERE, '.build', 'app');
 const APP_PREFIX = 'app/v1/';

@@ -4,7 +4,8 @@ import { execFileSync } from 'node:child_process';
 import { GameLiftStreamsClient, ListStreamSessionsCommand } from '@aws-sdk/client-gameliftstreams';
 import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm';
 
-const REGION = 'us-east-2';
+// 平台部署在 us-west-2(早期 PoC 在 us-east-2)。查錯的區域,寫錯等於永遠回報「乾淨」。
+const REGION = process.env.AWS_REGION ?? 'us-west-2';
 const cli = (args) => {
   const raw = execFileSync('aws', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 32 * 1024 * 1024 });
   return JSON.parse(raw || 'null');

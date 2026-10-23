@@ -5,20 +5,29 @@
  *   jobs/<id>/devlogs/console/<序號6位>.txt  網頁任務的瀏覽器 console
  *                                            (agent/browserLogs.mjs;刻意用與 logcat 相同的
  *                                             行格式,前端 parseLogcat / LogcatView 直接重用)
+ *   jobs/<id>/devlogs/host/<序號6位>.txt     Windows 主機腳本的進度與錯誤
+ *                                            (worker/windows-host/gamelift/host.ps1;同樣用
+ *                                             logcat 行格式)
  * 依序號分頁讀取(StartAfter 游標);任務詳情頁展開「裝置 Log」時才呼叫。
  */
 import { GetObjectCommand, ListObjectsV2Command, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
 
-export type DeviceLogKind = 'logcat' | 'audio' | 'console';
-export const DEVICE_LOG_KINDS: readonly DeviceLogKind[] = ['logcat', 'audio', 'console'];
+export type DeviceLogKind = 'logcat' | 'audio' | 'console' | 'host';
+export const DEVICE_LOG_KINDS: readonly DeviceLogKind[] = ['logcat', 'audio', 'console', 'host'];
 
 const NAME_RE: Record<DeviceLogKind, RegExp> = {
   logcat: /^\d{6}\.txt$/,
   audio: /^\d{6}\.json$/,
   // 網頁任務的瀏覽器 console(agent/browserLogs.mjs 每步上傳,格式與 logcat 相同)。
   console: /^\d{6}\.txt$/,
+  // Windows 主機腳本(host.ps1)的下載 / 解壓 / 安裝 / runner 啟動與 stderr 尾段。
+  // 這是 Windows 任務唯一能看到「runner 還沒起來之前發生什麼事」的地方。
+  host: /^\d{6}\.txt$/,
 };
+
+/** 純文字類(其餘是 JSON 快照)。 */
+const TEXT_KINDS = new Set<DeviceLogKind>(['logcat', 'console', 'host']);
 
 /** 單次回應內容預算(位元組,保守估計:中文字以 2 bytes 計)。 */
 const RESPONSE_BUDGET = 3_000_000;
@@ -59,7 +68,7 @@ export async function readDeviceLogs(
     try {
       const obj = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${prefix}${name}` }));
       const body = (await obj.Body?.transformToString()) ?? '';
-      if (kind === 'logcat' || kind === 'console') return { name, text: body.slice(0, 400_000) };
+      if (TEXT_KINDS.has(kind)) return { name, text: body.slice(0, 400_000) };
       return { name, data: JSON.parse(body) as unknown };
     } catch {
       return { name };

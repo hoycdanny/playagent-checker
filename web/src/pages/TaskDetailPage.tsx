@@ -298,6 +298,10 @@ export default function TaskDetailPage() {
   // 網頁任務:瀏覽器 console(等同 Chrome DevTools 的 Console);與 logcat 同格式、同一條管線。
   const isWeb = backend === 'web';
   const consoleLog = useDeviceLog<LogChunk>(jobId ?? '', 'console', isLive, !!jobId && isWeb);
+  // Windows 任務:主機腳本(host.ps1)的下載 / 安裝 / 啟動紀錄。AI 還沒開始就失敗時
+  // (例如安裝卡住),步驟與截圖都是空的,只有這份 log 說得出原因。
+  const isWindows = backend === 'windows';
+  const hostLog = useDeviceLog<LogChunk>(jobId ?? '', 'host', isLive, !!jobId && isWindows);
   const summaryTraces = useTraces(jobId ?? '', isLive, !!jobId, 'summary');
   const [videoDur, setVideoDur] = useState<Record<string, number>>({});
   const onDuration = useCallback((name: string, sec: number) => {
@@ -601,7 +605,13 @@ export default function TaskDetailPage() {
               <p className="detail__booting-sub">{bootText(backend, lang).hint}</p>
             </div>
           ) : (
-            <div className="detail__no-live">{t('detail.noLiveView')}</div>
+            // 終局且一張截圖都沒有。原本這裡寫「此後端不提供即時畫面」,但四種後端的 runner
+            // 都會寫即時幀 —— 真正的原因是這次沒跑到產生畫面那一步,說成後端不支援會把人
+            // 導去查錯方向。Windows 另外指向主機 log,那是唯一有線索的地方。
+            <div className="detail__no-live">
+              <p>{t('detail.noScreens')}</p>
+              {isWindows && <p>{t('detail.noScreensHostLog')}</p>}
+            </div>
           )}
         </section>
 
@@ -663,6 +673,7 @@ export default function TaskDetailPage() {
                   isLive={isLive}
                   device={isDevice}
                   browser={isWeb}
+                  host={isWindows}
                   levels={audioLevels}
                   steps={soundStepRefs}
                   onSeek={seekTo}
@@ -670,6 +681,7 @@ export default function TaskDetailPage() {
                   origin={timeline.origin}
                   {...(isDevice ? { logcat } : {})}
                   {...(isWeb ? { consoleLog } : {})}
+                  {...(isWindows ? { hostLog } : {})}
                   cursorStep={cursorStep}
                 />
                 {/* 【學習 B】接管錄到的手動操作 → 存成可重跑的測試案例。 */}

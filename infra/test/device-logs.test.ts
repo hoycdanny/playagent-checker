@@ -42,6 +42,22 @@ describe('readDeviceLogs', () => {
     expect(next.more).toBe(false);
   });
 
+  test('host chunks (Windows host.ps1) read as text, same paging as logcat', async () => {
+    // Windows 任務的主機 log:host.ps1 把下載 / 安裝 / 啟動的紀錄以 logcat 行格式分段上傳。
+    // 它是 Windows 唯一能看到「AI runner 還沒起來之前」發生什麼事的來源,所以必須跟
+    // logcat 走同一條讀取路徑(文字、序號分頁),而不是被當成 JSON 解析後整段丟掉。
+    const s3 = fakeS3({
+      [`${P}host/000001.txt`]: '# step=0 dev=1792725358.153 sent=1792725358153\n1792725358.153  1  0  I  host: start',
+      [`${P}host/000002.txt`]: '1792725361.000  1  0  E  install: 安裝程式卡住',
+    });
+    const r = await readDeviceLogs(s3, 'b', 't1', 'job-1', 'host');
+    expect(r.items.map((x) => x.name)).toEqual(['000001.txt', '000002.txt']);
+    expect(r.items[1]!.text).toContain('install: 安裝程式卡住');
+    // 不是 JSON 類:data 必須是 undefined,否則前端會拿不到 text 而顯示空面板。
+    expect(r.items[0]!.data).toBeUndefined();
+    expect(r.items[0]!.text).toContain('host: start');
+  });
+
   test('audio snapshots are parsed JSON', async () => {
     const s3 = fakeS3({ [`${P}audio/000000.json`]: JSON.stringify({ step: 3, players: [{ piid: 1, state: 'started' }] }) });
     const r = await readDeviceLogs(s3, 'b', 't1', 'job-1', 'audio');
