@@ -27,6 +27,7 @@ import { STSClient, GetCallerIdentityCommand } from '@aws-sdk/client-sts';
 import {
   GameLiftStreamsClient, CreateApplicationCommand, GetApplicationCommand, ListApplicationsCommand,
   CreateStreamGroupCommand, GetStreamGroupCommand, ListStreamGroupsCommand, UpdateStreamGroupCommand,
+  AssociateApplicationsCommand,
 } from '@aws-sdk/client-gameliftstreams';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -253,10 +254,15 @@ async function upload(s3, bucket, files) {
 
 async function ensureApplication(gl, bucket, changed) {
   const items = (await gl.send(new ListApplicationsCommand({}))).Items ?? [];
-  const existing = items.find((a) => a.Description === APP_DESC && a.Status !== 'DELETING');
-  // 應用內容是在建立時從 S3 快照的:檔案有變就得建新的應用。
+  // 一定要挑「最新的」那個,不是清單裡第一個。
+  // 應用內容是建立時從 S3 快照的,改不了,所以套件每更新一次就多一個同名 application。
+  // 挑到舊的會安靜地跑舊版套件 —— 程式明明改好也推上去了,主機上跑的卻是改修前的版本,
+  // 而且完全沒有任何錯誤訊息。實際踩過一次。
+  const existing = items
+    .filter((a) => a.Description === APP_DESC && a.Status !== 'DELETING')
+    .sort((a, b) => Date.parse(b.CreatedAt ?? 0) - Date.parse(a.CreatedAt ?? 0))[0];
   if (existing && !changed) {
-    log('沿用 application', existing.Id);
+    log('沿用 application', existing.Id, `(建於 ${existing.CreatedAt})`);
     return existing.Id;
   }
   if (existing && changed) log('套件有更新 → 建立新的 application(舊的可於驗證後刪除:', existing.Id, ')');
@@ -304,10 +310,34 @@ async function ensureStreamGroup(gl, appId) {
   for (;;) {
     const g = await gl.send(new GetStreamGroupCommand({ Identifier: id }));
     log('  stream group', g.Status, g.StatusReason ?? '');
-    if (g.Status === 'ACTIVE') return id;
+    if (g.Status === 'ACTIVE') break;
     if (g.Status === 'ERROR') throw new Error(`stream group 失敗:${g.StatusReason}`);
     await sleep(30_000);
   }
+  // 套件有更新時會建立新的 application(內容是建立時從 S3 快照的,無法原地改)。
+  // 建立 stream group 時 DefaultApplicationIdentifier 會順便關聯,但「沿用」這條路
+  // 不會 —— 於是 SSM 指向新 application、group 只認得舊的,下一次開 session 直接失敗。
+  // 症狀又跟「環境沒建」幾乎一樣,所以這裡明確補上關聯並驗證。
+  await ensureAssociated(gl, id, appId);
+  return id;
+}
+
+/** 確保 application 已關聯到 stream group(已關聯就跳過)。 */
+async function ensureAssociated(gl, sgId, appId) {
+  const linked = async () => {
+    const g = await gl.send(new GetStreamGroupCommand({ Identifier: sgId }));
+    return (g.AssociatedApplications ?? []).some((a) => String(a).endsWith(`/${appId}`));
+  };
+  if (await linked()) { log('  application 已關聯', appId); return; }
+  log('  關聯 application 到 stream group', appId);
+  await gl.send(new AssociateApplicationsCommand({ Identifier: sgId, ApplicationIdentifiers: [appId] }));
+  for (let i = 0; i < 30; i++) {
+    if (await linked()) { log('  關聯完成'); return; }
+    await sleep(10_000);
+  }
+  // 不要在這裡「盡力而為」就算了:關聯沒成功的話,寫進 SSM 的 application 根本跑不起來,
+  // 而失敗會發生在使用者送出任務的時候,不是現在。
+  throw new Error(`application ${appId} 關聯到 stream group ${sgId} 逾時;請確認 group 狀態後重跑`);
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
