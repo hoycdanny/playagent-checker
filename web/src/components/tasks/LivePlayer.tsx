@@ -5,10 +5,31 @@ import { apiGet } from '../../api/client.ts';
  * 即時畫面播放器:依序播放 runner 上傳的短影片段落(雙 <video> 輪替,下一段先預載,
  * 播完無縫換上),沒有段落時回退顯示截圖幀。
  *
- * source='live'  → screenrecord 2 秒段(無聲,延遲約 3–5 秒,30+ fps)
+ * source='live'  → screenrecord / ffmpeg 的 2 秒段(無聲,延遲約 3–5 秒,30+ fps)
  * source='audio' → MediaProjection 段(含遊戲音效,延遲較長)
+ *
+ * 兩種模式
+ * ───────
+ * 即時(isLive):從「最新」開始,積壓就丟舊段 —— 看現在發生什麼事最重要。
+ * 回放(replay):從「最早」開始、一段都不丟、照順序播完 —— 測試結束後要能重看全程。
+ *
+ * 回放這條存在的理由:那些分段本來就已經錄好上傳了(Windows 任務每 2 秒一段)。
+ * 不播的話,測試一結束畫面就只剩最後一張截圖,等於花了主機時間錄完整過程卻看不到。
  */
 interface Segment { name: string; t: number; url: string }
+
+/**
+ * 回放的起始游標:比任何真實段落都早,所以 StartAfter 會從第一段開始列。
+ * 不帶游標的語意是「只回最新幾段」(給即時用),回放要的剛好相反。
+ * 必須符合後端的檔名格式(s + 13 位數字 + .mp4),否則會被當成沒給而退回「最新」。
+ */
+export const REPLAY_START_CURSOR = 's0000000000000.mp4';
+/** audio 來源的對應游標(前綴不同;回放目前只用 live,但別讓人誤用)。 */
+export const REPLAY_START_CURSOR_AUDIO = 'a0000000000000.mp4';
+const replayCursor = (source: 'live' | 'audio') =>
+  (source === 'audio' ? REPLAY_START_CURSOR_AUDIO : REPLAY_START_CURSOR);
+/** 回放時佇列低於這個段數才去抓下一批(避免一次把幾千段全撈回來)。 */
+const REPLAY_PREFETCH_LOW = 6;
 
 export interface LivePlayerState {
   /** 正在播放影片段落(false = 顯示截圖幀)。 */
@@ -86,6 +107,7 @@ export function toContentPointClamped(px: number, py: number, boxW: number, boxH
 export function LivePlayer({
   jobId,
   isLive,
+  replay = false,
   source = 'live',
   muted = true,
   volume = 1,
@@ -99,6 +121,11 @@ export function LivePlayer({
 }: {
   jobId: string;
   isLive: boolean;
+  /**
+   * 回放模式(測試已結束):從最早的分段開始、照順序播完,不丟段也不加速。
+   * 沒有任何分段時就維持顯示 fallbackUrl 的截圖,和原本的行為一樣。
+   */
+  replay?: boolean;
   source?: 'live' | 'audio';
   muted?: boolean;
   volume?: number;
@@ -139,10 +166,10 @@ export function LivePlayer({
   const stateCb = useRef(onState);
   stateCb.current = onState;
 
-  // 換來源時重置。
+  // 換來源 / 換模式時重置。
   useEffect(() => {
     queue.current = [];
-    cursor.current = undefined;
+    cursor.current = replay ? replayCursor(source) : undefined;
     backReady.current = false;
     backLoaded.current = false;
     lastArrival.current = 0;
@@ -152,7 +179,7 @@ export function LivePlayer({
       if (v) { v.pause(); v.removeAttribute('src'); v.load(); }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, source]);
+  }, [jobId, source, replay]);
 
   // 音量 / 靜音套到兩個 video。
   useEffect(() => {
@@ -165,31 +192,43 @@ export function LivePlayer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [muted, volume, source, front]);
 
-  // 輪詢新段落。
+  // 輪詢新段落(即時)/ 依序抓完所有段落(回放)。
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive && !replay) return;
     let stop = false;
+    let done = false; // 回放:已經抓到結尾,不必再問
     let timer: ReturnType<typeof setTimeout> | undefined;
+    if (replay) cursor.current = replayCursor(source);
     const poll = async () => {
       try {
-        const q = cursor.current ? `?after=${encodeURIComponent(cursor.current)}` : '';
-        const r = await apiGet<{ items: Segment[]; cursor?: string }>(`/tasks/${jobId}/live-${source === 'audio' ? 'audio' : 'video'}${q}`);
-        if (stop) return;
-        if (r.cursor) cursor.current = r.cursor;
-        if (r.items.length) {
-          lastArrival.current = Date.now();
-          queue.current.push(...r.items);
-          // 積壓太多 → 只留最新兩段(即時優先,不補播)。
-          if (source === 'live' && queue.current.length > 3) queue.current = queue.current.slice(-2);
+        // 回放:佇列還夠就先不抓 —— 一小時的測試有近兩千段,一次撈完既慢又沒必要。
+        const enough = replay && queue.current.length >= REPLAY_PREFETCH_LOW;
+        if (!done && !enough) {
+          const q = cursor.current ? `?after=${encodeURIComponent(cursor.current)}` : '';
+          const r = await apiGet<{ items: Segment[]; cursor?: string }>(`/tasks/${jobId}/live-${source === 'audio' ? 'audio' : 'video'}${q}`);
+          if (stop) return;
+          if (r.cursor) cursor.current = r.cursor;
+          if (r.items.length) {
+            lastArrival.current = Date.now();
+            queue.current.push(...r.items);
+            // 即時:積壓太多 → 只留最新兩段(看現在最重要,不補播)。
+            // 回放:一段都不能丟,否則重看會跳掉中間的過程。
+            if (!replay && source === 'live' && queue.current.length > 3) queue.current = queue.current.slice(-2);
+            pump();
+          } else if (replay) {
+            done = true; // 回放是看已結束的任務,沒有新段 = 真的播完了
+          }
+        } else if (enough) {
           pump();
         }
       } catch { /* 暫時失敗:下次再試 */ }
-      if (!stop) timer = setTimeout(() => void poll(), source === 'audio' ? 3000 : 1500);
+      // 回放已抓到結尾就不再輪詢(但佇列裡的還會繼續播完)。
+      if (!stop && !(replay && done)) timer = setTimeout(() => void poll(), replay ? 500 : source === 'audio' ? 3000 : 1500);
     };
     void poll();
     return () => { stop = true; if (timer) clearTimeout(timer); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, isLive, source]);
+  }, [jobId, isLive, replay, source]);
 
   // 段落太久沒來(runner 停了 / 回退截圖)→ 改顯示截圖幀。
   useEffect(() => {
@@ -233,8 +272,8 @@ export function LivePlayer({
     frontRef.current = backIdx;
     setFront(backIdx);
     setPlaying(true);
-    // 有積壓時稍微加速追上。
-    back.playbackRate = queue.current.length >= 2 ? 1.25 : 1;
+    // 即時:有積壓時稍微加速追上。回放要原速 —— 重看過程時被偷偷加速反而看不懂。
+    back.playbackRate = !replay && queue.current.length >= 2 ? 1.25 : 1;
     measure(back.videoWidth, back.videoHeight);
     const t = Number(back.dataset['t']);
     if (Number.isFinite(t)) lastSegT.current = t;
