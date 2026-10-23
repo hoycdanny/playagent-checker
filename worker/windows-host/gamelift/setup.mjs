@@ -41,6 +41,9 @@ const APP_PREFIX = 'app/v1/';
 const NODE_VERSION = 'v22.12.0';
 const IM_VERSION = '7.1.2-32';
 const INNOEXTRACT_VERSION = '1.9';
+// ffmpeg(即時影片 / 錄影):用 BtbN 的 Windows GPL 建置,含 ddagrab 與 NVENC。
+// essentials 建置不帶 ddagrab filter,所以要 full/gpl 那包。
+const FFMPEG_URL = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip';
 /** 應用與串流群組的描述(= 識別名稱;ListApplications 沒有 name 欄位,用 Description 認)。 */
 const APP_DESC = 'playagent-windows-host';
 const SG_DESC = 'playagent-windows';
@@ -126,6 +129,15 @@ async function prepareTools() {
   const magick = findFile(imDir, 'magick.exe');
   if (!magick) throw new Error('magick.exe 準備失敗');
 
+  // ffmpeg:即時影片與錄影(ddagrab + NVENC)。只取 ffmpeg.exe,不帶 ffplay / ffprobe。
+  const ffDir = join(TOOLS, 'ff');
+  if (!findFile(ffDir, 'ffmpeg.exe')) {
+    const zip = await download(FFMPEG_URL, join(TOOLS, 'ffmpeg.zip'));
+    unzip(zip, ffDir);
+  }
+  const ffmpegExe = findFile(ffDir, 'ffmpeg.exe');
+  if (!ffmpegExe) throw new Error('ffmpeg.exe 準備失敗');
+
   // runner 依賴:用 runner 自己的 package.json 安裝(與 Device Farm 容器同一份清單)。
   const depsDir = join(TOOLS, 'runner-deps');
   if (!existsSync(join(depsDir, 'node_modules'))) {
@@ -134,7 +146,7 @@ async function prepareTools() {
     log('安裝 runner 依賴…');
     execFileSync('npm', ['install', '--omit=dev', '--no-audit', '--no-fund'], { cwd: depsDir, stdio: 'inherit', shell: true });
   }
-  return { innoextract, nodeExe, magickDir: dirname(magick), depsDir };
+  return { innoextract, nodeExe, magickDir: dirname(magick), depsDir, ffmpegExe };
 }
 
 // ── 2) 組套件 ─────────────────────────────────────────────────────────────
@@ -167,6 +179,9 @@ function assemble(tools) {
     if (!/\.(exe|dll|xml|icc)$/i.test(f.name)) continue;
     cpSync(join(tools.magickDir, f.name), join(BUILD, 'im', f.name));
   }
+  // ffmpeg 單一執行檔(BtbN 的建置是靜態連結,不需要同目錄 DLL)。
+  mkdirSync(join(BUILD, 'ff'), { recursive: true });
+  cpSync(tools.ffmpegExe, join(BUILD, 'ff', 'ffmpeg.exe'));
   cpSync(join(tools.depsDir, 'node_modules'), join(BUILD, 'runner-deps', 'node_modules'), { recursive: true });
   const files = [];
   (function walk(dir) {
