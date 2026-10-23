@@ -86,6 +86,7 @@ function RunInstaller($exe, $argList, $label) {
   FlushLog
   $t0 = Get-Date
   $p = Start-Process -FilePath $exe -ArgumentList $argList -PassThru
+  $null = $p.Handle  # 同上:不先留句柄,之後讀不到 ExitCode
   <#
     不要等安裝程式自己結束。
     
@@ -102,8 +103,7 @@ function RunInstaller($exe, $argList, $label) {
   $deadline = (Get-Date).AddSeconds($installTimeoutSec)
   while ((Get-Date) -lt $deadline) {
     if ($p.WaitForExit(3000)) {
-      $p.Refresh()
-      $code = try { $p.ExitCode } catch { '?' }
+      $code = try { "$($p.ExitCode)" } catch { '?' }
       Log "安裝程式自行結束($label)exit=$code 耗時 $([int]((Get-Date) - $t0).TotalSeconds)s,裝出 $((GameExes).Count) 個 exe" 'I' 'install'
       FlushLog
       return $true
@@ -221,14 +221,15 @@ $node = Join-Path $root 'node\node.exe'
 if (-not (Test-Path $node)) { Fail "套件缺少 node\node.exe" }
 Status 'running' "遊戲已安裝($($game.Name)),AI 測試啟動中"
 $rp = Start-Process -FilePath $node -ArgumentList "`"$work\runner\explorationRunner.mjs`"" -WorkingDirectory "$work\runner" -NoNewWindow -PassThru -RedirectStandardOutput "$work\runner.out.log" -RedirectStandardError "$work\runner.err.log"
+# 先碰一次 .Handle 把句柄留住,否則程序結束後讀 ExitCode 會是空值。
+# Refresh() 不管用(試過,log 裡還是「exit=」);本機以 `cmd /c exit 7` 重現:
+#   不碰 Handle → ExitCode 空字串;先碰 Handle → 7。
+$null = $rp.Handle
 Log "runner 已啟動 pid=$($rp.Id)" 'I' 'runner'
 # 每 30 秒 flush 一次:runner 自己會即時寫步驟與截圖,但主機這一層的紀錄不能等到它結束 ——
 # session 被逾時砍掉時,沒 flush 的部分就永遠看不到了。
 while (-not $rp.WaitForExit(30000)) { FlushLog }
-# Refresh() 之後才讀得到 ExitCode(Start-Process -PassThru 回來的物件不會自己更新,
-# 直接讀會是空值 —— 之前 log 裡那個「exit=」就是這樣來的)。
-$rp.Refresh()
-$runnerExit = try { $rp.ExitCode } catch { '?' }
+$runnerExit = try { "$($rp.ExitCode)" } catch { '?' }
 Log "runner 結束 exit=$runnerExit" 'I' 'runner'
 # runner 的 stderr 尾段也送進主機 log:runner 自己炸掉時,錯誤訊息只在這個檔案裡,
 # 而那正是使用者最需要看到的東西(否則畫面上只有一個沒有原因的失敗)。
