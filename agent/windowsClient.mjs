@@ -42,6 +42,40 @@ function dirOffset(dir, mag) {
   return [dx, dy];
 }
 
+/** 不該被當成「遊戲」的系統視窗(學習前景程序時要排除)。 */
+const SYSTEM_PROCS = new Set([
+  'explorer', 'dwm', 'taskmgr', 'powershell', 'pwsh', 'cmd', 'conhost',
+  'applicationframehost', 'searchapp', 'shellexperiencehost', 'textinputhost',
+  'node', 'windowsterminal', 'logonui', 'csrss', 'winlogon', 'rdpclip', 'mstsc',
+]);
+
+/** 這個前景程序名稱可以被當成「遊戲」嗎(空值與系統視窗都不行)。 */
+export function isGameProc(name) {
+  const n = String(name ?? '').trim().toLowerCase();
+  return !!n && !SYSTEM_PROCS.has(n);
+}
+
+/**
+ * 「遊戲還好嗎」的決策,抽成純函式才驗得到。
+ *
+ * 三個輸入都是從 winHost 問來的事實:
+ *   alive  追蹤名單裡還活著的程序名(空 = 全部都不在了)
+ *   fg     目前前景視窗所屬的程序名(空 = 取不到)
+ *   tracked 目前追蹤名單
+ *
+ * 回傳要做什麼。state 對齊 Appium 的 app state 語意:1 = 沒在跑、3 = 在背景、4 = 在前景。
+ */
+export function foregroundDecision({ alive, fg, tracked }) {
+  if (!alive) return { state: 1, action: 'relaunch', foreground: false };
+  const name = String(fg ?? '').trim().toLowerCase();
+  if (name && tracked.has(name)) return { state: 4, action: 'none', foreground: true };
+  // 前景是個陌生的非系統程序:啟動器剛把棒子交出去。把它學進來,**不要**搶焦點 ——
+  // 搶回啟動器等於把剛開起來的遊戲壓到背景。
+  if (isGameProc(name)) return { state: 4, action: 'adopt', adopt: name, foreground: true };
+  // 前景是系統視窗或取不到:把焦點拉回還活著的那個。
+  return { state: 3, action: 'focus', focus: alive, foreground: false };
+}
+
 export class WindowsClient {
   #proc;
   #pending = new Map();
@@ -49,6 +83,19 @@ export class WindowsClient {
   #w = 0;
   #h = 0;
   lastAppState = 4;
+  /**
+   * 這次測試「算是遊戲」的程序名稱(不含 .exe)。
+   *
+   * 為什麼是一個集合而不是單一名稱:啟動器型的遊戲(例如新楓之谷走
+   * Gamania Games Manager → GGMWebStart.exe → 更新 → 真正的遊戲)真正在跑的是
+   * **另一個程序**,我們啟動的那個 exe 交棒後往往就結束了。
+   *
+   * 只盯著啟動的 exe 會得到兩個都錯的結論:
+   *   - 「程序不在了」→ 判定當掉 → 在遊戲上面一直重開啟動器
+   *   - 「前景不是它」→ 判定失焦 → 把焦點從遊戲搶走
+   * 兩個都會讓測試看起來像遊戲壞了,其實是我們自己在搞。
+   */
+  #appNames = new Set();
 
   static async create({ helperDir = HERE } = {}) {
     const c = new WindowsClient();
@@ -162,25 +209,73 @@ export class WindowsClient {
     }
   }
 
+  /** 目前前景的程序名稱(小寫);取不到或是系統視窗回空字串。 */
+  async #foregroundName() {
+    const raw = await this.#call('fgname', {}, 10_000).catch(() => '');
+    return String(raw ?? '').trim().toLowerCase();
+  }
+
+  /**
+   * 學習「遊戲實際上是哪個程序」:啟動後盯一下前景,把非系統的前景程序記起來。
+   * 啟動器把棒子交給別的程序時,這一步讓我們追蹤得到真正的遊戲。
+   */
+  async #learnForeground(waitMs = 12_000) {
+    const until = Date.now() + waitMs;
+    while (Date.now() < until) {
+      const n = await this.#foregroundName();
+      if (!isGameProc(n)) { await sleep(1500); continue; }
+      if (!this.#appNames.has(n)) {
+        this.#appNames.add(n);
+        console.log(`[windows] 前景程序 ${n} 納入追蹤(目前:${[...this.#appNames].join(', ')})`);
+        return n;
+      }
+      return n; // 已經在追蹤名單裡,不必再等
+    }
+    return '';
+  }
+
+  /** 追蹤名單裡還有活著的程序嗎。 */
+  async #anyRunning() {
+    for (const name of this.#appNames) {
+      if (await this.#call('running', { name }, 10_000).catch(() => false)) return name;
+    }
+    return '';
+  }
+
   async launchPackage(exe) {
+    const name = WindowsClient.#name(exe).toLowerCase();
+    this.#appNames.add(name);
     await this.#call('launch', { exe: String(exe) });
     await sleep(3000);
-    await this.#call('focus', { name: WindowsClient.#name(exe) }).catch(() => false);
+    await this.#call('focus', { name }).catch(() => false);
+    // 啟動器可能馬上把前景交給別人(更新程式 / 真正的遊戲),所以這裡學一下。
+    await this.#learnForeground(12_000).catch(() => '');
   }
   async restartApp(exe) {
-    await this.#call('kill', { name: WindowsClient.#name(exe) }).catch(() => false);
+    // 整條鏈都要收掉:只殺啟動器的話,更新程式或遊戲本體會留在那裡,
+    // 重開之後畫面上會有兩份,AI 更難判斷。
+    for (const name of this.#appNames) {
+      await this.#call('kill', { name }).catch(() => false);
+    }
+    this.#appNames.clear();
     await sleep(1500);
     await this.launchPackage(exe);
   }
   async ensureForeground(exe) {
     if (!exe) return true;
-    const name = WindowsClient.#name(exe);
-    const running = await this.#call('running', { name }).catch(() => true);
-    if (!running) { this.lastAppState = 1; await this.launchPackage(exe).catch(() => {}); return false; }
-    const fg = await this.#call('foreground', { name }).catch(() => true);
-    this.lastAppState = fg ? 4 : 3;
-    if (!fg) await this.#call('focus', { name }).catch(() => false);
-    return fg;
+    // 三個事實問完,交給 foregroundDecision 判斷(決策邏輯是純函式,有單獨的測試)。
+    const alive = await this.#anyRunning();
+    const fg = await this.#foregroundName();
+    const d = foregroundDecision({ alive, fg, tracked: this.#appNames });
+    this.lastAppState = d.state;
+    if (d.action === 'relaunch') { await this.launchPackage(exe).catch(() => {}); return false; }
+    if (d.action === 'adopt') {
+      this.#appNames.add(d.adopt);
+      console.log(`[windows] 前景換成 ${d.adopt},視為遊戲的一部分並納入追蹤`);
+    } else if (d.action === 'focus') {
+      await this.#call('focus', { name: d.focus }).catch(() => false);
+    }
+    return d.foreground;
   }
   async perfSample() {
     return null;
