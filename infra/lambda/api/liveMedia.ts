@@ -16,6 +16,18 @@ const NAME_RE: Record<MediaKind, RegExp> = {
   audio: /^a(\d{13})\.mp4$/,
 };
 
+/**
+ * 這個檔名能不能當游標(after)用。
+ *
+ * 匯出的理由:前端回放要從第一段開始,做法是送一個「比任何真實段落都早」的游標。
+ * 而 listMediaSegments 對不合格式的 after 是**悄悄忽略**,退回「只回最新幾段」——
+ * 游標寫錯的症狀是回放只播最後兩段就結束,沒有錯誤訊息。
+ * 與其讓前端自己猜格式,不如把規則本身公開出來讓兩邊共用同一個判準。
+ */
+export function isMediaCursor(kind: MediaKind, name: string): boolean {
+  return NAME_RE[kind].test(name);
+}
+
 export interface MediaSegment {
   name: string;
   /** 段落開始的裝置時間(epoch ms)。 */

@@ -10,7 +10,7 @@ import { TaskInfoStrip } from '../components/tasks/TaskInfoStrip.tsx';
 import { BootTimeline } from '../components/tasks/BootTimeline.tsx';
 import { InfoIcon } from '../components/tasks/InfoIcon.tsx';
 import { LiveScreen } from '../components/tasks/LiveScreen.tsx';
-import { gestureBody, type PickPoint } from '../components/tasks/LivePlayer.tsx';
+import { gestureBody, LivePlayer, type PickPoint } from '../components/tasks/LivePlayer.tsx';
 import { getTakeover, sendTakeoverGesture, setTakeover as setTakeoverApi } from '../api/takeover.ts';
 import { TakeoverScriptSave } from '../components/tasks/TakeoverScriptSave.tsx';
 import { StepSound } from '../components/tasks/StepSound.tsx';
@@ -589,11 +589,27 @@ export default function TaskDetailPage() {
               bare
               aspect={appAspect}
             />
-          ) : (cursorShotUrl ?? liveUrl) ? (
-            // 沒有錄影:顯示播放頭那一步的截圖(沒選時間 = 最新一步)。
+          ) : cursorShotUrl ? (
+            // 使用者在時間軸上選了某一步:顯示那一步的截圖(選步驟就是為了看那一刻)。
             <figure className="detail__screen">
-              <img src={cursorShotUrl ?? liveUrl} alt={asText((cursorShotUrl ? cursorShot : latestShot)?.screen) ?? t('detail.liveView')} />
+              <img src={cursorShotUrl} alt={asText(cursorShot?.screen) ?? t('detail.liveView')} />
             </figure>
+          ) : !isLive && state !== 'queued' ? (
+            /*
+             * 測試已結束且沒選特定步驟:回放即時分段(從第一段依序播完)。
+             * 這些分段在測試過程中就已經錄好上傳了 —— 不播的話畫面只剩最後一張截圖,
+             * 等於花了主機時間錄完整過程卻看不到。沒有任何分段時,播放器會維持顯示
+             * fallbackUrl 的截圖,與原本的行為相同。
+             */
+            <LivePlayer
+              jobId={jobId!}
+              isLive={false}
+              replay
+              source="live"
+              muted
+              fallbackUrl={liveUrl ?? null}
+              alt={asText(latestShot?.screen) ?? t('detail.liveView')}
+            />
           ) : isLive || state === 'queued' ? (
             // 開機中還沒有畫面:顯示手機外框 + 目前階段,不要只有一行字。
             <div className="detail__booting" role="status">
