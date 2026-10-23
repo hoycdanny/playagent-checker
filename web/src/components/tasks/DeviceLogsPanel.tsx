@@ -30,6 +30,14 @@ const T = {
   logcat: ["裝置", "Device", "设备", "デバイス", "기기"],
   audio: ["音效", "Sound", "音效", "サウンド", "사운드"],
   consoleTab: ["Console", "Console", "Console", "Console", "Console"],
+  hostTab: ["主機", "Host", "主机", "ホスト", "호스트"],
+  hostHint: [
+    "Windows 主機的執行紀錄:下載遊戲、解開或安裝、啟動 AI 測試程式。測試還沒開始就失敗時,原因只會出現在這裡",
+    "What the Windows host did: download the game, extract or install it, start the AI runner. When a run fails before testing begins, the reason only shows up here",
+    "Windows 主机的执行记录:下载游戏、解开或安装、启动 AI 测试程序。测试还没开始就失败时,原因只会出现在这里",
+    "Windows ホストの実行記録:ゲームのダウンロード、展開またはインストール、AI ランナーの起動。テスト開始前に失敗した場合、原因はここにだけ表示されます",
+    "Windows 호스트의 실행 기록: 게임 다운로드, 압축 해제 또는 설치, AI 러너 시작. 테스트 시작 전에 실패하면 원인은 여기에만 표시됩니다"
+  ],
   consoleHint: [
     "瀏覽器的 console 訊息、未捕捉的 JavaScript 錯誤、失敗的網路請求與對話框(等同 Chrome DevTools 的 Console)",
     "Browser console messages, uncaught JavaScript errors, failed network requests and dialogs (same as Chrome DevTools Console)",
@@ -311,20 +319,26 @@ async function readAll<I>(jobId: string, kind: string, after: string | undefined
  * 「數據分析」與「Token 用量」原本也是這裡的分頁,已拉到任務詳情頁的上層分頁列
  * (LiveAnalysisView / UsageView),這裡只留逐步的 log 與三個 Agent 的互動紀錄。
  */
-type Tab = 'logcat' | 'audio' | 'console' | AgentSeat;
-const TAB_LABEL: Record<Tab, keyof typeof T> = { logcat: 'logcat', audio: 'audio', console: 'consoleTab', vlm: 'agentVlm', agent: 'agentMain', subagent: 'agentSub' };
-const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { console: 'consoleHint', vlm: 'agentVlmHint', agent: 'agentMainHint', subagent: 'agentSubHint' };
+type Tab = 'logcat' | 'audio' | 'console' | 'host' | AgentSeat;
+const TAB_LABEL: Record<Tab, keyof typeof T> = { logcat: 'logcat', audio: 'audio', console: 'consoleTab', host: 'hostTab', vlm: 'agentVlm', agent: 'agentMain', subagent: 'agentSub' };
+const TAB_HINT: Partial<Record<Tab, keyof typeof T>> = { console: 'consoleHint', host: 'hostHint', vlm: 'agentVlmHint', agent: 'agentMainHint', subagent: 'agentSubHint' };
 
 /**
  * 任務詳情頁右欄「日誌檢視」:裝置系統 Log / 音效播放狀態(真機才有)+ 三個 AI Agent 每一步的互動紀錄。
  * device=false(非真機)時只顯示 AI Agent 分頁。lang 保留相容;文案依介面語系(五語)。
  */
-export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false, levels, steps, onSeek, cursor, origin, logcat, consoleLog, cursorStep }: {
+export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false, host = false, levels, steps, onSeek, cursor, origin, logcat, consoleLog, hostLog, cursorStep }: {
   jobId: string;
   isLive: boolean;
   device?: boolean;
   /** 網頁任務:多一個「Console」分頁(瀏覽器 console,等同 Chrome DevTools)。 */
   browser?: boolean;
+  /**
+   * Windows 任務:多一個「主機」分頁(host.ps1 的下載 / 安裝 / 啟動紀錄)。
+   * 這是 Windows 唯一能看到「AI 還沒開始之前」發生什麼事的地方 —— 安裝卡住時,
+   * 步驟與截圖都是空的,只有這裡有線索。
+   */
+  host?: boolean;
   lang?: RLang;
   /** 錄影聲音時間軸(音效分頁對照「有沒有真的聽到」)。 */
   levels?: AudioLevels | null;
@@ -340,6 +354,8 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false,
   logcat?: DeviceLogState<LogChunk>;
   /** 外層已讀好的瀏覽器 console(格式與 logcat 相同,共用 LogcatView)。 */
   consoleLog?: DeviceLogState<LogChunk>;
+  /** 外層已讀好的 Windows 主機 log(格式同上)。 */
+  hostLog?: DeviceLogState<LogChunk>;
   /** 播放頭所在的步驟(AI 分頁標出這一步)。 */
   cursorStep?: number | null;
 }) {
@@ -348,6 +364,8 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false,
   const log = logcat ?? ownLog;
   const ownConsole = useDeviceLog<LogChunk>(jobId, 'console', isLive, browser && !consoleLog);
   const consoleChunks = consoleLog ?? ownConsole;
+  const ownHost = useDeviceLog<LogChunk>(jobId, 'host', isLive, host && !hostLog);
+  const hostChunks = hostLog ?? ownHost;
   const sync: TimeSync = { ...(cursor !== undefined ? { cursor } : {}), ...(origin !== undefined ? { origin } : {}), ...(onSeek ? { onSeek } : {}) };
   // 點 AI 紀錄的步驟 → 播放頭跳到那一步開始。
   const stepStart = useMemo(() => new Map((steps ?? []).map((s) => [s.index, s.t])), [steps]);
@@ -355,14 +373,18 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false,
   // 順序:裝置 → 音效 → 視覺 → 決策 → 輔助(視覺 → 決策 → 輔助 = 每一步的執行順序)。
   // 預設:真機停在裝置;非真機停在視覺。
   // 網頁任務:Console 擺第一個(測網頁時最常看的就是它,等同開 DevTools)。
+  // Windows 任務:主機 log 擺第一個。測 Windows 時失敗大多發生在「AI 還沒開始」的階段
+  // (下載、解壓、安裝),那些只有主機 log 看得到。
   const agentTabs: Tab[] = ['vlm', 'agent', 'subagent'];
   const tabs: Tab[] = device
     ? ['logcat', 'audio', ...agentTabs]
-    : browser ? ['console', ...agentTabs] : agentTabs;
-  // 頁面剛載入時還不知道是哪種任務(device / browser 會從 false 變 true):
+    : browser ? ['console', ...agentTabs]
+    : host ? ['host', ...agentTabs]
+    : agentTabs;
+  // 頁面剛載入時還不知道是哪種任務(device / browser / host 會從 false 變 true):
   // 使用者沒點過分頁前,預設跟著任務類型走。
   const [picked, setTab] = useState<Tab | null>(null);
-  const tab: Tab = picked && tabs.includes(picked) ? picked : device ? 'logcat' : browser ? 'console' : 'vlm';
+  const tab: Tab = picked && tabs.includes(picked) ? picked : device ? 'logcat' : browser ? 'console' : host ? 'host' : 'vlm';
   const isAgent = tab === 'vlm' || tab === 'agent' || tab === 'subagent';
   const traces = useTraces(jobId, isLive, isAgent, isAgent ? (tab as AgentSeat) : 'summary');
   const hint = TAB_HINT[tab];
@@ -392,6 +414,9 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false,
       ) : tab === 'console' ? (
         // 瀏覽器 console 與 logcat 行格式相同,直接共用同一個檢視(等級/來源篩選、時間軸連動)。
         <LogcatView jobId={jobId} log={consoleChunks} sync={sync} />
+      ) : tab === 'host' ? (
+        // Windows 主機 log 也是同一種行格式(host.ps1 刻意照 logcat 寫),同樣共用。
+        <LogcatView jobId={jobId} log={hostChunks} sync={sync} />
       ) : tab === 'audio' ? (
         <AudioView jobId={jobId} isLive={isLive} log={log} sync={sync} {...(levels !== undefined ? { levels } : {})} {...(steps ? { steps } : {})} />
       ) : (
@@ -411,7 +436,7 @@ export function DeviceLogsPanel({ jobId, isLive, device = true, browser = false,
 }
 
 /** 讀取並(執行中時)每 5 秒以游標續讀。enabled = false 不讀(外層已經讀好傳進來)。 */
-export function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio' | 'console', isLive: boolean, enabled = true): DeviceLogState<I> {
+export function useDeviceLog<I>(jobId: string, kind: 'logcat' | 'audio' | 'console' | 'host', isLive: boolean, enabled = true): DeviceLogState<I> {
   const [items, setItems] = useState<I[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);

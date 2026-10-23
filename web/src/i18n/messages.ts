@@ -484,6 +484,8 @@ export type MessageKey =
   | 'detail.title'
   | 'detail.liveView'
   | 'detail.noLiveView'
+  | 'detail.noScreens'
+  | 'detail.noScreensHostLog'
   | 'detail.liveBadge'
   | 'detail.liveStreaming'
   | 'detail.trace'
@@ -1178,6 +1180,8 @@ const zhHant: Catalog = {
   'detail.title': '任務詳情',
   'detail.liveView': '即時畫面',
   'detail.noLiveView': '此後端不提供即時畫面,僅顯示執行軌跡。',
+  'detail.noScreens': '這次執行沒有產生任何畫面 —— AI 測試還沒開始就結束了。',
+  'detail.noScreensHostLog': '原因請看右側「日誌檢視」的「主機」分頁(下載、安裝、啟動的紀錄)。',
   'detail.liveBadge': 'LIVE',
   'detail.liveStreaming': '即時串流中(約 每秒數幀,無聲音)',
   'detail.trace': '執行軌跡',
@@ -1870,6 +1874,8 @@ const en: Catalog = {
   'detail.title': 'Task detail',
   'detail.liveView': 'Live view',
   'detail.noLiveView': 'This backend has no live view; showing the trace only.',
+  'detail.noScreens': 'This run produced no screens — it ended before the AI test started.',
+  'detail.noScreensHostLog': 'See the Host tab in the log viewer on the right for the download, install and startup records.',
   'detail.liveBadge': 'LIVE',
   'detail.liveStreaming': 'Live streaming (a few frames per second, no audio)',
   'detail.trace': 'Trace',
@@ -2567,6 +2573,8 @@ const zhHans: Catalog = {
   'detail.title': '任务详情',
   'detail.liveView': '实时画面',
   'detail.noLiveView': '此后端不提供实时画面,仅显示执行轨迹。',
+  'detail.noScreens': '这次执行没有产生任何画面 —— AI 测试还没开始就结束了。',
+  'detail.noScreensHostLog': '原因请看右侧「日志查看」的「主机」分页(下载、安装、启动的记录)。',
   'detail.liveBadge': 'LIVE',
   'detail.liveStreaming': '实时串流中(约 每秒数帧,无声音)',
   'detail.trace': '执行轨迹',
@@ -3259,6 +3267,8 @@ const ja: Catalog = {
   'detail.title': 'タスク詳細',
   'detail.liveView': 'ライブ画面',
   'detail.noLiveView': 'このバックエンドはライブ画面に対応していません。トレースのみ表示します。',
+  'detail.noScreens': 'この実行では画面が作られませんでした —— AI テストが始まる前に終了しています。',
+  'detail.noScreensHostLog': '原因は右側「ログビューア」の「ホスト」タブ(ダウンロード・インストール・起動の記録)で確認できます。',
   'detail.liveBadge': 'LIVE',
   'detail.liveStreaming': 'ライブ配信中(毎秒数フレーム、音声なし)',
   'detail.trace': 'トレース',
@@ -3952,6 +3962,8 @@ const ko: Catalog = {
   'detail.title': '작업 상세',
   'detail.liveView': '실시간 화면',
   'detail.noLiveView': '이 백엔드는 실시간 화면을 제공하지 않습니다. 트레이스만 표시합니다.',
+  'detail.noScreens': '이번 실행에서는 화면이 생성되지 않았습니다 — AI 테스트가 시작되기 전에 종료되었습니다.',
+  'detail.noScreensHostLog': '원인은 오른쪽 "로그 뷰어"의 "호스트" 탭(다운로드·설치·시작 기록)에서 확인하세요.',
   'detail.liveBadge': 'LIVE',
   'detail.liveStreaming': '실시간 스트리밍 중(초당 몇 프레임, 소리 없음)',
   'detail.trace': '트레이스',
