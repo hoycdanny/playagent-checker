@@ -1,0 +1,101 @@
+<!doctype html>
+<!--
+  GameLift Streams session 保活用的最小頁面。
+
+  為什麼需要一個頁面
+  ────────────────
+  AWS 的 Web SDK 需要 videoElement / audioElement(也就是需要 DOM 與瀏覽器的 WebRTC),
+  而 SignalRequest 必須由它的 generateSignalRequest() 產生 —— 自己用標準 WebRTC 組
+  {type:"offer",sdp:...} 會被 API 拒絕:
+    'SignalRequest' value is not a valid WebSDK signal request
+  (見 docs/design/windows-long-run.md:這個結論花了一個 GPU session 才確定。)
+
+  這個頁面只做保活,不做互動:
+    - 不呼叫 attachInput():不需要把鍵鼠事件送進遊戲(AI 自己在主機上操作)
+    - video/audio 都 muted 且不顯示:畫面由 runner 自己截圖,這裡收下來就丟
+    - 不載入 AWS SDK:呼叫 GameLift API 的事交給外面的 Node(憑證不該進瀏覽器)
+
+  驅動程式(keepalive.mjs)透過 window.paKeepAlive 這個小介面操作它。
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>PlayAgent keep-alive</title>
+  <!--
+    SDK 由驅動程式在載入頁面前以 addInitScript / addScriptTag 注入。
+    刻意不在這裡寫死檔名:版本換了只要換注入的檔案,不必改這一頁。
+  -->
+</head>
+<body>
+  <!-- SDK 硬性要求這兩個元素存在。保活不需要看畫面,所以藏起來並靜音。 -->
+  <video id="v" muted playsinline style="width:1px;height:1px;opacity:0"></video>
+  <audio id="a" muted></audio>
+
+  <script>
+    (function () {
+      'use strict';
+      /** 連線狀態的歷程(驅動程式讀它判斷連上了沒、斷了沒)。 */
+      const states = [];
+      let gls = null;
+      let lastError = '';
+
+      window.paKeepAlive = {
+        /** SDK 載進來了嗎(注入失敗時要能明確回報,而不是後面莫名其妙地失敗)。 */
+        sdkReady() {
+          return !!(window.gameliftstreams && window.gameliftstreams.GameLiftStreams);
+        },
+        states() { return states.slice(); },
+        lastState() { return states.length ? states[states.length - 1] : ''; },
+        lastError() { return lastError; },
+
+        /** 建立 SDK 物件。回錯誤訊息字串,成功回空字串。 */
+        init() {
+          try {
+            if (!this.sdkReady()) return 'SDK 未載入(window.gameliftstreams 不存在)';
+            if (gls) return '';
+            gls = new window.gameliftstreams.GameLiftStreams({
+              videoElement: document.getElementById('v'),
+              audioElement: document.getElementById('a'),
+              // 保活不送任何輸入:全部關掉,避免意外干擾正在被測的遊戲。
+              inputConfiguration: {
+                autoMouse: false, autoKeyboard: false, autoGamepad: false,
+                hapticFeedback: false,
+              },
+              clientConnection: {
+                connectionState: (s) => { states.push(String(s)); },
+                channelError: (e) => { lastError = 'channelError: ' + String(e); },
+                serverDisconnect: (r) => { states.push('serverDisconnect:' + String(r)); },
+                applicationMessage: () => {},
+              },
+            });
+            return '';
+          } catch (e) {
+            lastError = String((e && e.message) || e);
+            return lastError;
+          }
+        },
+
+        /** 產生 SignalRequest(只有 SDK 做得出合法格式)。 */
+        async offer() {
+          if (!gls) throw new Error('尚未 init()');
+          return await gls.generateSignalRequest();
+        },
+
+        /** 套用 SignalResponse 完成連線。 */
+        async answer(signalResponse) {
+          if (!gls) throw new Error('尚未 init()');
+          await gls.processSignalResponse(signalResponse);
+          return true;
+        },
+
+        /** 收掉連線(重連前要先收,不然會留著舊的 peer)。 */
+        close() {
+          try { gls && gls.close(); } catch (e) { lastError = String((e && e.message) || e); }
+          gls = null;
+          states.push('closed');
+        },
+      };
+    }());
+  </script>
+</body>
+</html>
