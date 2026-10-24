@@ -40,7 +40,7 @@ RUN npm install --omit=dev --no-audit --no-fund
 #  Linux 容器裡才會冒出來。)
 RUN npx playwright install chrome
 
-COPY keepAliveRunner.mjs glsKeepAlive.mjs ./
+COPY keepAliveRunner.mjs glsKeepAlive.mjs deadlineLease.mjs ./
 COPY glsKeepAlivePage.html ./
 
 # 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_SG / PA_SESSION_ARN / ...)。

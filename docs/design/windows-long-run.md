@@ -278,12 +278,23 @@ WebRTC 連線一小時都沒有斷過,重連路徑在這次測試裡沒有被用
 - [x] 掛 70 分鐘的驗證:活過 3600 秒(2026-10-24)
 - [x] 放寬前端的 `WINDOWS_HOUR_OPTIONS` 到 `[1, 2, 6, 12, 24]`
 
+### 在真實任務上的驗證(2026-10-24,`maxHours=2`)
+
+端到端跑一次新楓之谷的 Windows 任務:
+
+```
+11:53:30 [keepalive] 開始(group=sg-CIUwbsuIi session=hptMUc8pHjEj4)
+11:56:56 [keepalive] 已連線(第 1 次)
+11:59:26 runner 啟動
+12:01:35 lease.json → deadlineAt 12:56:35(= 更新時刻 + 55 分鐘)
+         session 狀態 CONNECTED;任務第 7 步 wait @ 登入畫面
+```
+
+保活在 Fargate 裡連得上(security group 是 stateful,client 主動發起的 UDP 流回應會
+自動放行,不必開入站規則)、租約有寫出來而且數字與 `leaseDeadlineMs` 的設計一致。
+
 ### 還沒驗證的部分(誠實記錄)
 
-- **保活在 Fargate 裡連得上嗎**:上面的驗證是在本機 Chromium 跑的。Fargate 的
-  security group 是 stateful、task 在 public subnet 帶公網 IP,推論上與家用 NAT 後面的
-  瀏覽器一樣(client 主動發起,回應流量自動放行),但沒有實跑過。
-- **斷線重連**:耐久測試整段沒斷過,重連路徑只有單元測試蓋著。
-- **deadline 租約的端到端**:`leaseDeadlineMs` 與 runner 的讀取各自有測試,但「保活寫、
-  runner 讀、收尾時間真的被延後」這條鏈沒有在真實任務上跑過。
-- **超過一小時的真實遊戲任務**:還沒跑過一次。
+- **斷線重連**:兩次驗證都只連了一次,整段沒斷過,重連路徑只有單元測試蓋著。
+- **租約讓 runner 真的延後收尾**:租約寫出來了,但「runner 讀到它並因此跨過原本的
+  55 分鐘收尾點」要等任務實際跑過那個時間才算驗證完。

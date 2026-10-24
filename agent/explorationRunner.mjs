@@ -39,7 +39,7 @@ import {
 } from '@aws-sdk/client-device-farm';
 import { AppiumClient } from './appiumClient.mjs';
 import { AdbClient } from './adbClient.mjs';
-import { WindowsClient } from './windowsClient.mjs';
+import { WindowsClient, audioSnapshot, soundNote } from './windowsClient.mjs';
 import { refreshRemoteDriverEndpoint } from './deviceFarmRefresh.mjs';
 import { createSession, setupDeviceFarmSession } from './deviceFarmSetup.mjs';
 import { createObsGuard } from './obsGuard.mjs';
@@ -50,6 +50,7 @@ import { createSpinSettle } from './spinSettle.mjs';
 import { createMediaRecorder } from './mediaAudio.mjs';
 import { SCENE_CROP, isBlocked, normDir, turnDir } from './moveFeedback.mjs';
 import { createDeviceLogs } from './deviceLogs.mjs';
+import { nextDeadline } from './deadlineLease.mjs';
 import { createAgentTeam, normalizeElements, screenFromSeen, scriptSteps, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { createTakeover } from './takeover.mjs';
 import { createScriptTracker, DEFAULT_ITEM_BUDGET } from './scriptTracker.mjs';
@@ -116,19 +117,20 @@ const deadlineLabel = () => (Number.isFinite(deadlineMs) ? new Date(deadlineMs).
 const LEASE_KEY = process.env.PA_LEASE_KEY || '';
 let leaseCheckedAt = 0;
 
-/** 讀 deadline 租約並往後延(只往後,不往前縮)。讀不到就沿用現值。 */
+/** 讀 deadline 租約並往後延(判斷在 nextDeadline,純函式)。讀不到就沿用現值。 */
 async function refreshDeadlineLease() {
   if (!LEASE_KEY) return;
   leaseCheckedAt = Date.now();
+  let text = '';
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: LEASE_KEY }));
-    const v = Number(JSON.parse(await res.Body.transformToString())?.deadlineMs);
-    // 只往後延:租約比現值早的時候(剛寫到一半、時鐘偏移)不該讓任務提早收工。
-    if (Number.isFinite(v) && (!Number.isFinite(deadlineMs) || v > deadlineMs)) {
-      console.log(`保活租約:收尾時間延到 ${new Date(v).toISOString().slice(11, 19)} UTC`);
-      deadlineMs = v;
-    }
-  } catch { /* 租約還沒出現 / 保活沒連上:沿用現有 deadline */ }
+    text = await res.Body.transformToString();
+  } catch { return; /* 租約還沒出現 / 保活沒連上:沿用現有 deadline */ }
+  const next = nextDeadline(deadlineMs, text);
+  if (next !== deadlineMs) {
+    console.log(`保活租約:收尾時間延到 ${new Date(next).toISOString().slice(11, 19)} UTC`);
+    deadlineMs = next;
+  }
 }
 // runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
 const RUNNER_VERSION = 'devicefarm-runner/2.5 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1, slot-board-v1)';
@@ -896,6 +898,13 @@ async function main() {
     : null);
   let devLogs = makeDevLogs();
   let devLogsPending = null;
+  // 【聲音】Windows 主機讀得到系統輸出的音量峰值(WASAPI;見 windowsClient 的 audioSample)。
+  // Android 那條走的是 dumpsys audio,由 devLogs 收集,所以這裡只管 Windows。
+  const soundProbe = (DRIVER === 'windows' && typeof client.audioSample === 'function' && process.env.PA_SOUND !== '0')
+    ? () => client.audioSample(250).catch(() => null)
+    : null;
+  let soundSeq = 0;
+  console.log('聲音判斷', soundProbe ? '啟用(WASAPI 音量峰值,每步取樣)' : '停用');
   console.log('真機 log 收集', devLogs ? '啟用(每步 logcat + 音效播放狀態)' : '停用');
   console.log('效能監測', perfShell ? `adb shell(每 ${PERF_EVERY} 步取樣)` : perfMon ? 'Appium getPerformanceData(僅 CPU/記憶體)' : '停用');
   let launchInfo = null;
@@ -1536,6 +1545,14 @@ async function main() {
     }
     // 真機 log(logcat + 音效播放狀態)與 VLM 推理並行;動作送出前等它結束(Appium 指令不交錯)。
     if (devLogs && !devLogsPending) devLogsPending = devLogs.collect(i).catch(() => null);
+    // 【聲音】音量取樣(Windows)。250ms 就在主線上等完 —— 它必須對應「這一張畫面的這一刻」,
+    // 丟到背景會變成「上一步的聲音配這一步的畫面」,那比沒有資訊更糟。
+    let sound = null;
+    if (soundProbe) {
+      sound = await timedAsync(tm, 'sound', () => soundProbe());
+      const snap = audioSnapshot(i, sound);
+      s3putBg(`${PREFIX}/devlogs/audio/${String(soundSeq++).padStart(6, '0')}.json`, JSON.stringify(snap), 'application/json');
+    }
     let shot;
     // pendingShot = 上一步等畫面穩定時就預先抓好的那張(見迴圈尾端),這一步不必再等取圖。
     const prefetched = Boolean(pendingShot);
@@ -1714,6 +1731,7 @@ async function main() {
     if (!reflexCmd) reflexNotes = [];
 
     const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + memoNote + controlNote
+      + soundNote(sound)
       + reflexNote
       + (scriptTracker ? scriptTracker.turnNote() : '')
       + memoryNote + routeTurnNote(appMemory.edits?.routes, prevPageId, routePageName) + operatorTurnNote(newCmds, operator.active);

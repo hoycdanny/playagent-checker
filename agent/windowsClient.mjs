@@ -42,6 +42,92 @@ function dirOffset(dir, mag) {
   return [dx, dy];
 }
 
+/**
+ * 音量超過這個峰值就算「有聲音」。
+ *
+ * 不用 0:安靜時的讀值不保證是精確的 0(混音器底噪、其他程序的極小輸出)。
+ * 本機實測靜音是 0.00000、播放 Windows 內建 wav 是 0.13 —— 中間差兩個數量級,
+ * 所以門檻取在很低的位置就夠,不必調參。
+ */
+export const AUDIO_ON_THRESHOLD = 0.002;
+
+/**
+ * 解析 WinHelper 的 AudioSample 回傳(JSON 字串)。抽成純函式才驗得到各種壞輸入。
+ *
+ * @returns {{ok:boolean, peak:number, avg:number, samples:number, device:string, why:string, heard:boolean}|null}
+ *   null = 連回應都沒有(指令失敗 / 逾時)
+ */
+export function parseAudioSample(raw) {
+  if (!raw) return null;
+  let o;
+  try { o = JSON.parse(String(raw)); } catch { return null; }
+  // Array.isArray 不能省:typeof [] === 'object',陣列會一路通過下面的欄位讀取,
+  // 回一個每個欄位都是 0 的假快照 —— 那會被當成「量到了而且是靜音」。
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+  const peak = Number(o.peak);
+  const avg = Number(o.avg);
+  return {
+    ok: o.ok === true,
+    peak: Number.isFinite(peak) ? peak : 0,
+    avg: Number.isFinite(avg) ? avg : 0,
+    samples: Number.isFinite(Number(o.samples)) ? Number(o.samples) : 0,
+    device: String(o.device ?? ''),
+    why: String(o.why ?? ''),
+    heard: o.ok === true && Number.isFinite(peak) && peak > AUDIO_ON_THRESHOLD,
+  };
+}
+
+/**
+ * 一次音量取樣 → 與 Android 同一個 schema 的音效快照。
+ *
+ * 為什麼硬要對齊 Android 的形狀:前端的「音效」分頁(DeviceLogsPanel 的 AudioSnap)
+ * 已經會讀 `devlogs/audio/*.json`、會依 `players[].state === 'started'` 亮「♪ 播放中」、
+ * 會把 `playbackRaw` 收在可展開的原始資料裡。沿用同一個 schema 就不必為 Windows 再做
+ * 一套 UI;代價是 players 這個欄位在 Windows 上只是「有/沒有在出聲」的一筆,
+ * 不像 Android 能列出每個播放器。實際的數字放在 peak / avg,並原樣寫進 playbackRaw。
+ *
+ * @param {number} step
+ * @param {ReturnType<typeof parseAudioSample>} s
+ */
+export function audioSnapshot(step, s, at = Date.now()) {
+  if (!s) {
+    return { step, at, players: [], outputs: [], playbackRaw: 'audio sample failed (no response)' };
+  }
+  const raw = s.ok
+    ? `peak=${s.peak.toFixed(5)} avg=${s.avg.toFixed(5)} samples=${s.samples} device=${s.device}`
+    : `audio unavailable: ${s.why || 'unknown'}`;
+  return {
+    step,
+    at,
+    // 有在出聲才給一筆播放器,這樣前端的「♪ 播放中」就只在真的有聲音時亮。
+    players: s.heard ? [{ piid: 0, type: 'WASAPI', usage: 'OUTPUT', state: 'started' }] : [],
+    outputs: s.ok ? [{ thread: 'default', standby: !s.heard, active: s.heard ? 1 : 0 }] : [],
+    peak: s.peak,
+    avg: s.avg,
+    samples: s.samples,
+    ok: s.ok,
+    playbackRaw: raw,
+  };
+}
+
+/**
+ * 要不要把聲音的狀況講給模型聽,以及講什麼。
+ *
+ * 為什麼要進 prompt(Android 那條刻意沒做):音效本身就是被測的東西。「按了技能有沒有
+ * 音效」「BGM 有沒有在放」這種檢查項,模型光看畫面得不到答案,只能猜 —— 而猜出來的
+ * 「有聽到音效」比不回答更糟。
+ *
+ * 靜音也要講:「操作了卻沒有聲音」正是要抓的缺陷。
+ * 讀不到音量時要明說讀不到,不要讓模型把它當成「靜音」。
+ */
+export function soundNote(s) {
+  if (!s) return '';
+  if (!s.ok) return `\n【系統|聲音】這台主機讀不到輸出音量(${s.why || '原因不明'}),所以聲音的有無無法判斷 —— 不要在 obs 裡聲稱聽到或沒聽到音效。`;
+  return s.heard
+    ? `\n【系統|聲音】主機此刻有聲音輸出(峰值 ${s.peak.toFixed(3)})。`
+    : '\n【系統|聲音】主機此刻沒有聲音輸出(靜音)。如果這一步本來應該有音效,這就是一個缺陷。';
+}
+
 /** 不該被當成「遊戲」的系統視窗(學習前景程序時要排除)。 */
 const SYSTEM_PROCS = new Set([
   'explorer', 'dwm', 'taskmgr', 'powershell', 'pwsh', 'cmd', 'conhost',
@@ -279,6 +365,22 @@ export class WindowsClient {
   }
   async perfSample() {
     return null;
+  }
+
+  /**
+   * 預設輸出端點的音量峰值(0~1)。回 null = 這台機器問不到音量。
+   *
+   * 為什麼是「取樣一段時間的峰值」而不是讀一次:peak 是瞬時值,而音效的波形會經過零點,
+   * 剛好讀在那裡就會把有聲音判成靜音。預設 250ms 夠蓋過一般音效的一個週期。
+   *
+   * 為什麼不是用 ffmpeg 錄一段來分析:ffmpeg 在 Windows 的音訊輸入走 dshow,不暴露
+   * WASAPI loopback,要錄系統播放出去的聲音得先裝虛擬音訊驅動 —— 那是核心模式驅動,
+   * 在用完就消失的 stream session 裡裝不了(見 windowsCapture.mjs 的註解)。
+   */
+  async audioSample(ms = 250) {
+    const raw = await this.#call('audio', { ms: Math.max(20, Math.min(4000, Number(ms) || 250)) }, 15_000)
+      .catch(() => '');
+    return parseAudioSample(raw);
   }
   async shell() {
     throw new Error('Windows 驅動沒有 Android shell');
