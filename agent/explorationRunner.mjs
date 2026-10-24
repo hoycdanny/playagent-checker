@@ -900,10 +900,25 @@ async function main() {
   let devLogsPending = null;
   // 【聲音】Windows 主機讀得到系統輸出的音量峰值(WASAPI;見 windowsClient 的 audioSample)。
   // Android 那條走的是 dumpsys audio,由 devLogs 收集,所以這裡只管 Windows。
-  const soundProbe = (DRIVER === 'windows' && typeof client.audioSample === 'function' && process.env.PA_SOUND !== '0')
+  let soundProbe = (DRIVER === 'windows' && typeof client.audioSample === 'function' && process.env.PA_SOUND !== '0')
     ? () => client.audioSample(250).catch(() => null)
     : null;
   let soundSeq = 0;
+  if (soundProbe) {
+    // 先確認音訊鏈真的通:主機自己播一段測試音,看音量表會不會動。要在遊戲啟動前做,
+    // 不然測試音會疊在遊戲的聲音上。
+    //
+    // 不通就直接停用聲音判斷。理由是不對稱的:量不準的「靜音」會被模型寫成
+    // 「沒有音效(缺陷)」,那是憑空生出一個缺陷報告;而少了這項資訊只是少一項。
+    const st = await client.audioSelfTest().catch(() => ({ chainOk: false, peak: 0, quiet: 0, why: 'selftest-failed' }));
+    s3putBg(`${PREFIX}/audio/selftest.json`, JSON.stringify({ ...st, at: Date.now() }), 'application/json');
+    if (st.chainOk) {
+      console.log(`聲音自我檢查通過:播測試音時峰值 ${st.peak.toFixed(3)},停止後 ${st.quiet.toFixed(3)}`);
+    } else {
+      console.log(`聲音自我檢查失敗(${st.why}):停用聲音判斷 —— 量不準的靜音會被寫成「沒有音效」,那是憑空生出一個缺陷`);
+      soundProbe = null;
+    }
+  }
   console.log('聲音判斷', soundProbe ? '啟用(WASAPI 音量峰值,每步取樣)' : '停用');
   console.log('真機 log 收集', devLogs ? '啟用(每步 logcat + 音效播放狀態)' : '停用');
   console.log('效能監測', perfShell ? `adb shell(每 ${PERF_EVERY} 步取樣)` : perfMon ? 'Appium getPerformanceData(僅 CPU/記憶體)' : '停用');

@@ -128,6 +128,33 @@ export function soundNote(s) {
     : '\n【系統|聲音】主機此刻沒有聲音輸出(靜音)。如果這一步本來應該有音效,這就是一個缺陷。';
 }
 
+/**
+ * 解析音訊鏈自我檢查的結果。
+ *
+ * 為什麼需要這個檢查:讀到「有輸出端點」不等於「遊戲的聲音會進到那個端點」。
+ * 少了它,一整場 peak=0 有兩種完全不同的解釋 —— 遊戲真的沒出聲(是個發現),
+ * 或者音訊鏈根本不通(我們的量測沒有意義)。分不出來的量測不該拿去寫報告。
+ *
+ * @returns {{chainOk:boolean, peak:number, quiet:number, why:string}}
+ */
+export function parseAudioSelfTest(raw) {
+  if (!raw) return { chainOk: false, peak: 0, quiet: 0, why: 'no-response' };
+  let o;
+  try { o = JSON.parse(String(raw)); } catch { return { chainOk: false, peak: 0, quiet: 0, why: 'bad-json' }; }
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return { chainOk: false, peak: 0, quiet: 0, why: 'bad-json' };
+  if (o.error) return { chainOk: false, peak: 0, quiet: 0, why: String(o.error).slice(0, 160) };
+  const during = parseAudioSample(JSON.stringify(o.during ?? null));
+  const after = parseAudioSample(JSON.stringify(o.after ?? null));
+  if (!during) return { chainOk: false, peak: 0, quiet: 0, why: 'no-measurement' };
+  if (!during.ok) return { chainOk: false, peak: 0, quiet: 0, why: during.why || 'sample-failed' };
+  return {
+    chainOk: during.heard,
+    peak: during.peak,
+    quiet: after?.peak ?? 0,
+    why: during.heard ? '' : 'test-tone-not-heard',
+  };
+}
+
 /** 不該被當成「遊戲」的系統視窗(學習前景程序時要排除)。 */
 const SYSTEM_PROCS = new Set([
   'explorer', 'dwm', 'taskmgr', 'powershell', 'pwsh', 'cmd', 'conhost',
@@ -381,6 +408,15 @@ export class WindowsClient {
     const raw = await this.#call('audio', { ms: Math.max(20, Math.min(4000, Number(ms) || 250)) }, 15_000)
       .catch(() => '');
     return parseAudioSample(raw);
+  }
+
+  /**
+   * 音訊鏈自我檢查:主機自己播一段正弦波,看音量表會不會動。
+   * 只在遊戲啟動前跑 —— 不然這段測試音會疊在遊戲的聲音上。
+   */
+  async audioSelfTest() {
+    const raw = await this.#call('audiotest', {}, 30_000).catch(() => '');
+    return parseAudioSelfTest(raw);
   }
   async shell() {
     throw new Error('Windows 驅動沒有 Android shell');

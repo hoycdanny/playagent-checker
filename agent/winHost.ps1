@@ -35,6 +35,8 @@ while ($true) {
       'rect' { [WinHelper]::WindowRect([string]$a.name) }
       # 音量取樣:回一個 JSON 字串(由 C# 自己組),這裡原樣帶回不要再包一層。
       'audio' { [WinHelper]::AudioSample([int]$a.ms) }
+      # 音訊鏈自我檢查:自己播一段正弦波,看音量表會不會動(只在遊戲啟動前跑)。
+      'audiotest' { [WinHelper]::AudioSelfTest() }
       'quit' { exit 0 }
       default { throw "unknown cmd $($req.cmd)" }
     }

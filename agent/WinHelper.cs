@@ -226,6 +226,66 @@ public static class WinHelper
         return sb.Append('"').ToString();
     }
 
+    /// 產生一段正弦波的 WAV(記憶體內,不碰檔案系統)。
+    ///
+    /// 為什麼不播 C:\Windows\Media 裡的 wav:Windows Server 的精簡安裝不保證有那些檔案,
+    /// 而「找不到檔案」會被誤讀成「這台機器沒有聲音」。自己生一段就沒有這個變數。
+    static byte[] SineWav(int ms, int freq)
+    {
+        int rate = 44100, bits = 16, ch = 1;
+        int samples = rate * ms / 1000;
+        int dataLen = samples * ch * bits / 8;
+        var m = new MemoryStream();
+        var w = new BinaryWriter(m);
+        w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(36 + dataLen);
+        w.Write(Encoding.ASCII.GetBytes("WAVE"));
+        w.Write(Encoding.ASCII.GetBytes("fmt ")); w.Write(16);
+        w.Write((short)1); w.Write((short)ch); w.Write(rate);
+        w.Write(rate * ch * bits / 8); w.Write((short)(ch * bits / 8)); w.Write((short)bits);
+        w.Write(Encoding.ASCII.GetBytes("data")); w.Write(dataLen);
+        for (int i = 0; i < samples; i++)
+        {
+            double t = (double)i / rate;
+            w.Write((short)(Math.Sin(2 * Math.PI * freq * t) * 12000));
+        }
+        w.Flush();
+        return m.ToArray();
+    }
+
+    /// <summary>
+    /// 音訊鏈自我檢查:自己播一段已知的聲音,看音量表有沒有跟著動。
+    ///
+    /// 為什麼需要這個:讀到「有輸出端點」不等於「遊戲的聲音會進到那個端點」。
+    /// 沒有這個檢查的話,一整場 peak=0 有兩種完全不同的解釋 ——
+    /// 遊戲真的沒出聲(是個發現),或者音訊鏈根本不通(我們的量測沒有意義)。
+    /// 分不出來的量測不該拿去寫報告。
+    ///
+    /// 只在 runner 啟動時跑一次(遊戲還沒開),不然這段測試音會疊在遊戲聲音上。
+    /// </summary>
+    public static string AudioSelfTest()
+    {
+        try
+        {
+            var wav = SineWav(700, 440);
+            using (var ms = new MemoryStream(wav))
+            using (var player = new System.Media.SoundPlayer(ms))
+            {
+                player.Load();
+                player.Play(); // 非同步,接著就可以量
+                Thread.Sleep(120);
+                string during = AudioSample(350);
+                player.Stop();
+                Thread.Sleep(250);
+                string after = AudioSample(200);
+                return "{\"during\":" + during + ",\"after\":" + after + "}";
+            }
+        }
+        catch (Exception e)
+        {
+            return "{\"error\":" + JsonStr(e.Message) + "}";
+        }
+    }
+
     /// <summary>
     /// 取樣預設輸出端點的音量峰值。回傳 JSON 字串。
     ///
