@@ -1,0 +1,12 @@
+{
+  "name": "playagent-keepalive-runner",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GameLift Streams session keep-alive client (real Chromium via Playwright) for ECS Fargate",
+  "dependencies": {
+    "@aws-sdk/client-gameliftstreams": "^3.1156.0",
+    "@aws-sdk/client-s3": "^3.1156.0",
+    "playwright": "1.48.0"
+  }
+}

@@ -586,10 +586,18 @@ export async function handler(event: EngineEvent): Promise<void> {
           },
           process.env.AWS_REGION ?? 'us-west-2',
         );
+        // 使用者要求超過一小時、但保活沒有啟動時要說出來。不說的話畫面上寫著「最長 60 分鐘」
+        // 而使用者選的是 6 小時,看起來像設定沒生效 —— 其實是這個部署還沒有保活 task。
+        const askedMinutes = (meta.maxHours ?? 1) * 60;
+        const note = run.keepAlive
+          ? '(長時保活已啟動)'
+          : askedMinutes > run.minutes
+            ? `(超過一小時需要長時保活,此環境尚未配置,已限制為 ${run.minutes} 分鐘)`
+            : '';
         await writeStatus(s3, BUCKET, event.tenantId, {
           jobId: event.jobId,
           state: 'running',
-          message: `Windows GPU 主機(GameLift Streams)啟動中,解析度 ${run.display.width}x${run.display.height},最長 ${run.minutes} 分鐘`,
+          message: `Windows GPU 主機(GameLift Streams)啟動中,解析度 ${run.display.width}x${run.display.height},最長 ${run.minutes} 分鐘${note}`,
           updatedAt: new Date().toISOString(),
         });
       }

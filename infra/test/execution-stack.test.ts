@@ -33,20 +33,25 @@ describe('ExecutionStack — 裝置主機生命週期(Req 4.3/4.5/4.6)', () => {
 
   test('建立 emulator 與 windows 兩台每任務主機的角色 + SG,加上 Device Farm 與 Web Fargate task 的 SG', () => {
     const t = synthExecution();
-    // emulator host、windows host 各一 SG + Device Farm 探索 Fargate SG + Web 探索 Fargate SG = 4。
-    t.resourceCountIs('AWS::EC2::SecurityGroup', 4);
+    // emulator host、windows host 各一 SG + Device Farm 探索 Fargate SG + Web 探索 Fargate SG
+    // + Windows 長時測試的保活 Fargate SG = 5。
+    t.resourceCountIs('AWS::EC2::SecurityGroup', 5);
   });
 
-  test('建立 Device Farm 與 Web 探索的 ECS 叢集 / Fargate task 定義 / ECR repo', () => {
+  test('建立 Device Farm / Web 探索與 Windows 保活的 ECS 叢集 / Fargate task 定義 / ECR repo', () => {
     const t = synthExecution();
-    // 共用一個 cluster;Device Farm + Web 各一個 task def 與 ECR repo。
+    // 三個 Fargate 載體共用一個 cluster,但各自 task def 與 ECR repo:
+    // Device Farm 探索、Web 探索、Windows 長時測試的保活。
     t.resourceCountIs('AWS::ECS::Cluster', 1);
-    t.resourceCountIs('AWS::ECS::TaskDefinition', 2);
+    t.resourceCountIs('AWS::ECS::TaskDefinition', 3);
     t.hasResourceProperties('AWS::ECR::Repository', {
       RepositoryName: 'playagent-exploration-runner',
     });
     t.hasResourceProperties('AWS::ECR::Repository', {
       RepositoryName: 'playagent-web-runner',
+    });
+    t.hasResourceProperties('AWS::ECR::Repository', {
+      RepositoryName: 'playagent-keepalive-runner',
     });
   });
 
@@ -60,16 +65,16 @@ describe('ExecutionStack — 裝置主機生命週期(Req 4.3/4.5/4.6)', () => {
     });
   });
 
-  test('指定 Git SHA 時,兩個 Fargate task definition 都鎖定不可變 tag', () => {
+  test('指定 Git SHA 時,三個 Fargate task definition 都鎖定不可變 tag', () => {
     const body = JSON.stringify(synthExecution('0123456789abcdef').toJSON());
-    expect(body.match(/:0123456789abcdef/g)).toHaveLength(2);
+    expect(body.match(/:0123456789abcdef/g)).toHaveLength(3);
   });
 
   test('destroy 後可匯入 Retain 的 ECR,不再建立同名 repository', () => {
     const t = synthExecution('git-sha', true);
     t.resourceCountIs('AWS::ECR::Repository', 0);
-    t.resourceCountIs('AWS::ECS::TaskDefinition', 2);
-    expect(JSON.stringify(t.toJSON()).match(/:git-sha/g)).toHaveLength(2);
+    t.resourceCountIs('AWS::ECS::TaskDefinition', 3);
+    expect(JSON.stringify(t.toJSON()).match(/:git-sha/g)).toHaveLength(3);
   });
 
   test('引擎可終結主機,但僅限帶 per-job 生命週期標籤的實例(常駐機受保護,Req 4.5)', () => {

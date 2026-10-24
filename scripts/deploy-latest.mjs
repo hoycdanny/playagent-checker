@@ -369,6 +369,7 @@ async function deploy(o) {
     const repos = [
       { name: 'playagent-exploration-runner', dockerfile: 'Dockerfile.exploration' },
       { name: 'playagent-web-runner', dockerfile: 'Dockerfile.web' },
+      { name: 'playagent-keepalive-runner', dockerfile: 'Dockerfile.keepalive' },
     ];
     for (const r of repos) {
       const uri = `${registry}/${r.name}`;

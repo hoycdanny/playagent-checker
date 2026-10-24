@@ -1,0 +1,37 @@
+# 保活 task 容器(跑在 ECS Fargate)。
+# 讓 Windows(GameLift Streams)測試可以跑超過一小時:以真實 Chromium 當 WebRTC client
+# 連上一個沒有人看的 stream session 並掛著,session 結束時自己退出。
+# 詳見 docs/design/windows-long-run.md 與 keepAliveRunner.mjs 的檔頭。
+#
+# 用 Playwright 官方 image(與 web 探索 runner 同一個):已內含 Chromium 與所有系統相依,
+# 版本需與 npm 的 playwright 對齊。
+FROM mcr.microsoft.com/playwright:v1.48.0-jammy
+
+WORKDIR /app
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl unzip \
+  && rm -rf /var/lib/apt/lists/*
+
+# AWS GameLift Streams Web SDK:建置時下載,不進 git(它是 AWS 發布的二進位資產)。
+# 為什麼非它不可:SignalRequest 只有這支 SDK 的 generateSignalRequest() 產得出合法格式,
+# 自己組標準 WebRTC offer 會被 API 回「not a valid WebSDK signal request」。
+# test -s 不是多餘的:URL 或 zip 內的檔名一變,要在建置時就失敗,而不是等 task 起來才發現
+# 頁面少了那支腳本(那會表現成「連不上」,很難查)。
+ARG GLS_SDK_VERSION=1.1.0
+RUN curl -fsSL -o /tmp/sdk.zip \
+    "https://gameliftstreams-public-website-assets.s3.us-west-2.amazonaws.com/AmazonGameLiftStreamsWebSDK-v${GLS_SDK_VERSION}.zip" \
+  && unzip -q -o /tmp/sdk.zip -d /tmp/sdk \
+  && find /tmp/sdk -name 'gameliftstreams-*.js' -exec cp {} /app/gameliftstreams.js \; \
+  && test -s /app/gameliftstreams.js \
+  && rm -rf /tmp/sdk.zip /tmp/sdk
+
+# 只裝執行相依。用容器專用 package.json。
+COPY keepalive-runner.package.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
+
+COPY keepAliveRunner.mjs glsKeepAlive.mjs ./
+COPY glsKeepAlivePage.html ./
+
+# 環境變數由 ECS RunTask 的 containerOverrides 注入(PA_SG / PA_SESSION_ARN / ...)。
+CMD ["node", "keepAliveRunner.mjs"]

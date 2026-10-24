@@ -1,8 +1,10 @@
 import {
   GameLiftStreamsClient,
   StartStreamSessionCommand,
+  TerminateStreamSessionCommand,
 } from '@aws-sdk/client-gameliftstreams';
 import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm';
+import { keepAliveConfigured, startKeepAlive } from './keepAliveHost.js';
 
 /**
  * Windows 執行環境 = Amazon GameLift Streams(Windows Server 2022 runtime + NVIDIA GPU)。
@@ -15,6 +17,8 @@ import { SSMClient, GetParametersCommand } from '@aws-sdk/client-ssm';
  * 實測限制(2026-10 PoC):
  * - 解析度:寬高皆偶數,總像素 ≤ 2,073,600(1920×1080);直式 1080×1920 可以,1080×4096 不行。
  * - 沒有 client 連線的 session 會在 ConnectionTimeoutSeconds(最大 3600)後被終止 → 單次最長約 60 分鐘。
+ *   要跑更久就得有一個 client 連著:超過一小時的任務會連帶啟動一個保活 Fargate task
+ *   (keepAliveHost.ts),它接上 session 並掛著。保活沒配置或起不來時退回一小時。
  *
  * Application / Stream Group 由 worker/windows-host/gamelift/setup.mjs 建立,ID 寫在 SSM:
  *   ${WINDOWS_GLS_PARAM_PREFIX}/applicationId、${WINDOWS_GLS_PARAM_PREFIX}/streamGroupId
@@ -72,14 +76,23 @@ export interface WindowsRunSpec {
  *   connection = ConnectionTimeoutSeconds,等 client 連線的窗口(上限 3600,AWS 強制)
  *
  * 沒有保活 client 時,實際壽命 = min(兩者) = 最多一小時,**與解耦前完全相同**;
- * 有保活時才吃得到使用者選的長時數。deadline 給 runner 用來提前收尾寫報告,
- * 所以要取兩者的小值 —— 取大的會讓 runner 以為還有時間,結果被 GameLift 直接收掉、
- * 任務停在「執行中」且沒有報告。
+ * 有保活時才吃得到使用者選的長時數。
+ *
+ * 回傳兩個不同的時間,不要混用:
+ *   effective = 預期的實際壽命,用來告訴使用者「這次最長跑多久」
+ *   deadline  = runner 初始的收尾時刻,**永遠保守**(= min(session, connection))
+ *
+ * 為什麼 deadline 不跟著 effective 變長:`RunTask` 成功不等於保活真的連上(映像拉不到、
+ * WebRTC 出不去都可能),而 deadline 給太長的後果是最糟的那一種 —— session 被 GameLift
+ * 收掉,runner 卻以為還有好幾小時,任務停在「執行中」而且沒有報告。所以 deadline 從保守值
+ * 起算,由保活 task 一邊跑一邊用 S3 上的租約往後推(見 agent/glsKeepAlive.mjs 的
+ * leaseDeadlineMs)。保活死掉 → 租約停止更新 → runner 自然退回保守行為。
  */
 export function sessionSeconds(maxMinutes: number | undefined, keepAlive = false): {
   session: number;
   connection: number;
   effective: number;
+  deadline: number;
 } {
   // Number.isFinite 的檢查不能省:Math.max(600, NaN) 是 NaN,不是 600。
   // job.json 裡的 maxHours 一旦壞掉(舊任務、手改過的資料),就會送 NaN 給 API。
@@ -88,7 +101,12 @@ export function sessionSeconds(maxMinutes: number | undefined, keepAlive = false
   const want = Math.max(600, Math.round(minutes * 60));
   const session = Math.min(MAX_SESSION_SECONDS, want);
   const connection = MAX_UNATTENDED_SECONDS;
-  return { session, connection, effective: keepAlive ? session : Math.min(session, connection) };
+  return {
+    session,
+    connection,
+    effective: keepAlive ? session : Math.min(session, connection),
+    deadline: Math.min(session, connection),
+  };
 }
 
 /** 解析度校驗(與 API 端相同規則;engine 再擋一次,避免舊 job 帶入非法值)。 */
@@ -132,14 +150,29 @@ async function readIds(): Promise<{ applicationId: string; streamGroupId: string
   return { applicationId, streamGroupId };
 }
 
+/**
+ * 要不要為這次任務啟動保活。
+ *
+ * 兩個條件都要:使用者真的要求超過一小時,而且保活環境已經配置好。
+ * 第二個條件不能省 —— 映像還沒推上去的舊部署仍該能跑 Windows 任務(退回一小時),
+ * 而不是因為少了一個 Fargate task definition 就整個任務失敗。
+ */
+export function wantsKeepAlive(maxMinutes: number | undefined, configured: boolean): boolean {
+  const raw = Number(maxMinutes);
+  if (!Number.isFinite(raw)) return false;
+  return raw * 60 > MAX_UNATTENDED_SECONDS && configured;
+}
+
 /** 開 session(不等 ACTIVE;host.ps1 會自己寫 status)。回傳 session ARN 與實際上限分鐘數。 */
-export async function startWindowsRun(spec: WindowsRunSpec, dataRegion: string): Promise<{ arn: string; minutes: number; display: { width: number; height: number } }> {
+export async function startWindowsRun(spec: WindowsRunSpec, dataRegion: string): Promise<{ arn: string; minutes: number; display: { width: number; height: number }; keepAlive: boolean }> {
   if (!ROLE_ARN) throw new Error('Windows 主機角色未配置(WINDOWS_GLS_ROLE_ARN)');
   const { applicationId, streamGroupId } = await readIds();
   const display = normalizeDisplay(spec.display);
-  // 保活 client 還沒實作(見 docs/design/windows-long-run.md),所以 keepAlive 固定 false:
-  // effective 仍是最多一小時,行為與解耦前相同。保活接上後只要把它改成 true。
-  const t = sessionSeconds(spec.maxMinutes, false);
+  const keepAlive = wantsKeepAlive(spec.maxMinutes, keepAliveConfigured());
+  const t = sessionSeconds(spec.maxMinutes, keepAlive);
+  // 租約的 key 也是「保活有沒有啟動」的開關:runner 只有在收到它時才會去讀租約,
+  // 其他後端與沒有保活的 Windows 任務完全不受影響。
+  const leaseKey = `${spec.prefix}/lease.json`;
   const gl = new GameLiftStreamsClient({ region: REGION });
   const res = await gl.send(
     new StartStreamSessionCommand({
@@ -155,11 +188,36 @@ export async function startWindowsRun(spec: WindowsRunSpec, dataRegion: string):
       RoleArn: ROLE_ARN,
       // PA_DEADLINE_MS:runner 在 session 被 GameLift 終止前 5 分鐘自己收尾寫報告,
       // 不然 session 到時被直接收掉,任務會停在「執行中」且沒有報告。
-      // deadline 用 effective(= 實際會被收掉的時間)而不是 SessionLengthSeconds:
-      // 取大的會讓 runner 以為還有時間,結果被 GameLift 直接收掉、任務停在「執行中」且沒有報告。
-      AdditionalEnvironmentVariables: { ...buildEnv(spec, dataRegion), PA_DEADLINE_MS: String(Date.now() + (t.effective - 300) * 1000) },
+      // 用 t.deadline(保守值)而不是 t.effective:有保活時由租約往後推,
+      // 保活沒連上就維持保守值 —— 兩種情況都寫得出報告。
+      AdditionalEnvironmentVariables: {
+        ...buildEnv(spec, dataRegion),
+        PA_DEADLINE_MS: String(Date.now() + (t.deadline - 300) * 1000),
+        ...(keepAlive ? { PA_LEASE_KEY: leaseKey } : {}),
+      },
     }),
   );
   if (!res.Arn) throw new Error('StartStreamSession 未回傳 session ARN');
-  return { arn: res.Arn, minutes: Math.round(t.effective / 60), display };
+
+  if (keepAlive) {
+    try {
+      await startKeepAlive({
+        streamGroupId,
+        sessionArn: res.Arn,
+        bucket: spec.bucket,
+        prefix: spec.prefix,
+        sessionEndMs: Date.now() + t.session * 1000,
+      });
+    } catch (err) {
+      // session 已經開了,但沒有人會連它。放著不管的結果是:GameLift 一小時後收掉它,
+      // 而任務停在「執行中」且沒有報告。所以收掉 session 再把錯誤往上丟,
+      // 讓 engine 寫一筆明確的 error —— 使用者看得懂「保活起不來」,看不懂一個卡住的任務。
+      await gl.send(new TerminateStreamSessionCommand({
+        Identifier: streamGroupId, StreamSessionIdentifier: res.Arn,
+      })).catch(() => { /* 收不掉也只能讓它自己超時 */ });
+      throw new Error(`長時測試的保活 task 啟動失敗,已收掉 session:${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  return { arn: res.Arn, minutes: Math.round(t.effective / 60), display, keepAlive };
 }

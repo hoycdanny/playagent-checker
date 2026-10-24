@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/sc
 - CodeBuild プロジェクト `playagent-installer` を作成します。公開 GitHub リポジトリを clone し、同じデプロイコア（`scripts/deploy-latest.mjs`）を実行します。EC2 インスタンスは不要です。
 - 進捗を表示し、完了するとサイトの URL を表示します。
 
-このポリシーで許可されるのは、このアカウントの CDK bootstrap ロールの引き受け、PlayAgent スタックの読み取り、2 つのランナーイメージのプッシュ、Cognito 管理者の作成、`/playagent/*` SSM パラメータの書き込みだけです。CloudFormation の変更は CDK の `cdk-hnb659fds-cfn-exec-role` 経由で実行されます。このロールはデフォルトで管理者権限を持つため、デプロイできる人は CloudFormation 経由でリソースを作成できます。
+このポリシーで許可されるのは、このアカウントの CDK bootstrap ロールの引き受け、PlayAgent スタックの読み取り、ランナーイメージのプッシュ、Cognito 管理者の作成、`/playagent/*` SSM パラメータの書き込みだけです。CloudFormation の変更は CDK の `cdk-hnb659fds-cfn-exec-role` 経由で実行されます。このロールはデフォルトで管理者権限を持つため、デプロイできる人は CloudFormation 経由でリソースを作成できます。
 
 ## クイック削除
 
@@ -390,7 +390,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 
 #### ステップ 6 — ランナーイメージをビルドする(必須)
 
-Web と Device Farm のランナーは、自分の ECR にあるコンテナイメージから実行されます。イメージは CodeBuild でクラウド上でビルドされるため、大きなファイルがコンピューターにダウンロードされることはありません。
+Web と Device Farm のランナー、および Windows の実行を 1 時間以上継続させるセッション維持タスクは、自分の ECR にあるコンテナイメージから実行されます。イメージは CodeBuild でクラウド上でビルドされるため、大きなファイルがコンピューターにダウンロードされることはありません。
 
 ```bash
 cd ../agent/sagemaker && npm install
@@ -402,9 +402,10 @@ export AWS_REGION=us-west-2
 #    GPU は起動しません。ストレージ費用は約 US$2/月です。
 node cloudBuild.mjs
 
-# b) 2 つのランナーイメージをビルドしてプッシュします(それぞれ数分)。
+# b) ランナーイメージをビルドしてプッシュします(それぞれ数分)。
 node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
+node cloudBuildKeepAlive.mjs
 ```
 
 > `PA_SM_BUCKET` は必須です。自分の Foundation スタックが出力した DataBucket を設定してください。スクリプトにはアカウント固有のバケット既定値を含めません。
@@ -545,7 +546,7 @@ cd infra
 AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
-他にも次のものが残ります:ランナーの ECR リポジトリ `playagent-exploration-runner` / `playagent-web-runner`(CDK がデフォルトで保持)、ECR リポジトリ `playagent-vllm-byoc`、CodeBuild プロジェクト `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`、ロール `PlayAgentCodeBuildUitarsRole`、SageMaker のモデル/設定 `ui-tars-playagent-*`、および(セットアップした場合)GameLift Streams アプリケーションとストリームグループ。
+他にも次のものが残ります:ランナーの ECR リポジトリ `playagent-exploration-runner` / `playagent-web-runner` / `playagent-keepalive-runner`(CDK がデフォルトで保持)、ECR リポジトリ `playagent-vllm-byoc`、CodeBuild プロジェクト `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build` / `playagent-keepalive-runner-build`、ロール `PlayAgentCodeBuildUitarsRole`、SageMaker のモデル/設定 `ui-tars-playagent-*`、および(セットアップした場合)GameLift Streams アプリケーションとストリームグループ。
 
 | 症状 | 対処 |
 | --- | --- |

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 // @ts-expect-error 無 .d.ts 的 .mjs 匯入
-const ka = await import('../../worker/windows-host/keepalive/keepalive.mjs');
+const ka = await import('../../agent/glsKeepAlive.mjs');
 
 /**
  * 保活的狀態決策。
@@ -72,5 +72,52 @@ describe('重連退避', () => {
 describe('終態集合對外公開(engine 之後要用它判斷要不要收掉保活)', () => {
   test('包含三個終態', () => {
     expect([...ka.FINAL_STATES].sort()).toEqual(['ERROR', 'TERMINATED', 'TERMINATING']);
+  });
+});
+
+/**
+ * deadline 租約。
+ *
+ * runner 靠 deadline 在 session 被 GameLift 收掉前自己收尾寫報告,所以這個數字給錯的
+ * 後果不對稱:
+ *   給太短 → 任務提早收工,少測一段(看得出來,報告還在)
+ *   給太長 → session 被直接收掉,任務停在「執行中」而且沒有報告(最糟,而且不會跳錯)
+ * 所以保活連不上、或中途死掉時,租約必須停在一個仍然安全的值。
+ */
+describe('deadline 租約', () => {
+  const NOW = 1_700_000_000_000;
+  const MIN = 60_000;
+
+  test('不知道 session 何時結束 → 只用重連窗口(3600s)扣掉收尾時間(300s)', () => {
+    // 保活死掉的那一刻起,session 還有一整個重連窗口可活,所以這是安全的下限。
+    expect(ka.leaseDeadlineMs({ nowMs: NOW, sessionEndMs: 0 })).toBe(NOW + 55 * MIN);
+  });
+
+  test('session 的硬性結束時刻比重連窗口早 → 取 session 結束時刻', () => {
+    // SessionLengthSeconds 不會因為有人連著就延長,所以不能無視它。
+    expect(ka.leaseDeadlineMs({ nowMs: NOW, sessionEndMs: NOW + 20 * MIN }))
+      .toBe(NOW + 15 * MIN);
+  });
+
+  test('session 還很久才結束 → 仍只敢擔保一個重連窗口', () => {
+    expect(ka.leaseDeadlineMs({ nowMs: NOW, sessionEndMs: NOW + 12 * 60 * MIN }))
+      .toBe(NOW + 55 * MIN);
+  });
+
+  test('壞掉的 sessionEndMs 當成不知道,不要算出 NaN 或過去的時間', () => {
+    for (const bad of [NaN, undefined, -1, 0]) {
+      expect(ka.leaseDeadlineMs({ nowMs: NOW, sessionEndMs: bad })).toBe(NOW + 55 * MIN);
+    }
+  });
+
+  test('租約一定在未來(不然 runner 讀到就立刻收工)', () => {
+    for (const end of [0, NOW + 60 * MIN, NOW + 24 * 60 * MIN]) {
+      expect(ka.leaseDeadlineMs({ nowMs: NOW, sessionEndMs: end })).toBeGreaterThan(NOW);
+    }
+  });
+
+  test('重連窗口與收尾時間對外公開(engine / runner 兩邊要用同一組數字)', () => {
+    expect(ka.RECONNECT_WINDOW_SEC).toBe(3600);
+    expect(ka.WRAP_UP_SEC).toBe(300);
   });
 });

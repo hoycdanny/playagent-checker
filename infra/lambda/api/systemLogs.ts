@@ -114,8 +114,8 @@ const MAX_PATTERN = 500;
  */
 export type LogSourceId =
   | 'api' | 'engine' | 'dispatcher' | 'ws-auth' | 'ws-connect' | 'ws-push'
-  | 'runner-exploration' | 'runner-web'
-  | 'update' | 'image-runner' | 'image-web' | 'installer'
+  | 'runner-exploration' | 'runner-web' | 'runner-keepalive'
+  | 'update' | 'image-runner' | 'image-web' | 'image-keepalive' | 'installer'
   | 'log-retention' | 's3-events' | 'custom-resource' | 'lambda-other' | 'other';
 
 /**
@@ -133,9 +133,11 @@ const SOURCE_LABEL_ZH: Record<LogSourceId, string> = {
   'ws-push': 'WebSocket 推送',
   'runner-exploration': 'Runner(真機 / Device Farm)',
   'runner-web': 'Runner(Web 瀏覽器)',
+  'runner-keepalive': 'Windows 長時保活',
   update: '系統更新(CodeBuild)',
   'image-runner': '映像建置(真機 runner)',
   'image-web': '映像建置(web runner)',
+  'image-keepalive': '映像建置(保活)',
   installer: '安裝器(CodeBuild)',
   'log-retention': '其他(log 保留設定)',
   's3-events': '其他(S3 事件)',
@@ -150,9 +152,11 @@ function classifyId(logGroupName: string): { kind: LogKind; id: LogSourceId } {
   // 固定命名(我們自己指定的)。
   if (/\/playagent\/[^/]+\/runner-exploration$/.test(n)) return { kind: 'ecs', id: 'runner-exploration' };
   if (/\/playagent\/[^/]+\/runner-web$/.test(n)) return { kind: 'ecs', id: 'runner-web' };
+  if (/\/playagent\/[^/]+\/runner-keepalive$/.test(n)) return { kind: 'ecs', id: 'runner-keepalive' };
   if (/\/playagent\/[^/]+\/update$/.test(n)) return { kind: 'codebuild', id: 'update' };
   if (n === '/aws/codebuild/playagent-runner-build') return { kind: 'codebuild', id: 'image-runner' };
   if (n === '/aws/codebuild/playagent-web-runner-build') return { kind: 'codebuild', id: 'image-web' };
+  if (n === '/aws/codebuild/playagent-keepalive-runner-build') return { kind: 'codebuild', id: 'image-keepalive' };
   if (n.startsWith('/aws/codebuild/playagent-installer')) return { kind: 'codebuild', id: 'installer' };
   // Lambda:看 logical id 片段判斷角色。
   if (n.startsWith('/aws/lambda/')) {
@@ -187,8 +191,8 @@ const KIND_ORDER: Record<LogKind, number> = { lambda: 0, ecs: 1, codebuild: 2, o
 const ID_ORDER: LogSourceId[] = [
   'api', 'engine', 'dispatcher',
   'ws-auth', 'ws-connect', 'ws-push',
-  'runner-exploration', 'runner-web',
-  'update', 'image-runner', 'image-web', 'installer',
+  'runner-exploration', 'runner-web', 'runner-keepalive',
+  'update', 'image-runner', 'image-web', 'image-keepalive', 'installer',
 ];
 function idRank(id: LogSourceId): number {
   const i = ID_ORDER.indexOf(id);

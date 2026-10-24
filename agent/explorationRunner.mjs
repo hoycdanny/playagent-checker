@@ -104,8 +104,32 @@ const CONSEC_FAIL_LIMIT = 3;
 const WRAP_MIN = Math.max(10, Math.min(145, Number(process.env.PA_WRAP_MIN) || 140));
 // 主機最長執行時數的截止時間(epoch ms;Android 容器 / Windows 由主機啟動腳本帶入)。
 // 到了就收尾寫報告;主機的保險關機排在這之後,只是最後防線。未設 = 不限。
-const DEADLINE_MS = Number(process.env.PA_DEADLINE_MS) > 0 ? Number(process.env.PA_DEADLINE_MS) : NaN;
-const DEADLINE_LABEL = Number.isFinite(DEADLINE_MS) ? new Date(DEADLINE_MS).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '';
+//
+// 為什麼是變數而不是常數:Windows 長時測試(超過一小時)的 session 要靠一個保活 task
+// 連著才活得下去,而 engine 無法預先知道那個 task 會不會連上。所以 engine 帶進來的是
+// 保守值(最多一小時),保活 task 連上之後再把 S3 上的租約往後推,這裡每分鐘讀一次。
+// 保活連不上或中途死掉 → 租約停止更新 → 自然退回保守值,照原本的時間收尾寫報告。
+// 見 docs/design/windows-long-run.md 與 agent/glsKeepAlive.mjs 的 leaseDeadlineMs。
+let deadlineMs = Number(process.env.PA_DEADLINE_MS) > 0 ? Number(process.env.PA_DEADLINE_MS) : NaN;
+const deadlineLabel = () => (Number.isFinite(deadlineMs) ? new Date(deadlineMs).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : '');
+/** deadline 租約的 S3 key;engine 只在啟動了保活 task 時才帶,其他後端完全不受影響。 */
+const LEASE_KEY = process.env.PA_LEASE_KEY || '';
+let leaseCheckedAt = 0;
+
+/** 讀 deadline 租約並往後延(只往後,不往前縮)。讀不到就沿用現值。 */
+async function refreshDeadlineLease() {
+  if (!LEASE_KEY) return;
+  leaseCheckedAt = Date.now();
+  try {
+    const res = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: LEASE_KEY }));
+    const v = Number(JSON.parse(await res.Body.transformToString())?.deadlineMs);
+    // 只往後延:租約比現值早的時候(剛寫到一半、時鐘偏移)不該讓任務提早收工。
+    if (Number.isFinite(v) && (!Number.isFinite(deadlineMs) || v > deadlineMs)) {
+      console.log(`保活租約:收尾時間延到 ${new Date(v).toISOString().slice(11, 19)} UTC`);
+      deadlineMs = v;
+    }
+  } catch { /* 租約還沒出現 / 保活沒連上:沿用現有 deadline */ }
+}
 // runner 版本(寫進報告表頭 Test Engine Version;證據協議改版時遞增)。
 const RUNNER_VERSION = 'devicefarm-runner/2.5 (evidence-v1, controls-v1, recording-v2, agent-team-v1, segments-v1, slot-board-v1)';
 // 效能取樣間隔(步)。adb shell 取樣與 VLM 並行、且 FPS/CPU/GPU 為區間累計,預設每 2 步一次;0 = 停用。
@@ -1472,9 +1496,11 @@ async function main() {
         controlNote += `【系統|最後一步】已到 Device Farm 連線的時間上限(單次最長 150 分鐘),這是最後一張畫面,不會再執行動作。請在 thinking 寫出目前為止的進度與測試腳本要求的統計數字,並在 obs 回報畫面上的數值。`;
       }
     }
+    // Windows 長時測試:先看保活 task 有沒有把收尾時間往後推(每分鐘一次,沒啟用就是 no-op)。
+    if (LEASE_KEY && Date.now() - leaseCheckedAt > 60_000) await refreshDeadlineLease();
     // 主機最長時數(Android 容器 / Windows):到了就用這一步收尾並寫報告,
     // 不要等主機的保險關機把 runner 直接殺掉(那樣報告與終態都不會寫,任務永遠卡在「執行中」)。
-    if (!wrapUpAsked && Number.isFinite(DEADLINE_MS) && Date.now() >= DEADLINE_MS) {
+    if (!wrapUpAsked && Number.isFinite(deadlineMs) && Date.now() >= deadlineMs) {
       wrapUpAsked = true;
       wrapReason = 'deadline';
       controlNote += `【系統|最後一步】已到這次任務設定的最長執行時數,這是最後一張畫面,不會再執行動作。請在 thinking 寫出目前為止的進度與測試腳本要求的統計數字,並在 obs 回報畫面上的數值。`;
@@ -2320,7 +2346,7 @@ async function main() {
     if (wrapUpAsked) {
       finalState = 'fail';
       finalMsg = wrapReason === 'deadline'
-        ? `已達這次任務設定的最長執行時數(${DEADLINE_LABEL}),已提前收尾並寫出報告,測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`
+        ? `已達這次任務設定的最長執行時數(${deadlineLabel()}),已提前收尾並寫出報告,測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`
         : `已達執行時間上限:Device Farm 單次連線最長 150 分鐘,已在第 ${WRAP_MIN} 分鐘提前收尾${segment > 1 ? `(共 ${segment} 段)` : ''},測試腳本尚未完成。最後畫面:${String(cmd.thinking || '').slice(0, 300)}`;
       break;
     }

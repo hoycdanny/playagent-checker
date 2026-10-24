@@ -293,7 +293,7 @@ function buildSpec(): Record<string, unknown> {
           'NEED=1',
           'if [ -n "$PREV" ] && git cat-file -e "$PREV^{commit}" 2>/dev/null; then if git diff --name-only "$PREV" "$PA_SHA" -- agent | grep -q .; then NEED=1; else NEED=0; fi; fi',
           'echo "rebuild runner images: $NEED"',
-          'if [ "$NEED" = "1" ]; then cd /tmp/src/agent/sagemaker && npm ci --omit=dev && node cloudBuildRunner.mjs && node cloudBuildWebRunner.mjs; fi',
+          'if [ "$NEED" = "1" ]; then cd /tmp/src/agent/sagemaker && npm ci --omit=dev && node cloudBuildRunner.mjs && node cloudBuildWebRunner.mjs && node cloudBuildKeepAlive.mjs; fi',
           // ── 最後:更新器更新自己 ──
           //
           // 為什麼需要:PA_TARGET_STACKS 刻意不含 Updater,所以更新器自己的程式碼

@@ -1,0 +1,28 @@
+version: 0.2
+
+# 雲端 build 保活 task 映像(Fargate Chromium,維持 GameLift Streams session 連線)。
+# source = agent/ 目錄(所有 .mjs + Dockerfile.keepalive + keepalive-runner.package.json
+# + glsKeepAlivePage.html)。環境變數:AWS_REGION, IMAGE_REPO(playagent-keepalive-runner)。
+# 需 privileged mode。映像在建置時會從 AWS 的公開 S3 下載 Web SDK,所以 build 需要出網。
+
+env:
+  variables:
+    IMAGE_REPO: "playagent-keepalive-runner"
+
+phases:
+  pre_build:
+    commands:
+      - echo "== pre_build =="
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+      - IMAGE_URI="${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${IMAGE_REPO}:latest"
+      - echo "IMAGE_URI=$IMAGE_URI"
+      - aws ecr describe-repositories --repository-names "$IMAGE_REPO" --region "$AWS_REGION" 2>/dev/null || aws ecr create-repository --repository-name "$IMAGE_REPO" --region "$AWS_REGION" --image-scanning-configuration scanOnPush=true
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+  build:
+    commands:
+      - echo "== docker build keepalive runner (CodeBuild 已在 linux/amd64) =="
+      - docker build -f Dockerfile.keepalive -t "$IMAGE_URI" .
+      - docker push "$IMAGE_URI"
+  post_build:
+    commands:
+      - echo "== done == IMAGE_URI=$IMAGE_URI"
