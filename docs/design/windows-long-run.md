@@ -97,6 +97,36 @@ ValidationException: 'SignalRequest' value is not a valid WebSDK signal request
   「尚未 init()」—— 那是個誤導的訊息,真正的原因(「SDK 未載入」)只出現在第一次嘗試,
   後面七次重試全都報錯的那一個。
 
+## 保活的瀏覽器必須是真正的 Google Chrome
+
+Playwright 官方 Docker 映像裡的 Chromium 是**開源建置,不含 H.264**,而 GameLift Streams
+的 WebRTC 走 H.264。保活 task 第一次在 Fargate 上跑時,SDK 直接拒絕:
+
+```
+[keepalive] 連線失敗(第 1 次,等 5s):page.evaluate:
+Error: Browser does not support H.264 video playback over WebRTC
+    at $.internalGenerateOffer
+```
+
+修法是在映像裡裝真的 Chrome(`npx playwright install chrome`)並用
+`chromium.launch({ channel: 'chrome' })`。Playwright 官方對這個問題的回答也是如此 ——
+[Chromium 建置不支援 H264 這類專有編解碼器,請改用 Google Chrome 或 Microsoft Edge](https://github.com/microsoft/playwright/issues/36550)。
+(內容為依授權限制改寫。)
+
+**為什麼本機驗證沒踩到**:本機用的 Chromium 建置帶了編解碼器,所以這個差異只在 Linux
+容器裡才冒出來。這也是為什麼 `keepAliveRunner.mjs` 多了一個 `PA_CHECK_ONLY=1` 模式:
+映像層面的問題(Chrome 沒裝、SDK 的檔名變了、缺編解碼器)原本只有在真實任務裡才看得見,
+而那代表每修一次都要燒一個 GPU session。現在用一個 Fargate task 就能單獨回答
+「映像有沒有壞」,它會印出實際可用的編解碼器清單:
+
+```
+[keepalive] 自我檢查通過:Chrome + Web SDK + 視訊編解碼器就位
+[keepalive] 視訊編解碼器:video/VP8, video/rtx, video/VP9, ..., video/H264, ...
+```
+
+順帶一個已知但還不急的事:Playwright 的 jammy 映像帶 Node 20,而 AWS SDK for JavaScript
+在 2027 年之後的版本會要求 Node >= 22(目前只是警告)。換 base image 的時候要一起處理。
+
 ## SDK 取得方式
 
 SDK 有公開的 S3 直連網址(可程式化取得,不必手動下載):
