@@ -183,30 +183,6 @@ export function pageHtml() {
   return readFileSync(join(HERE, 'glsKeepAlivePage.html'), 'utf8');
 }
 
-/** 保活死掉之後,session 還會留著等重連的秒數(= ConnectionTimeoutSeconds 上限)。 */
-export const RECONNECT_WINDOW_SEC = 3600;
-/** runner 收尾寫報告需要的時間(deadline 要比 session 真正被收掉早這麼多)。 */
-export const WRAP_UP_SEC = 300;
-
-/**
- * 算 runner 的 deadline 租約。
- *
- * 為什麼要租約而不是一個常數:`RunTask` 成功不等於保活連上(映像拉不到、WebRTC 出不去
- * 都可能),而 deadline 給得太長的後果是最糟的那一種 —— session 被 GameLift 收掉,
- * runner 卻以為還有好幾小時,任務停在「執行中」而且沒有報告。
- *
- * 所以 deadline 由保活 task 一邊跑一邊往後推,而且只在 session 真的是 CONNECTED 時推。
- * 保活一旦停止更新(連不上、中途死掉、容器被殺),租約就停在最後一次的值:
- * 那一刻起 session 至少還有一個重連窗口可活,runner 在窗口結束前 WRAP_UP_SEC 收尾。
- *
- * @param {object} o
- * @param {number} o.nowMs
- * @param {number} o.sessionEndMs  session 的硬性結束時刻(SessionLengthSeconds 到期);0 = 不知道
- * @returns {number} 要寫進 lease 的 deadline(毫秒時戳)
- */
-export function leaseDeadlineMs({ nowMs, sessionEndMs }) {
-  const window = nowMs + RECONNECT_WINDOW_SEC * 1000;
-  // 不知道硬性結束時刻就只用重連窗口;知道的話取小的 —— session 的總長不會因為有人連著就延長。
-  const end = Number.isFinite(sessionEndMs) && sessionEndMs > 0 ? Math.min(window, sessionEndMs) : window;
-  return end - WRAP_UP_SEC * 1000;
-}
+// 租約的純邏輯放在 deadlineLease.mjs:runner 端(Windows 主機,相依另外打包)也要用同一組
+// 數字,而它不能把 AWS SDK 一起拖進去。這裡轉出來讓既有的匯入點不必改。
+export { RECONNECT_WINDOW_SEC, WRAP_UP_SEC, leaseDeadlineMs, nextDeadline } from './deadlineLease.mjs';

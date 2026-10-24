@@ -1,4 +1,4 @@
-// Windows 主機輸入 / 截圖 helper(PowerShell Add-Type 編譯,C# 5 語法;不需要 .NET SDK)。
+// Windows 主機輸入 / 截圖 / 音量 helper(PowerShell Add-Type 編譯,C# 5 語法;不需要 .NET SDK)。
 // 由 winHost.ps1 載入,windowsClient.mjs 透過 stdin/stdout 的 JSON 行呼叫。
 // 座標一律是「主螢幕實體像素」(程序設為 DPI aware;截圖與 SendInput 同一個空間)。
 using System;
@@ -9,6 +9,40 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+
+// ── WASAPI(音量讀取)的 COM 介面 ────────────────────────────────────────────
+//
+// 為什麼不是用 ffmpeg 錄音:ffmpeg 在 Windows 的音訊輸入走 dshow,而 dshow 不暴露
+// WASAPI loopback —— 要錄系統「播放出去」的聲音得先裝虛擬音訊驅動
+// (virtual-audio-capturer / VB-CABLE 之類),那是核心模式驅動,在用完就消失的
+// stream session 裡裝不了(見 agent/windowsCapture.mjs 的註解)。
+//
+// IAudioMeterInformation 不必裝任何東西、也不必開音訊串流:它直接問系統
+// 「這個輸出端點現在的峰值是多少」。要判斷「遊戲有沒有在出聲」這就夠了。
+//
+// 介面方法**必須按 vtable 原順序宣告**(用不到的也要佔位),少一個後面全部錯位。
+
+[ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceEnumerator
+{
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+}
+
+[ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDevice
+{
+    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+    int OpenPropertyStore(int access, out IntPtr store);
+    int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetState(out int state);
+}
+
+[ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioMeterInformation
+{
+    int GetPeakValue(out float peak);
+}
 
 public static class WinHelper
 {
@@ -172,5 +206,79 @@ public static class WinHelper
         if (h == IntPtr.Zero) return "";
         RECT r; GetWindowRect(h, out r);
         return string.Format("{0},{1},{2},{3}", r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top);
+    }
+
+    // ── 音量 ────────────────────────────────────────────────────────────────
+
+    static readonly Guid CLSID_MMDeviceEnumerator = new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E");
+    const int eRender = 0, eConsole = 0, CLSCTX_INPROC_SERVER = 1;
+
+    static string JsonStr(string s)
+    {
+        if (s == null) return "\"\"";
+        var sb = new StringBuilder("\"");
+        foreach (char c in s)
+        {
+            if (c == '"' || c == '\\') sb.Append('\\').Append(c);
+            else if (c < ' ') sb.Append(' ');
+            else sb.Append(c);
+        }
+        return sb.Append('"').ToString();
+    }
+
+    /// <summary>
+    /// 取樣預設輸出端點的音量峰值。回傳 JSON 字串。
+    ///
+    /// peak 是「這一瞬間」的值,所以單次讀取判斷不了「有沒有聲音」—— 音效的波形會經過
+    /// 零點,剛好讀在那裡就會誤判成靜音。所以在 ms 毫秒內以 10ms 間隔連續取樣,
+    /// 看這段時間的最大值。
+    ///
+    /// ok=false 的兩種情形都要能分辨(查問題時差很多):
+    ///   no-endpoint → 這台機器沒有預設輸出裝置(沒有音效卡也沒有虛擬裝置)
+    ///   其他 hr     → 有裝置但 Activate/GetPeakValue 失敗
+    /// </summary>
+    public static string AudioSample(int ms)
+    {
+        try
+        {
+            var t = Type.GetTypeFromCLSID(CLSID_MMDeviceEnumerator);
+            if (t == null) return "{\"ok\":false,\"why\":\"no-mmdeviceenumerator\"}";
+            var en = (IMMDeviceEnumerator)Activator.CreateInstance(t);
+            IMMDevice dev = null;
+            int hr = en.GetDefaultAudioEndpoint(eRender, eConsole, out dev);
+            if (hr != 0 || dev == null)
+                return "{\"ok\":false,\"why\":\"no-endpoint\",\"hr\":" + hr + "}";
+            string id = ""; dev.GetId(out id);
+            int state = 0; dev.GetState(out state);
+            var iid = typeof(IAudioMeterInformation).GUID;
+            object o = null;
+            hr = dev.Activate(ref iid, CLSCTX_INPROC_SERVER, IntPtr.Zero, out o);
+            if (hr != 0 || o == null)
+                return "{\"ok\":false,\"why\":\"activate-failed\",\"hr\":" + hr + ",\"device\":" + JsonStr(id) + "}";
+            var meter = (IAudioMeterInformation)o;
+
+            int n = Math.Max(1, Math.Min(400, ms / 10));
+            float max = 0f, sum = 0f;
+            int got = 0;
+            for (int k = 0; k < n; k++)
+            {
+                float p;
+                if (meter.GetPeakValue(out p) == 0)
+                {
+                    if (p > max) max = p;
+                    sum += p;
+                    got++;
+                }
+                if (k + 1 < n) Thread.Sleep(10);
+            }
+            float avg = got > 0 ? sum / got : 0f;
+            return "{\"ok\":true,\"peak\":" + max.ToString("0.00000", System.Globalization.CultureInfo.InvariantCulture)
+                + ",\"avg\":" + avg.ToString("0.00000", System.Globalization.CultureInfo.InvariantCulture)
+                + ",\"samples\":" + got + ",\"state\":" + state + ",\"device\":" + JsonStr(id) + "}";
+        }
+        catch (Exception e)
+        {
+            return "{\"ok\":false,\"why\":" + JsonStr(e.Message) + "}";
+        }
     }
 }

@@ -1,6 +1,6 @@
 # Windows 主機 helper 程序:載入 WinHelper.cs,從 stdin 一行一個 JSON 指令,stdout 一行一個 JSON 回應。
 # 由 windowsClient.mjs 啟動(必須在互動式桌面的 session 裡執行,才有畫面與輸入)。
-# 指令:{ "id":1, "cmd":"shot|click|drag|type|key|size|launch|kill|running|foreground|focus|rect", ... }
+# 指令:{ "id":1, "cmd":"shot|click|drag|type|key|size|launch|kill|running|foreground|fgname|focus|rect|audio", ... }
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
 [Console]::InputEncoding = New-Object System.Text.UTF8Encoding $false
@@ -33,6 +33,8 @@ while ($true) {
       'fgname' { [WinHelper]::ForegroundName() }
       'focus' { [WinHelper]::Focus([string]$a.name) }
       'rect' { [WinHelper]::WindowRect([string]$a.name) }
+      # 音量取樣:回一個 JSON 字串(由 C# 自己組),這裡原樣帶回不要再包一層。
+      'audio' { [WinHelper]::AudioSample([int]$a.ms) }
       'quit' { exit 0 }
       default { throw "unknown cmd $($req.cmd)" }
     }

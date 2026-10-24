@@ -121,3 +121,41 @@ describe('deadline 租約', () => {
     expect(ka.WRAP_UP_SEC).toBe(300);
   });
 });
+
+/**
+ * runner 端讀租約的判斷。
+ *
+ * 這裡每一條都對應一種真實會發生的壞輸入:租約還沒出現、剛寫到一半、時鐘偏移。
+ * 全部都必須退化成「沿用現值」而不是算出一個奇怪的時間 —— 收尾時間算錯的後果是
+ * 任務沒有報告(見 deadlineLease.mjs 的檔頭)。
+ */
+describe('runner 讀租約', () => {
+  const NOW = 1_700_000_000_000;
+  const MIN = 60_000;
+
+  test('租約比現值晚 → 延後', () => {
+    expect(ka.nextDeadline(NOW, JSON.stringify({ deadlineMs: NOW + 30 * MIN })))
+      .toBe(NOW + 30 * MIN);
+  });
+
+  test('租約比現值早 → 不動(不要讓任務提早收工)', () => {
+    expect(ka.nextDeadline(NOW, JSON.stringify({ deadlineMs: NOW - 10 * MIN }))).toBe(NOW);
+  });
+
+  test('壞掉或殘缺的租約 → 沿用現值', () => {
+    for (const bad of ['', '{', 'null', '{}', '{"deadlineMs":"soon"}', '{"deadlineMs":null}', undefined]) {
+      expect(ka.nextDeadline(NOW, bad)).toBe(NOW);
+    }
+  });
+
+  test('「不限時數」不會因為一份租約變成有限', () => {
+    // Android 不設時數上限時 deadline 是 NaN。租約把它變成有限值 = 本來能一直跑的任務
+    // 突然提早收工,而且看起來像是設定沒生效。
+    expect(ka.nextDeadline(NaN, JSON.stringify({ deadlineMs: NOW + 30 * MIN }))).toBeNaN();
+  });
+
+  test('保活寫的租約讀回來一定是往後延(兩端對得上)', () => {
+    const lease = JSON.stringify({ deadlineMs: ka.leaseDeadlineMs({ nowMs: NOW, sessionEndMs: 0 }) });
+    expect(ka.nextDeadline(NOW, lease)).toBe(NOW + 55 * MIN);
+  });
+});
