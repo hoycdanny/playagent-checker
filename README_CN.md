@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/sc
 - 创建 CodeBuild 项目 `playagent-installer`，由它 clone 公开的 GitHub 仓库并运行同一份部署核心（`scripts/deploy-latest.mjs`）。不需要 EC2 实例。
 - 实时显示进度，完成后输出网站 URL。
 
-该策略只允许构建代入本账户的 CDK bootstrap 角色、读取 PlayAgent stack、推送两个 Runner 镜像、创建 Cognito 管理员，以及写入 `/playagent/*` SSM 参数。CloudFormation 的变更通过 CDK 的 `cdk-hnb659fds-cfn-exec-role` 执行，它默认有管理员权限，所以能部署的人仍可通过 CloudFormation 创建资源。
+该策略只允许构建代入本账户的 CDK bootstrap 角色、读取 PlayAgent stack、推送 Runner 镜像、创建 Cognito 管理员，以及写入 `/playagent/*` SSM 参数。CloudFormation 的变更通过 CDK 的 `cdk-hnb659fds-cfn-exec-role` 执行，它默认有管理员权限，所以能部署的人仍可通过 CloudFormation 创建资源。
 
 ## 快速删除
 
@@ -259,7 +259,7 @@ Linux：  运行 scripts/deploy-latest.sh
 
 任何系统都可以使用 `npm run deploy:latest -- --expected-account-id 123456789012` 校验 AWS 账户。旧的 Windows PowerShell 脚本仍可使用，但只是兼容包装；三个系统共用同一份 Node.js 部署核心。
 
-也可以运行 `npm run deploy:latest`。安装器会**原样部署这个文件夹**，不会自行拉取新版；要部署最新的 `main`，请先 `git pull`。版本标签为 Git commit SHA（从没有 `.git` 的 ZIP 解压则为 `local-<UTC 时间>`）；有未提交的更改时会一并部署，并给出警告、使用 `<sha12>-dirty-<UTC 时间>` 标签。它会依 lockfile 安装、测试、部署所有堆栈与更新器（Updater）；两个 Runner 同时推送版本标签与 `latest`，ECS 任务定义锁定版本标签。最后会验证 CloudFormation、ECR digest、ECS 镜像和 CloudFront。不会重置、stash 或清除本机文件。
+也可以运行 `npm run deploy:latest`。安装器会**原样部署这个文件夹**，不会自行拉取新版；要部署最新的 `main`，请先 `git pull`。版本标签为 Git commit SHA（从没有 `.git` 的 ZIP 解压则为 `local-<UTC 时间>`）；有未提交的更改时会一并部署，并给出警告、使用 `<sha12>-dirty-<UTC 时间>` 标签。它会依 lockfile 安装、测试、部署所有堆栈与更新器（Updater）；Runner 镜像同时推送版本标签与 `latest`，ECS 任务定义锁定版本标签。最后会验证 CloudFormation、ECR digest、ECS 镜像和 CloudFront。不会重置、stash 或清除本机文件。
 
 为避免部署到错误环境，建议使用 `npm run deploy:latest -- --expected-account-id 123456789012` 检查 AWS 账户。首次安装结束前，交互式安装只询问管理员的 **Email（登录 username）**和以隐藏方式输入的密码。tenant 默认为 `default`；只有高级场景才需要用 `--admin-tenant <tenant>` 覆盖。
 
@@ -390,7 +390,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 
 #### 第 6 步：构建 Runner 镜像（必需）
 
-Web 和 Device Farm Runner 使用你 ECR 中的容器镜像运行。镜像通过 CodeBuild 在云端构建，因此不会有大文件下载到你的电脑。
+Web 和 Device Farm Runner，以及让 Windows 测试能跑超过一小时的保活 task，都使用你 ECR 中的容器镜像运行。镜像通过 CodeBuild 在云端构建，因此不会有大文件下载到你的电脑。
 
 ```bash
 cd ../agent/sagemaker && npm install
@@ -402,9 +402,10 @@ export AWS_REGION=us-west-2
 #    不会启动 GPU；存储费用约 US$2/月。
 node cloudBuild.mjs
 
-# b) 构建并推送两个 Runner 镜像（每个需要几分钟）。
+# b) 构建并推送 Runner 镜像（每个需要几分钟）。
 node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
+node cloudBuildKeepAlive.mjs
 ```
 
 > `PA_SM_BUCKET` 为必填项，请设置为你自己的 Foundation 堆栈输出的 DataBucket；脚本不再包含任何特定账户的桶默认值。
@@ -545,7 +546,7 @@ cd infra
 AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
-另外还会遗留：Runner ECR 仓库 `playagent-exploration-runner` / `playagent-web-runner`（CDK 默认保留）、ECR 仓库 `playagent-vllm-byoc`、CodeBuild 项目 `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`、角色 `PlayAgentCodeBuildUitarsRole`、SageMaker 模型/配置 `ui-tars-playagent-*`，以及（如已设置）GameLift Streams 应用和串流组。
+另外还会遗留：Runner ECR 仓库 `playagent-exploration-runner` / `playagent-web-runner` / `playagent-keepalive-runner`（CDK 默认保留）、ECR 仓库 `playagent-vllm-byoc`、CodeBuild 项目 `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build` / `playagent-keepalive-runner-build`、角色 `PlayAgentCodeBuildUitarsRole`、SageMaker 模型/配置 `ui-tars-playagent-*`，以及（如已设置）GameLift Streams 应用和串流组。
 
 | 现象 | 解决方法 |
 | --- | --- |

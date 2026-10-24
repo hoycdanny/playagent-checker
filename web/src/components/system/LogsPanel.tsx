@@ -9,8 +9,8 @@ type LogKind = 'lambda' | 'ecs' | 'codebuild' | 'other';
 /** 後端給的翻譯 key(穩定,不隨語系變)。 */
 type LogSourceId =
   | 'api' | 'engine' | 'dispatcher' | 'ws-auth' | 'ws-connect' | 'ws-push'
-  | 'runner-exploration' | 'runner-web'
-  | 'update' | 'image-runner' | 'image-web' | 'installer'
+  | 'runner-exploration' | 'runner-web' | 'runner-keepalive'
+  | 'update' | 'image-runner' | 'image-web' | 'image-keepalive' | 'installer'
   | 'log-retention' | 's3-events' | 'custom-resource' | 'lambda-other' | 'other';
 interface LogSource { id: string; logGroupName: string; kind: LogKind; sourceId?: LogSourceId; label: string }
 type LogLevel = 'ERROR' | 'WARN' | 'INFO' | 'DEBUG';
@@ -66,9 +66,11 @@ const SRC: Record<LogSourceId, L5> = {
   'ws-push': ['WebSocket 推送', 'WebSocket push', 'WebSocket 推送', 'WebSocket プッシュ', 'WebSocket 푸시'],
   'runner-exploration': ['Runner(真機 / Device Farm)', 'Runner (real device / Device Farm)', 'Runner(真机 / Device Farm)', 'ランナー(実機 / Device Farm)', '러너(실기기 / Device Farm)'],
   'runner-web': ['Runner(Web 瀏覽器)', 'Runner (web browser)', 'Runner(Web 浏览器)', 'ランナー(Web ブラウザ)', '러너(웹 브라우저)'],
+  'runner-keepalive': ['Windows 長時保活', 'Windows long-run keep-alive', 'Windows 长时保活', 'Windows 長時間セッション維持', 'Windows 장시간 세션 유지'],
   update: ['系統更新(CodeBuild)', 'System update (CodeBuild)', '系统更新(CodeBuild)', 'システム更新(CodeBuild)', '시스템 업데이트(CodeBuild)'],
   'image-runner': ['映像建置(真機 runner)', 'Image build (device runner)', '镜像构建(真机 runner)', 'イメージビルド(実機ランナー)', '이미지 빌드(실기기 러너)'],
   'image-web': ['映像建置(web runner)', 'Image build (web runner)', '镜像构建(web runner)', 'イメージビルド(web ランナー)', '이미지 빌드(web 러너)'],
+  'image-keepalive': ['映像建置(保活)', 'Image build (keep-alive)', '镜像构建(保活)', 'イメージビルド(セッション維持)', '이미지 빌드(세션 유지)'],
   installer: ['安裝器(CodeBuild)', 'Installer (CodeBuild)', '安装器(CodeBuild)', 'インストーラー(CodeBuild)', '설치 프로그램(CodeBuild)'],
   'log-retention': ['其他(log 保留設定)', 'Other (log retention)', '其他(log 保留设置)', 'その他(ログ保持設定)', '기타(로그 보존 설정)'],
   's3-events': ['其他(S3 事件)', 'Other (S3 events)', '其他(S3 事件)', 'その他(S3 イベント)', '기타(S3 이벤트)'],

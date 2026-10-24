@@ -40,7 +40,7 @@ curl -fsSL https://raw.githubusercontent.com/hoycdanny/playagent-checker/main/sc
 - CodeBuild 프로젝트 `playagent-installer`를 만듭니다. 이 프로젝트가 공개 GitHub 리포지토리를 clone하고 같은 배포 코어(`scripts/deploy-latest.mjs`)를 실행합니다. EC2 인스턴스는 필요 없습니다.
 - 진행 상황을 보여 주고, 끝나면 사이트 URL을 출력합니다.
 
-이 정책이 허용하는 것은 이 계정의 CDK bootstrap 역할 수임, PlayAgent 스택 읽기, 러너 이미지 두 개 푸시, Cognito 관리자 생성, `/playagent/*` SSM 파라미터 쓰기뿐입니다. CloudFormation 변경은 CDK의 `cdk-hnb659fds-cfn-exec-role`을 통해 실행됩니다. 이 역할은 기본적으로 관리자 권한을 가지므로, 배포할 수 있는 사람은 CloudFormation을 통해 리소스를 만들 수 있습니다.
+이 정책이 허용하는 것은 이 계정의 CDK bootstrap 역할 수임, PlayAgent 스택 읽기, 러너 이미지 푸시, Cognito 관리자 생성, `/playagent/*` SSM 파라미터 쓰기뿐입니다. CloudFormation 변경은 CDK의 `cdk-hnb659fds-cfn-exec-role`을 통해 실행됩니다. 이 역할은 기본적으로 관리자 권한을 가지므로, 배포할 수 있는 사람은 CloudFormation을 통해 리소스를 만들 수 있습니다.
 
 ## 빠른 삭제
 
@@ -259,7 +259,7 @@ Linux:   scripts/deploy-latest.sh 실행
 
 모든 OS에서 `npm run deploy:latest -- --expected-account-id 123456789012`로 AWS 계정을 확인할 수 있습니다. 기존 PowerShell 스크립트는 호환 래퍼로 유지되며, 모든 OS가 동일한 Node.js 배포 코어를 사용합니다.
 
-`npm run deploy:latest`로도 실행할 수 있습니다. 설치 프로그램은 **이 폴더를 있는 그대로 배포**하며 새 버전을 자동으로 가져오지 않습니다. 최신 `main`을 배포하려면 먼저 `git pull`을 실행하십시오. 버전 태그는 Git commit SHA입니다(`.git`이 없는 ZIP을 푼 경우 `local-<UTC 시각>`). 커밋되지 않은 변경이 있으면 경고를 표시하고 `<sha12>-dirty-<UTC 시각>` 태그로 함께 배포합니다. lockfile 설치, 테스트, 모든 스택과 업데이터(Updater) 배포를 수행하고, 두 러너 이미지는 버전 태그와 `latest`를 함께 푸시하며 ECS 작업 정의는 버전 태그에 고정됩니다. 마지막에 CloudFormation, ECR digest, ECS 이미지, CloudFront를 검증합니다. 로컬 파일을 초기화·stash·삭제하지 않습니다.
+`npm run deploy:latest`로도 실행할 수 있습니다. 설치 프로그램은 **이 폴더를 있는 그대로 배포**하며 새 버전을 자동으로 가져오지 않습니다. 최신 `main`을 배포하려면 먼저 `git pull`을 실행하십시오. 버전 태그는 Git commit SHA입니다(`.git`이 없는 ZIP을 푼 경우 `local-<UTC 시각>`). 커밋되지 않은 변경이 있으면 경고를 표시하고 `<sha12>-dirty-<UTC 시각>` 태그로 함께 배포합니다. lockfile 설치, 테스트, 모든 스택과 업데이터(Updater) 배포를 수행하고, 러너 이미지는 버전 태그와 `latest`를 함께 푸시하며 ECS 작업 정의는 버전 태그에 고정됩니다. 마지막에 CloudFormation, ECR digest, ECS 이미지, CloudFront를 검증합니다. 로컬 파일을 초기화·stash·삭제하지 않습니다.
 
 잘못된 AWS 계정에 배포하지 않도록 `npm run deploy:latest -- --expected-account-id 123456789012` 사용을 권장합니다. 첫 설치의 대화형 입력은 관리자 **Email(로그인 username)**과 화면에 표시되지 않는 비밀번호만 묻습니다. tenant 기본값은 `default`이며 고급 설정에서 변경할 때만 `--admin-tenant <tenant>`를 사용합니다.
 
@@ -390,7 +390,7 @@ aws cloudformation describe-stacks --region us-west-2 --stack-name PlayAgentDev-
 
 #### 6단계 — 러너 이미지 빌드(필수)
 
-웹 및 Device Farm 러너는 사용자 ECR의 컨테이너 이미지에서 실행됩니다. 이미지는 CodeBuild를 통해 클라우드에서 빌드되므로 대용량 파일이 컴퓨터로 다운로드되지 않습니다.
+웹 및 Device Farm 러너와 Windows 실행을 1시간 넘게 유지하는 세션 유지 태스크는 사용자 ECR의 컨테이너 이미지에서 실행됩니다. 이미지는 CodeBuild를 통해 클라우드에서 빌드되므로 대용량 파일이 컴퓨터로 다운로드되지 않습니다.
 
 ```bash
 cd ../agent/sagemaker && npm install
@@ -402,9 +402,10 @@ export AWS_REGION=us-west-2
 #    GPU는 시작하지 않습니다. 스토리지 비용은 월 약 US$2입니다.
 node cloudBuild.mjs
 
-# b) 두 러너 이미지를 빌드하고 푸시합니다(각각 몇 분).
+# b) 러너 이미지를 빌드하고 푸시합니다(각각 몇 분).
 node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
+node cloudBuildKeepAlive.mjs
 ```
 
 > `PA_SM_BUCKET`은 필수입니다. 본인의 Foundation 스택이 출력한 DataBucket으로 설정하십시오. 스크립트에는 계정별 버킷 기본값이 더 이상 없습니다.
@@ -545,7 +546,7 @@ cd infra
 AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
-다음 항목도 남습니다: 러너 ECR 리포지토리 `playagent-exploration-runner` / `playagent-web-runner`(CDK가 기본적으로 보존), ECR 리포지토리 `playagent-vllm-byoc`, CodeBuild 프로젝트 `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`, 역할 `PlayAgentCodeBuildUitarsRole`, SageMaker 모델/구성 `ui-tars-playagent-*`, 그리고 (설정한 경우) GameLift Streams 애플리케이션과 스트림 그룹.
+다음 항목도 남습니다: 러너 ECR 리포지토리 `playagent-exploration-runner` / `playagent-web-runner` / `playagent-keepalive-runner`(CDK가 기본적으로 보존), ECR 리포지토리 `playagent-vllm-byoc`, CodeBuild 프로젝트 `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build` / `playagent-keepalive-runner-build`, 역할 `PlayAgentCodeBuildUitarsRole`, SageMaker 모델/구성 `ui-tars-playagent-*`, 그리고 (설정한 경우) GameLift Streams 애플리케이션과 스트림 그룹.
 
 | 증상 | 해결 방법 |
 | --- | --- |

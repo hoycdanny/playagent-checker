@@ -223,10 +223,18 @@ const HT = {
   hours: ['{n} 小時', '{n} h', '{n} 小时', '{n} 時間', '{n}시간'],
 } as const satisfies Record<string, L5>;
 
-/** Windows(GameLift Streams):沒有人連線的 session 最長 60 分鐘(AWS 上限)。 */
-export const WINDOWS_HOUR_OPTIONS = [1] as const;
+/**
+ * Windows(GameLift Streams)的時數選項。
+ *
+ * 上限 24 小時是 `SessionLengthSeconds` 的硬上限(AWS)。超過一小時的任務會連帶啟動一個
+ * 保活 task 當 WebRTC client —— 沒有 client 連著的 session 會在 `ConnectionTimeoutSeconds`
+ * (上限 3600,AWS 強制)被收掉。實測 2026-10-24:連著的 session 跨過 3600 秒仍存活。
+ * 留著 1 小時這個選項是因為短測試不需要保活,少起一個 Fargate task。
+ * 見 docs/design/windows-long-run.md。
+ */
+export const WINDOWS_HOUR_OPTIONS = [1, 2, 6, 12, 24] as const;
 const WHT = {
-  hint: ['Windows 主機(GameLift Streams)在沒有人連線觀看時,單次最長 60 分鐘(AWS 上限);時間到自動結束並保留結果。', 'Windows hosts (GameLift Streams) run up to 60 minutes per session when no viewer is connected (AWS limit); results are kept.', 'Windows 主机(GameLift Streams)在没有人连线观看时,单次最长 60 分钟(AWS 上限);时间到自动结束并保留结果。', 'Windows ホスト(GameLift Streams)は視聴者が接続していない場合 1 回最大 60 分です(AWS の上限)。結果は保存されます。', 'Windows 호스트(GameLift Streams)는 시청자가 연결되지 않으면 1회 최대 60분입니다(AWS 한도). 결과는 보존됩니다.'],
+  hint: ['Windows 主機(GameLift Streams)單次最長 24 小時(AWS 上限);超過 1 小時會自動啟動長時保活。時間到自動結束並保留結果。', 'Windows hosts (GameLift Streams) run up to 24 hours per session (AWS limit); runs longer than an hour start a keep-alive task automatically. The run ends at the limit and results are kept.', 'Windows 主机(GameLift Streams)单次最长 24 小时(AWS 上限);超过 1 小时会自动启动长时保活。时间到自动结束并保留结果。', 'Windows ホスト(GameLift Streams)は 1 回最大 24 時間です(AWS の上限)。1 時間を超える実行ではセッション維持タスクが自動的に起動します。上限で終了し結果は保存されます。', 'Windows 호스트(GameLift Streams)는 1회 최대 24시간입니다(AWS 한도). 1시간을 넘는 실행에서는 세션 유지 태스크가 자동으로 시작됩니다. 한도에 도달하면 종료되고 결과는 보존됩니다.'],
 } as const satisfies Record<string, L5>;
 
 /** 最長執行時數(Android 容器 / Windows 才顯示)。 */
@@ -235,7 +243,8 @@ export function HoursSelect({ value, onChange, labelClass, hintClass, backend }:
   const li = LOC_IDX[locale] ?? 1;
   const isWin = backend === 'windows';
   const options: readonly number[] = isWin ? WINDOWS_HOUR_OPTIONS : HOUR_OPTIONS;
-  const shown = options.includes(value) ? value : options[0]!;
+  // 顯示值與送出值走同一套收斂規則(effectiveHours),不然兩者會不一致。
+  const shown = isWin ? windowsHours(value) : options.includes(value) ? value : options[0]!;
   // 順序是 標題 → 控制項 → 說明,與同一列的其他欄位一致;
   // 說明擺在控制項之前的話,行數不同的說明會把各欄的下拉推到不同高度。
   return (
@@ -249,9 +258,26 @@ export function HoursSelect({ value, onChange, labelClass, hintClass, backend }:
   );
 }
 
-/** 依後端把最長時數壓到可用範圍(Windows 只有 1 小時)。 */
+/**
+ * 把時數收到 Windows 可用的選項上。
+ *
+ * Windows 的上限是 24 小時(`SessionLengthSeconds` 的 AWS 硬上限),比自管主機的 72 小時小,
+ * 所以使用者從別的後端切過來時手上可能是 48 / 72。取「不超過它的最大可用值」而不是退回
+ * 第一個選項:選了 48 小時的人要的是長時測試,給他 24 比給他 1 合理。
+ *
+ * 下拉顯示與送出的值都走這個函式 —— 兩邊各自夾限過一次的話會出現畫面寫 1 小時、
+ * 實際送出 24 小時的不一致。
+ */
+function windowsHours(hours: number): number {
+  const opts = WINDOWS_HOUR_OPTIONS as readonly number[];
+  if (opts.includes(hours)) return hours;
+  const notAbove = opts.filter((h) => h <= hours);
+  return notAbove.length ? Math.max(...notAbove) : opts[0]!;
+}
+
+/** 依後端把最長時數壓到可用範圍(Windows 最多 24 小時)。 */
 export function effectiveHours(backend: string, hours: number): number {
-  return backend === 'windows' ? 1 : hours;
+  return backend === 'windows' ? windowsHours(hours) : hours;
 }
 
 // ── 畫面解析度(Windows 啟動時輸入)──────────────────────────────

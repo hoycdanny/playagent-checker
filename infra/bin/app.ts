@@ -108,10 +108,11 @@ const updater = new UpdaterStack(app, `${stackPrefix}-Updater`, {
   ],
   githubSecretName: GITHUB_SECRET_NAME,
   stateParamName: DEPLOYED_VERSION_PARAM,
-  // 必須與 agent/sagemaker/cloudBuildRunner.mjs、cloudBuildWebRunner.mjs 的 PROJECT 常數一致。
-  imageBuildProjects: ['playagent-runner-build', 'playagent-web-runner-build'],
-  // 必須與 execution-stack.ts 的 runner repo 名、buildspec.runner.yml / buildspec.web.yml 的 IMAGE_REPO 一致。
-  imageRepos: ['playagent-exploration-runner', 'playagent-web-runner'],
+  // 必須與 agent/sagemaker/cloudBuildRunner.mjs、cloudBuildWebRunner.mjs、cloudBuildKeepAlive.mjs 的 PROJECT 常數一致。
+  imageBuildProjects: ['playagent-runner-build', 'playagent-web-runner-build', 'playagent-keepalive-runner-build'],
+  // 必須與 execution-stack.ts 的 runner repo 名、buildspec.runner.yml / buildspec.web.yml /
+  // buildspec.keepalive.yml 的 IMAGE_REPO 一致。
+  imageRepos: ['playagent-exploration-runner', 'playagent-web-runner', 'playagent-keepalive-runner'],
   frontendConfigStacks: {
     foundation: `${stackPrefix}-Foundation`,
     controlPlane: `${stackPrefix}-ControlPlane`,

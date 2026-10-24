@@ -626,5 +626,90 @@ export class ExecutionStack extends Stack {
     this.engineFn.addEnvironment('WEB_ECS_SUBNETS', publicSubnetIds);
     this.engineFn.addEnvironment('WEB_ECS_SG', webFargateSg.securityGroupId);
     this.engineFn.addEnvironment('WEB_ECS_CONTAINER', WEB_CONTAINER_NAME);
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Windows 長時測試的保活 task:讓 GameLift Streams session 活得過一小時。
+    //
+    // engine 以 SignalRequest='NO_CLIENT_CONNECTION' 開 session,沒有人連進來,而
+    // ConnectionTimeoutSeconds(等 client 連線的窗口)上限是 AWS 強制的 3600 秒。
+    // SessionLengthSeconds 可以到 24 小時 —— 差別只在「有沒有 client 連著」。
+    // 這個 task 就是那個 client:一個真實 Chromium 跑 AWS 的 Web SDK 接上 session 並掛著,
+    // 同時把 deadline 租約寫進該任務的前綴。詳見 docs/design/windows-long-run.md。
+    // ───────────────────────────────────────────────────────────────────────
+    const keepAliveRepo = props.useExistingRunnerRepos
+      ? ecr.Repository.fromRepositoryName(this, 'KeepAliveRunnerRepoImported', 'playagent-keepalive-runner')
+      : new ecr.Repository(this, 'KeepAliveRunnerRepo', {
+          repositoryName: 'playagent-keepalive-runner',
+          imageScanOnPush: true,
+          lifecycleRules: [{ maxImageCount: 10 }],
+        });
+
+    // 保活只做兩件事:接上 stream session、更新 deadline 租約。不呼叫 Bedrock、不讀遊戲
+    // 產物、不碰租戶憑證,所以權限刻意比兩個探索 runner 小得多。
+    const keepAliveTaskRole = new iam.Role(this, 'KeepAliveTaskRole', {
+      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
+    });
+    keepAliveTaskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['gameliftstreams:GetStreamSession', 'gameliftstreams:CreateStreamSessionConnection'],
+        resources: [`arn:aws:gameliftstreams:${this.region}:${account}:*`],
+      }),
+    );
+    keepAliveTaskRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        // 只寫租約,不需要讀、不需要列。
+        actions: ['s3:PutObject'],
+        resources: [`${props.dataBucket.bucketArn}/tenants/*`],
+      }),
+    );
+
+    // Chromium 要解一條隱藏的 720p WebRTC 視訊流(SDK 硬性要求 video 元素),與 web runner 同級。
+    const keepAliveTaskDef = new ecs.FargateTaskDefinition(this, 'KeepAliveTaskDef', {
+      cpu: 1024,
+      memoryLimitMiB: 2048,
+      taskRole: keepAliveTaskRole,
+    });
+    const KEEPALIVE_CONTAINER_NAME = 'keepalive-runner';
+    keepAliveTaskDef.addContainer(KEEPALIVE_CONTAINER_NAME, {
+      // 與兩個探索 runner 使用同一個不可變 Git SHA tag。
+      image: ecs.ContainerImage.fromEcrRepository(keepAliveRepo, props.runnerImageTag ?? 'latest'),
+      logging: ecs.LogDrivers.awsLogs({
+        streamPrefix: 'keepalive',
+        logGroup: new logs.LogGroup(this, 'KeepAliveLogs', {
+          logGroupName: `/playagent/${logStage}/runner-keepalive`,
+          retention: logs.RetentionDays.TWO_WEEKS,
+          removalPolicy: RemovalPolicy.DESTROY,
+        }),
+      }),
+    });
+
+    // 只需要出網。WebRTC 的媒體不必開入站規則:client 是發起方(我們送 offer),
+    // 而 SG 是 stateful 的,所以 client 主動建立的 UDP 流的回應會自動被放行。
+    // 本機驗證時瀏覽器也在家用 NAT 後面(同樣不接受主動入站)且連得上,這條路徑成立。
+    const keepAliveSg = new ec2.SecurityGroup(this, 'KeepAliveFargateSg', {
+      vpc: this.vpc,
+      allowAllOutbound: true,
+      description: 'Windows keep-alive Fargate task egress (WebRTC to GameLift Streams + S3 lease)',
+    });
+
+    this.engineFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['ecs:RunTask'],
+        resources: [keepAliveTaskDef.taskDefinitionArn],
+      }),
+    );
+    this.engineFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['iam:PassRole'],
+        resources: [keepAliveTaskRole.roleArn, keepAliveTaskDef.executionRole!.roleArn],
+      }),
+    );
+
+    // 保活執行環境注入 engine(windowsHost 讀取)。
+    this.engineFn.addEnvironment('KEEPALIVE_ECS_CLUSTER', cluster.clusterArn);
+    this.engineFn.addEnvironment('KEEPALIVE_ECS_TASK_DEF', keepAliveTaskDef.taskDefinitionArn);
+    this.engineFn.addEnvironment('KEEPALIVE_ECS_SUBNETS', publicSubnetIds);
+    this.engineFn.addEnvironment('KEEPALIVE_ECS_SG', keepAliveSg.securityGroupId);
+    this.engineFn.addEnvironment('KEEPALIVE_ECS_CONTAINER', KEEPALIVE_CONTAINER_NAME);
   }
 }

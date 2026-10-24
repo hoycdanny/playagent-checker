@@ -40,7 +40,7 @@ What `scripts/cloudshell-install.sh` does:
 - Creates the CodeBuild project `playagent-installer`, which clones the public GitHub repo and runs the same deploy core (`scripts/deploy-latest.mjs`). No EC2 instance is needed.
 - Streams progress and prints the site URL when done.
 
-The policy only lets the build assume this account's CDK bootstrap roles, read the PlayAgent stacks, push the two runner images, create the Cognito admin, and write `/playagent/*` SSM parameters. CloudFormation changes run through CDK's `cdk-hnb659fds-cfn-exec-role`, which by default has admin rights, so anyone who can deploy can still create resources through CloudFormation.
+The policy only lets the build assume this account's CDK bootstrap roles, read the PlayAgent stacks, push the runner images, create the Cognito admin, and write `/playagent/*` SSM parameters. CloudFormation changes run through CDK's `cdk-hnb659fds-cfn-exec-role`, which by default has admin rights, so anyone who can deploy can still create resources through CloudFormation.
 
 ## Quick delete
 
@@ -265,7 +265,7 @@ npm run deploy:latest -- --expected-account-id 123456789012
 
 The legacy Windows PowerShell entry `scripts/deploy-latest.ps1` remains as a compatibility wrapper; Windows, macOS, and Linux all execute the same Node.js deployment core.
 
-The installer deploys **this folder as-is**; it never fetches a newer version, so run `git pull` first if you want the latest `main`. The version tag is the Git commit SHA (or `local-<UTC time>` for an extracted ZIP without `.git`); uncommitted changes are included with a warning and a `<sha12>-dirty-<UTC time>` tag. It installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks and the Updater, builds both runner images locally, pushes both `:<version>` and `:latest`, pins ECS task definitions to the version tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. Local files are never reset, stashed, or cleaned.
+The installer deploys **this folder as-is**; it never fetches a newer version, so run `git pull` first if you want the latest `main`. The version tag is the Git commit SHA (or `local-<UTC time>` for an extracted ZIP without `.git`); uncommitted changes are included with a warning and a `<sha12>-dirty-<UTC time>` tag. It installs from `package-lock.json`, runs tests, bootstraps CDK, deploys the stacks and the Updater, builds the runner images locally, pushes both `:<version>` and `:latest`, pins ECS task definitions to the version tag, builds the frontend from live stack outputs, and verifies CloudFormation, ECR digests, ECS image references, and CloudFront. Local files are never reset, stashed, or cleaned.
 
 For the first admin account, the interactive installer asks only for the administrator **Email (username)** and a password entered with hidden input. The tenant defaults to `default`; only advanced setups need `--admin-tenant <tenant>`.
 
@@ -396,7 +396,7 @@ Write down:
 
 #### Step 6 — Build the runner images (required)
 
-The Web and Device Farm runners run from container images in your ECR. They are built in the cloud with CodeBuild, so nothing large downloads to your computer.
+The Web and Device Farm runners, plus the keep-alive task that lets Windows runs last beyond one hour, run from container images in your ECR. They are built in the cloud with CodeBuild, so nothing large downloads to your computer.
 
 ```bash
 cd ../agent/sagemaker && npm install
@@ -408,9 +408,10 @@ export AWS_REGION=us-west-2
 #    It does NOT start a GPU; storage costs about US$2/month.
 node cloudBuild.mjs
 
-# b) Build and push the two runner images (a few minutes each).
+# b) Build and push the runner images (a few minutes each).
 node cloudBuildRunner.mjs
 node cloudBuildWebRunner.mjs
+node cloudBuildKeepAlive.mjs
 ```
 
 > `PA_SM_BUCKET` is required. Set it to the DataBucket output from your own Foundation stack; the scripts no longer contain any account-specific bucket fallback.
@@ -551,7 +552,7 @@ cd infra
 AWS_REGION=us-west-2 npx cdk destroy --all
 ```
 
-Also left behind: the runner ECR repos `playagent-exploration-runner` / `playagent-web-runner` (CDK retains them by default), the ECR repo `playagent-vllm-byoc`, the CodeBuild projects `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build`, the role `PlayAgentCodeBuildUitarsRole`, the SageMaker model/config `ui-tars-playagent-*`, and (if set up) the GameLift Streams application and stream group.
+Also left behind: the runner ECR repos `playagent-exploration-runner` / `playagent-web-runner` / `playagent-keepalive-runner` (CDK retains them by default), the ECR repo `playagent-vllm-byoc`, the CodeBuild projects `playagent-uitars-build` / `playagent-runner-build` / `playagent-web-runner-build` / `playagent-keepalive-runner-build`, the role `PlayAgentCodeBuildUitarsRole`, the SageMaker model/config `ui-tars-playagent-*`, and (if set up) the GameLift Streams application and stream group.
 
 | Symptom | Fix |
 | --- | --- |

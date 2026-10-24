@@ -1,14 +1,14 @@
 # Windows 測試超過 1 小時(GameLift Streams 保活)
 
-狀態:**尚未實作**。本文記錄已經用真實 API 驗證過的事實與一個已被推翻的推論,
-目的是讓實作的人不必重複踩同樣的坑(其中一個坑要花一個 GPU session 才會發現)。
+狀態:**已實作並以真實 session 驗證**(2026-10-24,見下方「70 分鐘耐久測試」)。
+時數選項已放寬到 24 小時。本文記錄一路上用真實 API 驗證過的事實、兩個被推翻的推論,
+以及接線時才發現的兩個陷阱 —— 其中一個坑要花一個 GPU session 才會發現。
 
 ## 問題
 
 engine 以 `SignalRequest='NO_CLIENT_CONNECTION'` 開 stream session,沒有任何 client 連進來。
-這種 session 一定在一小時內被收掉,所以 Windows 任務的時數選項只有 1 小時
-(`WINDOWS_HOUR_OPTIONS = [1]`)。新楓之谷這類「安裝 → 啟動器 → 下載更新 → 登入 → 進遊戲」
-的流程很可能超過一小時。
+這種 session 一定在一小時內被收掉,所以 Windows 任務的時數選項原本只有 1 小時。
+新楓之谷這類「安裝 → 啟動器 → 下載更新 → 登入 → 進遊戲」的流程很可能超過一小時。
 
 ## 已驗證的事實
 
@@ -64,14 +64,6 @@ ValidationException: 'SignalRequest' value is not a valid WebSDK signal request
 這個錯誤分兩階段才看清:先是 API 拒絕(花了一個約 7 分鐘的 session),
 之後把 SDK 載進瀏覽器印出它的 offer,才發現封裝一樣、內容不一樣。
 **結論是用 SDK,而它需要 `videoElement` / `audioElement`,所以瀏覽器躲不掉。**
-
-順帶兩個也已確認的細節:
-
-- `GetStreamSession` 回的 `webSdkProtocolUrl` 指向一支 185 KB 的 JS,但那只是**輸入模組**
-  (掛在 `window.GameCastInputModule`,GameCast 是 GameLift Streams 的前身),不是完整 SDK。
-- `node-datachannel` 的 **polyfill** 把 `addTransceiver` 做成會丟 `Not implemented` 的樁,
-  只能用 data channel。它的**原生 API** 有 `Video` / `Audio` / `Track` / `RtcpReceivingSession`,
-  媒體做得到,但如上所述光有 media 還不夠。
 
 順帶兩個也已確認的細節:
 
@@ -139,30 +131,129 @@ await myGameLiftStreams.processSignalResponse(signalResponse);
 不建議跑在 Windows 主機自己身上:主機沒有瀏覽器,而且為了保活在被保活的機器裡裝 Chromium
 是倒過來的。
 
+### 接進產品路徑要先解決的兩件事
+
+接線之前查過一遍現有程式,有兩個不是「照抄 web runner」就能帶過的地方。
+
+**一、session ARN 目前沒有被任何地方記住,也沒有任何人在輪詢它。**
+`windowsHost.ts` 只 import 了 `StartStreamSessionCommand`,engine 的 windows 分支
+(`infra/lambda/engine/index.ts`)拿到 `run.arn` 之後只用 `run.display` / `run.minutes` 組
+一句 status 訊息就 return 了。engine IAM 雖然早就給了 `GetStreamSession` 與
+`TerminateStreamSession`,但整個雲端沒有任何呼叫端;專案也沒有 Step Functions、
+EventBridge 排程或任何 sidecar 協調機制(SQS/DynamoDB 旗標)。
+
+所以保活 task 的啟動點只有一個可能:engine 在 `StartStreamSession` 回來之後、同一次
+invoke 內立刻 `RunTask`,把 session ARN 當環境變數交給 task。**不需要**新增旗標機制 ——
+`keepalive.mjs` 的收工判斷本來就是主動輪詢 `GetStreamSession`(`FINAL_STATES` =
+`TERMINATED` / `TERMINATING` / `ERROR`),session 一結束它自己就退出。
+
+反過來說,`RunTask` 失敗就不能放著不管:session 已經開了,卻沒有人會連它。那種情況要
+`TerminateStreamSession` 之後丟錯,讓 engine 最外層的 catch 寫 `state:'error'`。
+開著一個沒人連的 session 等 GameLift 一小時後收掉,換來的是一筆卡在「執行中」、
+沒有報告的任務。
+
+**二、`PA_DEADLINE_MS` 不能直接改成長的。**
+runner 靠它在 session 被收掉前 5 分鐘自己收尾寫報告。`RunTask` 成功不等於保活連上
+(映像拉不到、WebRTC 出不去都可能),而一旦 deadline 給了長值但保活其實沒連上,
+session 會在 3600 秒被 `connectionTimeout` 收掉,runner 卻以為還有好幾小時 ——
+任務停在「執行中」、沒有報告,正是最糟的結果。
+
+所以 deadline 要做成**租約**而不是常數:
+
+- 初始 `PA_DEADLINE_MS` 仍用保守值 `min(session, 3600) - 300`,和現在完全一樣。
+- 保活 task 每次確認連線還活著(`decide()` 回 `hold`),就把
+  `tenants/<t>/jobs/<job>/lease.json` 的 deadline 往後推。
+- runner 每分鐘讀一次 lease,取 `max(初始 deadline, lease)`。
+
+這樣兩種失敗都是安全的:保活連不上 → lease 從來沒出現過 → runner 照一小時收尾寫報告;
+保活中途死掉 → lease 停止更新 → runner 在最後一次租約到期前收尾。而且不必讓 engine
+去預測保活會不會成功,它預測不了。
+
+(順帶:斷線本身不急。WebRTC 斷掉後 session 轉 `PENDING_CLIENT_RECONNECTION`,
+`ConnectionTimeoutSeconds` 的 3600 秒窗口重新開始算,保活 task 有整整一小時可以重連。)
+
 ### 實作順序
 
 1. engine 解耦 `SessionLengthSeconds` 與 `ConnectionTimeoutSeconds`(無保活時行為不變)。
 2. 保活 task 的映像:Playwright + 建置時下載 SDK zip + 一頁極簡 HTML。
 3. task 內的 Node:輪詢 session 狀態、`generateSignalRequest` → `CreateStreamSessionConnection`
    → `processSignalResponse`、斷線重連(退避),並在 session 終止時自己結束。
-4. engine 在 `maxHours > 1` 時連同 Windows session 一起啟動 task,收尾時停掉。
-5. 前端放寬 `WINDOWS_HOUR_OPTIONS`,並說明「超過一小時需要保活」。
+4. runner 端的 deadline 租約(上面第二點)。
+5. engine 在 `maxHours > 1` 時連同 Windows session 一起啟動 task;`RunTask` 失敗要收掉 session。
+6. 前端放寬 `WINDOWS_HOUR_OPTIONS`,並說明「超過一小時需要保活」。
 
-### 還沒驗證的關鍵假設
+### 70 分鐘耐久測試(2026-10-24)
 
-**「有 client 連著就能活過 3600 秒」這件事本身還沒實測過。** 已經證明的是「連得上、
-session 會變成 CONNECTED」,但沒有真的掛超過一小時。文件說 `SessionLengthSeconds`
-不管連線狀態、`ConnectionTimeoutSeconds` 只在等 client 時適用,兩者合起來強烈暗示可行。
+這是整條路上最後一個未知:「有 client 連著就能活過 3600 秒」這件事本身。
+前面只證明了「連得上、session 會變成 CONNECTED」,沒有真的掛超過一小時。
 
-**所以下一個測試就是「連上並掛 70 分鐘」,不要直接接上真實任務** —— 不然失敗時分不清
-是保活沒用,還是任務本身的問題。那一次測試要花約 70 分鐘的 GPU 時間,是這條路上
-最後一個未知。
+刻意不接真實任務,用一個「只睡覺」的治具應用,不然失敗時分不清是保活沒用還是任務本身
+的問題。`SessionLengthSeconds=7200`、`ConnectionTimeoutSeconds=3600`:
+
+```
+09:10:19 ACTIVE,啟動保活
+09:10:24 [keepalive] 已連線(第 1 次)
+09:11:20 +  1 分(61s)   狀態 CONNECTED | 連線 1 次
+...
+10:09:55 + 60 分(3575s) 狀態 CONNECTED | 連線 1 次
+10:10:55 + 61 分(3636s) 狀態 CONNECTED | 連線 1 次  ← 已跨過 3600 秒
+10:13:57 + 64 分(3818s) 狀態 CONNECTED | 連線 1 次
+```
+
+**結論:活過 3600 秒,壽命由 `SessionLengthSeconds` 決定。** 而且整段只連了一次 ——
+WebRTC 連線一小時都沒有斷過,重連路徑在這次測試裡沒有被用到(所以它仍然只有單元測試
+蓋著,沒有真實驗證)。
+
+對照組不必另跑:之前幾次沒有保活的 session 都在 3600 秒以 `connectionTimeout` 被收掉。
+
+### 實作後的檔案分布
+
+保活的程式碼放在 `agent/` 而不是 `worker/windows-host/`:它跑在 Fargate,不是跑在被保活
+的那台 Windows 主機上。放在 `agent/` 還有一個實際好處 —— `infra/test/runner-dockerfiles.test.ts`
+會檢查每個 Dockerfile 有沒有 COPY 它 entry 模組所 import 的全部檔案,漏一個的話
+容器一啟動就 `ERR_MODULE_NOT_FOUND`(Device Farm runner 踩過)。
+
+| 檔案 | 作用 |
+| --- | --- |
+| `agent/glsKeepAlive.mjs` | 保活邏輯:`decide()`、`retryDelayMs()`、`leaseDeadlineMs()`、`createKeepAlive()` |
+| `agent/glsKeepAlivePage.html` | SDK 需要的最小頁面(隱藏且靜音的 video/audio;不呼叫 `attachInput()`) |
+| `agent/keepAliveRunner.mjs` | task 的 entry:開 Chromium、跑保活、維護 deadline 租約 |
+| `agent/Dockerfile.keepalive` | Playwright 映像 + 建置時下載 Web SDK(`test -s` 擋 URL 變動) |
+| `agent/sagemaker/buildspec.keepalive.yml`、`cloudBuildKeepAlive.mjs` | 雲端建置並推 `playagent-keepalive-runner` |
+| `infra/lambda/engine/keepAliveHost.ts` | engine 的 `RunTask`(照 `webHost.ts` 的模式) |
+
+接上去要改的名稱清單有四處,漏一處就是「映像沒重建」或「日誌頁看不到它」:
+`infra/bin/app.ts`(`imageBuildProjects` / `imageRepos`)、`infra/lib/updater-stack.ts`
+(自更新時重建映像的那一行)、`scripts/deploy-latest.mjs`(`repos`)、
+`infra/lambda/api/systemLogs.ts` 與 `web/src/components/system/LogsPanel.tsx`(日誌來源 id)。
+
+### 工具上的小坑
+
+本機的 AWS CLI **沒有 `gameliftstreams` 子命令**(版本太舊),所以查 application / stream group
+的狀態要寫 Node 腳本用 SDK,不能用 `aws gameliftstreams ...`。
+
+耐久測試的治具不能用 `host.ps1`,也不能用真實任務:
+- `host.ps1` 跑完就結束,而**應用結束 session 就跟著結束**,撐不到 60 分鐘。
+- 真實任務會被 runner 的死循環護欄在幾分鐘內停掉。
+
+所以治具是一個「只睡覺」的最小應用(`launcher.bat` 跑 `Start-Sleep -Seconds 9000`)。
 
 ### 目前的進度
 
 - [x] 解耦 `SessionLengthSeconds` 與 `ConnectionTimeoutSeconds`(無保活時行為不變)
-- [x] `page.html` + `keepalive.mjs`:連得上,實測 4 秒進入 CONNECTED
-- [ ] 掛 70 分鐘的驗證(最後一個未知)
-- [ ] Fargate task 映像(Playwright + 建置時下載 SDK)
-- [ ] engine 在 `maxHours > 1` 時啟動 / 收尾保活
-- [ ] 放寬前端的 `WINDOWS_HOUR_OPTIONS`
+- [x] 保活頁面 + 模組:連得上,實測 4 秒進入 CONNECTED
+- [x] Fargate task 映像(Playwright + 建置時下載 SDK)
+- [x] runner 端的 deadline 租約(`explorationRunner.mjs` 每分鐘讀 `lease.json`)
+- [x] engine 在 `maxHours > 1` 時啟動保活;`RunTask` 失敗會收掉 session 再丟錯
+- [x] 掛 70 分鐘的驗證:活過 3600 秒(2026-10-24)
+- [x] 放寬前端的 `WINDOWS_HOUR_OPTIONS` 到 `[1, 2, 6, 12, 24]`
+
+### 還沒驗證的部分(誠實記錄)
+
+- **保活在 Fargate 裡連得上嗎**:上面的驗證是在本機 Chromium 跑的。Fargate 的
+  security group 是 stateful、task 在 public subnet 帶公網 IP,推論上與家用 NAT 後面的
+  瀏覽器一樣(client 主動發起,回應流量自動放行),但沒有實跑過。
+- **斷線重連**:耐久測試整段沒斷過,重連路徑只有單元測試蓋著。
+- **deadline 租約的端到端**:`leaseDeadlineMs` 與 runner 的讀取各自有測試,但「保活寫、
+  runner 讀、收尾時間真的被延後」這條鏈沒有在真實任務上跑過。
+- **超過一小時的真實遊戲任務**:還沒跑過一次。

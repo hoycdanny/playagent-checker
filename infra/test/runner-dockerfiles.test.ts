@@ -28,6 +28,7 @@ describe('runner Dockerfiles copy every imported module', () => {
   test.each([
     ['Dockerfile.exploration', 'explorationRunner.mjs'],
     ['Dockerfile.web', 'webExplorationRunner.mjs'],
+    ['Dockerfile.keepalive', 'keepAliveRunner.mjs'],
   ])('%s covers %s', (dockerfile, entry) => {
     const copied = copiedModules(dockerfile);
     const missing = [...localImports(entry)].filter((f) => !copied.has(f));
