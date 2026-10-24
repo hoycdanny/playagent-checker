@@ -41,15 +41,22 @@ const REGION = process.env.PA_DATA_REGION ?? process.env.AWS_REGION ?? 'us-west-
 const SESSION_END_MS = Number(process.env.PA_SESSION_END_MS ?? 0);
 // SDK 在建置時下載並放在映像裡(見 Dockerfile.keepalive);路徑可覆寫以便本機驗證。
 const SDK_JS = process.env.PA_SDK_JS ?? join(HERE, 'gameliftstreams.js');
+// 本機驗證時指向自己的 Chrome;容器裡留空,走 Playwright 的 'chrome' channel。
+const CHROME_PATH = process.env.PA_CHROME_PATH ?? '';
 /** 租約更新間隔。比重連窗口(3600 秒)短得多,掉幾次也不影響。 */
 const LEASE_EVERY_MS = 30_000;
 
-const log = (...m) => console.log(new Date().toISOString(), ...m);
+/**
+ * 只驗映像就退出(`PA_CHECK_ONLY=1`)。
+ *
+ * 為什麼值得有這個模式:映像層面的問題(Chrome 沒裝、SDK 下載的檔名變了、缺編解碼器)
+ * 原本只有在真實任務裡才看得見,而那代表每修一次都要燒一個 GPU session ——
+ * H.264 這個坑就是這樣發現的。這個模式讓「映像有沒有壞」可以用一個 Fargate task
+ * 單獨回答,不開 stream session。
+ */
+const CHECK_ONLY = process.env.PA_CHECK_ONLY === '1';
 
-if (!SG || !SESSION_ARN) {
-  log('[keepalive] 缺 PA_SG 或 PA_SESSION_ARN,無事可做');
-  process.exit(1);
-}
+const log = (...m) => console.log(new Date().toISOString(), ...m);
 
 const gl = new GameLiftStreamsClient({ region: REGION });
 const s3 = BUCKET && PREFIX ? new S3Client({ region: REGION }) : null;
@@ -63,6 +70,9 @@ const s3 = BUCKET && PREFIX ? new S3Client({ region: REGION }) : null;
 let browser = null;
 async function openPage() {
   browser ??= await chromium.launch({
+    // 必須是真正的 Google Chrome:Playwright 內建的 Chromium 是開源建置,不含 H.264,
+    // 而 GameLift Streams 的 WebRTC 走 H.264(見 Dockerfile.keepalive 的註解)。
+    ...(CHROME_PATH ? { executablePath: CHROME_PATH } : { channel: 'chrome' }),
     args: ['--no-sandbox', '--autoplay-policy=no-user-gesture-required'],
   });
   const ctx = await browser.newContext();
@@ -72,6 +82,15 @@ async function openPage() {
   await page.addScriptTag({ content: readFileSync(SDK_JS, 'utf8') });
   if (!(await page.evaluate(() => window.paKeepAlive.sdkReady()))) {
     throw new Error(`Web SDK 注入失敗(${SDK_JS})`);
+  }
+  // 自己先檢查編解碼器,不要等 SDK 丟錯。
+  // SDK 的訊息(「Browser does not support H.264 video playback over WebRTC」)會出現在
+  // generateSignalRequest 的堆疊裡,表現成「連線失敗並無限重試」,查起來繞一圈;
+  // 瀏覽器挑錯是啟動時就該發現的事,不該靠退避迴圈去表達。
+  const videoCodecs = await page.evaluate(() =>
+    (RTCRtpReceiver.getCapabilities('video')?.codecs ?? []).map((c) => c.mimeType));
+  if (!videoCodecs.some((m) => /h264/i.test(String(m)))) {
+    throw new Error(`這個瀏覽器不支援 H.264(GameLift Streams 的 WebRTC 需要它);支援的是 ${videoCodecs.join(', ') || '(無)'}。映像要裝真正的 Google Chrome,不能用開源 Chromium。`);
   }
   return { page, close: async () => { await ctx.close(); } };
 }
@@ -118,6 +137,27 @@ async function leaseLoop() {
     }
     await new Promise((r) => setTimeout(r, LEASE_EVERY_MS));
   }
+}
+
+if (CHECK_ONLY) {
+  // 映像自我檢查:Chrome 起得來、SDK 注入成功、H.264 在、SDK 物件建得起來。
+  // 不開 stream session,所以不花 GPU。
+  const b = await openPage();
+  const err = await b.page.evaluate(() => window.paKeepAlive.init());
+  if (err) throw new Error(`SDK 初始化失敗:${err}`);
+  const codecs = await b.page.evaluate(() =>
+    (RTCRtpReceiver.getCapabilities('video')?.codecs ?? []).map((c) => c.mimeType).join(', '));
+  log('[keepalive] 自我檢查通過:Chrome + Web SDK + 視訊編解碼器就位');
+  log(`[keepalive] 視訊編解碼器:${codecs}`);
+  await b.page.evaluate(() => window.paKeepAlive.close());
+  await b.close();
+  try { await browser?.close(); } catch { /* 可能已關 */ }
+  process.exit(0);
+}
+
+if (!SG || !SESSION_ARN) {
+  log('[keepalive] 缺 PA_SG 或 PA_SESSION_ARN,無事可做');
+  process.exit(1);
 }
 
 log(`[keepalive] 開始(group=${SG} session=${SESSION_ARN.split('/').pop()} region=${REGION})`);
