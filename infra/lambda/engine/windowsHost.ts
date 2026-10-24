@@ -26,8 +26,24 @@ const ROLE_ARN = process.env.WINDOWS_GLS_ROLE_ARN ?? '';
 
 /** GameLift Streams 單一 session 的總像素上限。 */
 export const MAX_PIXELS = 2_073_600;
-/** 沒有 client 連線時 session 的最長存活時間(秒;= ConnectionTimeoutSeconds 上限)。 */
+/**
+ * 沒有 client 連線時 session 的最長存活時間(秒)= ConnectionTimeoutSeconds 的上限。
+ *
+ * 這個 3600 是 AWS 強制的,不是我們保守取的值。實測送更大的值會被擋:
+ *   Value '7200' at 'connectionTimeoutSeconds' failed to satisfy constraint:
+ *   Member must have value less than or equal to 3600
+ */
 export const MAX_UNATTENDED_SECONDS = 3600;
+/**
+ * GameLift Streams 對 SessionLengthSeconds 的上限(24 小時)。
+ *
+ * 與上面那個是**兩件不同的事**,原本被設成同一個值,等於自己把 session 壽命壓到一小時:
+ *   ConnectionTimeoutSeconds 只是「等 client 連線或重連」的窗口,從 ACTIVE 起算,
+ *     時間內沒有 client 連上就終止。
+ *   SessionLengthSeconds 是 session 的硬性總長,**不管有沒有 client 連著**。
+ * 所以有保活 client 時,壽命由後者決定;沒有保活時,前者會先把它收掉。
+ */
+export const MAX_SESSION_SECONDS = 86_400;
 
 export interface WindowsRunSpec {
   tenantId: string;
@@ -44,8 +60,35 @@ export interface WindowsRunSpec {
   subagentModel?: string;
   maxSteps?: number;
   display?: { width: number; height: number };
-  /** 期望執行分鐘數(會被壓到 MAX_UNATTENDED_SECONDS)。 */
+  /** 期望執行分鐘數(會被壓到 GameLift Streams 的上限;見 sessionSeconds)。 */
   maxMinutes?: number;
+}
+
+/**
+ * 算出要送給 GameLift Streams 的兩個時間參數。
+ *
+ * 刻意分開:
+ *   session    = SessionLengthSeconds,session 的硬性總長(上限 24 小時)
+ *   connection = ConnectionTimeoutSeconds,等 client 連線的窗口(上限 3600,AWS 強制)
+ *
+ * 沒有保活 client 時,實際壽命 = min(兩者) = 最多一小時,**與解耦前完全相同**;
+ * 有保活時才吃得到使用者選的長時數。deadline 給 runner 用來提前收尾寫報告,
+ * 所以要取兩者的小值 —— 取大的會讓 runner 以為還有時間,結果被 GameLift 直接收掉、
+ * 任務停在「執行中」且沒有報告。
+ */
+export function sessionSeconds(maxMinutes: number | undefined, keepAlive = false): {
+  session: number;
+  connection: number;
+  effective: number;
+} {
+  // Number.isFinite 的檢查不能省:Math.max(600, NaN) 是 NaN,不是 600。
+  // job.json 裡的 maxHours 一旦壞掉(舊任務、手改過的資料),就會送 NaN 給 API。
+  const raw = Number(maxMinutes);
+  const minutes = Number.isFinite(raw) ? raw : 60;
+  const want = Math.max(600, Math.round(minutes * 60));
+  const session = Math.min(MAX_SESSION_SECONDS, want);
+  const connection = MAX_UNATTENDED_SECONDS;
+  return { session, connection, effective: keepAlive ? session : Math.min(session, connection) };
 }
 
 /** 解析度校驗(與 API 端相同規則;engine 再擋一次,避免舊 job 帶入非法值)。 */
@@ -94,7 +137,9 @@ export async function startWindowsRun(spec: WindowsRunSpec, dataRegion: string):
   if (!ROLE_ARN) throw new Error('Windows 主機角色未配置(WINDOWS_GLS_ROLE_ARN)');
   const { applicationId, streamGroupId } = await readIds();
   const display = normalizeDisplay(spec.display);
-  const seconds = Math.min(MAX_UNATTENDED_SECONDS, Math.max(600, Math.round((spec.maxMinutes ?? 60) * 60)));
+  // 保活 client 還沒實作(見 docs/design/windows-long-run.md),所以 keepAlive 固定 false:
+  // effective 仍是最多一小時,行為與解耦前相同。保活接上後只要把它改成 true。
+  const t = sessionSeconds(spec.maxMinutes, false);
   const gl = new GameLiftStreamsClient({ region: REGION });
   const res = await gl.send(
     new StartStreamSessionCommand({
@@ -104,15 +149,17 @@ export async function startWindowsRun(spec: WindowsRunSpec, dataRegion: string):
       SignalRequest: 'NO_CLIENT_CONNECTION',
       Description: spec.jobId,
       UserId: spec.tenantId.slice(0, 1024),
-      SessionLengthSeconds: seconds,
-      ConnectionTimeoutSeconds: MAX_UNATTENDED_SECONDS,
+      SessionLengthSeconds: t.session,
+      ConnectionTimeoutSeconds: t.connection,
       DisplayConfiguration: { Resolution: { Width: display.width, Height: display.height } },
       RoleArn: ROLE_ARN,
       // PA_DEADLINE_MS:runner 在 session 被 GameLift 終止前 5 分鐘自己收尾寫報告,
       // 不然 session 到時被直接收掉,任務會停在「執行中」且沒有報告。
-      AdditionalEnvironmentVariables: { ...buildEnv(spec, dataRegion), PA_DEADLINE_MS: String(Date.now() + (seconds - 300) * 1000) },
+      // deadline 用 effective(= 實際會被收掉的時間)而不是 SessionLengthSeconds:
+      // 取大的會讓 runner 以為還有時間,結果被 GameLift 直接收掉、任務停在「執行中」且沒有報告。
+      AdditionalEnvironmentVariables: { ...buildEnv(spec, dataRegion), PA_DEADLINE_MS: String(Date.now() + (t.effective - 300) * 1000) },
     }),
   );
   if (!res.Arn) throw new Error('StartStreamSession 未回傳 session ARN');
-  return { arn: res.Arn, minutes: Math.round(seconds / 60), display };
+  return { arn: res.Arn, minutes: Math.round(t.effective / 60), display };
 }
