@@ -121,3 +121,60 @@ describe('講給模型聽的那句話', () => {
     expect(note).not.toContain('缺陷');
   });
 });
+
+/**
+ * 音訊鏈自我檢查。
+ *
+ * 這是整個功能能不能宣稱可用的關鍵:讀到「有輸出端點」不等於「遊戲的聲音會進到那個
+ * 端點」。少了這個檢查,一整場 peak=0 有兩種完全不同的解釋 —— 遊戲真的沒出聲(是個
+ * 發現),或音訊鏈根本不通(量測沒有意義)。
+ *
+ * 失敗時的處理刻意是「停用聲音判斷」而不是「照常回報靜音」:量不準的靜音會被模型寫成
+ * 「沒有音效(缺陷)」,那是憑空生出一個缺陷報告;少一項資訊只是少一項。
+ *
+ * 本機實測(Windows 11):播測試音 peak 0.36618 → 停止後 0.00000。
+ */
+describe('音訊鏈自我檢查', () => {
+  test('測試音聽得到 → 鏈路通', () => {
+    const r = w.parseAudioSelfTest(JSON.stringify({
+      during: { ok: true, peak: 0.36618, avg: 0.272, samples: 35, device: 'd' },
+      after: { ok: true, peak: 0, avg: 0, samples: 20, device: 'd' },
+    }));
+    expect(r.chainOk).toBe(true);
+    expect(r.peak).toBeCloseTo(0.36618, 5);
+    expect(r.quiet).toBe(0);
+    expect(r.why).toBe('');
+  });
+
+  test('有端點但測試音量不到 → 鏈路不通(這正是要抓的情形)', () => {
+    const r = w.parseAudioSelfTest(JSON.stringify({
+      during: { ok: true, peak: 0, avg: 0, samples: 35, device: 'd' },
+      after: { ok: true, peak: 0, avg: 0, samples: 20, device: 'd' },
+    }));
+    expect(r.chainOk).toBe(false);
+    expect(r.why).toBe('test-tone-not-heard');
+  });
+
+  test('沒有音訊裝置 → 鏈路不通,而且保留原因', () => {
+    const r = w.parseAudioSelfTest(JSON.stringify({
+      during: { ok: false, why: 'no-endpoint' },
+      after: { ok: false, why: 'no-endpoint' },
+    }));
+    expect(r.chainOk).toBe(false);
+    expect(r.why).toBe('no-endpoint');
+  });
+
+  test('播放本身就失敗(例如沒有音訊服務)', () => {
+    const r = w.parseAudioSelfTest(JSON.stringify({ error: 'No audio device is available' }));
+    expect(r.chainOk).toBe(false);
+    expect(r.why).toContain('No audio device');
+  });
+
+  test('壞輸出一律是「不通」,不要當成通過', () => {
+    for (const bad of ['', undefined, null, 'not json', '{', '[1]', '{}']) {
+      const r = w.parseAudioSelfTest(bad);
+      expect(r.chainOk).toBe(false);
+      expect(r.why).toBeTruthy();
+    }
+  });
+});
