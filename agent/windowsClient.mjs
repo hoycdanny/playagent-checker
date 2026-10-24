@@ -418,6 +418,18 @@ export class WindowsClient {
     const raw = await this.#call('audiotest', {}, 30_000).catch(() => '');
     return parseAudioSelfTest(raw);
   }
+
+  /**
+   * 音訊診斷:列出所有輸出端點與程序層級 session,安靜時與播測試音時各量一輪。
+   * 回原始 JSON 字串(這份資料是給人看的,不需要解析成決策)。
+   *
+   * 只在自我檢查失敗時跑。目的是「一次把答案拿齊」—— 不然每試一個猜測就要再開一個
+   * GPU session。
+   */
+  async audioDiagnose() {
+    const raw = await this.#call('audiodiag', {}, 60_000).catch((e) => `{"error":${JSON.stringify(String(e?.message || e))}}`);
+    return String(raw || '{"error":"no-response"}');
+  }
   async shell() {
     throw new Error('Windows 驅動沒有 Android shell');
   }

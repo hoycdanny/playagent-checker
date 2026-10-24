@@ -25,8 +25,54 @@ using System.Threading;
 [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDeviceEnumerator
 {
-    int EnumAudioEndpoints(int dataFlow, int stateMask, out IntPtr devices);
+    int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices);
     int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+}
+
+[ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IMMDeviceCollection
+{
+    int GetCount(out int count);
+    int Item(int index, out IMMDevice device);
+}
+
+// 程序層級的音訊 session。端點層的量表不動時,遊戲程序自己建立的 session 仍可能量得到
+// —— 而且順便知道是「哪個程序」在出聲。
+[ComImport, Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionManager2
+{
+    // 前兩個是 IAudioSessionManager 的,用不到但必須佔位(vtable 位置)。
+    int GetAudioSessionControl(IntPtr guid, uint flags, out IntPtr ctl);
+    int GetSimpleAudioVolume(IntPtr guid, int flags, out IntPtr vol);
+    int GetSessionEnumerator(out IAudioSessionEnumerator e);
+}
+
+[ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionEnumerator
+{
+    int GetCount(out int count);
+    int GetSession(int index, out IAudioSessionControl2 session);
+}
+
+[ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+interface IAudioSessionControl2
+{
+    // IAudioSessionControl 的九個:只用第一個(GetState),其餘純佔位。
+    int GetState(out int state);
+    int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+    int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr ctx);
+    int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string path);
+    int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr ctx);
+    int GetGroupingParam(out Guid g);
+    int SetGroupingParam(IntPtr g, IntPtr ctx);
+    int RegisterAudioSessionNotification(IntPtr n);
+    int UnregisterAudioSessionNotification(IntPtr n);
+    // IAudioSessionControl2 新增的:要的是 GetProcessId。
+    int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    int GetProcessId(out int pid);
+    int IsSystemSoundsSession();
+    int SetDuckingPreference(bool opt);
 }
 
 [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -212,6 +258,9 @@ public static class WinHelper
 
     static readonly Guid CLSID_MMDeviceEnumerator = new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E");
     const int eRender = 0, eConsole = 0, CLSCTX_INPROC_SERVER = 1;
+    /// 列舉端點時把所有狀態都算進來(ACTIVE / DISABLED / NOTPRESENT / UNPLUGGED)。
+    /// 只看 ACTIVE 會漏掉「存在但沒被啟用」的虛擬裝置,而那正是可能的答案。
+    const int DEVICE_STATEMASK_ALL = 0x0000000F;
 
     static string JsonStr(string s)
     {
@@ -250,6 +299,171 @@ public static class WinHelper
         }
         w.Flush();
         return m.ToArray();
+    }
+
+    /// 從一個端點取出音量表;取不到回 null。
+    static IAudioMeterInformation MeterOf(IMMDevice dev)
+    {
+        try
+        {
+            var iid = typeof(IAudioMeterInformation).GUID;
+            object o;
+            if (dev.Activate(ref iid, CLSCTX_INPROC_SERVER, IntPtr.Zero, out o) != 0 || o == null) return null;
+            return (IAudioMeterInformation)o;
+        }
+        catch { return null; }
+    }
+
+    /// 在 ms 毫秒內連續讀一組量表,回各自的峰值最大值。
+    static float[] PeakBurst(IAudioMeterInformation[] meters, int ms)
+    {
+        var max = new float[meters.Length];
+        int n = Math.Max(1, Math.Min(400, ms / 10));
+        for (int k = 0; k < n; k++)
+        {
+            for (int j = 0; j < meters.Length; j++)
+            {
+                if (meters[j] == null) continue;
+                float p;
+                if (meters[j].GetPeakValue(out p) == 0 && p > max[j]) max[j] = p;
+            }
+            if (k + 1 < n) Thread.Sleep(10);
+        }
+        return max;
+    }
+
+    /// <summary>
+    /// 列舉某個端點上的程序層級 session,量 ms 毫秒,回 JSON 陣列。
+    ///
+    /// **每次都重新列舉**,不能沿用之前那一份:session 是在程序開始播放時才建立的。
+    /// 本機實測:在播測試音之前列舉,清單裡沒有播放者自己(只有早就在跑的 Unity),
+    /// 所以那一輪量到的全是 0 —— 看起來像「session 層級量不到」,其實是列舉時機不對。
+    /// </summary>
+    static string SessionsJson(IMMDevice def, int ms, out string err)
+    {
+        err = "";
+        if (def == null) { err = "no-default-endpoint"; return "[]"; }
+        try
+        {
+            var iid = typeof(IAudioSessionManager2).GUID;
+            object o;
+            if (def.Activate(ref iid, CLSCTX_INPROC_SERVER, IntPtr.Zero, out o) != 0 || o == null) { err = "no-session-manager"; return "[]"; }
+            IAudioSessionEnumerator se;
+            if (((IAudioSessionManager2)o).GetSessionEnumerator(out se) != 0 || se == null) { err = "no-session-enumerator"; return "[]"; }
+            int sc;
+            se.GetCount(out sc);
+            var pids = new int[sc];
+            var states = new int[sc];
+            var meters = new IAudioMeterInformation[sc];
+            for (int i = 0; i < sc; i++)
+            {
+                IAudioSessionControl2 c;
+                if (se.GetSession(i, out c) != 0 || c == null) continue;
+                c.GetProcessId(out pids[i]);
+                c.GetState(out states[i]);
+                meters[i] = c as IAudioMeterInformation;
+            }
+            var peaks = PeakBurst(meters, ms);
+            var sb = new StringBuilder("[");
+            for (int i = 0; i < sc; i++)
+            {
+                if (i > 0) sb.Append(',');
+                string pname = "";
+                try { pname = Process.GetProcessById(pids[i]).ProcessName; } catch { pname = ""; }
+                sb.Append("{\"pid\":").Append(pids[i])
+                  .Append(",\"name\":").Append(JsonStr(pname))
+                  .Append(",\"state\":").Append(states[i])
+                  .Append(",\"meter\":").Append(meters[i] != null ? "true" : "false")
+                  .Append(",\"peak\":").Append(peaks[i].ToString("0.00000", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append('}');
+            }
+            return sb.Append(']').ToString();
+        }
+        catch (Exception e) { err = e.Message; return "[]"; }
+    }
+
+    /// <summary>
+    /// 音訊診斷:列出所有輸出端點與程序層級的 audio session,在「安靜時 / 播測試音時」各量一輪,
+    /// 看是哪一個會動。
+    ///
+    /// 為什麼需要它:AudioSelfTest 在 GameLift 主機上回 test-tone-not-heard —— 預設端點是真的
+    /// (state=ACTIVE、id 真實),但播出去的聲音量表不動。所以問題是「我們量錯了地方」,
+    /// 而要知道正確的地方在哪,得把所有候選都列出來同時量。一次把答案拿齊,
+    /// 不要每試一個猜測就燒一個 GPU session。
+    /// </summary>
+    public static string AudioDiagnose()
+    {
+        try
+        {
+            var t = Type.GetTypeFromCLSID(CLSID_MMDeviceEnumerator);
+            if (t == null) return "{\"error\":\"no-mmdeviceenumerator\"}";
+            var en = (IMMDeviceEnumerator)Activator.CreateInstance(t);
+
+            string defaultId = "";
+            IMMDevice def = null;
+            if (en.GetDefaultAudioEndpoint(eRender, eConsole, out def) == 0 && def != null) def.GetId(out defaultId);
+
+            // 所有輸出端點(不只 ACTIVE —— 存在但未啟用的虛擬裝置正是可能的答案)。
+            IMMDeviceCollection col;
+            int hr = en.EnumAudioEndpoints(eRender, DEVICE_STATEMASK_ALL, out col);
+            if (hr != 0 || col == null) return "{\"error\":\"enum-failed\",\"hr\":" + hr + "}";
+            int count;
+            col.GetCount(out count);
+
+            var ids = new string[count];
+            var states = new int[count];
+            var epMeters = new IAudioMeterInformation[count];
+            for (int i = 0; i < count; i++)
+            {
+                IMMDevice d;
+                if (col.Item(i, out d) != 0 || d == null) continue;
+                d.GetId(out ids[i]);
+                d.GetState(out states[i]);
+                epMeters[i] = MeterOf(d);
+            }
+
+            string errIdle, errDuring;
+            var epIdle = PeakBurst(epMeters, 200);
+            string sessIdle = SessionsJson(def, 200, out errIdle);
+
+            float[] epDuring;
+            string sessDuring;
+            var wav = SineWav(1500, 440);
+            using (var ms = new MemoryStream(wav))
+            using (var player = new System.Media.SoundPlayer(ms))
+            {
+                player.Load();
+                player.Play();
+                Thread.Sleep(120);
+                epDuring = PeakBurst(epMeters, 300);
+                // 播放中才列舉:播放者自己的 session 這時才存在。
+                sessDuring = SessionsJson(def, 300, out errDuring);
+                player.Stop();
+            }
+
+            var sb = new StringBuilder();
+            sb.Append("{\"default\":").Append(JsonStr(defaultId));
+            sb.Append(",\"endpoints\":[");
+            for (int i = 0; i < count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append("{\"id\":").Append(JsonStr(ids[i] ?? ""))
+                  .Append(",\"state\":").Append(states[i])
+                  .Append(",\"meter\":").Append(epMeters[i] != null ? "true" : "false")
+                  .Append(",\"idle\":").Append(epIdle[i].ToString("0.00000", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append(",\"during\":").Append(epDuring[i].ToString("0.00000", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append('}');
+            }
+            sb.Append("],\"sessionsIdle\":").Append(sessIdle);
+            sb.Append(",\"sessionsDuring\":").Append(sessDuring);
+            if (errDuring.Length > 0) sb.Append(",\"sessionError\":").Append(JsonStr(errDuring));
+            sb.Append('}');
+            return sb.ToString();
+        }
+        catch (Exception e)
+        {
+            return "{\"error\":" + JsonStr(e.Message) + "}";
+        }
     }
 
     /// <summary>

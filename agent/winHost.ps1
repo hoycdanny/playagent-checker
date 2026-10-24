@@ -37,6 +37,8 @@ while ($true) {
       'audio' { [WinHelper]::AudioSample([int]$a.ms) }
       # 音訊鏈自我檢查:自己播一段正弦波,看音量表會不會動(只在遊戲啟動前跑)。
       'audiotest' { [WinHelper]::AudioSelfTest() }
+      # 音訊診斷:列出所有輸出端點與程序層級 session,播測試音前後各量一輪(自我檢查失敗時才跑)。
+      'audiodiag' { [WinHelper]::AudioDiagnose() }
       'quit' { exit 0 }
       default { throw "unknown cmd $($req.cmd)" }
     }

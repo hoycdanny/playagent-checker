@@ -916,6 +916,11 @@ async function main() {
       console.log(`聲音自我檢查通過:播測試音時峰值 ${st.peak.toFixed(3)},停止後 ${st.quiet.toFixed(3)}`);
     } else {
       console.log(`聲音自我檢查失敗(${st.why}):停用聲音判斷 —— 量不準的靜音會被寫成「沒有音效」,那是憑空生出一個缺陷`);
+      // 順手把診斷跑完:列出所有輸出端點與程序層級 session,看是哪一個會動。
+      // 不這樣做的話,每試一個猜測就要再開一個 GPU session。
+      const diag = await client.audioDiagnose().catch(() => '{"error":"diagnose-failed"}');
+      s3putBg(`${PREFIX}/audio/diagnose.json`, diag, 'application/json');
+      console.log(`聲音診斷:${diag.slice(0, 2000)}`);
       soundProbe = null;
     }
   }
