@@ -84,18 +84,45 @@ after stop: {"ok":true,"peak":0.00000,"avg":0.00000,"samples":30,"state":1,"devi
 
 COM 宣告正確(讀到真實的 endpoint id 與 `state=1` = ACTIVE)、峰值會隨播放而動、停止後歸零。
 
-## 還沒驗證的(最大的未知)
+## GameLift Streams 主機上的結果(2026-10-24):端點有,但鏈路不通
 
-**GameLift Streams 的 Windows 主機有沒有音訊輸出端點。** 沒有實體音效卡的 Windows Server
-通常沒有預設 render endpoint,`GetDefaultAudioEndpoint` 會回 `E_NOTFOUND`。
-推論上應該有:GLS 要把遊戲的聲音串流給觀看端,所以它必須有一個(虛擬的)輸出裝置。
-但那是推論,不是事實。
+兩次真實任務的結果:
 
-如果結果是 `no-endpoint`,這條路就要改:可能的方向是用 `IAudioSessionManager2` 列出
-程序層級的音訊 session(即使沒有端點,應用仍可能建立 session),或是接受「Windows 測不了
-聲音」並在報告裡明說。**不要在沒驗證前宣稱 Windows 可以測音效。**
+**端點存在,而且讀得到。** 這一點推論正確(GLS 要把遊戲的聲音串流給觀看端,所以必須有一個
+虛擬輸出裝置):
 
-`ok=false` 的情況不會讓任務失敗:取樣失敗就是不注入那句話,測試照跑。
+```json
+{"ok":true,"peak":0,"avg":0,"samples":25,"state":1,
+ "device":"{0.0.0.00000000}.{404f29f2-217f-4974-93f8-c0b36689cb08}"}
+```
+
+`state=1` 是 ACTIVE、device id 是真實的、25 個樣本都讀到了。
+
+**但主機自己播出去的測試音,量表量不到:**
+
+```json
+{"chainOk":false,"peak":0,"quiet":0,"why":"test-tone-not-heard"}
+```
+
+所以 `peak=0` 的原因不是「遊戲沒出聲」,是**我們量的那個端點不是聲音實際走的地方**。
+自我檢查就是為了分辨這兩件事,它正確地抓到了:runner 因此停用聲音判斷,
+`devlogs/audio` 不再產生快照,模型也不會收到任何聲音相關的敘述 ——
+**不會憑空生出一個「沒有音效」的缺陷**,這是目前最重要的行為。
+
+結論:**Windows 目前測不了音效。** 機制與防線都就位,缺的是找到正確的端點。
+
+### 往下追的方向(還沒做)
+
+1. **列舉所有端點**(`IMMDeviceEnumerator::EnumAudioEndpoints`,含 `DEVICE_STATE_UNPLUGGED`
+   等所有狀態),看這台機器上到底有幾個輸出裝置、`GetDefaultAudioEndpoint(eRender, eConsole)`
+   回的是不是 GLS 串流實際用的那一個。最可能的情形是有多個虛擬裝置而預設的那個不是。
+2. **改讀程序層級的 session**(`IAudioSessionManager2::GetSessionEnumerator` +
+   `IAudioMeterInformation`):即使端點層的量表不動,遊戲程序建立的音訊 session 仍可能
+   量得到。這條的好處是順便知道「是哪個程序在出聲」。
+3. **Windows Audio 服務與 session 隔離**:確認 `winHost.ps1` 所在的 Windows session 與
+   遊戲是同一個(截圖與輸入是同一個桌面 session,但音訊的 endpoint 對應關係要另外確認)。
+
+`chainOk=false` 不會讓任務失敗:聲音判斷停用,測試照跑,報告裡就是沒有音效這一項。
 
 ## 還沒做的
 
