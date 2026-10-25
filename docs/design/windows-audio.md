@@ -1,7 +1,8 @@
 # Windows 測試的聲音判斷(WASAPI 音量)
 
-狀態:**已實作,本機驗證通過;GameLift Streams 主機上還沒驗證**(最大的未知是那台機器
-到底有沒有音訊輸出端點,見文末)。
+狀態:**機制已實作並部署,本機驗證通過;但在 GameLift Streams 主機上量不到聲音,
+所以 Windows 目前還測不了音效。** 關鍵是啟動時的自我檢查會發現這件事並停用聲音判斷,
+不會讓模型憑空報出「沒有音效」這種缺陷。詳見文末「GameLift Streams 主機上的結果」。
 
 ## 要解的問題
 
@@ -84,43 +85,68 @@ after stop: {"ok":true,"peak":0.00000,"avg":0.00000,"samples":30,"state":1,"devi
 
 COM 宣告正確(讀到真實的 endpoint id 與 `state=1` = ACTIVE)、峰值會隨播放而動、停止後歸零。
 
-## GameLift Streams 主機上的結果(2026-10-24):端點有,但鏈路不通
+## GameLift Streams 主機上的結果(2026-10-24)
 
-兩次真實任務的結果:
+這一段記兩個被自己的工具抓出來的 bug。結論先寫:**那台主機量得到聲音**,
+中間「量不到」的兩次都是我們自己的程式錯了。
 
-**端點存在,而且讀得到。** 這一點推論正確(GLS 要把遊戲的聲音串流給觀看端,所以必須有一個
-虛擬輸出裝置):
+### 第一輪:自我檢查說鏈路不通
 
 ```json
 {"ok":true,"peak":0,"avg":0,"samples":25,"state":1,
  "device":"{0.0.0.00000000}.{404f29f2-217f-4974-93f8-c0b36689cb08}"}
-```
-
-`state=1` 是 ACTIVE、device id 是真實的、25 個樣本都讀到了。
-
-**但主機自己播出去的測試音,量表量不到:**
-
-```json
 {"chainOk":false,"peak":0,"quiet":0,"why":"test-tone-not-heard"}
 ```
 
-所以 `peak=0` 的原因不是「遊戲沒出聲」,是**我們量的那個端點不是聲音實際走的地方**。
-自我檢查就是為了分辨這兩件事,它正確地抓到了:runner 因此停用聲音判斷,
-`devlogs/audio` 不再產生快照,模型也不會收到任何聲音相關的敘述 ——
-**不會憑空生出一個「沒有音效」的缺陷**,這是目前最重要的行為。
+端點是真的(`state=1` ACTIVE、id 真實、樣本都讀到),但主機自己播的測試音量表不動。
+當時的結論是「我們量錯了地方」—— **這個結論是錯的**。
 
-結論:**Windows 目前測不了音效。** 機制與防線都就位,缺的是找到正確的端點。
+### 第二輪:診斷同時量所有候選,預設端點其實會動
 
-### 往下追的方向(還沒做)
+```
+輸出端點 2 個
+  state=1 meter=true idle=0 during=0.36621  ← 會動  (預設端點)
+  state=1 meter=true idle=0 during=0
+播測試音時的 session
+  pid=8024 name=powershell state=1 meter=true peak=0.36621  ← 會動
+```
 
-1. **列舉所有端點**(`IMMDeviceEnumerator::EnumAudioEndpoints`,含 `DEVICE_STATE_UNPLUGGED`
-   等所有狀態),看這台機器上到底有幾個輸出裝置、`GetDefaultAudioEndpoint(eRender, eConsole)`
-   回的是不是 GLS 串流實際用的那一個。最可能的情形是有多個虛擬裝置而預設的那個不是。
-2. **改讀程序層級的 session**(`IAudioSessionManager2::GetSessionEnumerator` +
-   `IAudioMeterInformation`):即使端點層的量表不動,遊戲程序建立的音訊 session 仍可能
-   量得到。這條的好處是順便知道「是哪個程序在出聲」。
-3. **Windows Audio 服務與 session 隔離**:確認 `winHost.ps1` 所在的 Windows session 與
-   遊戲是同一個(截圖與輸入是同一個桌面 session,但音訊的 endpoint 對應關係要另外確認)。
+`0.36621` 與本機的 `0.36618` 幾乎相同。所以同一台機器、同一個端點,診斷量得到而自我檢查
+量不到 —— 差別只在**初始化的位置**:
+
+- 自我檢查:`播放 → 取得量表(COM CoCreateInstance + Activate) → 量`
+- 診斷:`取得所有量表 → 播放 → 量`
+
+那段 COM 初始化在本機很快(所以本機通過),在 GameLift 主機上慢到足以吃掉整段 700ms
+的測試音。**先準備好量表再播放**,問題就消失。
+
+### 第三個 bug:COM 方法沒標 `[PreserveSig]`
+
+修時序之後本機反而開始丟 `0x80070490`(ERROR_NOT_FOUND)。原因與音訊無關:
+`[ComImport]` interface 的方法若不標 `[PreserveSig]`,COM interop 會把宣告的 `int`
+回傳值當成額外的 `[out, retval]` 參數,並且自己把真正的 HRESULT 轉成例外。
+於是 `if (x.Method(...) == 0)` 檢查到的是一個**未初始化的值** ——
+表現成「有時候好、有時候丟例外」,而不是乾淨地失敗。
+
+全部標上 `[PreserveSig]` 之後本機穩定:
+
+```json
+{"during":{"ok":true,"peak":0.36618,"samples":40,"device":"{3.0.0.00000002}.{6C26...}"},
+ "after": {"ok":true,"peak":0.00000,"samples":20,"device":"{3.0.0.00000002}.{6C26...}"}}
+```
+
+### 這一輪學到的
+
+自我檢查的價值不只是「擋掉不可信的量測」—— 它和診斷**互相校驗**。
+兩個工具在同一台機器上給出不同答案,那個矛盾本身就是線索,
+而且比任何單一量測都更有用。如果當時只有自我檢查,結論會停在「GameLift 主機測不了音效」,
+那是錯的。
+
+### 還沒驗證
+
+**修好之後在 GameLift 主機上的結果。** 上面的 `0.36621` 是診斷量到的,
+而修好的自我檢查還沒在那台機器上跑過。等它通過,`devlogs/audio` 才會真的開始產出快照、
+模型才會收到聲音的敘述。
 
 `chainOk=false` 不會讓任務失敗:聲音判斷停用,測試照跑,報告裡就是沒有音效這一項。
 
