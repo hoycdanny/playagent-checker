@@ -22,18 +22,25 @@ using System.Threading;
 //
 // 介面方法**必須按 vtable 原順序宣告**(用不到的也要佔位),少一個後面全部錯位。
 
+// 每個方法都要標 [PreserveSig]。
+//
+// 不標的話 COM interop 會把宣告的 int 回傳值當成額外的 [out, retval] 參數,然後自己
+// 把真正的 HRESULT 轉成例外 —— 於是 `if (x.Method(...) == 0)` 檢查到的是一個未初始化
+// 的值。實測這會表現成「有時候好、有時候丟 0x80070490」,而不是乾淨地失敗。
+// (NAudio 之類的現成繫結也都是標 [PreserveSig] 的。)
+
 [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDeviceEnumerator
 {
-    int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices);
-    int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
+    [PreserveSig] int EnumAudioEndpoints(int dataFlow, int stateMask, out IMMDeviceCollection devices);
+    [PreserveSig] int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice device);
 }
 
 [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDeviceCollection
 {
-    int GetCount(out int count);
-    int Item(int index, out IMMDevice device);
+    [PreserveSig] int GetCount(out int count);
+    [PreserveSig] int Item(int index, out IMMDevice device);
 }
 
 // 程序層級的音訊 session。端點層的量表不動時,遊戲程序自己建立的 session 仍可能量得到
@@ -42,52 +49,52 @@ interface IMMDeviceCollection
 interface IAudioSessionManager2
 {
     // 前兩個是 IAudioSessionManager 的,用不到但必須佔位(vtable 位置)。
-    int GetAudioSessionControl(IntPtr guid, uint flags, out IntPtr ctl);
-    int GetSimpleAudioVolume(IntPtr guid, int flags, out IntPtr vol);
-    int GetSessionEnumerator(out IAudioSessionEnumerator e);
+    [PreserveSig] int GetAudioSessionControl(IntPtr guid, uint flags, out IntPtr ctl);
+    [PreserveSig] int GetSimpleAudioVolume(IntPtr guid, int flags, out IntPtr vol);
+    [PreserveSig] int GetSessionEnumerator(out IAudioSessionEnumerator e);
 }
 
 [ComImport, Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IAudioSessionEnumerator
 {
-    int GetCount(out int count);
-    int GetSession(int index, out IAudioSessionControl2 session);
+    [PreserveSig] int GetCount(out int count);
+    [PreserveSig] int GetSession(int index, out IAudioSessionControl2 session);
 }
 
 [ComImport, Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IAudioSessionControl2
 {
     // IAudioSessionControl 的九個:只用第一個(GetState),其餘純佔位。
-    int GetState(out int state);
-    int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string name);
-    int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr ctx);
-    int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string path);
-    int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr ctx);
-    int GetGroupingParam(out Guid g);
-    int SetGroupingParam(IntPtr g, IntPtr ctx);
-    int RegisterAudioSessionNotification(IntPtr n);
-    int UnregisterAudioSessionNotification(IntPtr n);
+    [PreserveSig] int GetState(out int state);
+    [PreserveSig] int GetDisplayName([MarshalAs(UnmanagedType.LPWStr)] out string name);
+    [PreserveSig] int SetDisplayName([MarshalAs(UnmanagedType.LPWStr)] string name, IntPtr ctx);
+    [PreserveSig] int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] out string path);
+    [PreserveSig] int SetIconPath([MarshalAs(UnmanagedType.LPWStr)] string path, IntPtr ctx);
+    [PreserveSig] int GetGroupingParam(out Guid g);
+    [PreserveSig] int SetGroupingParam(IntPtr g, IntPtr ctx);
+    [PreserveSig] int RegisterAudioSessionNotification(IntPtr n);
+    [PreserveSig] int UnregisterAudioSessionNotification(IntPtr n);
     // IAudioSessionControl2 新增的:要的是 GetProcessId。
-    int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
-    int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
-    int GetProcessId(out int pid);
-    int IsSystemSoundsSession();
-    int SetDuckingPreference(bool opt);
+    [PreserveSig] int GetSessionIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    [PreserveSig] int GetSessionInstanceIdentifier([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    [PreserveSig] int GetProcessId(out int pid);
+    [PreserveSig] int IsSystemSoundsSession();
+    [PreserveSig] int SetDuckingPreference(bool opt);
 }
 
 [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IMMDevice
 {
-    int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
-    int OpenPropertyStore(int access, out IntPtr store);
-    int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
-    int GetState(out int state);
+    [PreserveSig] int Activate(ref Guid iid, int clsCtx, IntPtr activationParams, [MarshalAs(UnmanagedType.IUnknown)] out object iface);
+    [PreserveSig] int OpenPropertyStore(int access, out IntPtr store);
+    [PreserveSig] int GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);
+    [PreserveSig] int GetState(out int state);
 }
 
 [ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
 interface IAudioMeterInformation
 {
-    int GetPeakValue(out float peak);
+    [PreserveSig] int GetPeakValue(out float peak);
 }
 
 public static class WinHelper
@@ -301,6 +308,38 @@ public static class WinHelper
         return m.ToArray();
     }
 
+    /// 一次取樣的 JSON(與 AudioSample 的回傳形狀相同,讓解析端只有一套邏輯)。
+    static string SampleJson(bool ok, float peak, float avg, int samples, string device, string why)
+    {
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        if (!ok) return "{\"ok\":false,\"why\":" + JsonStr(why) + "}";
+        return "{\"ok\":true,\"peak\":" + peak.ToString("0.00000", ci)
+            + ",\"avg\":" + avg.ToString("0.00000", ci)
+            + ",\"samples\":" + samples
+            + ",\"device\":" + JsonStr(device) + "}";
+    }
+
+    /// 預設輸出端點的音量表(連同它的 id 與狀態);取不到回 null,原因寫在 why。
+    static IAudioMeterInformation DefaultMeter(out string id, out int state, out string why)
+    {
+        id = ""; state = 0; why = "";
+        try
+        {
+            var t = Type.GetTypeFromCLSID(CLSID_MMDeviceEnumerator);
+            if (t == null) { why = "no-mmdeviceenumerator"; return null; }
+            var en = (IMMDeviceEnumerator)Activator.CreateInstance(t);
+            IMMDevice dev;
+            int hr = en.GetDefaultAudioEndpoint(eRender, eConsole, out dev);
+            if (hr != 0 || dev == null) { why = "no-endpoint(hr=" + hr + ")"; return null; }
+            dev.GetId(out id);
+            dev.GetState(out state);
+            var m = MeterOf(dev);
+            if (m == null) { why = "activate-failed"; return null; }
+            return m;
+        }
+        catch (Exception e) { why = e.Message; return null; }
+    }
+
     /// 從一個端點取出音量表;取不到回 null。
     static IAudioMeterInformation MeterOf(IMMDevice dev)
     {
@@ -478,21 +517,39 @@ public static class WinHelper
     /// </summary>
     public static string AudioSelfTest()
     {
+        // 量表與 wav 都要在播放之前準備好。
+        //
+        // 這個順序不是潔癖,是修一個實際踩到的 bug:原本是「播放 → 取得量表 → 量」,
+        // 而取得量表要跑 COM 的 CoCreateInstance + Activate。本機那段很快所以量得到,
+        // GameLift 主機上慢到足以吃掉整段 700ms 的測試音 —— 結果同一台機器,
+        // 自我檢查回 peak=0(判定「音訊鏈不通」),而預先準備好量表的診斷在同一台機器上
+        // 量到 0.36621。差別只在初始化的位置。
+        string id, why;
+        int state;
+        var meter = DefaultMeter(out id, out state, out why);
+        if (meter == null)
+        {
+            string bad = SampleJson(false, 0, 0, 0, "", why);
+            return "{\"during\":" + bad + ",\"after\":" + bad + "}";
+        }
+        var meters = new IAudioMeterInformation[] { meter };
         try
         {
-            var wav = SineWav(700, 440);
+            var wav = SineWav(1200, 440);
+            float during;
             using (var ms = new MemoryStream(wav))
             using (var player = new System.Media.SoundPlayer(ms))
             {
-                player.Load();
-                player.Play(); // 非同步,接著就可以量
-                Thread.Sleep(120);
-                string during = AudioSample(350);
+                player.Load(); // 解碼也先做完,不要讓它佔掉播放時間
+                player.Play();
+                Thread.Sleep(80);
+                during = PeakBurst(meters, 400)[0];
                 player.Stop();
-                Thread.Sleep(250);
-                string after = AudioSample(200);
-                return "{\"during\":" + during + ",\"after\":" + after + "}";
             }
+            Thread.Sleep(250);
+            float after = PeakBurst(meters, 200)[0];
+            return "{\"during\":" + SampleJson(true, during, during, 40, id, "")
+                + ",\"after\":" + SampleJson(true, after, after, 20, id, "") + "}";
         }
         catch (Exception e)
         {
