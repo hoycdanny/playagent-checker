@@ -535,21 +535,38 @@ public static class WinHelper
         var meters = new IAudioMeterInformation[] { meter };
         try
         {
-            var wav = SineWav(1200, 440);
-            float during;
-            using (var ms = new MemoryStream(wav))
-            using (var player = new System.Media.SoundPlayer(ms))
+            // 暖機:**第一次**讀音量表會讓 Windows 把 audio engine 叫起來,在沒有實體音效卡
+            // 的機器上那要幾百毫秒,而那段時間會整段吃掉測試音。
+            //
+            // 這是實測比對出來的,不是預防性的保險:GameLift 主機上自我檢查量到 0,
+            // 而緊接著跑的診斷在**同一台機器、同一個端點**量到 0.36621。兩者剩下的唯一差別
+            // 就是誰先碰音量表 —— 自我檢查是第一個,診斷是第二個(已經被暖機過)。
+            // 本機踩不到,因為本機的 audio engine 一直是起來的。
+            PeakBurst(meters, 600);
+
+            // 播兩次:第一次還是量不到就再試一次。這條路已經為「第一次不準」錯過兩輪
+            // (先是播放後才初始化 COM,再是 audio engine 冷啟動),不值得再錯第三次。
+            float during = 0f, after = 0f;
+            int tries = 0;
+            while (tries < 2 && during <= 0.002f)
             {
-                player.Load(); // 解碼也先做完,不要讓它佔掉播放時間
-                player.Play();
-                Thread.Sleep(80);
-                during = PeakBurst(meters, 400)[0];
-                player.Stop();
+                tries++;
+                var wav = SineWav(1500, 440);
+                using (var ms = new MemoryStream(wav))
+                using (var player = new System.Media.SoundPlayer(ms))
+                {
+                    player.Load(); // 解碼也先做完,不要讓它佔掉播放時間
+                    player.Play();
+                    Thread.Sleep(100);
+                    during = PeakBurst(meters, 500)[0];
+                    player.Stop();
+                }
+                Thread.Sleep(250);
+                after = PeakBurst(meters, 200)[0];
             }
-            Thread.Sleep(250);
-            float after = PeakBurst(meters, 200)[0];
-            return "{\"during\":" + SampleJson(true, during, during, 40, id, "")
-                + ",\"after\":" + SampleJson(true, after, after, 20, id, "") + "}";
+            return "{\"during\":" + SampleJson(true, during, during, 50, id, "")
+                + ",\"after\":" + SampleJson(true, after, after, 20, id, "")
+                + ",\"tries\":" + tries + "}";
         }
         catch (Exception e)
         {
