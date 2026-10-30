@@ -18,13 +18,22 @@ pkill -9 -f unattended-upgrade 2>/dev/null || true
 for i in $(seq 1 12); do fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || break; sleep 5; done
 dpkg --configure -a 2>/dev/null || true
 apt-get -y --fix-broken install 2>/dev/null || true
-for i in $(seq 1 30); do apt-get update -y && break; sleep 5; done
 retry() { local n="$1"; shift; for i in $(seq 1 "$n"); do "$@" && return 0; sleep 5; done; return 1; }
-# 分開裝並重試(Ubuntu noble first-boot apt 抖動);docker 必須確實裝上,否則後面 docker run 靜默失敗。
-retry 10 apt-get install -y jq unzip curl
-retry 10 apt-get install -y awscli || retry 10 snap install aws-cli --classic || true
-retry 10 apt-get install -y docker.io
-retry 10 apt-get install -y android-tools-adb
+# 預裝 AMI(scripts/build-emulator-ami.mjs 產出)已經有這些套件、Redroid 映像與 node。
+# 實測:apt 這段要 80 秒、docker pull 16 秒,跳過就省下來。
+# 不只看標記檔、還要驗工具真的在:半殘的 AMI 比沒有 AMI 更難查。
+PREBAKED=0
+[ -f /opt/playagent/prebaked ] && command -v docker >/dev/null 2>&1 \
+  && command -v adb >/dev/null 2>&1 && command -v aws >/dev/null 2>&1 && PREBAKED=1
+echo "prebaked=$PREBAKED"
+if [ "$PREBAKED" = 0 ]; then
+  for i in $(seq 1 30); do apt-get update -y && break; sleep 5; done
+  # 分開裝並重試(Ubuntu noble first-boot apt 抖動);docker 必須確實裝上,否則後面 docker run 靜默失敗。
+  retry 10 apt-get install -y jq unzip curl
+  retry 10 apt-get install -y awscli || retry 10 snap install aws-cli --classic || true
+  retry 10 apt-get install -y docker.io
+  retry 10 apt-get install -y android-tools-adb
+fi
 command -v docker >/dev/null || { echo "!!! docker 安裝失敗"; sleep 5; }
 
 # --- 1. IMDSv2 讀 region 與 per-job tag(加重試等 tag 傳播)---
@@ -198,7 +207,7 @@ fi
 
 # --- 7. AI runner(與 Device Farm 同一套 explorationRunner,改用 adb 驅動;runner 在本機直接呼叫 Bedrock)---
 writestatus running "installing AI runner" 0; uplog
-retry 10 apt-get install -y imagemagick ffmpeg || true
+[ "$PREBAKED" = 1 ] || retry 10 apt-get install -y imagemagick ffmpeg || true
 case "$(uname -m)" in aarch64) NARCH=arm64 ;; *) NARCH=x64 ;; esac
 NODE_V=v22.12.0
 if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20)'; then
