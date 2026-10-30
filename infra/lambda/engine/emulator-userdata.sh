@@ -4,6 +4,9 @@
 # runner 在本機直接呼叫 Bedrock)→ 自我終結。per-job 輸入經 EC2 tag 與 job.json 讀取。
 # ⚠ 行尾必須 LF;長度需 < 16384 原始位元組。
 exec > >(tee /var/log/emulator-bootstrap.log) 2>&1
+# 每行 trace 帶 UTC 時間:前置作業(apt / docker pull / APK 安裝)各段實際花多久。
+# 沒有這個就只能靠 log 行數反推,而行數不等於時間 —— 要優化哪一段得先量得到。
+export PS4='+[$(date -u +%H:%M:%S)] '
 set -x
 export DEBIAN_FRONTEND=noninteractive
 
