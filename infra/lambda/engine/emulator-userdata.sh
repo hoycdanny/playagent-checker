@@ -210,7 +210,10 @@ writestatus running "installing AI runner" 0; uplog
 [ "$PREBAKED" = 1 ] || retry 10 apt-get install -y imagemagick ffmpeg || true
 case "$(uname -m)" in aarch64) NARCH=arm64 ;; *) NARCH=x64 ;; esac
 NODE_V=v22.12.0
-if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20)'; then
+# 版本檢查要用三元回 1/0:`process.exit(major < 20)` 傳的是 boolean,而 Node 22+ 的
+# exit() 嚴格檢查型別會丟 TypeError,於是這個檢查**永遠**以非 0 結束、永遠重新下載 node。
+# 以前看不出來:沒有預裝 node 時 `command -v node` 先失敗就短路了,是預裝 AMI 才讓它現形。
+if ! command -v node >/dev/null 2>&1 || ! node -e 'process.exit(+process.versions.node.split(".")[0] < 20 ? 1 : 0)'; then
   retry 5 curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/$NODE_V/node-$NODE_V-linux-$NARCH.tar.xz"
   tar -xJf /tmp/node.tar.xz -C /opt
   ln -sf "/opt/node-$NODE_V-linux-$NARCH/bin/node" /usr/local/bin/node
