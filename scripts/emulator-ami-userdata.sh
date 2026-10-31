@@ -24,7 +24,8 @@ retry() { local n="$1"; shift; for i in $(seq 1 "$n"); do "$@" && return 0; slee
 for i in $(seq 1 30); do apt-get update -y && break; sleep 5; done
 
 # --- 與 emulator-userdata.sh 相同的套件 ---
-retry 10 apt-get install -y jq unzip curl docker.io android-tools-adb || exit 1
+# zstd:per-app 快照的打包與還原用(見 docs/design/emulator-snapshot.md)。
+retry 10 apt-get install -y jq unzip curl zstd docker.io android-tools-adb || exit 1
 retry 10 apt-get install -y awscli || retry 10 snap install aws-cli --classic || true
 # snap 的 aws 不在 cloud-init 的 PATH 裡。不補 symlink 的話任務端的 PREBAKED 偵測
 # (command -v aws)會失敗,於是整個 AMI 的意義就沒了。

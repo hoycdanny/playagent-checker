@@ -32,7 +32,7 @@ PREBAKED=0
 echo "prebaked=$PREBAKED"
 if [ "$PREBAKED" = 0 ]; then
   for i in $(seq 1 30); do apt-get update -y && break; sleep 5; done
-  for i in $(seq 1 10); do apt-get install -y jq unzip curl && break; sleep 5; done
+  for i in $(seq 1 10); do apt-get install -y jq unzip curl zstd && break; sleep 5; done
   for i in $(seq 1 10); do apt-get install -y awscli && break; sleep 5; done
   # noble 的部分鏡像沒有 awscli 的 deb,退回 snap。snap 的 aws 不在 cloud-init 的 PATH
   # 裡,所以要補 symlink,否則後面所有 aws 呼叫都會失敗。
