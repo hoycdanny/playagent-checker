@@ -34,6 +34,14 @@ const AMI_X86 = process.env.EMULATOR_AMI_X86 ?? '';
 /** 預裝 AMI 的 SSM 參數前綴(`<prefix>/emulator-ami-arm64` / `-x86`);空 = 只用公用 AMI。 */
 const AMI_PARAM_PREFIX = process.env.EMULATOR_AMI_PARAM_PREFIX ?? '';
 const SUBNET_ID = process.env.DEVICE_SUBNET_ID ?? '';
+/**
+ * 可用的子網清單(跨 AZ),CDK 注入 VPC 的所有 public subnet。
+ *
+ * 單一子網 = 單一 AZ,而某個 AZ 容量不足時同代機型往往一起不足
+ * (實測 us-west-2a 回 InsufficientInstanceCapacity 而 2b 有容量)。
+ * 空值時退回 DEVICE_SUBNET_ID,行為與原本相同。
+ */
+const SUBNET_IDS = (process.env.DEVICE_SUBNET_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const SG_ID = process.env.EMULATOR_HOST_SG_ID ?? '';
 
 export const HOST_LIFECYCLE_TAG = 'hostLifecycle';
@@ -118,6 +126,8 @@ export class EmulatorHostControl implements HostControl {
     }
     const abi = spec.abi ?? DEFAULT_ABI;
     const amiId = await amiForAbi(abi);
+    // 去重並保證至少有一個:DEVICE_SUBNET_ID 排前面(維持原本的優先順序)。
+    const subnets = [...new Set([SUBNET_ID, ...SUBNET_IDS].filter(Boolean))];
     const candidates = INSTANCE_TYPES[abi] ?? INSTANCE_TYPES[DEFAULT_ABI]!;
     const userData = Buffer.from(loadUserData()).toString('base64');
 
@@ -125,8 +135,16 @@ export class EmulatorHostControl implements HostControl {
     const existing = await this.findExisting(spec.jobId);
     if (existing) return { instanceId: existing, endpoint: `ec2:${existing}` };
 
+    // 機型 × 子網(= AZ)兩個維度都要回落。
+    //
+    // 只回落機型是不夠的:三個候選機型都是同架構的同一代,某個 AZ 容量不足時往往一起不足。
+    // 2026-10-31 實測 us-west-2a 回 InsufficientInstanceCapacity,而同一刻 2b 有容量 ——
+    // 當時三個機型全在同一個子網,所以會整串失敗,而使用者看到的是「全部候選機型無容量」。
+    // 外層跑子網、內層跑機型:先把同一個 AZ 的機型試完再換 AZ(換 AZ 沒有成本,只是順序)。
     const errors: string[] = [];
-    for (const instanceType of candidates) {
+    for (let si = 0; si < subnets.length; si++) {
+      const subnetId = subnets[si]!;
+      for (const instanceType of candidates) {
       try {
         const res = await ec2.send(
           new RunInstancesCommand({
@@ -134,7 +152,7 @@ export class EmulatorHostControl implements HostControl {
             InstanceType: instanceType as _InstanceType,
             MinCount: 1,
             MaxCount: 1,
-            SubnetId: SUBNET_ID,
+            SubnetId: subnetId,
             SecurityGroupIds: [SG_ID],
             UserData: userData,
             // ClientToken 要帶「這次嘗試」的識別,不能只有 jobId。
@@ -147,7 +165,8 @@ export class EmulatorHostControl implements HostControl {
             //
             // 用小時級的時間窗:同一小時內的重試仍然幂等(這就是原本想要的防重複起機),
             // 跨小時就能重跑。真正的防重複已經由上面的 findExisting(查 pending/running)做了。
-            ClientToken: `${spec.jobId}-${instanceType}-${Math.floor(Date.now() / 3_600_000)}`,
+            // 子網用索引而不是 id:ClientToken 上限 64 字元,塞完整的 subnet-xxx 會爆掉。
+            ClientToken: `${spec.jobId}-${instanceType}-s${si}-${Math.floor(Date.now() / 3_600_000)}`,
             // userdata 的 TTL `shutdown -h` 與結束時都要「終止」實例(不是停止),EBS 不殘留計費。
             InstanceInitiatedShutdownBehavior: 'terminate',
             IamInstanceProfile: { Arn: HOST_PROFILE_ARN },
@@ -193,13 +212,19 @@ export class EmulatorHostControl implements HostControl {
         );
         const instanceId = res.Instances?.[0]?.InstanceId;
         if (!instanceId) throw new Error('RunInstances 未回傳 instanceId');
+        if (si > 0) console.log(`emulator: ${subnetId} 起機成功(前面的子網容量不足)`);
         return { instanceId, endpoint: `ec2:${instanceId}` };
       } catch (err) {
         if (!isCapacityError(err)) throw err;
-        errors.push(`${instanceType}:${(err as Error).name}`);
+        // 錯誤訊息要說出「哪個機型在哪個子網失敗」。只寫機型的話,看到「全部無容量」
+        // 卻不知道其實只試了一個 AZ —— 那正是這次要修的問題。
+        errors.push(`${instanceType}@${subnetId}:${(err as Error).name}`);
+      }
       }
     }
-    throw new Error(`emulator: 全部候選機型無容量(${errors.join('; ')})`);
+    throw new Error(
+      `emulator: ${candidates.length} 個機型 × ${subnets.length} 個子網都無容量(${errors.join('; ')})`,
+    );
   }
 
   private async findExisting(jobId: string): Promise<string | null> {

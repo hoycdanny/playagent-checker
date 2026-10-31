@@ -406,6 +406,10 @@ export class ExecutionStack extends Stack {
     // emulator 承載所需環境(主機自驅動:引擎只 RunInstances,其餘由 userdata 完成)。
     this.engineFn.addEnvironment('DEVICE_VPC_ID', this.vpc.vpcId);
     this.engineFn.addEnvironment('DEVICE_SUBNET_ID', publicSubnetId);
+    // 跨 AZ 回落用的完整子網清單。單一子網 = 單一 AZ,而某個 AZ 容量不足時同代機型
+    // 往往一起不足(實測 us-west-2a 回 InsufficientInstanceCapacity 而同一刻 2b 有容量,
+    // 當時三個候選機型全在同一個子網所以整串失敗)。emulatorHost 會逐個子網試。
+    this.engineFn.addEnvironment('DEVICE_SUBNET_IDS', this.vpc.publicSubnets.map((s) => s.subnetId).join(','));
     this.engineFn.addEnvironment('EMULATOR_HOST_SG_ID', this.emulatorHost.securityGroup.securityGroupId);
     this.engineFn.addEnvironment('EMULATOR_HOST_PROFILE_ARN', emuProfile.attrArn);
     this.engineFn.addEnvironment('EMULATOR_HOST_ROLE_ARN', this.emulatorHost.hostRole.roleArn);
