@@ -10,6 +10,11 @@
 # 由 CDK 的 BucketDeployment 部署;引導已 export 這些變數:
 #   AWS_DEFAULT_REGION IID JOB_ID TENANT_ID BUCKET PREFIX PREBAKED
 # 下面會補讀,所以也可以在主機上單獨執行這支腳本除錯。
+#
+# PS4 要在這裡重新設一次。引導雖然 export 了它,但 exec 啟動的是新的 bash,實測
+# 主體的 trace 只有 `+ ` 沒有時間戳 —— 而「各段花多久」正是加時間戳的目的,
+# 少了它就只能靠 log 行數反推。
+export PS4='+[$(date -u +%H:%M:%S)] '
 set -x
 export DEBIAN_FRONTEND=noninteractive
 
