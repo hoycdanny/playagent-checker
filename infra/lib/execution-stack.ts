@@ -158,6 +158,19 @@ export class ExecutionStack extends Stack {
       prune: true,
     });
 
+    // Redroid 主機的主體腳本 → s3://<bucket>/_engine/emulator/run.sh。
+    //
+    // 為什麼不放在 userdata 裡:EC2 userdata 有 16 KB 硬上限,而那支腳本曾經長到只剩
+    // 583 bytes 可用。超過的症狀很糟 —— RunInstances 直接被拒,或腳本被截斷後在主機上
+    // 語法錯誤,兩種都不會明確說「太長了」。拆出來之後 userdata 只剩引導(約 4.5 KB),
+    // 而主體要加東西(例如 per-app 快照的還原與打包)不再受限。
+    new s3deploy.BucketDeployment(this, 'EmulatorScriptDeploy', {
+      destinationBucket: props.dataBucket,
+      destinationKeyPrefix: '_engine/emulator',
+      sources: [Source.asset(path.join(currentDir, '..', 'lambda', 'engine', 'emulator'))],
+      prune: true,
+    });
+
     // 解析官方 Ubuntu AMI(部署時 SSM 解析成 AMI ID)。
     const amiArm64 = ssm.StringParameter.valueForTypedStringParameterV2(
       this,
