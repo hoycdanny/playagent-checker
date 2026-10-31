@@ -137,7 +137,17 @@ export class EmulatorHostControl implements HostControl {
             SubnetId: SUBNET_ID,
             SecurityGroupIds: [SG_ID],
             UserData: userData,
-            ClientToken: `${spec.jobId}-${instanceType}`,
+            // ClientToken 要帶「這次嘗試」的識別,不能只有 jobId。
+            //
+            // RunInstances 的幂等會回傳「這個 token 第一次建立的 instanceId」,而 AWS 保留
+            // token 記錄的時間遠長於一次重試所需。只用 jobId 的後果是:同一個任務重跑時
+            // RunInstances 回傳一個早就終止、已經不存在的 instanceId,engine 以為起機成功
+            // (所以不報錯、不寫 error),實際上根本沒有主機 —— 任務就這樣無聲地什麼都沒做。
+            // (2026-10-31 實測:重跑兩週前的 job,engine 正常結束但沒有任何 EC2。)
+            //
+            // 用小時級的時間窗:同一小時內的重試仍然幂等(這就是原本想要的防重複起機),
+            // 跨小時就能重跑。真正的防重複已經由上面的 findExisting(查 pending/running)做了。
+            ClientToken: `${spec.jobId}-${instanceType}-${Math.floor(Date.now() / 3_600_000)}`,
             // userdata 的 TTL `shutdown -h` 與結束時都要「終止」實例(不是停止),EBS 不殘留計費。
             InstanceInitiatedShutdownBehavior: 'terminate',
             IamInstanceProfile: { Arn: HOST_PROFILE_ARN },
