@@ -91,6 +91,51 @@ RW=$(jq -r '.display.width // 1080' /tmp/job.json 2>/dev/null || echo 1080); RH=
 # 這裡「不」自己用版本號組 tag:版本與 tag 之間沒有通用公式(8.1 的 tag 是 8.1.0-latest,
 # 不是 8.1.0.0),自己組會悄悄拉到不存在的映像,主機只會回報「開機逾時」。
 AV=$(jq -r '.androidVersion // "15"' /tmp/job.json 2>/dev/null || echo 15)
+# ── per-app 快照 ────────────────────────────────────────────────────────────
+# 目的不是省安裝時間(實測 APK 下載加安裝只佔前置的 10 秒),而是省掉 AI 每次重走
+# 「啟動器 → 更新 → 登入 → 新手教學」的幾十步 VLM 呼叫,並給測試一個可重現的起點。
+# 詳見 docs/design/emulator-snapshot.md。
+#
+# key 必須帶滿所有會讓快照失效的維度:App、產物版本、Android 版本、架構、解析度。
+# /data 與 OS 版本和架構綁死,換了就不能重用;APK 換版本後舊資料可能不相容。
+# 任一維度不符就當成「沒有快照」,乾淨重裝 —— 不要試著沿用。
+APP_ID=$(jq -r '.appId // empty' /tmp/job.json)
+ART_VER=$(jq -r '.artifactVersion // empty' /tmp/job.json)
+SNAP_KEY=""
+if [ -n "$APP_ID" ] && [ -n "$ART_VER" ]; then
+  SNAP_KEY="tenants/$TENANT_ID/apps/$APP_ID/snap-$ART_VER-$AV-$(uname -m)-${RW}x${RH}.tar.zst"
+fi
+# use 預設關、save 預設開。這個不對稱是刻意的:
+#   建立快照沒有副作用(只是多存一份,而且只在 pass 時建),所以預設開著讓資產累積。
+#   使用快照會改變測試的起點 —— 跳過安裝與登入就測不到那段流程,而那可能正是某個
+#   case 的目的。所以要明確要求才用。
+SNAP_USE=$(jq -r 'if .snapshot.use == true then "1" else "0" end' /tmp/job.json 2>/dev/null || echo 0)
+SNAP_SAVE=$(jq -r 'if .snapshot.save == false then "0" else "1" end' /tmp/job.json 2>/dev/null || echo 1)
+# Redroid 的 /data 外掛到主機:不外掛的話資料隨容器消失,也沒辦法打包。
+# 順帶一個對實作很有用的性質:外掛之後主機的 root 能直接讀寫 Android 的私有資料,
+# 不必繞 adb(Redroid 的 adb shell 是 uid=2000,讀不到 /data/data/<pkg>)。
+RD_DATA=/mnt/redroid-data
+rm -rf "$RD_DATA"; mkdir -p "$RD_DATA"
+SNAP_RESTORED=0
+if [ "$SNAP_USE" = "1" ] && [ -n "$SNAP_KEY" ]; then
+  if aws s3 ls "s3://$BUCKET/$SNAP_KEY" >/dev/null 2>&1; then
+    writestatus running "restoring app snapshot" 0; uplog
+    if aws s3 cp "s3://$BUCKET/$SNAP_KEY" /tmp/snap.tar.zst \
+       && zstd -d -c /tmp/snap.tar.zst | tar -C "$RD_DATA" -xf -; then
+      SNAP_RESTORED=1
+      echo "snapshot: 已還原 $SNAP_KEY"
+    else
+      # 還原失敗就當沒有快照,乾淨重來。半還原的 /data 會讓 Redroid 用一個壞掉的
+      # 系統狀態開機,症狀會是「開機逾時」之類跟真正原因無關的錯誤。
+      echo "snapshot: 還原失敗,改為乾淨安裝"
+      rm -rf "$RD_DATA"; mkdir -p "$RD_DATA"
+    fi
+    rm -f /tmp/snap.tar.zst
+  else
+    echo "snapshot: 沒有可用的快照($SNAP_KEY)"
+  fi
+fi
+echo "snapshot: use=$SNAP_USE save=$SNAP_SAVE restored=$SNAP_RESTORED key=$SNAP_KEY"
 IMG=$(jq -r '.androidImage // "redroid/redroid:15.0.0-latest"' /tmp/job.json 2>/dev/null || echo "redroid/redroid:15.0.0-latest")
 # 防呆:只接受 redroid 官方 repo 的合法形狀,擋掉被竄改的 job.json 指向任意映像。
 echo "$IMG" | grep -Eq '^redroid/redroid:[0-9]+(\.[0-9]+)*-latest$' || IMG="redroid/redroid:15.0.0-latest"
@@ -102,6 +147,7 @@ if ! retry 5 docker pull "$IMG"; then
 fi
 docker rm -f android 2>/dev/null || true
 docker run -d --privileged --name android --restart unless-stopped -m 12g \
+  -v "$RD_DATA":/data \
   -p 0.0.0.0:5555:5555 "$IMG" \
   androidboot.redroid_gpu_mode=guest androidboot.redroid_width="$RW" androidboot.redroid_height="$RH" \
   ro.setupwizard.mode=OPTIONAL
@@ -134,6 +180,24 @@ writestatus running "android booted, installing APK" 0; uplog
 # --- 6. 讀 job.json 取 APK key + 裝 APK(split 包用 install-multiple)+ 推 OBB + 自動啟動 ---
 APK_KEY=$(jq -r '.artifactKey // empty' /tmp/job.json)
 PKG=$(jq -r '.package // .identifier // empty' /tmp/job.json)
+# 從快照還原時 App 已經裝好(而且帶著它的私有資料),跳過下載與安裝。
+# 包名改從裝置上問,不要相信 job.json —— 快照是用某個產物版本建的,而 job.json 的
+# package 欄位可能是空的(靠安裝後推斷)。
+if [ "$SNAP_RESTORED" = 1 ]; then
+  SNAP_PKG=$($ADB shell pm list packages -3 2>/dev/null | sed 's/package://' | tr -d '\r' \
+    | grep -viE 'inputmethod|webview|gboard' | head -1)
+  if [ -n "$SNAP_PKG" ]; then
+    PKG="$SNAP_PKG"
+    echo "snapshot: 沿用已安裝的 $PKG,跳過 APK 安裝"
+    APK_KEY=""
+  else
+    # 快照還原了但 App 不在:那份快照是壞的(或是用不同 APK 建的)。
+    # 退回乾淨安裝,並把壞快照刪掉,免得下次再踩。
+    echo "snapshot: 還原後找不到第三方 App,視為壞快照 → 刪掉並改為乾淨安裝"
+    aws s3 rm "s3://$BUCKET/$SNAP_KEY" 2>/dev/null || true
+    SNAP_RESTORED=0
+  fi
+fi
 if [ -n "$APK_KEY" ]; then
   aws s3 cp "s3://$BUCKET/$APK_KEY" /tmp/app.apk
   # 上傳時副檔名被正規化為 app.apk,無法靠副檔名判斷 split 包。改用內容探測:
@@ -168,26 +232,30 @@ if [ -n "$APK_KEY" ]; then
     PKG=$($ADB shell pm list packages -3 2>/dev/null | sed 's/package://' | tr -d '\r' | grep -viE 'inputmethod|webview|gboard' | head -1)
     echo "derived pkg from pm list: $PKG"
   fi
-  # 關掉 Android「Viewing full screen / Got it」沉浸模式確認彈窗:設 immersive_mode_confirmations=confirmed
-  # 讓遊戲進全螢幕時不再彈那張系統卡片(否則會一直疊在遊戲畫面上干擾 AI 判斷)。
-  $ADB shell settings put secure immersive_mode_confirmations confirmed 2>/dev/null || true
-  # 自動啟動遊戲到前景(resolve-activity → monkey 兜底),讓 AI 從遊戲畫面開始測。
-  if [ -n "$PKG" ]; then
-    ACT=$($ADB shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER -a android.intent.action.MAIN "$PKG" 2>/dev/null | tail -1 | tr -d '\r')
-    if echo "$ACT" | grep -q '/'; then
-      echo "am start -n $ACT"; $ADB shell am start -n "$ACT" 2>&1 | tail -2 || true
-    else
-      echo "monkey launch $PKG"; $ADB shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 2>&1 | tail -2 || true
-    fi
-    # 等遊戲開場/載入(首次啟動可能下載資源),輪詢前景 activity 是否為該包。
-    for k in $(seq 1 8); do
-      FG=$($ADB shell dumpsys activity activities 2>/dev/null | grep -i 'mResumedActivity\|topResumedActivity' | head -1)
-      echo "fg check $k: $FG"
-      if echo "$FG" | grep -q "$PKG"; then break; fi
-      sleep 5
-    done
-    writestatus running "game launched (pkg=$PKG)" 0; uplog
+fi
+
+# 下面兩件事不管是乾淨安裝還是從快照還原都要做。
+# (原本整段在 APK_KEY 區塊內,而快照路徑會把 APK_KEY 清空 —— 那樣遊戲不會被啟動,
+#  AI 會從 Android 桌面開始測,而且症狀看起來像「遊戲啟動失敗」。)
+# 關掉 Android「Viewing full screen / Got it」沉浸模式確認彈窗:設 immersive_mode_confirmations=confirmed
+# 讓遊戲進全螢幕時不再彈那張系統卡片(否則會一直疊在遊戲畫面上干擾 AI 判斷)。
+$ADB shell settings put secure immersive_mode_confirmations confirmed 2>/dev/null || true
+# 自動啟動遊戲到前景(resolve-activity → monkey 兜底),讓 AI 從遊戲畫面開始測。
+if [ -n "$PKG" ]; then
+  ACT=$($ADB shell cmd package resolve-activity --brief -c android.intent.category.LAUNCHER -a android.intent.action.MAIN "$PKG" 2>/dev/null | tail -1 | tr -d '\r')
+  if echo "$ACT" | grep -q '/'; then
+    echo "am start -n $ACT"; $ADB shell am start -n "$ACT" 2>&1 | tail -2 || true
+  else
+    echo "monkey launch $PKG"; $ADB shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 2>&1 | tail -2 || true
   fi
+  # 等遊戲開場/載入(首次啟動可能下載資源),輪詢前景 activity 是否為該包。
+  for k in $(seq 1 8); do
+    FG=$($ADB shell dumpsys activity activities 2>/dev/null | grep -i 'mResumedActivity\|topResumedActivity' | head -1)
+    echo "fg check $k: $FG"
+    if echo "$FG" | grep -q "$PKG"; then break; fi
+    sleep 5
+  done
+  writestatus running "game launched (pkg=$PKG)" 0; uplog
 fi
 
 # --- 7. AI runner(與 Device Farm 同一套 explorationRunner,改用 adb 驅動;runner 在本機直接呼叫 Bedrock)---
@@ -208,7 +276,6 @@ mkdir -p /opt/runner
 retry 3 aws s3 cp "s3://$BUCKET/_engine/runner/" /opt/runner/ --recursive --only-show-errors
 cp /opt/runner/exploration-runner.package.json /opt/runner/package.json
 (cd /opt/runner && retry 3 npm install --omit=dev --no-audit --no-fund)
-APP_ID=$(jq -r '.appId // empty' /tmp/job.json)
 TASK=$(jq -r '.caseTask // empty' /tmp/job.json)
 writestatus running "AI agent starting" 0; uplog
 PA_DRIVER=adb PA_ADB_SERIAL=127.0.0.1:5555 PA_PLATFORM=android \
@@ -221,6 +288,35 @@ aws s3 cp /var/log/runner.log "s3://$BUCKET/$PREFIX/runner.log" 2>/dev/null || t
 # runner 沒寫終態(例如啟動就崩潰)才補 error;已有終態不覆蓋。
 ST=$(aws s3 cp "s3://$BUCKET/$PREFIX/status.json" - 2>/dev/null | jq -r '.state // empty')
 if [ "$ST" = "running" ] || [ -z "$ST" ]; then writestatus error "runner exited without a result (see runner.log)" 0; fi
+
+# --- 8. per-app 快照:只在任務 pass 時建 ---
+# 為什麼限定 pass:快照會成為之後每次測試的起點,而把一個壞掉的狀態(卡在錯誤畫面、
+# 被登出、更新失敗)存成起點,會讓後續每一次測試都從那裡開始,而且很難看出原因。
+# pass 至少代表那一刻的狀態是能用的。
+#
+# 停容器再打包:Android 沒有乾淨關機就打包,寫到一半的 shared_prefs / SQLite 可能壞掉,
+# 而那正是登入狀態所在。先 sync 再 stop。
+if [ "$SNAP_SAVE" = "1" ] && [ "$ST" = "pass" ] && [ -n "$SNAP_KEY" ]; then
+  echo "snapshot: 任務 pass,開始建立快照 $SNAP_KEY"
+  $ADB shell sync 2>/dev/null || true
+  docker stop android 2>/dev/null || true
+  if tar -C "$RD_DATA" -cf - . | zstd -3 -T0 -o /tmp/newsnap.tar.zst; then
+    SNAP_MB=$(( $(stat -c%s /tmp/newsnap.tar.zst) / 1048576 ))
+    # 寫到暫存 key 再搬正:上傳中斷留下的半份檔案會讓下一次任務還原到壞快照。
+    if aws s3 cp /tmp/newsnap.tar.zst "s3://$BUCKET/$SNAP_KEY.part" \
+       && aws s3 mv "s3://$BUCKET/$SNAP_KEY.part" "s3://$BUCKET/$SNAP_KEY"; then
+      echo "snapshot: 已建立(${SNAP_MB} MB)"
+    else
+      echo "snapshot: 上傳失敗,清掉半份檔案"
+      aws s3 rm "s3://$BUCKET/$SNAP_KEY.part" 2>/dev/null || true
+    fi
+    rm -f /tmp/newsnap.tar.zst
+  else
+    echo "snapshot: 打包失敗,跳過"
+  fi
+else
+  echo "snapshot: 不建立(save=$SNAP_SAVE state=$ST key=${SNAP_KEY:-none})"
+fi
 uplog
 
 selfterm
