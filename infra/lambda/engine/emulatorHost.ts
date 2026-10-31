@@ -5,6 +5,7 @@ import {
   DescribeInstancesCommand,
   type _InstanceType,
 } from '@aws-sdk/client-ec2';
+import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { AcquireSpec } from './deviceProvider.js';
@@ -30,6 +31,8 @@ const TENANT_ROLE_ARN = process.env.TENANT_ROLE_ARN ?? '';
 const HOST_PROFILE_ARN = process.env.EMULATOR_HOST_PROFILE_ARN ?? '';
 const AMI_ARM64 = process.env.EMULATOR_AMI_ARM64 ?? '';
 const AMI_X86 = process.env.EMULATOR_AMI_X86 ?? '';
+/** 預裝 AMI 的 SSM 參數前綴(`<prefix>/emulator-ami-arm64` / `-x86`);空 = 只用公用 AMI。 */
+const AMI_PARAM_PREFIX = process.env.EMULATOR_AMI_PARAM_PREFIX ?? '';
 const SUBNET_ID = process.env.DEVICE_SUBNET_ID ?? '';
 const SG_ID = process.env.EMULATOR_HOST_SG_ID ?? '';
 
@@ -52,7 +55,34 @@ function loadUserData(): string {
   return readFileSync(path, 'utf8');
 }
 
-function amiForAbi(abi: string): string {
+/**
+ * 這次要用哪個 AMI。
+ *
+ * 優先用預裝好的 AMI(`scripts/build-emulator-ami.mjs` 建好後寫進 SSM):裡面已經有
+ * docker、Redroid 映像、imagemagick/ffmpeg、node,userdata 會偵測到並跳過安裝,
+ * 每次任務省約 1.5 分鐘(前置作業實測 138 秒,其中 apt 佔 80 秒、docker pull 佔 16 秒)。
+ *
+ * 讀不到就退回公用 Ubuntu AMI,**刻意不丟錯**:預裝 AMI 是加分項,不是依賴。
+ * AMI 壞掉或被刪時只要移除那個 SSM 參數,行為立刻回到原本的樣子,不需要重新部署。
+ */
+async function amiForAbi(abi: string): Promise<string> {
+  const arch = abi === 'x86_64' ? 'x86' : 'arm64';
+  if (AMI_PARAM_PREFIX) {
+    try {
+      const r = await new SSMClient({ region: REGION }).send(
+        new GetParameterCommand({ Name: `${AMI_PARAM_PREFIX}/emulator-ami-${arch}` }),
+      );
+      const v = r.Parameter?.Value?.trim() ?? '';
+      // 形狀檢查不能省:參數被手改成空字串或垃圾時,要退回公用 AMI 而不是把垃圾送給 EC2。
+      if (/^ami-[0-9a-f]{8,}$/.test(v)) {
+        console.log(`emulator: 使用預裝 AMI ${v}(${arch})`);
+        return v;
+      }
+      if (v) console.log(`emulator: SSM 的 AMI 值不合法(${v.slice(0, 40)}),改用公用 AMI`);
+    } catch {
+      // 沒建過預裝 AMI 是正常狀態(ParameterNotFound),不值得記錄成錯誤。
+    }
+  }
   const ami = abi === 'x86_64' ? AMI_X86 : AMI_ARM64;
   if (!ami) throw new Error(`emulator: abi=${abi} 無對應 Ubuntu AMI(CDK 未注入 EMULATOR_AMI_*)`);
   return ami;
@@ -87,7 +117,7 @@ export class EmulatorHostControl implements HostControl {
       );
     }
     const abi = spec.abi ?? DEFAULT_ABI;
-    const amiId = amiForAbi(abi);
+    const amiId = await amiForAbi(abi);
     const candidates = INSTANCE_TYPES[abi] ?? INSTANCE_TYPES[DEFAULT_ABI]!;
     const userData = Buffer.from(loadUserData()).toString('base64');
 
