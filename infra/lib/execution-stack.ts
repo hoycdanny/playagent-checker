@@ -399,6 +399,15 @@ export class ExecutionStack extends Stack {
     this.engineFn.addEnvironment('WINDOWS_HOST_ROLE_ARN', this.windowsHost.hostRole.roleArn);
     this.engineFn.addEnvironment('EMULATOR_AMI_ARM64', amiArm64);
     this.engineFn.addEnvironment('EMULATOR_AMI_X86', amiX86);
+    // 預裝好的 emulator AMI(scripts/build-emulator-ami.mjs 建好後寫進 SSM)。
+    // engine 讀不到就用上面的公用 Ubuntu AMI —— 這是加分項不是依賴,所以 AMI 壞掉時
+    // 只要刪掉參數就回到原本行為,不必重新部署。參數前綴與 deployed-version 同一層。
+    const emuAmiParamPrefix = `/playagent/${this.stackName.replace(/-Execution$/, '')}`;
+    this.engineFn.addEnvironment('EMULATOR_AMI_PARAM_PREFIX', emuAmiParamPrefix);
+    this.engineFn.addToRolePolicy(new iam.PolicyStatement({
+      actions: ['ssm:GetParameter'],
+      resources: [`arn:aws:ssm:${this.region}:${this.account}:parameter${emuAmiParamPrefix}/emulator-ami-*`],
+    }));
 
     // ───────────────────────────────────────────────────────────────────────
     // Device Farm 真機探索:ECS Fargate 承載 Appium 探索迴圈(無伺服器容器,非 EC2)。
