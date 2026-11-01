@@ -161,8 +161,22 @@ describe('EMULATOR_SCREENS:預設螢幕', () => {
   });
 });
 
-describe('emulator-userdata.sh 與白名單的一致性', () => {
-  const sh = readFileSync(join(__dirname, '..', 'lambda', 'engine', 'emulator-userdata.sh'), 'utf8');
+/**
+ * 這些斷言原本讀 emulator-userdata.sh。userdata 在 2026-10 拆成「引導 + 主體」
+ * (EC2 userdata 有 16 KB 硬上限,主體搬到 S3 的 _engine/emulator/run.sh),版本與映像的
+ * 處理跟著搬到 run.sh,斷言卻還留在舊檔上 —— 於是這組測試從那時起就在測一個已經
+ * 不含該邏輯的檔案。改讀 run.sh,並另外釘住「引導確實會交棒給主體」。
+ */
+describe('emulator run.sh 與白名單的一致性', () => {
+  const sh = readFileSync(join(__dirname, '..', 'lambda', 'engine', 'emulator', 'run.sh'), 'utf8');
+
+  test('引導腳本只負責取得主體並交棒(主體才是這組斷言的對象)', () => {
+    const boot = readFileSync(join(__dirname, '..', 'lambda', 'engine', 'emulator-userdata.sh'), 'utf8');
+    expect(boot).toContain('_engine/emulator/run.sh');
+    expect(boot).toContain('exec /opt/pa-run.sh');
+    // userdata 的 16 KB 上限:超過的話 RunInstances 直接被拒,或腳本被截斷後語法錯誤。
+    expect(Buffer.byteLength(boot, 'utf8')).toBeLessThan(16384);
+  });
 
   test('從 job.json 讀版本與映像,不再把版本寫死在 docker 指令裡', () => {
     expect(sh).toContain('.androidVersion');
@@ -189,5 +203,26 @@ describe('emulator-userdata.sh 與白名單的一致性', () => {
   test('解析度仍從 job.json 讀', () => {
     expect(sh).toContain('.display.width');
     expect(sh).toContain('.display.height');
+  });
+
+  /**
+   * 快照上傳要直接寫最終 key。
+   *
+   * 2026-11-01 實測:原本的「先寫 <key>.part 再 `aws s3 mv` 搬正」會失敗 ——
+   * `aws s3 mv` 為了保留標籤會呼叫 GetObjectTagging,主機角色沒有那個權限,
+   * 結果是任務 pass 了、857 MB 也上傳了,但快照沒更新,而且 .part 永久留在桶裡
+   * (清理用的 `aws s3 rm` 同樣沒權限)。症狀跟快照毫無關係,極難查。
+   *
+   * 那一招本來也沒有必要:S3 不會讓讀取者看到寫到一半的物件,中斷時舊快照原封不動。
+   */
+  test('快照直接寫最終 key,不走 .part 搬正(mv 需要主機沒有的 GetObjectTagging)', () => {
+    expect(sh).toContain('aws s3 cp /tmp/newsnap.tar.zst "s3://$BUCKET/$SNAP_KEY"');
+    expect(sh).not.toContain('$SNAP_KEY.part');
+    // 只看會執行到的行 —— 上面那段註解本身就在講 `aws s3 mv` 為什麼不能用。
+    const code = sh
+      .split('\n')
+      .filter((line) => !line.trim().startsWith('#'))
+      .join('\n');
+    expect(code).not.toMatch(/aws s3 mv/);
   });
 });

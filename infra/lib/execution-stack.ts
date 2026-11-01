@@ -103,6 +103,18 @@ export class ExecutionStack extends Stack {
         resources: [props.dataBucket.bucketArn, `${props.dataBucket.bucketArn}/*`],
       }),
     );
+    // 刪除權限只開給快照檔本身。主機在「還原了快照但 App 不在」時要把那份壞快照刪掉,
+    // 否則之後每次任務都會先還原一份壞的再退回乾淨安裝,而且沒人看得出為什麼。
+    //
+    // 範圍收到 `apps/*/snap-*`:App 自己的 metadata 是 `apps/<appId>.json`(路徑少一層),
+    // 這條比對不到它。沒有必要給整個桶的 DeleteObject —— 主機是跑被測 App 的地方,
+    // 被測 App 若能影響它,就等於能刪掉任何測試資料。
+    emuRole.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:DeleteObject'],
+        resources: [`${props.dataBucket.bucketArn}/tenants/*/apps/*/snap-*`],
+      }),
+    );
     emuRole.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['bedrock:InvokeModel'],

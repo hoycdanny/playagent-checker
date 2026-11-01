@@ -302,13 +302,20 @@ if [ "$SNAP_SAVE" = "1" ] && [ "$ST" = "pass" ] && [ -n "$SNAP_KEY" ]; then
   docker stop android 2>/dev/null || true
   if tar -C "$RD_DATA" -cf - . | zstd -3 -T0 -o /tmp/newsnap.tar.zst; then
     SNAP_MB=$(( $(stat -c%s /tmp/newsnap.tar.zst) / 1048576 ))
-    # 寫到暫存 key 再搬正:上傳中斷留下的半份檔案會讓下一次任務還原到壞快照。
-    if aws s3 cp /tmp/newsnap.tar.zst "s3://$BUCKET/$SNAP_KEY.part" \
-       && aws s3 mv "s3://$BUCKET/$SNAP_KEY.part" "s3://$BUCKET/$SNAP_KEY"; then
+    # 直接寫最終 key,不走「暫存 .part 再搬正」。
+    #
+    # 原本那一招是為了「上傳中斷不要留下半份檔案」,但前提是錯的:S3 不會讓讀取者看到
+    # 寫到一半的物件。大檔走 multipart,只有 CompleteMultipartUpload 成功時物件才出現;
+    # 中斷的話舊快照原封不動留著。所以搬正那一步只是多一次伺服器端複製。
+    #
+    # 而且它實際上是壞的(2026-11-01 實測):`aws s3 mv` 為了保留標籤會呼叫
+    # GetObjectTagging,主機角色沒有那個權限 → AccessDenied → 搬正失敗;接著清理用的
+    # `aws s3 rm` 同樣沒有 DeleteObject 權限也失敗,於是一份 857 MB 的 .part 永久留在桶裡。
+    # 症狀是「任務 pass 了但快照沒更新」,而失敗訊息跟快照毫無關係。
+    if aws s3 cp /tmp/newsnap.tar.zst "s3://$BUCKET/$SNAP_KEY"; then
       echo "snapshot: 已建立(${SNAP_MB} MB)"
     else
-      echo "snapshot: 上傳失敗,清掉半份檔案"
-      aws s3 rm "s3://$BUCKET/$SNAP_KEY.part" 2>/dev/null || true
+      echo "snapshot: 上傳失敗,保留原本的快照"
     fi
     rm -f /tmp/newsnap.tar.zst
   else
