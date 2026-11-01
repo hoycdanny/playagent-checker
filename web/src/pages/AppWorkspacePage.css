@@ -560,6 +560,58 @@ button.ws__stat:hover {
   margin-left: auto;
 }
 
+/* 可測起點(快照):接在版本清單底下,用分隔線跟版本區分開 */
+.ws__snaps {
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.ws__snaps-title {
+  margin: 0 0 var(--space-2);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.ws__snap-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ws__snap {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+.ws__snap-main {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.ws__snap-build {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.ws__snap-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 13px;
+}
+.ws__snap > .ws__remove {
+  margin-left: auto;
+}
+
 /* 刪除類按鈕(憑證/版本共用) */
 .ws__remove {
   padding: var(--space-2) var(--space-3);

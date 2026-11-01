@@ -1200,6 +1200,8 @@ export async function handleRequest(
         const snapMatch = /^\/apps\/([^/]+)\/snapshots$/.exec(req.path);
         if (snapMatch) {
           const appId = snapMatch[1]!;
+          // appId 直接拼進 S3 前綴,先驗形狀(擋掉 `..` 之類)。
+          if (!APP_ID_RE.test(appId)) return json(400, { error: 'appId 格式不正確' });
           // 扮租戶角色:快照含測試帳號的登入 token(shared_prefs),與 App 憑證同級。
           const snapS3 = await deps.getTenantS3(tenant.tenantId);
           if (req.method === 'GET') {
