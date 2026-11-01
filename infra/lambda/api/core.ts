@@ -128,6 +128,7 @@ import {
   deleteAppCredential,
   isValidCredentialKey,
 } from './appCredentialsStore.js';
+import { listAppSnapshots, deleteAppSnapshot } from './snapshots.js';
 import {
   registerDevice,
   listDevices,
@@ -1183,6 +1184,36 @@ export async function handleRequest(
             const key = (req.query?.['key'] ?? '').trim();
             if (!key) return json(400, { error: 'key 為必填' });
             const items = await deleteAppCredential(deps.secretWriter, tenant.tenantId, appId, key);
+            return json(200, { items });
+          }
+          return json(405, { error: 'method not allowed' });
+        }
+
+        // 動態路由:App 的 per-app 快照(Android 容器的「可測起點」)。
+        //   GET    /apps/{id}/snapshots          → { items: [...] }
+        //   DELETE /apps/{id}/snapshots?name=…   刪一份
+        //
+        // 快照裡是一份已安裝、而且走過登入／新手教學的 Redroid /data。它存在的理由不是
+        // 省安裝時間(實測 APK 下載加安裝只佔前置的 10 秒),而是省掉 AI 每次重走
+        // 「啟動器 → 更新 → 登入 → 新手教學」的幾十步 VLM 呼叫。
+        // 建立與還原在主機端(engine/emulator/run.sh);這裡只讓使用者看得到、刪得掉。
+        const snapMatch = /^\/apps\/([^/]+)\/snapshots$/.exec(req.path);
+        if (snapMatch) {
+          const appId = snapMatch[1]!;
+          // 扮租戶角色:快照含測試帳號的登入 token(shared_prefs),與 App 憑證同級。
+          const snapS3 = await deps.getTenantS3(tenant.tenantId);
+          if (req.method === 'GET') {
+            const items = await listAppSnapshots(snapS3, deps.bucket, tenant.tenantId, appId);
+            return json(200, { items });
+          }
+          if (req.method === 'DELETE') {
+            const name = (req.query?.['name'] ?? '').trim();
+            if (!name) return json(400, { error: 'name 為必填' });
+            // 認不出形狀就拒絕:這個值來自 URL,不驗的話能用它刪掉該 App 前綴下的
+            // 任何物件(包括 App 自己的 metadata)。
+            const ok = await deleteAppSnapshot(snapS3, deps.bucket, tenant.tenantId, appId, name);
+            if (!ok) return json(400, { error: '不是合法的快照名稱' });
+            const items = await listAppSnapshots(snapS3, deps.bucket, tenant.tenantId, appId);
             return json(200, { items });
           }
           return json(405, { error: 'method not allowed' });

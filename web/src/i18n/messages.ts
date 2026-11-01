@@ -645,6 +645,8 @@ export type MessageKey =
   | 'tasks.runLong4'
   | 'tasks.runLongUnlimited'
   | 'tasks.runLongNote'
+  | 'tasks.snapUse'
+  | 'tasks.snapUseHint'
   | 'tasks.unlimited'
   | 'tasks.modelAgent'
   | 'tasks.modelVlm'
@@ -1341,6 +1343,8 @@ const zhHant: Catalog = {
   'tasks.runLong4': "長時:最多 4 段(約 9 小時)",
   'tasks.runLongUnlimited': "長時:不限段數(直到完成或手動停止)",
   'tasks.runLongNote': "長時模式每 140 分鐘自動換一條新連線接續,換線時遊戲會重新安裝、重新啟動:帳號與遊戲狀態可能重置(例如訪客帳號、餘額重新開始),報告依段分開計算 RTP。",
+  'tasks.snapUse': "從快照開始(已安裝、已登入)",
+  'tasks.snapUseHint': "有符合的快照時直接還原已安裝且已登入的狀態,省掉 AI 每次重走啟動器更新與登入。快照與 Android 版本、架構、解析度、App 版本綁定,任一不符就自動改為乾淨安裝。",
   'tasks.unlimited': '無上限',
   'tasks.modelAgent': '控制遊戲模型(Agent)',
   'tasks.modelVlm': '分析畫面模型(VLM)',
@@ -2036,6 +2040,8 @@ const en: Catalog = {
   'tasks.runLong4': "Long run: up to 4 sessions (~9 h)",
   'tasks.runLongUnlimited': "Long run: unlimited sessions (until done or stopped)",
   'tasks.runLongNote': "Long run opens a new session every 140 minutes. The game is reinstalled and relaunched each time, so the account and game state may reset (e.g. guest account, balance); the report computes RTP per session.",
+  'tasks.snapUse': "Start from a snapshot (installed and signed in)",
+  'tasks.snapUseHint': "Restores a saved state where the app is already installed and signed in, so the AI does not have to redo launcher updates and login every run. A snapshot is tied to the Android version, architecture, resolution and app build; if any of those differ, a clean install is used instead.",
   'tasks.unlimited': 'unlimited',
   'tasks.modelAgent': 'Game control model (Agent)',
   'tasks.modelVlm': 'Screen analysis model (VLM)',
@@ -2734,6 +2740,8 @@ const zhHans: Catalog = {
   'tasks.runLong4': "长时:最多 4 段(约 9 小时)",
   'tasks.runLongUnlimited': "长时:不限段数(直到完成或手动停止)",
   'tasks.runLongNote': "长时模式每 140 分钟自动换一条新连接接续,换线时游戏会重新安装、重新启动:账号与游戏状态可能重置(例如访客账号、余额重新开始),报告按段分开计算 RTP。",
+  'tasks.snapUse': "从快照开始(已安装、已登录)",
+  'tasks.snapUseHint': "有匹配的快照时直接还原已安装且已登录的状态,省掉 AI 每次重走启动器更新与登录。快照与 Android 版本、架构、分辨率、App 版本绑定,任一不符就自动改为干净安装。",
   'tasks.unlimited': '无上限',
   'tasks.modelAgent': '控制游戏模型(Agent)',
   'tasks.modelVlm': '分析画面模型(VLM)',
@@ -3429,6 +3437,8 @@ const ja: Catalog = {
   'tasks.runLong4': "長時間:最大 4 セッション(約 9 時間)",
   'tasks.runLongUnlimited': "長時間:無制限(完了または手動停止まで)",
   'tasks.runLongNote': "長時間モードは 140 分ごとに新しいセッションへ切り替えます。そのたびにゲームを再インストール・再起動するため、アカウントやゲーム状態(ゲストアカウント、残高など)がリセットされることがあります。RTP はセッションごとに計算します。",
+  'tasks.snapUse': "スナップショットから開始(インストール済み・ログイン済み)",
+  'tasks.snapUseHint': "条件に合うスナップショットがあれば、アプリがインストール済みでログイン済みの状態を復元し、ランチャーの更新やログインを毎回やり直さずに済みます。スナップショットは Android バージョン・アーキテクチャ・解像度・アプリのビルドに紐づいており、いずれかが異なる場合はクリーンインストールになります。",
   'tasks.unlimited': '無制限',
   'tasks.modelAgent': 'ゲーム操作モデル(Agent)',
   'tasks.modelVlm': '画面解析モデル(VLM)',
@@ -4124,6 +4134,8 @@ const ko: Catalog = {
   'tasks.runLong4': "장시간: 최대 4세션(약 9시간)",
   'tasks.runLongUnlimited': "장시간: 세션 수 무제한(완료 또는 수동 중지까지)",
   'tasks.runLongNote': "장시간 모드는 140분마다 새 세션으로 이어 갑니다. 매번 게임을 다시 설치·실행하므로 계정과 게임 상태(게스트 계정, 잔액 등)가 초기화될 수 있으며, 보고서는 세션별로 RTP를 계산합니다.",
+  'tasks.snapUse': "스냅샷에서 시작(설치·로그인 완료 상태)",
+  'tasks.snapUseHint': "조건이 맞는 스냅샷이 있으면 앱이 설치되고 로그인된 상태를 복원해, AI가 매번 런처 업데이트와 로그인을 다시 거치지 않습니다. 스냅샷은 Android 버전, 아키텍처, 해상도, 앱 빌드에 묶여 있어 하나라도 다르면 자동으로 클린 설치로 진행합니다.",
   'tasks.unlimited': '무제한',
   'tasks.modelAgent': '게임 제어 모델(Agent)',
   'tasks.modelVlm': '화면 분석 모델(VLM)',
