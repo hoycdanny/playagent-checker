@@ -679,6 +679,14 @@
 .tform .tasks__field > select:focus-visible,
 .tform .tasks__field > input:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 .tform .tasks__label { font-weight: 600; color: var(--text-primary); }
+/* 「從快照開始」:獨占一列。不佔「在哪裡跑」那一列的欄位額度 —— 那一列的 flex-basis
+   是 200px,放到第五欄就一定掉行(見 whereToRun.test.tsx)。 */
+.tform__snap {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
 /* 核選方塊:方塊包在 label 裡,就不是 .tasks__field 的直接子元素,
    不會被上面 `.tform .tasks__field > input { width: 100% }` 撐成整欄寬。 */
 .tasks__check {

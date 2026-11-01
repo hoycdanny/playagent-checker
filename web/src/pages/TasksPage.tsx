@@ -744,8 +744,12 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   </label>
                   {/* 從快照開始:省掉 AI 每次重走「啟動器 → 更新 → 登入 → 新手教學」。
                       快照與 Android 版本、架構、解析度、產物版本綁死,任一不符就自動
-                      走乾淨安裝,所以勾了也不會拿到不相容的狀態。 */}
-                  <div className="tasks__field">
+                      走乾淨安裝,所以勾了也不會拿到不相容的狀態。
+
+                      刻意「不」用 .tasks__field:那個 class 代表「在哪裡跑」那一列的一欄,
+                      而那一列最多放四欄(flex-basis 200px),第五欄會掉行。這個選項改成
+                      獨占一列,與底下的環境說明同一種處理。 */}
+                  <div className="tform__snap">
                     <label className="tasks__check">
                       <input type="checkbox" checked={snapUse} onChange={(e) => setSnapUse(e.target.checked)} />
                       <span className="tasks__label">{t('tasks.snapUse')}</span>

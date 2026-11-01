@@ -7,6 +7,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import MemoryPanel from '../components/memory/MemoryPanel.tsx';
 import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
+import SnapshotsPanel from '../components/apps/SnapshotsPanel.tsx';
 import { CredentialsPanel } from '../components/credentials/CredentialsPanel.tsx';
 import { outcomeClass, outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 // 案例/任務/報告分頁直接用獨立頁面的元件(傳 appId 進入嵌入模式),
@@ -422,6 +423,11 @@ export default function AppWorkspacePage() {
             tasks={tasks}
             onChanged={(next) => setApp(next as AppRecord)}
           />
+          {/* 快照放在版本底下:一份快照是綁在某個版本上的「已安裝 + 已登入」起點,
+              只有 Android 容器會建(iOS/Windows 沒有可外掛的 /data)。 */}
+          {(app?.platform ?? 'android') === 'android' && (
+            <SnapshotsPanel appId={appId} builds={app?.builds ?? []} />
+          )}
         </div>
       )}
 

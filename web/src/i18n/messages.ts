@@ -280,6 +280,12 @@ export type MessageKey =
   | 'workspace.buildActivate'
   | 'workspace.buildDelete'
   | 'workspace.buildDeleteConfirm'
+  | 'workspace.snapshots'
+  | 'workspace.snapshotsDesc'
+  | 'workspace.snapshotsEmpty'
+  | 'workspace.snapshotsLoading'
+  | 'workspace.snapDelete'
+  | 'workspace.snapDeleteConfirm'
   | 'workspace.buildRuns'
   | 'workspace.buildPick'
   | 'workspace.buildPickHint'
@@ -977,6 +983,12 @@ const zhHant: Catalog = {
   'workspace.buildActivate': "設為使用中",
   'workspace.buildDelete': "刪除",
   'workspace.buildDeleteConfirm': "刪除版本「{v}」?歷史報告不會受影響,但之後無法再用這一版重跑測試。",
+  'workspace.snapshots': "可測起點(快照)",
+  'workspace.snapshotsDesc': "Android 容器在測試通過後會自動存一份快照:App 已安裝、而且走過登入與新手教學。下次送出任務勾「從快照開始」就直接從這個狀態開始,省掉 AI 重走啟動器更新與登入。快照綁定下列五個條件,任一不符就自動改為乾淨安裝。",
+  'workspace.snapshotsEmpty': "還沒有快照。等這個應用有一次測試通過,就會自動存一份。",
+  'workspace.snapshotsLoading': "讀取快照中…",
+  'workspace.snapDelete': "刪除",
+  'workspace.snapDeleteConfirm': "刪除這份快照?下次測試會走完整安裝流程,並在通過後重新存一份。",
   'workspace.buildRuns': "測試 {n} 次",
   'workspace.buildPick': "測試版本",
   'workspace.buildPickHint': "預設測使用中的版本;要驗證回歸可以挑舊版。",
@@ -1674,6 +1686,12 @@ const en: Catalog = {
   'workspace.buildActivate': "Make active",
   'workspace.buildDelete': "Delete",
   'workspace.buildDeleteConfirm': "Delete build “{v}”? Existing reports are unaffected, but you will not be able to re-run tests on this build.",
+  'workspace.snapshots': "Reusable starting points (snapshots)",
+  'workspace.snapshotsDesc': "After a test passes, the Android container saves a snapshot: the app installed, signed in, and past the tutorial. Tick “Start from a snapshot” on the next run to begin from that state instead of having the AI redo launcher updates and login. A snapshot is tied to the five conditions below; if any differ, a clean install is used instead.",
+  'workspace.snapshotsEmpty': "No snapshots yet. One is saved automatically the first time a test on this app passes.",
+  'workspace.snapshotsLoading': "Loading snapshots…",
+  'workspace.snapDelete': "Delete",
+  'workspace.snapDeleteConfirm': "Delete this snapshot? The next run will do a full install and save a new one once it passes.",
   'workspace.buildRuns': "{n} run(s)",
   'workspace.buildPick': "Build to test",
   'workspace.buildPickHint': "Defaults to the active build; pick an older one to check for regressions.",
@@ -2375,6 +2393,12 @@ const zhHans: Catalog = {
   'workspace.buildActivate': "设为使用中",
   'workspace.buildDelete': "删除",
   'workspace.buildDeleteConfirm': "删除版本「{v}」?历史报告不会受影响,但之后无法再用这一版重跑测试。",
+  'workspace.snapshots': "可测起点(快照)",
+  'workspace.snapshotsDesc': "Android 容器在测试通过后会自动存一份快照:App 已安装,而且走过登录与新手教学。下次送出任务勾「从快照开始」就直接从这个状态开始,省掉 AI 重走启动器更新与登录。快照绑定下列五个条件,任一不符就自动改为干净安装。",
+  'workspace.snapshotsEmpty': "还没有快照。等这个应用有一次测试通过,就会自动存一份。",
+  'workspace.snapshotsLoading': "读取快照中…",
+  'workspace.snapDelete': "删除",
+  'workspace.snapDeleteConfirm': "删除这份快照?下次测试会走完整安装流程,并在通过后重新存一份。",
   'workspace.buildRuns': "测试 {n} 次",
   'workspace.buildPick': "测试版本",
   'workspace.buildPickHint': "默认测使用中的版本;要验证回归可以挑旧版。",
@@ -3071,6 +3095,12 @@ const ja: Catalog = {
   'workspace.buildActivate': "使用中にする",
   'workspace.buildDelete': "削除",
   'workspace.buildDeleteConfirm': "ビルド「{v}」を削除しますか?既存のレポートには影響しませんが、このビルドで再実行はできなくなります。",
+  'workspace.snapshots': "再利用できる開始状態(スナップショット)",
+  'workspace.snapshotsDesc': "テストが合格すると、Android コンテナはスナップショットを保存します(アプリはインストール済み・ログイン済み・チュートリアル済み)。次回の実行で「スナップショットから開始」にチェックを入れると、その状態から始められ、ランチャー更新やログインを AI がやり直す必要がありません。スナップショットは下記 5 つの条件に紐づき、いずれかが異なる場合はクリーンインストールになります。",
+  'workspace.snapshotsEmpty': "スナップショットはまだありません。このアプリのテストが初めて合格した時点で自動的に保存されます。",
+  'workspace.snapshotsLoading': "スナップショットを読み込み中…",
+  'workspace.snapDelete': "削除",
+  'workspace.snapDeleteConfirm': "このスナップショットを削除しますか?次回の実行はフルインストールになり、合格後に新しいスナップショットを保存します。",
   'workspace.buildRuns': "{n} 回実行",
   'workspace.buildPick': "テストするビルド",
   'workspace.buildPickHint': "既定は使用中のビルド。回帰確認には旧ビルドを選びます。",
@@ -3768,6 +3798,12 @@ const ko: Catalog = {
   'workspace.buildActivate': "사용 중으로 설정",
   'workspace.buildDelete': "삭제",
   'workspace.buildDeleteConfirm': "빌드 \"{v}\"을(를) 삭제할까요? 기존 보고서는 영향을 받지 않지만 이 빌드로 다시 실행할 수 없습니다.",
+  'workspace.snapshots': "재사용 가능한 시작 상태(스냅샷)",
+  'workspace.snapshotsDesc': "테스트가 통과하면 Android 컨테이너가 스냅샷을 저장합니다(앱 설치 완료, 로그인 완료, 튜토리얼 통과). 다음 실행에서 \"스냅샷에서 시작\"을 체크하면 그 상태에서 시작해, AI가 런처 업데이트와 로그인을 다시 거치지 않습니다. 스냅샷은 아래 다섯 가지 조건에 묶여 있어 하나라도 다르면 클린 설치로 진행합니다.",
+  'workspace.snapshotsEmpty': "아직 스냅샷이 없습니다. 이 앱의 테스트가 처음 통과하면 자동으로 저장됩니다.",
+  'workspace.snapshotsLoading': "스냅샷 불러오는 중…",
+  'workspace.snapDelete': "삭제",
+  'workspace.snapDeleteConfirm': "이 스냅샷을 삭제할까요? 다음 실행은 전체 설치를 수행하고 통과 후 새로 저장합니다.",
   'workspace.buildRuns': "{n}회 실행",
   'workspace.buildPick': "테스트할 빌드",
   'workspace.buildPickHint': "기본은 사용 중인 빌드입니다. 회귀 확인에는 이전 빌드를 선택하세요.",
