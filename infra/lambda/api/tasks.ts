@@ -47,6 +47,8 @@ export interface JobRecord {
   maxHours?: number;
   /** 畫面解析度(Windows:GameLift Streams 虛擬螢幕;寬高偶數、總像素 ≤ 1920×1080)。 */
   display?: JobDisplay;
+  /** 模擬器 per-app /data 快照的使用方式(見 JobSnapshot)。 */
+  snapshot?: JobSnapshot;
   /** 被測產物的完整 S3 key(emulator userdata 據此拉 APK)。 */
   artifactKey?: string;
   /** 這次測的版本標籤(顯示用;artifactVersion 是產物 id,不好讀)。 */
@@ -95,6 +97,48 @@ export interface JobRecord {
 export interface JobDisplay {
   width: number;
   height: number;
+}
+
+/**
+ * 模擬器 per-app /data 快照(只有 emulator 後端有;詳見 docs/design/emulator-snapshot.md)。
+ *
+ * 兩邊的預設不同,是刻意的:
+ *   - use 預設關:從快照開始會改變測試起點 —— 跳過安裝與登入,就測不到那段流程,
+ *     而那可能正是某個 case 的目的。所以要使用者明確要求。
+ *   - save 預設開:建立快照沒有副作用(只在任務 pass 時建),讓資產自然累積。
+ * run.sh 讀的是 `.snapshot.use == true` 與 `.snapshot.save == false`,
+ * 所以欄位不存在時剛好就是這組預設。
+ */
+export interface JobSnapshot {
+  use?: boolean;
+  save?: boolean;
+}
+
+/**
+ * 解析 snapshot 欄位。
+ *
+ * 只有 emulator 有 /data 快照;帶到別的後端時回 undefined 而不是悄悄存起來,
+ * 否則使用者會以為自己勾了卻完全沒作用(與 androidVersion/formFactor 同一個原則)。
+ * 兩個旗標都沒給就回 undefined,讓 job.json 保持乾淨、由 run.sh 的預設決定。
+ */
+export function parseSnapshot(raw: unknown, backend: Backend): JobSnapshot | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  if (backend !== 'emulator') return undefined;
+  if (typeof raw !== 'object') throw new ValidationError('snapshot 必須是 { use, save } 物件');
+  const r = raw as Record<string, unknown>;
+  const flag = (name: 'use' | 'save'): boolean | undefined => {
+    const v = r[name];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'boolean') throw new ValidationError(`snapshot.${name} 必須是 true/false`);
+    return v;
+  };
+  const use = flag('use');
+  const save = flag('save');
+  if (use === undefined && save === undefined) return undefined;
+  return {
+    ...(use !== undefined ? { use } : {}),
+    ...(save !== undefined ? { save } : {}),
+  };
 }
 
 /** GameLift Streams 單一 session 總像素上限(1920×1080)。 */
@@ -226,6 +270,8 @@ interface SubmitInput {
   maxHours?: number;
   /** Windows 畫面解析度。 */
   display?: JobDisplay;
+  /** 模擬器:per-app /data 快照旗標。 */
+  snapshot?: JobSnapshot;
   /** Device Farm:使用者明選的實體裝置 ARN(engine 依此挑真機而非取第一台)。 */
   deviceArn?: string;
   /** Device Farm:所選機型名稱(顯示用)。 */
@@ -286,6 +332,7 @@ export function validateSubmit(body: unknown): SubmitInput {
   const buildId =
     typeof rawBuild === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(rawBuild) ? rawBuild : undefined;
   const display = parseDisplay(b['display'], backend as Backend);
+  const snapshot = parseSnapshot(b['snapshot'], backend as Backend);
   // Device Farm 裝置選擇(僅 devicefarm 後端有意義;其他後端即使帶了也不落 job)。
   // deviceArn 需符合 Device Farm ARN 形狀,避免注入任意值。
   const rawDeviceArn = b['deviceArn'];
@@ -343,6 +390,7 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(maxSegments !== undefined ? { maxSegments } : {}),
     ...(maxHours !== undefined ? { maxHours } : {}),
     ...(display ? { display } : {}),
+    ...(snapshot ? { snapshot } : {}),
     ...(deviceArn ? { deviceArn } : {}),
     ...(deviceModel ? { deviceModel } : {}),
     ...(osVersion ? { osVersion } : {}),
@@ -388,6 +436,7 @@ export async function createJob(
     ...(input.maxSegments !== undefined ? { maxSegments: input.maxSegments } : {}),
     ...(input.maxHours !== undefined ? { maxHours: input.maxHours } : {}),
     ...(input.display ? { display: input.display } : {}),
+    ...(input.snapshot ? { snapshot: input.snapshot } : {}),
     ...(input.deviceArn ? { deviceArn: input.deviceArn } : {}),
     ...(input.deviceModel ? { deviceModel: input.deviceModel } : {}),
     ...(input.androidVersion ? { androidVersion: input.androidVersion } : {}),

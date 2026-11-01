@@ -188,6 +188,9 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
   // 模擬器:Android 版本與螢幕尺寸(螢幕尺寸決定 App 走手機或平板版面)。
   const [androidVersion, setAndroidVersion] = useState('15');
   const [emuScreen, setEmuScreen] = useState({ width: 1080, height: 1920 });
+  // 模擬器:從這個 App 的 /data 快照開始(已安裝、已登入)。預設關 —— 從快照起跑會
+  // 跳過安裝與登入,那段流程本身可能就是某個 case 要測的東西。
+  const [snapUse, setSnapUse] = useState(false);
   // Device Farm:挑手機還是平板(真機池兩種都有)。這一步會過濾下面的裝置清單。
   const [formFactor, setFormFactor] = useState<FormFactor>('PHONE');
   const [vlmModel, setVlmModel] = useState('');
@@ -414,6 +417,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         ...(backend === 'windows' ? { display } : {}),
         // 模擬器:Android 版本 + 螢幕尺寸(= 手機/平板版面)。
         ...(backend === 'emulator' ? { androidVersion, display: emuScreen } : {}),
+        // 模擬器:只在勾選時帶 use;save 不帶,沿用後端預設(pass 時自動更新快照)。
+        ...(backend === 'emulator' && snapUse ? { snapshot: { use: true } } : {}),
         // Device Farm:機型。沒有明選裝置時才有意義 —— 有 ARN 就已經決定是哪一台了。
         ...(backend === 'devicefarm' && !deviceArn ? { formFactor } : {}),
         // Device Farm:使用者明選的真機(空 = 引擎自動挑第一台可用)。附機型/版本供顯示。
@@ -737,6 +742,16 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   <label className="tasks__field">
                     <EmulatorScreenSelect value={emuScreen} onChange={setEmuScreen} labelClass="tasks__label" hintClass="tasks__field-hint" />
                   </label>
+                  {/* 從快照開始:省掉 AI 每次重走「啟動器 → 更新 → 登入 → 新手教學」。
+                      快照與 Android 版本、架構、解析度、產物版本綁死,任一不符就自動
+                      走乾淨安裝,所以勾了也不會拿到不相容的狀態。 */}
+                  <div className="tasks__field">
+                    <label className="tasks__check">
+                      <input type="checkbox" checked={snapUse} onChange={(e) => setSnapUse(e.target.checked)} />
+                      <span className="tasks__label">{t('tasks.snapUse')}</span>
+                    </label>
+                    <span className="tasks__field-hint">{t('tasks.snapUseHint')}</span>
+                  </div>
                 </>
               )}
 
