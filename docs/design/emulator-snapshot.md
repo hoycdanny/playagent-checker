@@ -177,6 +177,20 @@ tenants/<t>/apps/<appId>/snap-<artifactVersion>-<av>-<arch>-<w>x<h>.tar.zst
    權限範圍收在 `tenants/*/apps/*/snap-*`:App 自己的 metadata 是 `apps/<appId>.json`
    (路徑少一層)比對不到,被測 App 若能影響主機也刪不到別的測試資料。
 
+### 坑六:被測 App 是啟動器,快照裡會有兩個第三方包
+
+這個 App 不是遊戲本身,是個啟動器:使用者上傳的 `com.InterServ.G9_aos` 首次啟動會
+下載 1.36 GB,並**另外安裝一個** `com.igs.fafafa`(真正的遊戲)。所以「下載完成後」的
+快照裡有兩個第三方包。
+
+原本的包名選法是 `pm list packages -3 | head -1` —— 挑到哪一個是任意的。
+實測同一份快照,兩次任務分別啟動了不同的 App(一次 `com.InterServ.G9_aos`、
+一次 `com.igs.fafafa`),而報告上完全看不出來。這正好破壞快照的另一個目的
+(可重現的起點)。
+
+現在的規則:**job.json 的 `package` 若真的裝在機器上就用它**,否則才退回探測,
+而且不論哪一條路都把候選清單印出來。要測的是使用者上傳的那個產物,不是它裝出來的東西。
+
 ### 坑五:`aws s3 mv` 需要主機沒有的 `GetObjectTagging`
 
 第一版的上傳是「先寫 `<key>.part` 再 `aws s3 mv` 搬正」,理由是「上傳中斷留下的半份
@@ -226,14 +240,32 @@ operation: ... is not authorized to perform: s3:GetObjectTagging
 | 送出時帶 `snapshot.use` → job.json → run.sh | `job-mvx8ea4h-9z6h7c` | `use=1 save=1 restored=1`,並「沿用已安裝的 `com.InterServ.G9_aos`,跳過 APK 安裝」 |
 | 非 `pass` 時不建立 | 同上(`maxSteps=3` 必然 fail) | `snapshot: 不建立(save=1 state=fail …)` |
 | `pass` 時打包 | `job-mvxuuvj2-6wpzql` | tar+zstd 產出 817 MiB、上傳成功,但搬正失敗(見坑五)→ 已修 |
+| `pass` 時打包(修好後) | `job-mvy1w79z-xmfqd7` | `snapshot: 已建立(817 MB)`,物件由 157 MB 換成 857,061,954 bytes;打包到上傳完共 15 秒 |
+| 還原 857 MB 的快照 | `job-mvy2wufz-ycoont` | 2 步 pass(乾淨安裝要 7 步);下面的登入狀態證據就出自這一次 |
 
 跨機器也順帶驗到了:快照是 10-30 那台實驗機建的,還原是另外兩台任務主機做的。
 
+### 登入狀態:已驗證(原本列為未決)
+
+`job-mvy2wufz-ycoont` 還原快照後的第 1 步畫面,直接就是**已登入的遊戲大廳**:
+
+```
+帳號 りょう   餘額 5,379,522,350   SCORE 15   League 1st
+畫面:機台選擇大廳(Hot Slots / JACKPOT 3,750,000,000)
+提示:「Ready? Click to enter the game.」
+```
+
+沒有啟動器、沒有資源下載、沒有登入流程 —— 從開機到這個畫面只用了 2 步。
+相對地,乾淨安裝的同一個 case 要 7 步才到,而 `maxSteps=25` 的那次連大廳都沒進到
+(25 步全部花在資源下載的進度條上)。
+
+這同時回答了原本的兩個疑慮:**`shared_prefs` / `databases` 裡的 token 還原後 App 真的
+接受**(帳號與餘額都在),而且**不需要測試帳號也驗得出來** —— 快照本身就帶著那個 session。
+至於「裝置指紋綁定」的擔心,在 Redroid 上沒有發生。
+
 ## 未決 / 還沒驗的
 
-- **還原後 App 能不能真的「已登入」**:已證明 token 檔案存活,但沒有實際走過
-  「登入 → 快照 → 還原 → 確認仍登入」的完整迴圈(需要一組測試帳號與一次 AI 登入)。
-  檔案在不代表 App 一定接受(有些 App 綁裝置指紋,而 Redroid 的裝置 id 可能每次不同)。
+- ~~**還原後 App 能不能真的「已登入」**~~ 已驗證,見上面「登入狀態」。
 - **「下載完成後才建快照」目前只靠 `pass` 間接保證。** `pass` 代表 AI 走到了測試目標,
   通常意味著資源下載早就結束;但如果某個 case 的目標在下載完成前就達成(例如只驗
   「App 能啟動」),建出來的快照就會是下載未完成的狀態,而且看不出差別。
