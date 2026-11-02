@@ -78,7 +78,23 @@ buildspec 刻意**寫在 CDK 裡而不是放進倉庫**:更新器要能部署任
 ## 6. 已知限制
 
 - **單次最長 90 分鐘**(CodeBuild timeout)。正常一次約 10~15 分鐘;需要重建 runner 映像時會多幾分鐘。
-- **測試閘門目前只跑 web 與 worker**。`npm run test:infra` 有兩個與本功能無關的既有失敗(`app-credentials`、`emulatorCoordTransform`,後者是測試檔 import 舊的 `emulatorRunner.mjs` 導致 parse error),放進閘門會讓每次更新都被擋下。修好那兩個之後應該把它加回來。
+- ~~**測試閘門目前只跑 web 與 worker**~~ 已修(2026-11-02):`test:infra` 進閘門了。
+
+  先前排除它的理由是「有幾個與本功能無關的既有失敗」。查下去發現那個理由本身就是問題 ——
+  三個失敗都是真的,只是沒人去查:
+
+  | 失敗 | 真正的原因 |
+  | --- | --- |
+  | `emulatorCoordTransform` | `emulatorRunner.mjs` 開頭的 `#!/usr/bin/env node`。Node 自己會剝掉,但 vite 轉換「被 import 的模組」時不會 → `SyntaxError`,而錯誤指在 test 檔的 import 那一行,看起來跟那支檔案無關。 |
+  | `app-credentials` | `appCredentialsStore` 用 `localeCompare` 排序,結果取決於執行環境的 ICU 資料(實測 `'伺服器IP'.localeCompare('伺服器名稱')` 在 full-ICU 回 1、small-ICU 回 -1)。這個順序會進 engine 的 prompt,所以不只是測試會閃。 |
+  | `agent-team` | 斷言只讀第一個 prompt text block。prompt 快取把它拆成「固定前綴 + cachePoint + 動態部分」之後,元件清單跑到第二塊去了。 |
+
+  排除整組測試的代價很具體:infra 佔這個 repo 的大半,而它完全沒有閘門。實測有 5 個斷言
+  從 `b5753fe`(userdata 拆分)起就在測一個已經不含該邏輯的檔案,連續好幾次部署都沒被擋下來。
+
+  連帶把 `infra/vitest.config.ts` 的 `testTimeout` 從 30s 放寬到 120s:CDK synth 測試在
+  81 檔並行時實測要 31.8s,剛好卡在上限,會隨機失敗。逾時是用來抓「卡住不動」的,
+  不是效能預算 —— 閘門隨機擋下部署比跑久一點糟得多。
 - **不包含兩樣東西**:更新器自己(`PlayAgentDev-Updater`),以及 Windows 主機的 GameLift 應用套件(`worker/windows-host/gamelift/setup.mjs`,需要建 S3 桶與 GameLift 應用,權限過大)。這兩個維持人工部署。
 - **回滾方式是「更新到舊版本」**:在輸入框打舊的 tag 或 commit sha 即可。單一 stack 部署失敗時 CloudFormation 會自行回滾,但如果前面的 stack 成功、後面的失敗,已成功的不會被還原 —— 這時要手動更新回上一版。
 - **更新期間 API 會有數秒鐘的新舊版本混用**(Lambda 版本切換是逐一的),CloudFront 失效約 1~3 分鐘。對執行中的測試沒有影響,因為 runner 跑在自己的主機上。

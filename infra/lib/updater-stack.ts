@@ -258,10 +258,19 @@ function buildSpec(): Record<string, unknown> {
           'export PA_SHA="$(cat /tmp/sha)"',
           'npm ci',
           // 測試當閘門:不過就不部署(可由 PA_RUN_TESTS=0 跳過)。
-          // 這裡只跑 web 與 worker:infra 的測試會多次 cdk synth + esbuild bundling(約 5 分鐘),
-          // 且目前有兩個與本功能無關的既有失敗(app-credentials、emulatorCoordTransform),
-          // 放進閘門會讓每次更新都被擋下。修好那兩個之後應把 test:infra 加回來。
-          'if [ "$PA_RUN_TESTS" = "1" ]; then npm run test:web && npm run test:worker; else echo "skip tests"; fi',
+          //
+          // infra 也進閘門了(2026-11-02)。先前排除它的理由是「有幾個與本功能無關的
+          // 既有失敗」,但那個理由本身就是問題:三個失敗都是真的,只是沒人去查 ——
+          //   - emulatorRunner.mjs 的 shebang 讓 vite 轉換 import 時 parse error
+          //   - appCredentialsStore 用 localeCompare 排序,順序隨 ICU 資料變
+          //   - agent-team 的斷言只讀第一個 prompt text block(prompt 快取後被拆成兩塊)
+          // 排除整組測試的代價是:infra 佔這個 repo 的大半,而它完全沒有閘門。
+          // 實測有 5 個斷言從 b5753fe(userdata 拆分)起就在測一個已經不含該邏輯的檔案,
+          // 連續幾次部署都沒被擋下來。
+          //
+          // 代價是 build 多幾分鐘(多次 cdk synth + esbuild bundling)。timeout 已設 90 分鐘,
+          // 放得下。
+          'if [ "$PA_RUN_TESTS" = "1" ]; then npm run test:web && npm run test:worker && npm run test:infra; else echo "skip tests"; fi',
           // web/.env 不進版控:從已部署 stack 的 Outputs 產生(Cognito / API 位址在更新前後不變)。
           // 任何一個值缺少就中止,絕不部署沒有設定的前端。
           'aws cloudformation describe-stacks --stack-name "$PA_FOUNDATION_STACK" --query "Stacks[0].Outputs" --output json > /tmp/out-foundation.json',

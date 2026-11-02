@@ -84,3 +84,47 @@ describe('UpdaterStack — runner 映像建置角色', () => {
     t.hasOutput('ImageBuildRoleArn', {});
   });
 });
+
+/**
+ * 部署閘門:三個 workspace 的測試都要跑過才部署。
+ *
+ * 為什麼要把這件事釘在測試裡:infra 的測試原本被排除在閘門之外(理由是「有幾個與本功能
+ * 無關的既有失敗」),而 infra 佔這個 repo 的大半 —— 等於最大的一塊完全沒有閘門。
+ * 實測有 5 個斷言從 userdata 拆分那個 commit 起就在測一個已經不含該邏輯的檔案,
+ * 連續好幾次部署都沒被擋下來。把清單釘住,下次有人因為「測試很慢」或「有個失敗很煩」
+ * 想拿掉某一個 workspace 時,會先撞到這個測試。
+ */
+describe('UpdaterStack — 部署前的測試閘門', () => {
+  function buildSpecOf(t: Template): string {
+    const projects = t.findResources('AWS::CodeBuild::Project');
+    const p = Object.values(projects)[0];
+    expect(p).toBeDefined();
+    // BuildSpec 是一段 JSON 字串(CDK 會把它內嵌);直接比字串就夠,不需要解析結構。
+    return JSON.stringify(p!.Properties.Source.BuildSpec);
+  }
+
+  test('web / worker / infra 三組測試都在閘門裡', () => {
+    const spec = buildSpecOf(synth());
+    for (const s of ['npm run test:web', 'npm run test:worker', 'npm run test:infra']) {
+      expect(spec, `部署閘門少了 ${s}`).toContain(s);
+    }
+  });
+
+  test('測試不過就不部署(用 && 串,不是 ; 或 ||)', () => {
+    const spec = buildSpecOf(synth());
+    // `;` 會讓失敗被忽略、照樣往下部署,那就不是閘門了。
+    expect(spec).toContain('npm run test:web && npm run test:worker && npm run test:infra');
+  });
+
+  test('PA_RUN_TESTS=0 仍可跳過(救急用,預設是 1)', () => {
+    const t = synth();
+    expect(buildSpecOf(t)).toContain('$PA_RUN_TESTS');
+    t.hasResourceProperties('AWS::CodeBuild::Project', {
+      Environment: Match.objectLike({
+        EnvironmentVariables: Match.arrayWith([
+          Match.objectLike({ Name: 'PA_RUN_TESTS', Value: '1' }),
+        ]),
+      }),
+    });
+  });
+});

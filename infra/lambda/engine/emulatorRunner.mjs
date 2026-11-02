@@ -1,6 +1,12 @@
-#!/usr/bin/env node
 /**
- * emulator 主機自驅動 runner（專業級)—— 在 Redroid 主機上跑,由 emulator-userdata.sh 呼叫。
+ * emulator 主機自驅動 runner —— 在 Redroid 主機上跑,由 emulator-userdata.sh 呼叫。
+ *
+ * 【這裡不要加 shebang】這支檔案除了被 `node` 執行,也被 infra/test/emulatorCoordTransform.test.ts
+ * import(座標轉換的純函式)。Node 自己會剝掉開頭的 `#!`,但 vite 在轉換「被 import 的模組」時
+ * 不會 —— 於是 `#!/usr/bin/env node` 在測試裡變成 `SyntaxError: Invalid or unexpected token`,
+ * 而錯誤指在 test 檔的 import 那一行,看起來跟這支檔案毫無關係。
+ * 這個失敗讓 infra 測試整組被排除在部署閘門之外好幾個月(見 docs/design/self-update.md)。
+ * 反正這支只以 `node emulatorRunner.mjs` 啟動,沒有人用 `./emulatorRunner.mjs`,shebang 本來就沒作用。
  * 移植自 game-ai-qa OperatorAgent 的「看→決策→執行→判斷」迴圈,展現遊戲測試方案價值:
  *
  *   每一步:截圖 → 上傳原圖 + 標註圖(紅十字/動作標記) → 雲端 VLM(Claude)看圖判斷下一步
