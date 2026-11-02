@@ -95,7 +95,9 @@ buildspec 刻意**寫在 CDK 裡而不是放進倉庫**:更新器要能部署任
   連帶把 `infra/vitest.config.ts` 的 `testTimeout` 從 30s 放寬到 120s:CDK synth 測試在
   81 檔並行時實測要 31.8s,剛好卡在上限,會隨機失敗。逾時是用來抓「卡住不動」的,
   不是效能預算 —— 閘門隨機擋下部署比跑久一點糟得多。
-- **不包含兩樣東西**:更新器自己(`PlayAgentDev-Updater`),以及 Windows 主機的 GameLift 應用套件(`worker/windows-host/gamelift/setup.mjs`,需要建 S3 桶與 GameLift 應用,權限過大)。這兩個維持人工部署。
+- **不包含 Windows 主機的 GameLift 應用套件**(`worker/windows-host/gamelift/setup.mjs`,需要建 S3 桶與 GameLift 應用,權限過大)。維持人工部署。
+- **更新器自己是在最後一步更新的**,而且那一步失敗只會印 warning(平台已經更新成功了,不該因此標成失敗)。代價是:**改動 `updater-stack.ts` 要等下一次更新才生效** —— 這一次的 build 還是用舊的 buildspec 跑完,新的 buildspec 要到結束時才被部署進去。驗證更新器本身的改動時要跑兩次,第二次才看得到效果。
+  (舊版文件寫「不包含更新器自己」,那是在自我更新那一步加進來之前;真的卡住時仍可人工跑 `npm run upgrade:updater`。)
 - **回滾方式是「更新到舊版本」**:在輸入框打舊的 tag 或 commit sha 即可。單一 stack 部署失敗時 CloudFormation 會自行回滾,但如果前面的 stack 成功、後面的失敗,已成功的不會被還原 —— 這時要手動更新回上一版。
 - **更新期間 API 會有數秒鐘的新舊版本混用**(Lambda 版本切換是逐一的),CloudFront 失效約 1~3 分鐘。對執行中的測試沒有影響,因為 runner 跑在自己的主機上。
 - **GitHub API 速率限制**:用 token 時每小時 5000 次,管理頁每次開啟約 3 次呼叫,實務上碰不到。
