@@ -182,13 +182,13 @@ APK_KEY=$(jq -r '.artifactKey // empty' /tmp/job.json)
 PKG=$(jq -r '.package // .identifier // empty' /tmp/job.json)
 # 從快照還原時 App 已經裝好(而且帶著它的私有資料),跳過下載與安裝。
 #
-# 包名的選法:job.json 的 package 若真的裝在機器上就用它,否則才從裝置上問。
-# 這個順序很重要 —— 快照裡可能有「不只一個」第三方 App。實測這個被測 App 是個啟動器:
-# com.InterServ.G9_aos(使用者上傳的那個 APK)首次啟動會下載 1.36 GB 並**另外裝一個**
-# com.igs.fafafa(真正的遊戲)。於是快照裡有兩個第三方包,而 `pm list packages -3 | head -1`
-# 挑到哪一個是任意的 —— 同一份快照,兩次任務分別啟動了不同的 App。
-# 那正好破壞快照的另一個目的(可重現的起點),而且從報告上完全看不出來。
-# 規則定成「以使用者上傳的那個為準」:要測的是那個產物,不是它裝出來的東西。
+# 包名:job.json 的 package 若真的裝在機器上就用它,否則從裝置上問。多數 App 的
+# job.json 沒有 package(App 設定裡的「識別碼」是選填,留空就靠安裝後推斷),所以
+# 實際上幾乎都走探測這條。
+#
+# 候選清單一定要印出來。快照路徑不會下載 APK,所以「機器上這個 App 是不是真的就是
+# 這次要測的產物」在這裡是沒有辦法從 APK 驗的 —— 唯一的線索就是這行 log。
+# 下面的 PKG_MARK 檢查是為了讓這件事不只是線索(見那段註解)。
 if [ "$SNAP_RESTORED" = 1 ]; then
   INSTALLED=$($ADB shell pm list packages -3 2>/dev/null | sed 's/package://' | tr -d '\r' \
     | grep -viE 'inputmethod|webview|gboard')
@@ -201,6 +201,31 @@ if [ "$SNAP_RESTORED" = 1 ]; then
     [ -n "$SNAP_PKG" ] && [ -n "$PKG" ] \
       && echo "snapshot: job.json 的 $PKG 不在快照裡,退而使用 $SNAP_PKG"
   fi
+  # 快照裡的包名標記 vs 實際裝的:不符就是「這份快照不是這個產物建的」。
+  #
+  # 為什麼需要這道檢查:快照 key 帶 artifactVersion,但那只是檔名 —— 沒有任何東西把
+  # 快照的「內容」綁到那個產物。實測踩到過:一份手動放進去的實驗快照裝的是
+  # com.InterServ.G9_aos,而該 key 的產物 art-mva92xdd-s6il77 其實裝的是
+  # com.igs.fafafa。主機照樣還原、跳過安裝、啟動了那個完全不同的 App,
+  # 而報告上寫的是 art-mva92xdd-s6il77 —— 整份報告在測一個不是被測對象的東西,
+  # 從結果完全看不出來。這比「快照壞掉」嚴重:壞掉會失敗,這個會給出看似正常的假資料。
+  #
+  # 標記寫在歸檔裡(不是另一個 S3 物件),所以不會有「快照在、標記不見」的錯配。
+  # 舊快照沒有標記 → 放行但明講,不要為了這個把既有資產全部作廢。
+  PKG_MARK=""
+  [ -f "$RD_DATA/.playagent-package" ] && PKG_MARK=$(tr -d ' \r\n' < "$RD_DATA/.playagent-package")
+  if [ -z "$PKG_MARK" ]; then
+    echo "snapshot: 這份快照沒有包名標記(建立於此檢查之前),無法確認它屬於本次產物"
+  elif [ "$PKG_MARK" != "$SNAP_PKG" ]; then
+    echo "snapshot: 包名不符(標記=$PKG_MARK 實際=$SNAP_PKG)→ 這份快照不是本產物建的,刪掉並改為乾淨安裝"
+    aws s3 rm "s3://$BUCKET/$SNAP_KEY" || true
+    SNAP_RESTORED=0
+    SNAP_PKG=""
+    PKG=""
+    rm -rf "$RD_DATA"; mkdir -p "$RD_DATA"
+  fi
+fi
+if [ "$SNAP_RESTORED" = 1 ]; then
   if [ -n "$SNAP_PKG" ]; then
     PKG="$SNAP_PKG"
     echo "snapshot: 沿用已安裝的 $PKG,跳過 APK 安裝"
@@ -209,8 +234,9 @@ if [ "$SNAP_RESTORED" = 1 ]; then
     # 快照還原了但 App 不在:那份快照是壞的(或是用不同 APK 建的)。
     # 退回乾淨安裝,並把壞快照刪掉,免得下次再踩。
     echo "snapshot: 還原後找不到第三方 App,視為壞快照 → 刪掉並改為乾淨安裝"
-    aws s3 rm "s3://$BUCKET/$SNAP_KEY" 2>/dev/null || true
+    aws s3 rm "s3://$BUCKET/$SNAP_KEY" || true
     SNAP_RESTORED=0
+    rm -rf "$RD_DATA"; mkdir -p "$RD_DATA"
   fi
 fi
 if [ -n "$APK_KEY" ]; then
@@ -315,6 +341,11 @@ if [ "$SNAP_SAVE" = "1" ] && [ "$ST" = "pass" ] && [ -n "$SNAP_KEY" ]; then
   echo "snapshot: 任務 pass,開始建立快照 $SNAP_KEY"
   $ADB shell sync 2>/dev/null || true
   docker stop android 2>/dev/null || true
+  # 把包名寫進歸檔:還原時用它確認「這份快照屬於這個產物」。
+  # key 裡的 artifactVersion 只是檔名,綁不住內容 —— 不check 的話,一份不相干的快照
+  # 會讓整次測試在測別的 App,而報告看起來完全正常(見還原那段的註解)。
+  # 寫在 docker stop 之後:容器還在跑的話 Android 可能把它蓋掉。
+  printf '%s' "$PKG" > "$RD_DATA/.playagent-package"
   if tar -C "$RD_DATA" -cf - . | zstd -3 -T0 -o /tmp/newsnap.tar.zst; then
     SNAP_MB=$(( $(stat -c%s /tmp/newsnap.tar.zst) / 1048576 ))
     # 直接寫最終 key,不走「暫存 .part 再搬正」。

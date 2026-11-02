@@ -216,16 +216,29 @@ describe('emulator run.sh 與白名單的一致性', () => {
    * 那一招本來也沒有必要:S3 不會讓讀取者看到寫到一半的物件,中斷時舊快照原封不動。
    */
   /**
-   * 還原快照後要啟動「使用者上傳的那個 App」,不是裝置上第一個第三方包。
+   * 快照必須證明自己屬於這個產物。
    *
-   * 2026-11-01 實測:這個被測 App 是啟動器 —— com.InterServ.G9_aos 首次啟動會下載
-   * 1.36 GB 並另外裝一個 com.igs.fafafa(真正的遊戲)。快照裡因此有兩個第三方包,
-   * 而 `pm list packages -3 | head -1` 挑到哪一個是任意的:同一份快照,兩次任務分別
-   * 啟動了不同的 App。那會破壞快照的另一個目的(可重現的起點),報告上也看不出來。
+   * 2026-11-01 實測踩到的:快照 key 帶 artifactVersion,但那只是檔名 —— 沒有任何東西
+   * 把快照的「內容」綁到那個產物。一份手動放進去的實驗快照裝的是 com.InterServ.G9_aos,
+   * 而該 key 的產物 art-mva92xdd-s6il77 實際裝的是 com.igs.fafafa。主機照樣還原、
+   * 跳過安裝、啟動了那個不相干的 App,報告上卻寫著 art-mva92xdd-s6il77。
+   *
+   * 這比「快照壞掉」嚴重:壞掉會失敗,這個會給出看似正常的假資料。
+   * 所以打包時把包名寫進歸檔,還原後比對,不符就刪掉改乾淨安裝。
    */
-  test('還原後以 job.json 的 package 為準(快照裡可能有不只一個第三方 App)', () => {
+  test('打包時把包名寫進歸檔,還原後比對(不符就是別的產物的快照)', () => {
+    expect(sh).toContain('> "$RD_DATA/.playagent-package"');
+    expect(sh).toContain('$RD_DATA/.playagent-package');
+    expect(sh).toMatch(/PKG_MARK" != "\$SNAP_PKG/);
+    // 不符要真的退回乾淨安裝,不能只印一行警告就照樣跑。
+    expect(sh).toMatch(/包名不符[\s\S]{0,400}SNAP_RESTORED=0/);
+    // 舊快照沒有標記時要放行(否則既有資產全部作廢),但必須講出來。
+    expect(sh).toContain('沒有包名標記');
+  });
+
+  test('還原後優先用 job.json 的 package,並印出候選清單', () => {
     expect(sh).toContain('grep -qxF "$PKG"');
-    // 挑到的候選要印出來,否則「為什麼啟動了別的 App」只能靠猜。
+    // 快照路徑不下載 APK,所以「裝的是不是該測的那個」唯一的線索就是這行 log。
     expect(sh).toContain('snapshot: 快照內的第三方 App');
   });
 

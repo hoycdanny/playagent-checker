@@ -48,8 +48,13 @@ APK 下載加安裝只佔 10 秒(7%)。同區域 S3 到 EC2 有 46 MB/s,而 `ins
 所以快照的價值比原本寫的更大:它同時省掉 1.36 GB 下載、20 分鐘機器時間,和上百次
 看進度條的 VLM 呼叫。**但也因此多了一個前提:快照必須是「資源下載完成之後」的狀態。**
 在下載完成前建立的快照幾乎沒有價值 —— 還原後遊戲照樣要重新下載。
-(2026-10-30 那份實驗快照就是這種:只裝了 APK、啟動一下就打包,所以用它跑任務和
-乾淨安裝一樣慢。這不是 bug,是當時實驗沒跑到那麼後面。)
+
+實際的對比(同一個 case 「進入遊戲大廳」):
+
+| 起點 | 到 pass 的步數 |
+| --- | --- |
+| 乾淨安裝 | 7 步(另一次 `maxSteps=25` 的嘗試 25 步全花在進度條上,沒進到大廳) |
+| 下載完成後的快照(857 MB) | **2 步** |
 
 附帶一個同樣重要的好處:**起點一致性**。現在每次測試都從乾淨安裝開始,AI 每次走到
 登入後的路徑不完全相同,所以「測同一個功能」的起點其實是浮動的。快照給出可重現的起點,
@@ -65,6 +70,11 @@ data_mb_after_boot=30           Redroid 自己初始化的 /data
 pkg_installed=[com.InterServ.G9_aos]
 pkg_after_restore=[com.InterServ.G9_aos]   從 S3 還原後 App 還在
 ```
+
+> 注意這裡的包名是 `com.InterServ.G9_aos`。那是這次實驗自己抓的 APK,**不是**
+> App `app-mva95wxf-camd57` 目前的產物(`art-mva92xdd-s6il77` 裝的是 `com.igs.fafafa`)。
+> 當時沒注意到這件事,而實驗產出的快照又被放到以那個 artifactVersion 命名的 key 上,
+> 後來就踩出坑六。
 
 壓縮比約 2.8 倍(265 MB → 93 MB;App 啟動後 351 MB → 149 MB)。
 打包 2 秒、上傳 3 秒、下載 2 秒、解開 2 秒 —— 都不是瓶頸。
@@ -177,19 +187,35 @@ tenants/<t>/apps/<appId>/snap-<artifactVersion>-<av>-<arch>-<w>x<h>.tar.zst
    權限範圍收在 `tenants/*/apps/*/snap-*`:App 自己的 metadata 是 `apps/<appId>.json`
    (路徑少一層)比對不到,被測 App 若能影響主機也刪不到別的測試資料。
 
-### 坑六:被測 App 是啟動器,快照裡會有兩個第三方包
+### 坑六:快照 key 帶 artifactVersion,但沒有任何東西綁住「內容」
 
-這個 App 不是遊戲本身,是個啟動器:使用者上傳的 `com.InterServ.G9_aos` 首次啟動會
-下載 1.36 GB,並**另外安裝一個** `com.igs.fafafa`(真正的遊戲)。所以「下載完成後」的
-快照裡有兩個第三方包。
+這是目前找到最嚴重的一個,因為它不會失敗 —— 它會給出看似正常的假資料。
 
-原本的包名選法是 `pm list packages -3 | head -1` —— 挑到哪一個是任意的。
-實測同一份快照,兩次任務分別啟動了不同的 App(一次 `com.InterServ.G9_aos`、
-一次 `com.igs.fafafa`),而報告上完全看不出來。這正好破壞快照的另一個目的
-(可重現的起點)。
+事情是這樣發現的:還原同一個 key 的快照,兩次任務回報的包名不一樣,一次
+`com.InterServ.G9_aos`、一次 `com.igs.fafafa`。查下去才知道**不是挑錯**,而是
+那個 key 底下的檔案被換過:
 
-現在的規則:**job.json 的 `package` 若真的裝在機器上就用它**,否則才退回探測,
-而且不論哪一條路都把候選清單印出來。要測的是使用者上傳的那個產物,不是它裝出來的東西。
+- `art-mva92xdd-s6il77` 這個產物(使用者上傳的 split APK)實際安裝的是
+  `com.igs.fafafa`(`XPKG=com.igs.fafafa`,`am start -n com.igs.fafafa/.SlotsActivity`)。
+- 但 10-30 那份手動放進去的實驗快照裝的是 `com.InterServ.G9_aos` —— 另一個 APK。
+  它被放在 `snap-art-mva92xdd-s6il77-…` 這個 key 上,所以主機照樣還原、跳過安裝、
+  啟動了那個完全不相干的 App,而報告寫的是 `art-mva92xdd-s6il77`。
+
+**整份報告在測一個不是被測對象的東西,而從結果完全看不出來。** 快照 key 裡的
+`artifactVersion` 只是檔名;快照路徑不下載 APK,所以沒有機會用 APK 去核對。
+
+(順帶推翻一個我自己寫過的猜測:這個 App **不是**「啟動器另外裝一個遊戲」。
+1.36 GB 下載是 `com.igs.fafafa` 下載自己的資源,全程只有一個第三方包。
+猜測是從「兩次任務包名不同」倒推來的,方向錯了 —— 真正的變因是快照檔案被換過。)
+
+**修法**:打包時把包名寫進歸檔(`/data/.playagent-package`),還原後跟實際裝的比對,
+不符就當壞快照刪掉並改乾淨安裝。標記寫在歸檔裡而不是另一個 S3 物件,所以不會有
+「快照在、標記不見」的錯配。舊快照沒有標記 → 放行但在 log 明講,不為了這個把既有
+資產全部作廢。
+
+包名本身的選法也一併講清楚:`job.json` 的 `package` 若真的裝在機器上就用它,否則探測。
+多數 App 的 `job.json` 沒有 `package`(App 設定的「識別碼」是選填),所以實際上
+幾乎都走探測 —— 這也是為什麼候選清單一定要印出來。
 
 ### 坑五:`aws s3 mv` 需要主機沒有的 `GetObjectTagging`
 
@@ -237,7 +263,7 @@ operation: ... is not authorized to perform: s3:GetObjectTagging
 
 | 路徑 | 任務 | 結果 |
 | --- | --- | --- |
-| 送出時帶 `snapshot.use` → job.json → run.sh | `job-mvx8ea4h-9z6h7c` | `use=1 save=1 restored=1`,並「沿用已安裝的 `com.InterServ.G9_aos`,跳過 APK 安裝」 |
+| 送出時帶 `snapshot.use` → job.json → run.sh | `job-mvx8ea4h-9z6h7c` | `use=1 save=1 restored=1`,並「沿用已安裝的 `com.InterServ.G9_aos`,跳過 APK 安裝」(包名不對 —— 這一次就是坑六,當時沒看出來) |
 | 非 `pass` 時不建立 | 同上(`maxSteps=3` 必然 fail) | `snapshot: 不建立(save=1 state=fail …)` |
 | `pass` 時打包 | `job-mvxuuvj2-6wpzql` | tar+zstd 產出 817 MiB、上傳成功,但搬正失敗(見坑五)→ 已修 |
 | `pass` 時打包(修好後) | `job-mvy1w79z-xmfqd7` | `snapshot: 已建立(817 MB)`,物件由 157 MB 換成 857,061,954 bytes;打包到上傳完共 15 秒 |
@@ -255,7 +281,7 @@ operation: ... is not authorized to perform: s3:GetObjectTagging
 提示:「Ready? Click to enter the game.」
 ```
 
-沒有啟動器、沒有資源下載、沒有登入流程 —— 從開機到這個畫面只用了 2 步。
+沒有資源下載、沒有登入流程、沒有新手教學 —— 從開機到這個畫面只用了 2 步。
 相對地,乾淨安裝的同一個 case 要 7 步才到,而 `maxSteps=25` 的那次連大廳都沒進到
 (25 步全部花在資源下載的進度條上)。
 
