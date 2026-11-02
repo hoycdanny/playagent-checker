@@ -215,6 +215,20 @@ describe('emulator run.sh 與白名單的一致性', () => {
    *
    * 那一招本來也沒有必要:S3 不會讓讀取者看到寫到一半的物件,中斷時舊快照原封不動。
    */
+  /**
+   * 還原快照後要啟動「使用者上傳的那個 App」,不是裝置上第一個第三方包。
+   *
+   * 2026-11-01 實測:這個被測 App 是啟動器 —— com.example.gameB 首次啟動會下載
+   * 1.36 GB 並另外裝一個 com.example.gameA(真正的遊戲)。快照裡因此有兩個第三方包,
+   * 而 `pm list packages -3 | head -1` 挑到哪一個是任意的:同一份快照,兩次任務分別
+   * 啟動了不同的 App。那會破壞快照的另一個目的(可重現的起點),報告上也看不出來。
+   */
+  test('還原後以 job.json 的 package 為準(快照裡可能有不只一個第三方 App)', () => {
+    expect(sh).toContain('grep -qxF "$PKG"');
+    // 挑到的候選要印出來,否則「為什麼啟動了別的 App」只能靠猜。
+    expect(sh).toContain('snapshot: 快照內的第三方 App');
+  });
+
   test('快照直接寫最終 key,不走 .part 搬正(mv 需要主機沒有的 GetObjectTagging)', () => {
     expect(sh).toContain('aws s3 cp /tmp/newsnap.tar.zst "s3://$BUCKET/$SNAP_KEY"');
     expect(sh).not.toContain('$SNAP_KEY.part');

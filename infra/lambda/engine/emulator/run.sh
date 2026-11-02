@@ -181,11 +181,26 @@ writestatus running "android booted, installing APK" 0; uplog
 APK_KEY=$(jq -r '.artifactKey // empty' /tmp/job.json)
 PKG=$(jq -r '.package // .identifier // empty' /tmp/job.json)
 # 從快照還原時 App 已經裝好(而且帶著它的私有資料),跳過下載與安裝。
-# 包名改從裝置上問,不要相信 job.json —— 快照是用某個產物版本建的,而 job.json 的
-# package 欄位可能是空的(靠安裝後推斷)。
+#
+# 包名的選法:job.json 的 package 若真的裝在機器上就用它,否則才從裝置上問。
+# 這個順序很重要 —— 快照裡可能有「不只一個」第三方 App。實測這個被測 App 是個啟動器:
+# com.example.gameB(使用者上傳的那個 APK)首次啟動會下載 1.36 GB 並**另外裝一個**
+# com.example.gameA(真正的遊戲)。於是快照裡有兩個第三方包,而 `pm list packages -3 | head -1`
+# 挑到哪一個是任意的 —— 同一份快照,兩次任務分別啟動了不同的 App。
+# 那正好破壞快照的另一個目的(可重現的起點),而且從報告上完全看不出來。
+# 規則定成「以使用者上傳的那個為準」:要測的是那個產物,不是它裝出來的東西。
 if [ "$SNAP_RESTORED" = 1 ]; then
-  SNAP_PKG=$($ADB shell pm list packages -3 2>/dev/null | sed 's/package://' | tr -d '\r' \
-    | grep -viE 'inputmethod|webview|gboard' | head -1)
+  INSTALLED=$($ADB shell pm list packages -3 2>/dev/null | sed 's/package://' | tr -d '\r' \
+    | grep -viE 'inputmethod|webview|gboard')
+  echo "snapshot: 快照內的第三方 App:$(echo "$INSTALLED" | tr '\n' ' ')"
+  SNAP_PKG=""
+  if [ -n "$PKG" ] && echo "$INSTALLED" | grep -qxF "$PKG"; then
+    SNAP_PKG="$PKG"
+  else
+    SNAP_PKG=$(echo "$INSTALLED" | head -1)
+    [ -n "$SNAP_PKG" ] && [ -n "$PKG" ] \
+      && echo "snapshot: job.json 的 $PKG 不在快照裡,退而使用 $SNAP_PKG"
+  fi
   if [ -n "$SNAP_PKG" ]; then
     PKG="$SNAP_PKG"
     echo "snapshot: 沿用已安裝的 $PKG,跳過 APK 安裝"
