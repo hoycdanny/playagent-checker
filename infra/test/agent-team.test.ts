@@ -58,7 +58,12 @@ describe('decision agent (decideAction)', () => {
     const r = await team.decideAction({ ...base, index: 5, operator: ['先關公告'] });
     expect(r!.cmd).toEqual({ action: 'tap', target: '關閉 ✕', x: 980, y: 60 });
     expect(r!.decision).toMatchObject({ forStep: 5, goal: '關掉公告', expect: '回到大廳', scriptStep: 2 });
-    const prompt = calls[0]!.input.messages[0]!.content[0]!.text;
+    // prompt 被拆成「固定前綴 + cachePoint + 每步會變的部分」兩個 text block(省 prompt 快取的錢),
+    // 所以要把所有 text block 併起來看。只讀 content[0] 會只看到固定前綴(腳本、操作方式、
+    // 背景知識),元件清單與測試人員指令都在後面那一塊 —— 這個測試就是這樣壞掉的。
+    const prompt = calls[0]!.input.messages[0]!.content
+      .map((c: { text?: string }) => c.text ?? '')
+      .join('\n\n');
     for (const s of ['[2] 關閉 ✕(close)', '可用動作只有:tap / move', '先關公告', 'tap → START']) expect(prompt).toContain(s);
     expect(JSON.parse(puts.get('p/traces/5-agent.json')!)).toMatchObject({ index: 5, seat: 'agent', ok: true });
     expect(team.tokens.agent).toEqual({ input: 100, output: 20, cacheRead: 0, cacheWrite: 0 });

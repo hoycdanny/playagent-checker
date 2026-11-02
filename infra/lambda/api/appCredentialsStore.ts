@@ -67,6 +67,19 @@ export interface CredentialListItem {
   visible: boolean;
 }
 
+/**
+ * key 排序:用碼位比較,不用 `localeCompare`。
+ *
+ * `localeCompare` 的結果取決於執行環境的 ICU 資料。實測 `'伺服器IP'.localeCompare('伺服器名稱')`
+ * 在 full-ICU 的 Node 回 1、在 small-ICU 的建置回 -1 —— 同一組憑證在不同機器上順序相反。
+ * 這不只是測試會閃:`readVisibleCredentials` 的結果會被 engine 注入 prompt,順序變動等於
+ * 每台主機送給模型的 prompt 不一樣,而「可重現的起點」是這個系統的賣點之一。
+ * 顯示順序漂亮一點不值得拿這個換。
+ */
+function byKey(a: { key: string }, b: { key: string }): number {
+  return a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+}
+
 /** 列出某 App 已設定的憑證 {key, visible}(依 key 排序;永不回值)。 */
 export async function listAppCredentials(
   writer: SecretWriter,
@@ -76,7 +89,7 @@ export async function listAppCredentials(
   const all = await readAll(writer, tenantId, appId);
   return Object.entries(all)
     .map(([key, e]) => ({ key, visible: e.visible }))
-    .sort((a, b) => a.key.localeCompare(b.key));
+    .sort(byKey);
 }
 
 /**
@@ -92,7 +105,7 @@ export async function readVisibleCredentials(
   return Object.entries(all)
     .filter(([, e]) => e.visible)
     .map(([key, e]) => ({ key, value: e.value }))
-    .sort((a, b) => a.key.localeCompare(b.key));
+    .sort(byKey);
 }
 
 /** 設定/更新某 key 的值 + 可見性(merge 進現有 JSON,upsert)。回更新後的 {key,visible} 清單。 */
@@ -110,7 +123,7 @@ export async function putAppCredential(
   await writer.putSecretValue(name, JSON.stringify(all));
   return Object.entries(all)
     .map(([k, e]) => ({ key: k, visible: e.visible }))
-    .sort((a, b) => a.key.localeCompare(b.key));
+    .sort(byKey);
 }
 
 /** 刪除某 key(整組空了就刪整個 secret)。回剩餘 {key,visible} 清單。 */
@@ -123,7 +136,7 @@ export async function deleteAppCredential(
   const name = appCredentialsSecretName(tenantId, appId);
   const all = await readAll(writer, tenantId, appId);
   if (!(key in all)) {
-    return Object.entries(all).map(([k, e]) => ({ key: k, visible: e.visible })).sort((a, b) => a.key.localeCompare(b.key));
+    return Object.entries(all).map(([k, e]) => ({ key: k, visible: e.visible })).sort(byKey);
   }
   delete all[key];
   const remaining = Object.keys(all);
@@ -134,5 +147,5 @@ export async function deleteAppCredential(
   await writer.putSecretValue(name, JSON.stringify(all));
   return Object.entries(all)
     .map(([k, e]) => ({ key: k, visible: e.visible }))
-    .sort((a, b) => a.key.localeCompare(b.key));
+    .sort(byKey);
 }
