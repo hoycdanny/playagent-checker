@@ -1479,6 +1479,10 @@ async function main() {
       try { shotB64 = await client.takeScreenshot(); } catch { shotB64 = null; } finally { liveBusy = false; }
       if (!shotB64) break;
       polls++;
+      // 速率取樣要在「畫面變了就 return」之前。放在後面的話,每次都提早離開的情況
+      // (畫面在兩個狀態之間閃)永遠累積不到第二個取樣點,rxBps 就一直是 null,
+      // 於是即使真的在下載也拿不到證據、永遠只走 15 秒的短 hold。
+      await dlProbe.sample();
       const ph = pHashHex(shotB64);
       if (!ph) break;
       const d = pHashHamming(basePhash, ph);
@@ -1488,7 +1492,6 @@ async function main() {
         console.log(`[loading] 畫面變了(${d} bit ≥ ${LOADING_DIFF_BITS}):等了 ${Math.round((Date.now() - t0) / 1000)}s,省下 ${polls} 次模型呼叫,下載 ${mbps(dlProbe.bps)}`);
         return shotB64;
       }
-      await dlProbe.sample();
       if (Date.now() - statusAt > 30_000) {
         statusAt = Date.now();
         const note = dlProbe.downloading ? `遊戲正在下載資源(${mbps(dlProbe.bps)})` : '畫面仍在載入';
