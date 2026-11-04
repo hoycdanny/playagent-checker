@@ -1485,7 +1485,7 @@ async function main() {
       if (d >= LOADING_DIFF_BITS) {
         loadingHeldMs += Date.now() - t0;
         loadingSavedCalls += polls;
-        console.log(`[loading] 畫面變了(${d} bit ≥ ${LOADING_DIFF_BITS}):等了 ${Math.round((Date.now() - t0) / 1000)}s,省下 ${polls} 次模型呼叫`);
+        console.log(`[loading] 畫面變了(${d} bit ≥ ${LOADING_DIFF_BITS}):等了 ${Math.round((Date.now() - t0) / 1000)}s,省下 ${polls} 次模型呼叫,下載 ${mbps(dlProbe.bps)}`);
         return shotB64;
       }
       await dlProbe.sample();
@@ -2134,6 +2134,9 @@ async function main() {
     else if (loadingStreak === 1) await dlProbe.sample(); // 先建立基準,hold 的第一輪才量得到
     // 裝置還在大量收位元組 = 真的在下載,不是卡死。這兩種情況在畫面上分不出來。
     const downloading = dlProbe.downloading;
+    // 每個載入步印一行:要判斷「為什麼等這麼久 / 為什麼重啟了」就得看得到這個讀數。
+    // `?` 代表量不到(非 Android、或 /proc/net/dev 讀不到),那時一律當成沒有下載證據。
+    if (looksLoading) console.log(`[loading] streak=${loadingStreak} 下載 ${mbps(dlProbe.bps)}${downloading ? ' (視為下載中)' : ''}`);
     // 本步有測試人員指令:AI 正照人的指示操作,runner 的自動覆寫(強制等待/脫困/強制走位)讓路。
     const operatorDirected = newCmds.length > 0;
     const allowRecovery = loadingStreak >= LOADING_RECOVER_AFTER && (cmd.action === 'back' || cmd.action === 'launch');
