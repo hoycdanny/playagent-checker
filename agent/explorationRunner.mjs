@@ -53,6 +53,7 @@ import { createDeviceLogs } from './deviceLogs.mjs';
 import { nextDeadline } from './deadlineLease.mjs';
 import { createAgentTeam, normalizeElements, screenFromSeen, scriptSteps, VISION_ELEMENTS_NOTE } from './agentTeam.mjs';
 import { createTakeover } from './takeover.mjs';
+import { createDownloadProbe } from './downloadProbe.mjs';
 import { createScriptTracker, DEFAULT_ITEM_BUDGET } from './scriptTracker.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapAsync, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
@@ -1148,6 +1149,44 @@ async function main() {
   let appRestarts = 0; // runner 主動重啟 App 次數
   const LOADING_RECOVER_AFTER = 12; // 之後開放 AI 用 back/launch 脫困
   const LOADING_RESTART_AFTER = Number(process.env.PA_LOADING_RESTART || 20); // 之後 runner 主動重啟 App
+
+  // ── 載入/下載畫面:不要用模型盯著進度條 ─────────────────────────────────
+  // 實測 job-mvxtpxj7:被測遊戲首次啟動要下載 1,364,076,377 bytes(1.36 GB),
+  // 速率約 1.2 MB/s,將近 20 分鐘。原本每步約 11 秒、每步一次 VLM 呼叫,於是
+  // maxSteps=25 的整個預算全花在一條進度條上,連遊戲大廳都沒進到。
+  // 詳見 docs/design/emulator-snapshot.md。
+  //
+  // 改法:確認在載入畫面之後,就地輪詢「截圖 + pHash」—— 這條路不花模型錢 ——
+  // 只有畫面真的變了才交回模型。hold 回來的那張順便當下一步的預抓圖。
+  //
+  // 門檻是量出來的,不是猜的。拿那次任務的畫面兩兩比 pHash(1024 bit):
+  //   同一個下載畫面、只有進度條與數字在動 :   6 ~  58 bit
+  //   下載畫面 → 下載確認對話框            :        560 bit
+  //   下載畫面 → 遊戲大廳                  : 459 ~ 461 bit
+  // 兩群之間差五倍以上,160 放中間,兩邊都有很大餘裕。
+  const LOADING_HOLD_MS = Math.max(0, Number(process.env.PA_LOADING_HOLD_MS ?? 90_000));
+  // 沒有下載證據時只等短的 —— 見下面 holdMs 的註解(重啟是數步數的,hold 越長越晚觸發)。
+  const LOADING_HOLD_SHORT_MS = Math.max(0, Number(process.env.PA_LOADING_HOLD_SHORT_MS ?? 15_000));
+  const LOADING_POLL_MS = Math.max(1000, Number(process.env.PA_LOADING_POLL_MS ?? 5000));
+  const LOADING_DIFF_BITS = Math.max(1, Number(process.env.PA_LOADING_DIFF_BITS ?? 160));
+  // 第一步就 hold 太躁:模型偶爾把一般畫面說成「載入中」。連續兩步都這麼說才開始等。
+  const LOADING_HOLD_FROM = 2;
+  // 判定「正在下載」的速率門檻(bytes/s)。1.2 MB/s 的實測值離 150 KB/s 很遠,
+  // 而閒置時的背景流量遠低於它。
+  const DOWNLOAD_RX_BPS = Math.max(0, Number(process.env.PA_DOWNLOAD_RX_BPS ?? 150_000));
+  let loadingHeldMs = 0; // 本次任務在載入畫面就地等待的總時間(收尾統計用)
+  let loadingSavedCalls = 0; // 因此省下的模型呼叫次數(每次輪詢等於省一次)
+
+  // 「還在下載」與「真的卡死」在畫面上長得一樣(見 downloadProbe.mjs)。
+  // 只有 Android 讀得到 /proc/net/dev;其他平台 shell 傳 undefined,探測器一律回「不知道」,
+  // 行為退回成「沒有下載證據」= 只做短 hold、照原本的規則重啟。
+  const dlProbe = createDownloadProbe({
+    shell: PLATFORM === 'android' && typeof client.shell === 'function'
+      ? (cmd, timeoutMs) => client.shell(cmd, timeoutMs)
+      : undefined,
+    thresholdBps: DOWNLOAD_RX_BPS,
+  });
+  const mbps = (bps) => (bps === null ? '?' : `${(bps / 1_048_576).toFixed(2)} MB/s`);
   const WAIT_ABORT_LIMIT = 40; // 連續 wait ~40 次(每輪約數秒,約略對應 2-3 分鐘耐心)上限
   // 連續「VLM 回應無法解析」次數上限:這代表模型本身輸出有問題(非畫面載入),給較短的
   // 耐心(10 次)就中止,避免解析失敗被誤判成功之外,也不要在模型持續壞輸出時無限空等。
@@ -1409,6 +1448,57 @@ async function main() {
       }
       if (deferred) return;
     }
+  };
+
+  /**
+   * 載入/下載畫面上就地等待,不花模型呼叫。
+   *
+   * 回「下一步可以直接用的截圖」(所以也順便完成預抓),或 null。
+   * 任一條成立就回去交給模型:
+   *   - 畫面相對 basePhash 變化 ≥ LOADING_DIFF_BITS(離開載入畫面了)
+   *   - 測試人員下了指令 / 任務被取消 / 到了收尾時間
+   *   - 等滿 maxMs
+   *
+   * 每輪順便取樣下載速率:restart 的判斷要用它(見 LOADING_RESTART_AFTER 那段),
+   * 而且寫進狀態訊息,前端才不會看起來像卡住 —— 一條 20 分鐘的進度條若畫面與訊息
+   * 都不動,使用者只會以為任務死了。
+   */
+  const holdWhileLoading = async (basePhash, maxMs) => {
+    const t0 = Date.now();
+    let shotB64 = null;
+    let polls = 0;
+    let statusAt = 0;
+    while (Date.now() - t0 < maxMs) {
+      const left = maxMs - (Date.now() - t0);
+      await sleepOrOperator(Math.min(LOADING_POLL_MS, left));
+      if (pendingCmds.length) break;
+      if (Number.isFinite(deadlineMs) && Date.now() >= deadlineMs) break;
+      if (await cancelRequested(2000)) break;
+      for (let w2 = 0; liveBusy && w2 < 40; w2++) await sleep(50);
+      liveBusy = true;
+      try { shotB64 = await client.takeScreenshot(); } catch { shotB64 = null; } finally { liveBusy = false; }
+      if (!shotB64) break;
+      polls++;
+      const ph = pHashHex(shotB64);
+      if (!ph) break;
+      const d = pHashHamming(basePhash, ph);
+      if (d >= LOADING_DIFF_BITS) {
+        loadingHeldMs += Date.now() - t0;
+        loadingSavedCalls += polls;
+        console.log(`[loading] 畫面變了(${d} bit ≥ ${LOADING_DIFF_BITS}):等了 ${Math.round((Date.now() - t0) / 1000)}s,省下 ${polls} 次模型呼叫`);
+        return shotB64;
+      }
+      await dlProbe.sample();
+      if (Date.now() - statusAt > 30_000) {
+        statusAt = Date.now();
+        const note = dlProbe.downloading ? `遊戲正在下載資源(${mbps(dlProbe.bps)})` : '畫面仍在載入';
+        await writeStatus('running', `${note},已等 ${Math.round((Date.now() - t0) / 1000)} 秒`, steps.length).catch(() => {});
+      }
+    }
+    loadingHeldMs += Date.now() - t0;
+    loadingSavedCalls += polls;
+    if (polls > 0) console.log(`[loading] 等滿 ${Math.round((Date.now() - t0) / 1000)}s 畫面仍是載入中(省下 ${polls} 次模型呼叫,下載 ${mbps(dlProbe.bps)})`);
+    return shotB64;
   };
 
   /**
@@ -2039,10 +2129,21 @@ async function main() {
     // 允許 AI 的 back/launch 脫困,並由 runner 主動重啟 App(實測 AI 的 launch 一直被改成 wait,永遠出不去)。
     // 不看 pHash:Config Ready 這類畫面有持續動畫,「畫面有變」不代表流程有進展。
     loadingStreak = looksLoading ? loadingStreak + 1 : 0;
+    // 離開載入畫面就把速率基準清掉,下一次進載入畫面重新量。
+    if (!looksLoading) dlProbe.reset();
+    else if (loadingStreak === 1) await dlProbe.sample(); // 先建立基準,hold 的第一輪才量得到
+    // 裝置還在大量收位元組 = 真的在下載,不是卡死。這兩種情況在畫面上分不出來。
+    const downloading = dlProbe.downloading;
     // 本步有測試人員指令:AI 正照人的指示操作,runner 的自動覆寫(強制等待/脫困/強制走位)讓路。
     const operatorDirected = newCmds.length > 0;
     const allowRecovery = loadingStreak >= LOADING_RECOVER_AFTER && (cmd.action === 'back' || cmd.action === 'launch');
-    if (looksLoading && loadingStreak >= LOADING_RESTART_AFTER && effectivePkg && appRestarts < 3) {
+    // 正在下載就不要重啟 App:重啟只是讓它重新連一次,下載慢不等於卡死。
+    // 實測 1.36 GB 的首次下載會連續觸發三次重啟(streak 20/40/60),每次 8 秒加上
+    // 重新導航,純粹是浪費,而且重啟後 AI 還要重走一遍流程。
+    if (looksLoading && loadingStreak >= LOADING_RESTART_AFTER && downloading) {
+      console.log(`[loading] 已在載入畫面 ${loadingStreak} 步,但裝置仍在下載(${mbps(dlProbe.bps)})—— 不重啟,繼續等`);
+    }
+    if (looksLoading && loadingStreak >= LOADING_RESTART_AFTER && effectivePkg && appRestarts < 3 && !downloading) {
       appRestarts++;
       loadingStreak = 0;
       console.log(`[recover] 載入畫面卡住 ${LOADING_RESTART_AFTER} 步,重啟 App(第 ${appRestarts} 次)`);
@@ -2945,6 +3046,29 @@ async function main() {
       if (lastBattleMove) await sleep(300);
       else {
         await sleepOrOperator(cmd.reflex ? REFLEX_SETTLE_MS : SETTLE_MS);
+        // 【載入畫面就地等】確認在載入/下載畫面時,不要每 11 秒就花一次模型呼叫去看
+        // 同一條進度條 —— 改成在這裡輪詢截圖,畫面真的變了才回去交給模型。
+        //
+        // hold 多久看「有沒有下載在進行」:
+        //   有  → 一次等 LOADING_HOLD_MS(90 秒)。20 分鐘的下載只花十幾次呼叫。
+        //   沒有→ 只等 LOADING_HOLD_SHORT_MS(15 秒)。沒有證據就不要把卡死的偵測拖慢:
+        //         重啟是靠 loadingStreak 數步數觸發的,hold 越長就越晚到。
+        // 收尾階段(wrapUpAsked)與剛被 runner 重啟時不等,那兩種情況要立刻交回模型。
+        const holdMs = !MAGICK || !curPhash || wrapUpAsked || escapeOverride
+          ? 0
+          : (looksLoading && loadingStreak >= LOADING_HOLD_FROM)
+            ? (downloading ? LOADING_HOLD_MS : LOADING_HOLD_SHORT_MS)
+            : 0;
+        if (holdMs > 0 && !pendingShot && !pendingCmds.length) {
+          // 留 30 秒給收尾:hold 不可以把任務拖過 deadline,否則主機的保險關機會直接
+          // 把 runner 殺掉,報告與終態都不會寫(任務永遠卡在「執行中」)。
+          const room = Number.isFinite(deadlineMs) ? deadlineMs - Date.now() - 30_000 : Infinity;
+          const budget = Math.min(holdMs, Math.max(0, room));
+          if (budget > 0) {
+            const held = await holdWhileLoading(curPhash, budget);
+            if (held) pendingShot = held;
+          }
+        }
         // 【預抓下一張】趁這裡把下一步要用的截圖抓好(取圖本身要數秒,期間畫面也在繼續穩定)。
         // 下一步直接用這張,省掉一次串列的 Appium 取圖。
         // 有新指令待處理時不預抓(那條路要最新畫面);liveBusy 旗標避免與即時串流搶同一條 session。
@@ -2997,6 +3121,11 @@ async function main() {
   // 步調統計:各段耗時的中位數 + 模型與流程開銷的佔比。用來確認加速有沒有生效、
   // 以及下一輪該從哪裡再省(之前完全沒有這些數字,只能從 durationMs 反推)。
   logPaceSummary(steps);
+  // 載入畫面就地等待省下多少:沒有這個數字就沒辦法說「這招到底有沒有用」。
+  if (loadingHeldMs > 0) {
+    console.log(`[loading] 在載入/下載畫面就地等了 ${Math.round(loadingHeldMs / 1000)}s,省下約 ${loadingSavedCalls} 次模型呼叫`
+      + `(同樣的時間照原本每步一次呼叫的話會是 ${loadingSavedCalls + steps.length} 次左右)`);
+  }
 
   // 報告 + 終態。
   console.log(memTrace.summaryLog());
