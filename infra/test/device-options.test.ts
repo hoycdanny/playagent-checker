@@ -242,6 +242,35 @@ describe('emulator run.sh 與白名單的一致性', () => {
     expect(sh).toContain('snapshot: 快照內的第三方 App');
   });
 
+  /**
+   * 打包前要等資源下載結束。
+   *
+   * save 是在任務 pass 時觸發的,而「App 能啟動」「進得去大廳」這類 case 可能在遊戲的
+   * 資源還沒下載完就通過了。那樣打出來的快照還原後照樣要重新下載,但大小、檔名、清單
+   * 全都看不出差別 —— 之後每次任務都用一份沒有價值的快照,而且沒人知道為什麼還是慢。
+   */
+  test('打包前等網路靜止(只在真的有流量時等,而且有上限)', () => {
+    expect(sh).toContain('snap_wait_quiet');
+    // 排除 lo:adb 自己的流量走迴圈介面,算進去就永遠不會「靜止」,每次都等滿上限。
+    expect(sh).toMatch(/\$1=="lo"\) next/);
+    // 只收純數字:否則 `cat: ...: No such file` 會被 awk 當成 0 bytes,
+    // 「讀不到」變成「讀到 0」,速率算出垃圾(與 downloadProbe.mjs 的 parseRxBytes 同一套規則)。
+    expect(sh).toMatch(/a\[1\] ~ \/\^\[0-9\]\+\$\//);
+    // 一定要有上限,否則下載卡住的機器會一直燒到 TTL。
+    expect(sh).toContain('SNAP_WAIT_MAX');
+    expect(sh).toMatch(/elapsed" -lt "\$SNAP_WAIT_MAX/);
+    // 要連續兩次安靜才收手:下載常有短暫空檔(換檔案、解壓),一次就收會在半路打包。
+    expect(sh).toMatch(/quiet" -ge 2/);
+  });
+
+  test('等待期間不可以寫 status —— 那會把 runner 寫的終態蓋掉', () => {
+    // run.sh 的 writestatus 是直接覆寫 S3,沒有終態吸收(那是 API 端 writeStatus 才有的)。
+    // 在 pass 之後寫 running,任務就會永遠顯示「執行中」而且沒有報告。
+    const block = sh.slice(sh.indexOf('snap_wait_quiet()'), sh.indexOf('docker stop android', sh.indexOf('snap_wait_quiet()')));
+    expect(block.length).toBeGreaterThan(0);
+    expect(block).not.toContain('writestatus');
+  });
+
   test('快照直接寫最終 key,不走 .part 搬正(mv 需要主機沒有的 GetObjectTagging)', () => {
     expect(sh).toContain('aws s3 cp /tmp/newsnap.tar.zst "s3://$BUCKET/$SNAP_KEY"');
     expect(sh).not.toContain('$SNAP_KEY.part');

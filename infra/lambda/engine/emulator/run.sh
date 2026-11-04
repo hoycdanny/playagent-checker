@@ -339,6 +339,62 @@ if [ "$ST" = "running" ] || [ -z "$ST" ]; then writestatus error "runner exited 
 # 而那正是登入狀態所在。先 sync 再 stop。
 if [ "$SNAP_SAVE" = "1" ] && [ "$ST" = "pass" ] && [ -n "$SNAP_KEY" ]; then
   echo "snapshot: 任務 pass,開始建立快照 $SNAP_KEY"
+  # 先等資源下載結束,再打包。
+  #
+  # 為什麼需要:save 是在任務 pass 時觸發的,而「App 能啟動」「進得去大廳」這類 case
+  # 可能在遊戲的資源還沒下載完就通過了。那樣打出來的快照還原後照樣要重新下載,
+  # 但它跟一份完整的快照長得一模一樣 —— 大小、檔名、清單全都看不出差別。
+  # 結果是之後每一次任務都用一份沒有價值的快照,而且沒人知道為什麼還是那麼慢。
+  #
+  # 訊號跟 runner 用的是同一個:/proc/net/dev 的累計接收量。**一定要排除 lo** ——
+  # adb 自己的流量就走迴圈介面,算進去的話永遠不會「靜止」,這裡就會每次都等滿上限。
+  # 詳見 agent/downloadProbe.mjs。
+  #
+  # 刻意「不」在這裡寫 status:runner 已經寫了終態(pass),而這支腳本的 writestatus
+  # 是直接覆寫 S3,沒有終態吸收 —— 寫 running 會把 pass 蓋掉,任務看起來永遠在跑。
+  # 測試結果在 runner 結束時就定案了,快照只是副產物,等多久都不該影響它。
+  SNAP_WAIT_MAX=${SNAP_WAIT_MAX:-600}
+  SNAP_QUIET_BPS=${SNAP_QUIET_BPS:-150000}
+  # 這段 awk 跟 agent/downloadProbe.mjs 的 parseRxBytes() 是同一套規則(排除 lo、
+  # 只收純數字、讀不到回空而不是 0)。那邊有 17 項單元測試;改這裡的話兩邊要一起改。
+  #
+  # 只收「冒號後第一欄是純數字」的行。不檢查的話錯誤訊息本身會被讀成數字:
+  # `cat: /proc/net/dev: No such file` 有冒號、第一欄是 /proc/net/dev,awk 把非數字
+  # 當 0,於是「讀不到」會變成「讀到 0 bytes」—— 接著速率算出垃圾,而且不會走
+  # 「讀不到就直接打包」那條路。用 n 當旗標而不是看 s,全新介面真的是 0 也算讀到了。
+  # 驗過的輸入:真實三介面格式 / 數字緊貼冒號 / 只有 lo / cat 的兩種錯誤訊息 /
+  # 空輸入 / 全新介面 0 bytes。
+  rx_bytes() {
+    $ADB shell cat /proc/net/dev 2>/dev/null | tr -d '\r' \
+      | awk -F: 'NF>1 { gsub(/ /,"",$1); if ($1=="lo") next; split($2,a," "); if (a[1] ~ /^[0-9]+$/) { s+=a[1]; n++ } } END { if (n) printf "%d", s }'
+  }
+  snap_wait_quiet() {
+    local prev cur rate elapsed=0 quiet=0
+    prev=$(rx_bytes)
+    if [ -z "$prev" ]; then echo "snapshot: 讀不到 /proc/net/dev,不等下載,直接打包"; return 0; fi
+    while [ "$elapsed" -lt "$SNAP_WAIT_MAX" ]; do
+      sleep 5; elapsed=$((elapsed + 5))
+      cur=$(rx_bytes)
+      if [ -z "$cur" ]; then echo "snapshot: 讀數中斷,直接打包"; return 0; fi
+      # 計數器變小 = 介面被重建,沒有東西可等。
+      if [ "$cur" -lt "$prev" ]; then rate=0; else rate=$(( (cur - prev) / 5 )); fi
+      prev=$cur
+      if [ "$rate" -lt "$SNAP_QUIET_BPS" ]; then
+        quiet=$((quiet + 1))
+        # 要連續兩次安靜才算完:下載常有短暫的空檔(換檔案、解壓),一次就收手會
+        # 在半路把快照打下去。
+        if [ "$quiet" -ge 2 ]; then
+          echo "snapshot: 網路已靜止($((rate / 1024)) KB/s),開始打包(等了 ${elapsed}s)"
+          return 0
+        fi
+      else
+        quiet=0
+        echo "snapshot: 還在下載($((rate / 1024)) KB/s),等資源下載完再打包(已等 ${elapsed}s)"
+      fi
+    done
+    echo "snapshot: 等了 ${SNAP_WAIT_MAX}s 網路仍未靜止,照樣打包 —— 這份快照可能不完整"
+  }
+  snap_wait_quiet
   $ADB shell sync 2>/dev/null || true
   docker stop android 2>/dev/null || true
   # 把包名寫進歸檔:還原時用它確認「這份快照屬於這個產物」。
