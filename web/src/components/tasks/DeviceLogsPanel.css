@@ -16,11 +16,14 @@
 .devlogs__agent {
   margin: 0;
 }
+/* 內容區拿欄位剩下的高度。min-height 不能留 0:這三個都是 overflow: auto 的捲動容器,
+   捲動容器的自動最小高度是 0,欄位一變矮就會被壓成一兩行(連一行 log 都讀不完)。
+   明寫下限 → 擠不下時改由外層(.dstage__logs)捲動,內容至少還讀得到。 */
 .devlogs > .devlogs__log,
 .devlogs > .devlogs__agent-wrap,
 .devlogs > .devlogs__table-wrap {
   flex: 1 1 0;
-  min-height: 0;
+  min-height: 180px;
   max-height: none;
 }
 .devlogs__head {

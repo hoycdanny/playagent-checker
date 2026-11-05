@@ -271,6 +271,11 @@ export default function TaskDetailPage() {
   // 終局後仍顯示指令紀錄(若本次有下過指令)。
   const hasCommands = steps.some((s) => Array.isArray(s.operatorCommands) && s.operatorCommands.length > 0);
   const showChat = !!jobId && (isLive || hasCommands);
+  // 這次有沒有接管過(runner 在接管的那一步寫 by='operator' + takeover=true,
+  // 報告引擎也是看這兩個欄位)。沒接管過就別畫「存成測試案例」那一塊:
+  // 絕大多數任務沒接管,那塊會變成純佔位 —— 它跟完整日誌同一欄,擠掉的是日誌的高度,
+  // 換來的只是一顆按下去才告訴你「這裡沒東西」的按鈕。steps 本來就在手上,不必多打一次 API。
+  const hasTakeover = steps.some((s) => s.takeover === true || s.by === 'operator');
   const stepNo = latestStep ? latestStep.index + 1 : 0;
   // 遊戲音效音量時間軸(Device Farm 真機才有):標出每一步有沒有音效。
   const audioLevels = useAudioLevels(jobId, isLive, backend === 'devicefarm');
@@ -700,8 +705,8 @@ export default function TaskDetailPage() {
                   {...(isWindows ? { hostLog } : {})}
                   cursorStep={cursorStep}
                 />
-                {/* 【學習 B】接管錄到的手動操作 → 存成可重跑的測試案例。 */}
-                <TakeoverScriptSave jobId={jobId} {...(appId ? { appId } : {})} />
+                {/* 【學習 B】接管錄到的手動操作 → 存成可重跑的測試案例(這次有接管過才出現)。 */}
+                {hasTakeover && <TakeoverScriptSave jobId={jobId} {...(appId ? { appId } : {})} />}
               </div>
             ) : null
           ) : midTab === 'analysis' ? (

@@ -18,6 +18,10 @@ export interface Step {
   annotatedUrl?: string;
   x?: number;
   y?: number;
+  // 以下兩個欄位後端本來就有回(報告引擎也在用),之前只是沒宣告:
+  // 測試人員接管時 runner 會在那一步寫 by='operator' + takeover=true。
+  by?: string;
+  takeover?: boolean;
   [key: string]: unknown;
 }
 
