@@ -1431,14 +1431,25 @@
   flex-direction: column;
   overflow: hidden;
 }
+/* 完整日誌:日誌面板(上)+「把手動操作存成測試案例」的接管區塊(下)。
+   這裡擋的是跑版:接管區塊的根節點也掛 .dstage__panel,會吃到上面那條「分頁面板填滿整欄」
+   的 flex: 1 1 0,於是跟日誌面板各拿一半高度;日誌那一半先被標題、分頁列、篩選列、行數列
+   吃掉,log 本體自己是捲動容器(捲動容器的自動最小高度是 0)就被壓到只剩一兩行,而擠不下
+   的固定列又從沒有 overflow 的 .devlogs 溢出去,正好疊在接管區塊的標題上。
+   所以接管區塊只拿自然高度;日誌面板用 min-content 保住「固定列 + log 下限」的高度,
+   湊不出來時讓整欄自己捲動 —— 寧可多捲一下,也不要把日誌壓扁或把接管區塊裁掉。 */
 .dstage__logs {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .dstage__logs > .devlogs {
   flex: 1 1 0;
-  min-height: 0;
+  min-height: min-content;
+}
+.dstage__logs > .dstage__panel {
+  flex: none;
 }
 .dstage__side .taskask {
   flex: 1 1 0;
