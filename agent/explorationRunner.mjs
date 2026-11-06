@@ -1726,8 +1726,8 @@ async function main() {
 
     // 卡住偵測:本步 pHash 與上一步比,幾乎相同(<40 bit)視為畫面沒變。
     const curPhash = MAGICK ? timed(tm, 'phash', () => pHashHex(shot)) : null;
+    const hadPrevPhash = Boolean(lastPhash);
     const screenChanged = lastPhash && curPhash ? pHashHamming(lastPhash, curPhash) > 40 : true;
-    if (lastPhash && !screenChanged) stuckCount++; else stuckCount = 0;
     lastPhash = curPhash;
     // 細粒度變化訊號(死循環護欄專用,不影響 stuckCount 的卡住偵測):
     // pHash 回答「是不是換了畫面」,這裡回答「畫面上有沒有任何東西動了」。兩者門檻不同、用途不同,
@@ -1744,6 +1744,13 @@ async function main() {
     // 擋掉三種誤判(卡死判定、死循環計數、把它當成遊戲缺陷),並告訴 AI 怎麼在看不見的情況下
     // 完成輸入。誤判成「全黑」的代價很小(少數幾步不計入護欄),所以門檻取寬鬆一點。
     const blankFrame = curGrid ? frameIsBlank(curGrid) === true : false;
+    // 卡住偵測的計數:遮黑期間一律凍住(不累計也不歸零)。
+    // 連續好幾張「全黑而且一模一樣」的截圖會讓 stuckCount 一路衝高,接著觸發下面兩段脫困邏輯:
+    // 先把 AI 要打的字改成 wait,再開始亂點與按 back —— 在登入畫面上那會把彈窗關掉、前面輸入
+    // 的帳號全部白做。遮黑是已知的暫時狀態(密碼欄位聚焦中),不是畫面卡住。
+    if (!blankFrame) {
+      if (hadPrevPhash && !screenChanged) stuckCount++; else stuckCount = 0;
+    }
     // 任一訊號看到動靜就歸零。拿不到格子訊號時退回只看 pHash(等同舊行為)。
     // 遮黑期間不累計:一張全黑不變的畫面會讓這個計數一路衝到硬停止點,把登入流程整段砍掉。
     quietCount = i === 0 || blankFrame
@@ -2260,7 +2267,9 @@ async function main() {
     // 載入畫面連續停留計數:卡太久(如倖存者 Config Ready 等 SDK 回調卡死)時,
     // 允許 AI 的 back/launch 脫困,並由 runner 主動重啟 App(實測 AI 的 launch 一直被改成 wait,永遠出不去)。
     // 不看 pHash:Config Ready 這類畫面有持續動畫,「畫面有變」不代表流程有進展。
-    loadingStreak = looksLoading ? loadingStreak + 1 : 0;
+    // 遮黑的畫面不是載入畫面:AI 有時會把全黑的截圖命名成「載入中/黑畫面」,若讓它累計
+    // loadingStreak,撐滿 20 步就會重啟 App,把登入流程與已輸入的帳密一起丟掉。
+    loadingStreak = looksLoading && !blankFrame ? loadingStreak + 1 : 0;
     // 離開載入畫面就把速率基準清掉,下一次進載入畫面重新量。
     if (!looksLoading) dlProbe.reset();
     else if (loadingStreak === 1) await dlProbe.sample(); // 先建立基準,hold 的第一輪才量得到
@@ -2378,7 +2387,13 @@ async function main() {
     // 2026-10-04:不再要求高信心才放行——實測大廳機台列表空白時,AI 想點分類/展開鈕卻被
     // 「先等待」連續蓋掉 20 步。非載入畫面一律讓 AI 自己換位置嘗試,耐心期過後才進 runner 脫困輪換。
     const letAiTry = !looksLoading && cmd.action !== 'wait' && stuckCount < 20;
-    if (stuckCount >= 3 && !looksSlotSpin && !letAiTry && !operatorDirected) {
+    // 兩個額外的放行條件(2026-11-06):
+    //   loadingWaitCapped:上面的「強制等待」已經用完耐心、決定這一步放行讓 AI 試 ——
+    //     如果這裡又把動作改成 wait,那個放行等於沒有發生(上限形同無效,客訴「連續幾步只做 wait」
+    //     就會繼續出現)。
+    //   blankFrame:畫面被系統遮黑時,stuckCount 已經凍住,但保險起見這裡也不介入 ——
+    //     遮黑期間要讓 AI 用 type + submit 自己走出去,不能把它改成 wait、更不能亂點或按 back。
+    if (stuckCount >= 3 && !looksSlotSpin && !letAiTry && !operatorDirected && !loadingWaitCapped && !blankFrame) {
       // (A) 安裝/載入階段:給長耐心 —— 前 STUCK_WAIT_STEPS 輪一律 wait(每輪 sleep 已 3s,
       //     配合此處額外 wait 動作,等於給數十秒到 1-2 分鐘讓安裝/載入完成),不亂點。
       const STUCK_WAIT_STEPS = 20; // 卡住的前 20 輪(約 60-100s)只等待,不亂點

@@ -141,7 +141,10 @@ export interface EvidenceStep {
   actual?: string;
   /** Assertion(由下一步 AI 依新畫面判定 expect 是否達成)。 */
   assertion?: Assertion;
-  /** 動作後畫面是否有可見變化(pHash,確定性)。 */
+  /**
+   * 動作後畫面是否有可見變化(確定性)。訊號為「落點附近 / 細粒度格子 / pHash」的聯集,
+   * 見 report/engine.ts 的 effectiveSignal;畫面被系統遮黑的步驟為 undefined(無法判斷)。
+   */
   effective?: boolean;
   /** AI 對本步判斷/座標的信心 0~1。 */
   confidence?: number;
