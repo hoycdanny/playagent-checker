@@ -694,6 +694,9 @@ async function main() {
       // 三個 Agent 協作:這一步的動作是誰決定的、視覺 Agent 原本想做什麼、決策花了多久。
       ...(cmd.decidedBy ? { decidedBy: cmd.decidedBy } : {}),
       ...(cmd.visionSuggested ? { visionSuggested: cmd.visionSuggested } : {}),
+      // 決策 Agent 講的目標對不上它選的元件編號(見 agentTeam.reconcileTarget)。
+      ...(cmd.targetSwitched ? { targetSwitched: cmd.targetSwitched } : {}),
+      ...(cmd.targetMismatch ? { targetMismatch: true } : {}),
       ...(decisionMs > 0 ? { decisionMs } : {}),
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),

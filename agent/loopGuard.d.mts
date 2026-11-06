@@ -35,6 +35,8 @@ export interface LoopGuard {
   snapshot(): Map<string, number>;
   /** 換新的被測目標/重啟後歸零。 */
   reset(): void;
+  /** 只把某一個畫面的次數歸零(呼叫端決定改用別的做法而不是收手時用)。 */
+  clear(screen: string): void;
   observe(o: LoopObservation): LoopVerdict;
   /** 中止訊息。 */
   message(screen: string, seen: number, reason: LoopReason): string;

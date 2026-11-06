@@ -75,6 +75,16 @@ export function createLoopGuard(options = {}) {
     },
 
     /**
+     * 只把某一個畫面的次數歸零。
+     * 用在「達標了,但呼叫端決定先換個做法而不是直接收手」的時候(例如這個畫面上已經輸入過
+     * 資料,重啟 App 的代價太高)—— 把機會給出去,就要把計數也歸零,否則下一步馬上又達標,
+     * 那次機會等於沒給。呼叫端自己負責限制給幾次,不然護欄會被無限展延。
+     */
+    clear(screen) {
+      seenByScreen.delete(String(screen ?? ''));
+    },
+
+    /**
      * 記一步並回報是否該中止。
      * @param {LoopObservation} o
      * @returns {LoopVerdict}

@@ -58,6 +58,8 @@ import { createScriptTracker, DEFAULT_ITEM_BUDGET } from './scriptTracker.mjs';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapAsync, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
 import { isAutoSpinWait, watchAutoSpin, watchNote } from './spinWatch.mjs';
+import { createLoopGuard } from './loopGuard.mjs';
+import { gridMoved, gridMovedAt } from './frameSignal.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
@@ -1118,7 +1120,16 @@ async function main() {
   const tok = { input: 0, output: 0 };
   // 卡住偵測:連續多步畫面沒變(pHash 幾乎相同)就介入,輪換嘗試中央偏下主按鈕/back/右上角。
   let lastPhash = null;
+  // 上一步的 48×48 灰階格子:死循環護欄的細粒度變化訊號(見 gridMoved)。只在記憶體,不落 S3。
+  let lastGrid = null;
+  // 上一步 tap/hold 的落點(0~1 相對座標);用來只檢查「手指底下那一塊」有沒有反應。
+  let lastTapAt = null;
   let stuckCount = 0;
+  // 連續幾步「連細粒度訊號都看不到任何變化」。stuckCount 只看 pHash,在填表單這種
+  // 「每一步都有效、但 pHash 翻不過 40/1024 門檻」的畫面上會一路累加到硬停止點,
+  // 把正常流程判成卡死。破壞性動作(重啟 App、判定卡死中止)一律看這個計數;
+  // 它永遠 ≤ stuckCount(pHash 或格子任一有動就歸零),所以不會讓護欄變鬆到失效。
+  let quietCount = 0;
   let battleMoveTick = 0; // 割草戰鬥強制走位的方向輪換計數
   // 走位回饋:上一步實際執行的 move(方向 + 執行前的背景雜湊);本步被擋住的方向與連續被擋次數。
   let lastMove = null;
@@ -1133,19 +1144,33 @@ async function main() {
   let everInBattle = false; // 是否曾進入戰鬥畫面
   let seenLevel5 = false; // 是否曾在畫面看到第5關/第5波證據
   let prematureDoneCount = 0; // agent 提前 done 被 runner 攔截的次數
-  // App 死循環偵測:某個「畫面名」(如登入失敗彈窗)反覆出現超過此門檻,代表 App 端阻斷
-  // (常見:此裝置無 Google/Facebook 登入環境,關掉彈窗又立刻重跳),提早收斂不空轉到步數上限。
-  const screenSeen = new Map();
+  // App 死循環偵測:與 web runner 共用 loopGuard —— 判準是「上一步做了實質動作,但所有變化
+  // 訊號都看不到反應」,不是「同一個畫面名出現幾次」。後者會把「在同一個畫面上正常做事」
+  // (填登入表單、戰鬥畫面持續推進、拉霸一局一局轉)誤判成卡死;判準演進的實測案例見 loopGuard.mjs。
+  const loopGuard = createLoopGuard({ limit: 8 });
+  // 【輸入狀態保護】這些畫面上已經輸入過資料(帳號、密碼、驗證碼…)。
+  // 重啟 App 會把它全部清掉:要重填十幾步,驗證碼還可能要重發、簡訊有次數限制,
+  // 而且重啟後 AI 得從第一個畫面重走一次流程 —— 在這種畫面上,重啟是最貴的一種「復原」。
+  // 所以撞上死循環門檻時先給一次「換個方式送出」的機會,同一個畫面只給一次;
+  // 真的再撞一次,才照原本的流程重啟。重啟後資料已經不存在,整組狀態跟著清掉。
+  const typedScreens = new Set();
+  const inputRetried = new Set();
   // 每個畫面名最近一次的數值指紋(餘額/贏分/下注…);用來分辨「同畫面重複」是卡死還是正常重複玩法。
   const screenObsSig = new Map();
-  const LOOP_ABORT_LIMIT = 8;
+
   const loopRestarted = new Set(); // 已因「同畫面操作無效」重啟過的畫面(同一畫面只重啟一次)
   // 連續 wait 次數上限:2026-10-02 修正死循環偵測排除 wait 動作後的副作用——純等待不再計入
-  // screenSeen,但若畫面本身真的卡死在載入階段(如 APK 配置下載失敗/逾時),會變成無上限空等,
+  // 死循環計數,但若畫面本身真的卡死在載入階段(如 APK 配置下載失敗/逾時),會變成無上限空等,
   // 持續燒錢卻永遠不會觸發任何中止條件。這裡加一個獨立、簡單的「連續 wait 次數」硬上限,
   // 不管畫面名稱、pHash 是否變化,純粹計數「上一步也是 wait」的連續次數。
   let consecWaitCount = 0;
   let loadingStreak = 0; // 連續停在「載入畫面且無變化」的步數
+  // 「被判定是載入畫面 → 強制改成 wait」的連續次數,以及當時的畫面名。
+  // 這個覆寫會把 AI 已經決定好的操作整步丟掉,而載入畫面是關鍵字比對判的(誤判紀錄見下方三段
+  // 修正),所以不能無上限地蓋:同一畫面蓋滿 LOADING_WAIT_CAP 步就放行一次,讓它自己試。
+  let loadingWaitRun = 0;
+  let loadingWaitKey = '';
+  const LOADING_WAIT_CAP = Math.max(1, Number(process.env.PA_LOADING_WAIT_CAP ?? 3));
   let appRestarts = 0; // runner 主動重啟 App 次數
   const LOADING_RECOVER_AFTER = 12; // 之後開放 AI 用 back/launch 脫困
   const LOADING_RESTART_AFTER = Number(process.env.PA_LOADING_RESTART || 20); // 之後 runner 主動重啟 App
@@ -1374,8 +1399,11 @@ async function main() {
     liveTimer = setInterval(liveTick, 400);
     if (liveTimer.unref) liveTimer.unref();
     // 新遊戲狀態:卡住 / 死循環計數歸零,數值不跟前一段比。
-    lastPhash = null; stuckCount = 0; loadingStreak = 0; consecWaitCount = 0; lastMove = null;
-    screenSeen.clear();
+    lastPhash = null; lastGrid = null; lastTapAt = null; stuckCount = 0; quietCount = 0; loadingStreak = 0; consecWaitCount = 0; lastMove = null;
+    loadingWaitRun = 0; loadingWaitKey = '';
+    loopGuard.reset();
+    // 新的連線 = 重新安裝啟動,先前輸入的資料已經不存在。
+    typedScreens.clear(); inputRetried.clear();
     obsGuard.reset();
     pendingShot = null; // 換了連線,上一段看守留下的畫面已不是現況
     prevAction = 'launch';
@@ -1679,6 +1707,20 @@ async function main() {
     const screenChanged = lastPhash && curPhash ? pHashHamming(lastPhash, curPhash) > 40 : true;
     if (lastPhash && !screenChanged) stuckCount++; else stuckCount = 0;
     lastPhash = curPhash;
+    // 細粒度變化訊號(死循環護欄專用,不影響 stuckCount 的卡住偵測):
+    // pHash 回答「是不是換了畫面」,這裡回答「畫面上有沒有任何東西動了」。兩者門檻不同、用途不同,
+    // 不能互相替代 —— 用 pHash 回答後者,就會把填表單、按鍵盤、血條變化全判成「沒反應」。
+    const curGrid = MAGICK ? await timedAsync(tm, 'grid', () => grayGrid(shot)) : null;
+    const frameMoved = lastGrid && curGrid ? gridMoved(lastGrid, curGrid) : null;
+    // 上一步是「點某個位置」時,另外看那個位置附近有沒有反應(見 gridMovedAt)。
+    const frameMovedAtTap = lastGrid && curGrid && lastTapAt ? gridMovedAt(lastGrid, curGrid, lastTapAt) : null;
+    // 取格子失敗(ImageMagick 逾時)時保留上一張:下一步會跟「更早的那張」比,偏向判定有變化,
+    // 這是安全的方向(護欄晚觸發而非誤殺);若直接清成 null,訊號會斷一步。
+    lastGrid = curGrid ?? lastGrid;
+    // 任一訊號看到動靜就歸零。拿不到格子訊號時退回只看 pHash(等同舊行為)。
+    quietCount = i === 0
+      ? 0
+      : ((frameMoved === null ? !screenChanged : !(frameMoved || screenChanged)) ? quietCount + 1 : 0);
 
     // 【走位回饋】有搖桿的遊戲,鏡頭跟著角色走:上一步 move 之後,背景區塊若完全沒捲動,
     // 代表角色被障礙物(樹/石頭/牆)擋住 —— 角色會轉身、動畫在動,整張圖的 pHash 看不出來。
@@ -1738,8 +1780,19 @@ async function main() {
     // 送出乾淨的 smart-resize 圖(不疊網格):UI-TARS/Qwen-VL 系是在乾淨圖的 smart-resize 幀
     // 裡吐絕對像素座標,疊網格反而污染 grounding。落點標記/座標鏈都用此 cw×ch 空間。
     const visionShot = ds.b64;
+    // 上一步瞄準了什麼、實際點在哪:畫面沒反應時,要講的是「那個座標上不是你說的那個東西」。
+    // 原本一律叫它「對準畫面上最大最醒目的主按鈕(Play now / START)」—— 在「要點下拉選單、
+    // 小齒輪、分頁」的畫面上,這句話會把它推去點畫面中下段的主按鈕,正是客戶回報的
+    // 「說要點『選擇服務器』下拉選單,實際點到下方的 Start」。有明確目標時就針對那個目標講。
+    const lastStep = steps.length ? steps[steps.length - 1] : null;
+    const lastAim = lastStep && lastStep.x != null && (lastStep.action === 'tap' || lastStep.action === 'swipe')
+      && typeof lastStep.target === 'string' && lastStep.target
+      ? { target: lastStep.target, x: lastStep.x, y: lastStep.y }
+      : null;
     const stuckNote = (stuckCount >= 2)
-      ? `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化 —— 你先前點的位置不是可互動按鈕。請「換一個明顯不同的位置」,對準畫面上最大最醒目的主按鈕(通常在中下段,文字如 Play now / START / 開始 / 進入),把座標對到那顆按鈕的正中心,不要再點同一處或空白處。`
+      ? (lastAim
+        ? `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化。上一步你要操作的是「${lastAim.target}」、點在 (${lastAim.x}, ${lastAim.y}),畫面毫無反應 —— 代表那個座標上並不是「${lastAim.target}」。請在這張截圖上重新找出「${lastAim.target}」真正的位置(它可能不在你上次點的地方,也可能被彈窗遮住、或需要先展開別的東西),把座標對到它的正中心;如果這個畫面上根本找不到它,就說明找不到並改用別的做法,不要再點同一處。`
+        : `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化 —— 你先前點的位置不是可互動元件。請「換一個明顯不同的位置」,重新找出這個畫面上你真正要操作的元件(主按鈕、分頁、下拉選單、關閉鈕都算),把座標對到它的正中心,不要再點同一處或空白處。`)
       : (i > 0 && !screenChanged ? '上一步後畫面沒變(可能無效),換個位置或做法。' : '');
     // 測試人員即時指令(聊天室):新指令最高優先注入本回合;先前指令持續提醒。
     const freshCmds = await operator.poll();
@@ -1748,10 +1801,23 @@ async function main() {
     // 直到 AI 真的給出有效回應為止 —— 之前會在解析失敗那一步被「吃掉」,之後只剩一句提醒。
     const newCmds = [...pendingCmds, ...freshCmds];
     pendingCmds = [];
+    // 這張截圖認出來的畫面(pHash 比對記憶地圖;認不出回 null)。反射層下面也用同一個結果。
+    const herePage = MAGICK && curPhash ? identifyPage(struct, curPhash) : null;
     // 回到某畫面時,提醒使用者教過的該畫面操作(system 裡的長清單之外,再於當下強調一次)。
-    const scoped = screenHintsFor(appMemory.hints, { screen: prevScreen, pageId: prevPageId });
+    //
+    // 2026-11-06:範圍改用「這張截圖認出來的畫面」,不再用 prevScreen(上一步的畫面名)。
+    // prevScreen 是「上一張截圖」的分類標籤:畫面一旦前進,這裡就會把 A 畫面的指正貼到 B 畫面上,
+    // 而且是以「照做,不要重複撞牆」的高優先語氣貼 —— 客戶回報的「記憶指正被套用到錯誤的地方」
+    // 就是這個。認不出畫面時只有兩種安全選擇:畫面確實沒變(pHash 判定)就沿用上一步的畫面名,
+    // 否則這一回合不注入任何畫面限定的記憶(system prompt 裡的完整清單照舊存在,不會遺失教學)。
+    const hereName = herePage && !herePage.transient ? (struct.pages?.[herePage.pageId]?.name ?? '') : '';
+    const hintCtx = herePage && !herePage.transient
+      ? { screen: hereName, pageId: herePage.pageId }
+      : (i > 0 && !screenChanged ? { screen: prevScreen, pageId: prevPageId } : {});
+    const scoped = screenHintsFor(appMemory.hints, hintCtx);
     const memoryNote = scoped.length
-      ? `\n【記憶提醒】你之前在「${prevScreen}」被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。照做,不要重複撞牆。`
+      ? `\n【記憶提醒|只適用於「${hintCtx.screen || hereName}」這個畫面】你之前在這裡被測試人員教過(由新到舊,矛盾時照第一則):${scoped.slice(0, 3).map((h) => `「${h.text}」`).join(';')}。` +
+        `如果現在的畫面其實不是「${hintCtx.screen || hereName}」,就忽略這幾條,以你看到的截圖為準。`
       : '';
     const memoNote = progressMemo ? `\n【你的進度筆記(上一步寫的,照它延續,不要重新開始)】${progressMemo}` : '';
 
@@ -1764,7 +1830,7 @@ async function main() {
     const confirming = Boolean(scriptTracker?.pendingFinal);
     let reflexCmd = null;
     if (REFLEX_ON && MAGICK && curPhash && !newCmds.length && !wrapUpAsked && !lastBattleMove) {
-      const here = identifyPage(struct, curPhash);
+      const here = herePage;
       const nameOf = (id) => struct.pages?.[id]?.name ?? '';
       // 1) 確認上一步反射的結果:到了預期畫面才繼續;載入中就等;沒反應記失敗並交回 AI。
       if (!confirming && reflexPending) {
@@ -1868,10 +1934,21 @@ async function main() {
         .catch((e) => console.warn('[autopilot] kite 失敗', e?.message || e));
     }
     // UI-TARS 只看 instruction(不吃 system/回合文字):把測試人員指令與畫面記憶併進 instruction。
+    // 兩者的效力不同,不能混在同一個「現在就照做」清單裡:
+    //   · 即時指令 = 測試人員「現在」要它做的事 → highest priority, follow now
+    //   · 記憶指正 = 以前在「某個畫面」教過的做法 → 只有現在真的在那個畫面才適用
+    // 先前兩者併成一條 follow-now 清單,等於把舊畫面的指正變成當下的命令(客戶回報的誤套用)。
     const uitarsBase = TASK;
-    const uitarsInstr = operator.active.length || scoped.length
-      ? `${uitarsBase}\n\nTester instructions (highest priority, follow now):\n${[...operator.active.slice(-3).map((c) => c.text), ...scoped.slice(0, 3).map((h) => h.text)].map((t) => `- ${t}`).join('\n')}`
-      : uitarsBase;
+    const uitarsLines = [
+      ...(operator.active.length
+        ? ['Tester instructions (highest priority, follow now):', ...operator.active.slice(-3).map((c) => `- ${c.text}`)]
+        : []),
+      ...(scoped.length
+        ? [`Notes the tester taught you for the screen "${hintCtx.screen || hereName}" (apply only if this screen is the one you see now):`,
+          ...scoped.slice(0, 3).map((h) => `- ${h.text}`)]
+        : []),
+    ];
+    const uitarsInstr = uitarsLines.length ? `${uitarsBase}\n\n${uitarsLines.join('\n')}` : uitarsBase;
     // 測試人員直接在即時畫面上點了位置 / 拖了一段:不靠 AI 猜座標,這一步就照做(最準)。
     // point/to 是相對畫面的比例(0–1),換算到本步截圖(cw×ch)空間後走同一條點擊/拖曳/標記鏈。
     // 測試人員在即時畫面上的手勢 → 這一步直接照做(不經 VLM)的「決策」物件。
@@ -2019,6 +2096,8 @@ async function main() {
           // 用決策的動作取代視覺的建議(保留視覺的畫面名 / 描述 / 證據欄位)。
           for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'dir', 'direction', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'scale', 'target']) delete cmd[k];
           Object.assign(cmd, res.cmd);
+          if (cmd.targetSwitched) console.log(`[落點校正] 第 ${i} 步:決策 Agent 的目標寫「${cmd.targetSwitched.to}」,卻填了「${cmd.targetSwitched.from}」的元件編號 —— 以它寫的目標為準`);
+          else if (cmd.targetMismatch) console.log(`[落點校正] 第 ${i} 步:決策 Agent 的目標敘述對不上它選的元件「${cmd.target}」,敘述含糊,照編號執行並記錄`);
           if (res.decision.expect) cmd.expect = res.decision.expect;
           cmd.decidedBy = 'agent';
           if (visionAction !== cmd.action) cmd.visionSuggested = visionAction;
@@ -2142,6 +2221,10 @@ async function main() {
     if (looksLoading) console.log(`[loading] streak=${loadingStreak} 下載 ${mbps(dlProbe.bps)}${downloading ? ' (視為下載中)' : ''}`);
     // 本步有測試人員指令:AI 正照人的指示操作,runner 的自動覆寫(強制等待/脫困/強制走位)讓路。
     const operatorDirected = newCmds.length > 0;
+    // 強制等待的耐心上限(同一個畫面名連續被蓋掉幾步)。screenName 在此之前還沒宣告,只能用 cmd.screen。
+    const waitScreenKey = String(cmd.screen || '');
+    const loadingWaitCapped = Boolean(looksLoading) && cmd.action !== 'wait' && !operatorDirected
+      && loadingWaitKey === waitScreenKey && loadingWaitRun >= LOADING_WAIT_CAP;
     const allowRecovery = loadingStreak >= LOADING_RECOVER_AFTER && (cmd.action === 'back' || cmd.action === 'launch');
     // 正在下載就不要重啟 App:重啟只是讓它重新連一次,下載慢不等於卡死。
     // 實測 1.36 GB 的首次下載會連續觸發三次重啟(streak 20/40/60),每次 8 秒加上
@@ -2154,17 +2237,28 @@ async function main() {
       loadingStreak = 0;
       console.log(`[recover] 載入畫面卡住 ${LOADING_RESTART_AFTER} 步,重啟 App(第 ${appRestarts} 次)`);
       try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
+      typedScreens.clear(); inputRetried.clear(); // 重啟後先前輸入的資料已不存在
       cmd.action = 'wait'; cmd.duration = 1; cmd.x = undefined; cmd.y = undefined;
       cmd.thinking = `[runner 重啟 App] 載入畫面長時間無進展,已關閉並重新開啟遊戲(第 ${appRestarts} 次),請從頭依流程進入。` + String(cmd.thinking || '');
       cmd.override = 'app_restart';
       escapeOverride = true;
       controlNote = '【系統】遊戲剛被重新啟動,請從第一個畫面重新依知識庫流程進入。';
-    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery && !operatorDirected) {
+    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery && !operatorDirected && !loadingWaitCapped) {
       const origAction = cmd.action;
       cmd.action = 'wait'; cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 3;
-      cmd.thinking = `偵測到載入/開場動畫畫面(無可互動元素),強制改為等待,不亂點。原動作:${origAction}。` + String(cmd.thinking || '');
+      cmd.thinking = `偵測到載入/開場動畫畫面(無可互動元素),強制改為等待,不亂點(同一畫面最多連續 ${LOADING_WAIT_CAP} 次,之後會放行讓你試)。原動作:${origAction}。` + String(cmd.thinking || '');
       cmd.override = 'loading_wait';
       escapeOverride = true;
+      loadingWaitRun = loadingWaitKey === waitScreenKey ? loadingWaitRun + 1 : 1;
+      loadingWaitKey = waitScreenKey;
+    } else if (loadingWaitCapped) {
+      // 耐心用完:放 AI 做它自己判斷的動作。真的是載入畫面,點一下沒有壞處(載入畫面沒有可互動
+      // 元素,點了不會有事);是誤判(例如有 PLAY 鈕的標題頁被命名成「開場畫面」),這一下就把
+      // 流程推進了,不會再繼續耗步數。
+      console.log(`[loading] 「${waitScreenKey}」已連續強制等待 ${loadingWaitRun} 步,放行 AI 的 ${cmd.action} 試一次`);
+      controlNote += `【系統】這個畫面被判定為載入中而連續攔下你 ${loadingWaitRun} 次操作,現在放行一次:如果你確定畫面上有可以點的東西,就點它;如果其實還在載入,請回 wait。`;
+      loadingWaitRun = 0;
+      loadingWaitKey = '';
     }
 
     // 2026-10-02 修正:老虎機/輪盤等賭場類遊戲的核心節奏是「轉輪結果畫面停留 → 玩家點
@@ -2174,7 +2268,7 @@ async function main() {
     // 第 2 次旋轉,點 SPIN」,但接下來 7 步全被覆寫成「連續畫面沒變,先等待」,最終因為脫困
     // 輪換掃描的座標都沒掃到 SPIN 鈕,8 次無效互動後被死循環偵測中止)。
     // 這裡偵測「模型自己想做 tap/swipe」且畫面名(非 thinking)像是老虎機轉輪結果 → 放行讓它試,
-    // 不用 stuckCount 覆寫;若真的連續試了也沒用,交由下面既有的死循環計數器(LOOP_ABORT_LIMIT)
+    // 不用 stuckCount 覆寫;若真的連續試了也沒用,交由下面既有的死循環護欄(loopGuard)
     // 去判斷是不是真的卡死,而不是在這裡提前擋掉。
     // 2026-10-02 修正(二):原本連 thinking 也納入比對,而且用了過寬的單字「spin」—— 任何
     // 遊戲只要在 thinking 裡提到類似「10 Spins Completed(成就/任務文案)」就會誤中,把
@@ -2192,23 +2286,37 @@ async function main() {
     // 這個判斷不受 looksSlotSpin 影響 —— 即使放行模型自己點 SPIN,若真的連續 30 步畫面
     // 都沒變(模型可能瞄不準 SPIN 鈕位置),仍要有硬性中止,不能無上限空轉。
     const STUCK_ABORT_STEPS = 30;
+    // 2026-11-06:這兩個硬停止點改看 quietCount(pHash ∪ 細粒度格子)而不是只看 pHash。
+    // 原因同死循環護欄:在輸入框打字、血條小幅變化這類畫面上,pHash 可以連續 30 步都說
+    // 「沒變」,於是「正在正常操作」被判成「當機/卡死」而重啟或中止。
+    //
+    // 但換成更敏感的訊號會帶來反向風險:loading 轉圈、粒子特效這類「持續播放的動畫」會讓
+    // 細粒度訊號永遠說「有動」,硬停止點就永遠不會觸發 —— 而那種畫面有可能其實已經凍住
+    // (等不到的 SDK 回呼)。所以保留一個只看 pHash 的長效後手:版面連續兩倍步數完全沒換過
+    // (細部動畫不算),一律當卡死處理。60 步對「在同一個表單上一步步操作」來說綽綽有餘,
+    // 不會誤殺;對「畫面凍住只剩動畫在轉」則仍然收得掉,不會一路燒到步數/預算上限。
+    const frozenLongRun = stuckCount >= STUCK_ABORT_STEPS * 2;
+    const reallyStuck = quietCount >= STUCK_ABORT_STEPS || frozenLongRun;
+    // 訊息要報真正達標的那個計數,不然會寫出「連續 3 步無變化就中止」這種看不懂的理由。
+    const stuckSteps = frozenLongRun && quietCount < STUCK_ABORT_STEPS ? stuckCount : quietCount;
     // 中止前先嘗試「重啟 App」(最多 3 次):很多卡死(載入回調、空白大廳)重開就好。
-    if (stuckCount >= STUCK_ABORT_STEPS && effectivePkg && appRestarts < 3) {
+    if (reallyStuck && effectivePkg && appRestarts < 3) {
       appRestarts++;
-      console.log(`[recover] 畫面 ${stuckCount} 步無變化,重啟 App(第 ${appRestarts} 次)`);
+      console.log(`[recover] 畫面 ${stuckSteps} 步無變化(${frozenLongRun ? '版面完全沒換過,只有動畫在播' : '連細部內容都沒有動'}),重啟 App(第 ${appRestarts} 次)`);
       try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
-      stuckCount = 0; lastPhash = null; loadingStreak = 0;
+      stuckCount = 0; quietCount = 0; lastPhash = null; lastGrid = null; lastTapAt = null; loadingStreak = 0;
+      typedScreens.clear(); inputRetried.clear();
       cmd.action = 'wait'; cmd.duration = 1; cmd.x = undefined; cmd.y = undefined;
       cmd.thinking = `[runner 重啟 App] 畫面長時間無變化,已重新開啟遊戲(第 ${appRestarts} 次)。` + String(cmd.thinking || '');
       cmd.override = 'app_restart';
       escapeOverride = true;
       controlNote = '【系統】遊戲剛被重新啟動,請從第一個畫面重新依知識庫流程進入。';
     }
-    if (stuckCount >= STUCK_ABORT_STEPS) {
+    if (reallyStuck) {
       finalState = 'error';
       finalMsg = looksLoading
-        ? `畫面連續 ${stuckCount} 步無變化且停在安裝/載入畫面 —— 可能 APK 安裝或首次啟動失敗/逾時(此 APK 可能過大或需額外下載資源)。已中止,避免空轉。`
-        : `畫面連續 ${stuckCount} 步無變化,各種脫困嘗試均無效 —— 可能當機/卡死或需人工介入。已中止,避免空轉。`;
+        ? `畫面連續 ${stuckSteps} 步無變化且停在安裝/載入畫面 —— 可能 APK 安裝或首次啟動失敗/逾時(此 APK 可能過大或需額外下載資源)。已中止,避免空轉。`
+        : `畫面連續 ${stuckSteps} 步無變化(${frozenLongRun ? '版面完全沒有換過,只有動畫在播' : '畫面與細部內容都沒有動'}),各種脫困嘗試均無效 —— 可能當機/卡死或需人工介入。已中止,避免空轉。`;
       await writeStatus('error', finalMsg, steps.length);
       break;
     }
@@ -2349,6 +2457,11 @@ async function main() {
         ? { x2: cmd.x2, y2: cmd.y2, deviceX2: toDeviceX(cmd.x2), deviceY2: toDeviceY(cmd.y2) } : {}),
       ...(cmd.operatorTap ? { operatorGesture: cmd.operatorDrag ? 'drag' : 'tap' } : {}),
       ...(snappedFrom ? { snappedFrom } : {}),
+      // 決策 Agent 講的目標與它選的元件編號不一致:switched = 已改以它講的名稱為準;
+      // mismatch = 敘述含糊無法判斷,照編號執行。報告/除錯要看得到這件事,否則「描述與落點不同」
+      // 只會表現成「AI 點錯了」,查不出是編號填錯。
+      ...(cmd.targetSwitched ? { targetSwitched: cmd.targetSwitched } : {}),
+      ...(cmd.targetMismatch ? { targetMismatch: true } : {}),
       ...(cmd.x != null ? { space: { shot: [cw, ch], device: [origW, origH] } } : {}),
       screenshotKey: `${PREFIX}/screenshots/${i}.png`,
       ...(annotatedKey ? { annotatedKey } : {}),
@@ -2361,8 +2474,21 @@ async function main() {
       vlmMs,
       // 本步截圖相對上一步是否有可見變化 = 「上一步動作是否生效」(pHash,確定性)。
       ...(i > 0 && curPhash ? { screenChanged } : {}),
+      // frameChanged:細粒度訊號(48×48 灰階格子)。和 screenChanged 一起記是刻意的 ——
+      // 兩者不一致(pHash 說沒變、格子說有變)正是「填表單 / 小幅進展」的特徵,報告與人工
+      // 判讀需要分得出「真的沒反應」和「pHash 看不到的變化」。
+      ...(i > 0 && frameMoved !== null ? { frameChanged: frameMoved } : {}),
+      // tapResponded:上一步點擊的落點附近有沒有反應。false 而 frameChanged 為 true =
+      // 「畫面在動,但你點的那個地方沒有」—— 這正是「點到的東西不是你說的那個」的特徵。
+      ...(i > 0 && frameMovedAtTap !== null ? { tapResponded: frameMovedAtTap } : {}),
       ...evidenceFields(cmd, aiAction),
       ...(cmd.override ? { override: cmd.override } : {}),
+      // runner 改寫了動作時,把「AI 原本要做什麼」一起記下來(aiAction 是覆寫鏈之前的動作)。
+      // 只靠 thinking 文字的話,報告與執行軌跡只看得到「這一步做了 wait」,看不出「AI 要點某顆
+      // 按鈕但被系統攔下」—— 客訴「描述要點擊,實際卻只執行 wait」就是這樣變成查不到原因的現象。
+      ...(cmd.override && aiAction !== cmd.action
+        ? { intendedAction: aiAction, ...(typeof cmd.target === 'string' && cmd.target ? { intendedTarget: cmd.target.slice(0, 40) } : {}) }
+        : {}),
       ...(cmd.parseFailed ? { parseFailed: true } : {}),
       ...(trace && trace.ok === false ? { modelError: true } : {}),
       ...(foregroundLost ? { foregroundLost: true, ...(appState !== undefined ? { appState } : {}) } : {}),
@@ -2496,13 +2622,18 @@ async function main() {
       break;
     }
 
-    // App 死循環偵測:累計每個「畫面名」出現次數;超過門檻代表卡在同一處(常見:登入失敗彈窗
-    // 反覆跳,此裝置無對應第三方登入環境)。提早收斂為 fail 並在訊息點出原因,不空轉到步數上限。
-    // 2026-10-02 修正:原本不分動作一律計數,導致「載入畫面持續 wait 耐心等待」(正常行為,
-    // stuckCount 機制本該給到 STUCK_ABORT_STEPS=30 步耐心)在第 8 次就被這裡誤判成死循環
-    // 提早判 fail,比耐心機制還早觸發。改成只有「主動互動動作」(tap/swipe/move/type/back)
-    // 重複才算死循環,純粹等待載入(wait)不計入——真正的死循環一定是「做了動作畫面還是沒變」,
-    // 不會是「單純等待」。
+    // ── App 死循環偵測 ───────────────────────────────────────────────────────
+    // 判準交給與 web runner 共用的 loopGuard:只有「上一步做了實質動作,而所有變化訊號都
+    // 看不到反應」才計一次無效操作。這裡只負責準備訊號與豁免條件。
+    //
+    // 2026-11-06:這段原本是 loopGuard.mjs 註解裡的 v1(同一個畫面名出現 N 次就判死)——
+    // web runner 兩年前就改掉了,真機這條路沒跟上,於是同一個坑在真機上又踩了兩次:
+    //   · 登入表單本來就要在同一個畫面待十幾步(點帳號欄 → 輸入 → 點密碼 → 輸入 → 送出),
+    //     每一步都被計數,8 步就重啟 App(把已輸入的帳號清掉)、再 8 步判 fail;流程沒跑完,
+    //     報告端只能給 BLOCKED「無法作為驗收依據」。
+    //   · 戰鬥 / Auto-battle 畫面名整段不變,船在動、怪在打,卻因為「數值指紋沒變」被算成
+    //     8 次沒反應而重啟 App。
+    // 兩者都不是卡死,是「在同一個畫面上正常做事」。
     const screenNameLower = String(screenName || '').toLowerCase();
     const loopLoadingHint = /loading|載入|载入|請稍候|请稍候|connecting|連線中|连接中|進場|进场/i;
     // 2026-10-02 修正:老虎機類遊戲每輪 SPIN 後畫面名稱常常一樣(都是同一台機台的「轉輪
@@ -2518,40 +2649,77 @@ async function main() {
     const prevObsSig = screenObsSig.get(screenName);
     const obsMoved = Boolean(obsSig) && Boolean(prevObsSig) && obsSig !== prevObsSig;
     if (obsSig) screenObsSig.set(screenName, obsSig);
-    // done 不是對畫面的操作:被駁回的 done(例如 AutoSpin 中想提早結束)不能算「操作了沒反應」。
-    // 實測 job-mv1oqkmk:Free Spins 畫面 8 次被駁回的 done 被當成死循環 → 重啟遊戲 → 離開機台、累計局數全丟。
-    // SPIN 迴圈每局都停在同一個畫面,是預期行為,不算死循環。
-    const countsForLoop = cmd.action !== 'wait' && cmd.action !== 'done' && !screenLoopExempt
-      && cmd.reflex?.kind !== 'spin' && !obsMoved;
-    // 數值有變 = 這個畫面有進展,先前累積的「操作沒反應」次數不該留著算帳。
-    if (obsMoved && (screenSeen.get(screenName) || 0) > 0) screenSeen.set(screenName, 0);
-    const seen = countsForLoop ? (screenSeen.get(screenName) || 0) + 1 : (screenSeen.get(screenName) || 0);
-    if (countsForLoop) screenSeen.set(screenName, seen);
+    // 【變化訊號|聯集】任一個訊號看到反應,這一步就不算無效操作:
+    //   frameMoved     48×48 灰階格子,最敏感 —— 輸入框多一個字、血條掉一截、船往前走都抓得到
+    //   screenChanged  pHash,換畫面
+    //   obsMoved       畫面數值指紋 —— 美術幾乎相同但餘額/下注/局數變了(拉霸一局一局轉)
+    // 上一步是 tap/hold 時,格子訊號只看落點附近:畫面角落有動畫在播,不代表你點的那顆按鈕
+    // 有反應(gridMovedAt 的註解有實測案例)。打字、走位、back 這些效果不一定出現在手指底下
+    // 的動作,仍然看整張圖。
+    const frameSignal = frameMovedAtTap !== null ? frameMovedAtTap : frameMoved;
+    // 不對稱是刻意的:數值有變是「有進展」的正面證據,直接採信;數值沒變不能當成「沒反應」
+    // 的證據(AI 不一定每步都回得出數值),那要由畫面訊號說話。
+    // 連畫面訊號都沒有(容器沒有 ImageMagick)時給 null,護欄自動退回「同畫面名計數」的 v1
+    // 退路 —— 寧可偶爾誤殺,也不能讓成本護欄整個消失。
+    const pixelSignal = frameSignal !== null || Boolean(curPhash);
+    const changeSignal = obsMoved ? true : (pixelSignal ? Boolean(frameSignal || (curPhash && screenChanged)) : null);
+    // 【豁免】這幾種情況連「有沒有反應」都不該問:
+    //   · 載入/拉霸類畫面名(字串比對,保留當保險;真正的判準已經是上面的訊號)
+    //   · SPIN 迴圈的反射步:每局都停在同一個畫面是這個任務要做的事,而且它自己會驗證轉輪有沒有動
+    //   · 測試人員正在指揮:人叫它點的,不是 AI 在亂撞,不能因此重啟或中止
+    // done 也不算對畫面的操作(被駁回的 done 不是「操作了沒反應」)—— 這一條在 loopGuard 裡。
+    const loopExempt = screenLoopExempt || cmd.reflex?.kind === 'spin' || operatorDirected;
+    // changed 配的是 prevAction(上一步實際執行的動作,changed 的成因),不是這一步還沒執行的
+    // 動作 —— 配錯會把「上一步 wait 沒變化 + 這一步要 tap」錯算成一次無效操作。
+    const loopVerdict = loopExempt
+      ? { abort: false, seen: loopGuard.snapshot().get(screenName) ?? 0, counted: false, reason: 'no_response' }
+      : loopGuard.observe({ screen: screenName, step: i, action: cmd.action, prevAction, changed: changeSignal });
+    const seen = loopVerdict.seen;
     // 2026-10-05(job-muv712gs-pvg7ow):NEWBIE MISSION 彈窗在動畫還沒播完時被點了寶箱,之後整個
     // 彈窗不再接受任何輸入(按鈕/back/滑動都沒反應,動畫照跑)——遊戲端卡住,不是 AI 點錯
     // (同一按鈕在其他 8 次任務都點得動)。先重啟遊戲再試一次,同一畫面第二次卡住才判失敗。
-    if (countsForLoop && seen >= LOOP_ABORT_LIMIT && effectivePkg && appRestarts < 3 && !loopRestarted.has(screenName) && !operatorDirected) {
+    if (loopVerdict.abort && typedScreens.has(screenName) && !inputRetried.has(screenName)) {
+      // 【輸入狀態保護】這個畫面上已經輸入過資料:重啟會把帳號/密碼/驗證碼全部清掉,
+      // 重填要十幾步、驗證碼可能要重發(簡訊還有次數限制),而且重啟後得從第一個畫面重走流程。
+      // 送不出去的原因多半是「按錯按鈕 / 鍵盤遮住送出鈕 / 欄位內容不對」,換個做法就能過,
+      // 不需要把整個流程丟掉。同一個畫面只給一次機會(給了就把計數歸零,否則下一步馬上又達標),
+      // 用完還是撞上,就落到下面原本的重啟流程 —— 護欄不會被無限展延。
+      inputRetried.add(screenName);
+      loopGuard.clear(screenName);
+      console.log(`[recover] 畫面「${screenName}」操作 ${seen} 次沒有反應,但這個畫面已經輸入過資料 —— 不重啟,改要求換做法(同一畫面只給一次)`);
+      step.inputPreserved = true;
+      s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
+      controlNote = `【系統】你在「${screenName}」已經連續 ${seen} 次操作都沒有任何反應。這個畫面上已經輸入過資料,重新啟動遊戲會把輸入的內容清掉(驗證碼可能還要重發),所以系統【沒有】重啟 —— 已經填好的內容還在,不要從頭重填。請改一個做法:先確認各欄位裡的內容是否正確完整、把鍵盤收起來再按送出、改按畫面上其他的送出/確認/登入按鈕、或重新點一次輸入框。如果是彈窗或鍵盤擋住了按鈕,先處理它並說明;如果這個畫面真的無法送出,直接說明卡在哪一個欄位或按鈕,不要再重複同一個動作。`;
+    } else if (loopVerdict.abort && effectivePkg && appRestarts < 3 && !loopRestarted.has(screenName)) {
       loopRestarted.add(screenName);
       appRestarts++;
-      screenSeen.delete(screenName);
-      stuckCount = 0;
+      // 重啟後整個遊戲狀態都是新的,累計次數不跟重啟前混。
+      loopGuard.reset();
+      stuckCount = 0; quietCount = 0; lastTapAt = null;
       console.log(`[recover] 畫面「${screenName}」操作 ${seen} 次沒有進展,重啟 App(第 ${appRestarts} 次)`);
       try { await client.restartApp(effectivePkg); await sleep(8000); } catch (e) { console.warn('[recover] 重啟失敗', e?.message || e); }
       step.override = 'app_restart';
       step.thinking = `[runner 重啟 App] 畫面「${screenName}」操作 ${seen} 次都沒有反應(遊戲可能卡住),已重新啟動遊戲。` + String(step.thinking || '');
       s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
       controlNote = `【系統】畫面「${screenName}」操作 ${seen} 次都沒有反應(遊戲可能卡住),已重新啟動遊戲。請從第一個畫面重新進入;再遇到這個畫面時,先等它的動畫播完、主要按鈕出現後再點主要按鈕。`;
+      typedScreens.clear(); inputRetried.clear(); // 重啟後先前輸入的資料已不存在
       prevAction = 'launch';
       await sleep(1000);
       continue;
-    }
-    if (countsForLoop && seen >= LOOP_ABORT_LIMIT) {
+    } else if (loopVerdict.abort) {
+      // else if 很重要:上面「輸入狀態保護」那條沒有 continue(這一步要照正常流程走完),
+      // 如果這裡是獨立的 if,剛給出去的那次機會會立刻被下面判 fail 收掉,等於沒給。
       finalState = 'fail';
       // 只有畫面名稱本身像登入頁才提示登入問題;否則一律中性描述(先前寫死「第三方登入」,
       // 讓與登入無關的任務也被報告歸因成登入失敗)。
       const loginScreen = /登入|登录|login|sign\s*in|facebook|google/i.test(String(screenName || ''));
-      finalMsg = `偵測到 App 死循環:畫面「${screenName}」反覆出現 ${seen} 次仍無法前進` +
-        (loginScreen ? ',可能此裝置環境無法完成登入(如第三方登入服務不可用)。' : ',可能是遊戲卡住、AI 找不到下一步或操作沒有效果。') +
+      // 判死依據要分清楚:「操作後完全沒有反應」(有訊號)還是「只數得到畫面名重複」(沒訊號,
+      // 走 v1 退路)。寫清楚報告才不會把量測問題寫成遊戲缺陷。
+      const why = loopVerdict.reason === 'repeat'
+        ? `畫面「${screenName}」反覆出現 ${seen} 次仍無法前進(此次執行取不到畫面變化訊號,只能依畫面名判斷)`
+        : `在畫面「${screenName}」連續 ${seen} 次操作後,畫面、畫面數值都沒有任何變化`;
+      finalMsg = `偵測到 App 死循環:${why},` +
+        (loginScreen ? '可能此裝置環境無法完成登入(如第三方登入服務不可用)。' : '可能是遊戲卡住、AI 找不到下一步或操作沒有效果。') +
         '已提早結束以節省時間與成本。';
       break;
     }
@@ -2566,7 +2734,9 @@ async function main() {
     // 改成只有在「畫面真的沒變化」(stuckCount 同步在累積,即 pHash 判定卡住)時才計入
     // 這個上限;若畫面持續變動(如 AUTOSPIN 跑動畫),純等待不設上限,真正的卡死由
     // stuckCount 自己的 STUCK_ABORT_STEPS(30 步)去把關。
-    consecWaitCount = (cmd.action === 'wait' && stuckCount > 0) ? consecWaitCount + 1 : 0;
+    // 2026-11-06:判斷「畫面有沒有變化」改用 quietCount(pHash ∪ 細粒度格子),理由同上:
+    // 只看 pHash 會把「畫面其實在變,只是變得小」算成無變化,連帶把正常等待判成載入逾時。
+    consecWaitCount = (cmd.action === 'wait' && quietCount > 0) ? consecWaitCount + 1 : 0;
     if (consecWaitCount >= WAIT_ABORT_LIMIT) {
       finalState = 'error';
       finalMsg = `連續 wait ${consecWaitCount} 次且畫面無變化,仍停在「${screenName}」—— 可能載入/配置下載逾時或失敗,此裝置環境無法完成該步驟。已中止,避免空轉。`;
@@ -2829,6 +2999,15 @@ async function main() {
       } else
       await timedAsync(tm, 'act', () => client.act(deviceCmd));
       actOk = true;
+      // 【輸入狀態保護】這個畫面上真的打進去了文字 → 之後若撞上死循環門檻,重啟前先給一次
+      // 換做法的機會(見迴圈前段的死循環護欄)。標記在動作送出成功之後,所以它永遠代表
+      // 「這個畫面上先前已經輸入過」,不是「這一步打算輸入」。
+      if (cmd.action === 'type') typedScreens.add(screenName);
+      // 這一步點在哪(0~1 相對座標):下一步要用它檢查「手指底下那一塊有沒有反應」。
+      // 只有 tap/hold 算 —— swipe/move 的效果是整個版面在捲,不在落點附近。
+      lastTapAt = (cmd.action === 'tap' || cmd.action === 'hold') && Number.isFinite(cmd.x) && Number.isFinite(cmd.y) && cw > 0 && ch > 0
+        ? { x: cmd.x / cw, y: cmd.y / ch }
+        : null;
       // 點 AutoSpin 次數選項或 SPIN 後立刻開始影片盤面追蹤;不必等下一輪 VLM 看見剩餘次數。
       if (slotCapture && (cmd.action === 'tap' || cmd.action === 'hold' || cmd.action === 'swipe')) {
         const intent = `${cmd.target ?? ''} ${cmd.screen ?? ''} ${cmd.thinking ?? ''}`;
@@ -3017,11 +3196,15 @@ async function main() {
         .filter(Boolean).join(' ');
       const prevStep = steps.find((s) => s.index === idx - 1);
       const prevPlan = stepPlans.get(idx - 1) ?? null;
-      const changed = screenChanged;
+      // 輔助 Agent 要判的是「上一步的動作有沒有效果」,所以餵聯集訊號而不是單一的 pHash:
+      // pHash 的門檻(40/1024)看不到「輸入框多一個字」「血條掉一截」,只用它就會讓輔助 Agent
+      // 讀到「畫面幾乎沒有變化」而把有效的操作判成 no_effect —— 測試人員自己在即時畫面上點的
+      // 位置也被標成「動作沒反應」,就是這樣來的。
+      const changed = frameSignal === null ? screenChanged : Boolean(frameSignal || screenChanged);
       const opTexts = operator.active.slice(-3).map((c) => c.text);
       const runnerNote = [
         stuckCount > 0 ? `畫面已連續 ${stuckCount} 步沒有變化` : '',
-        (screenSeen.get(screenName) || 0) >= 4 ? `「${screenName}」已操作 ${screenSeen.get(screenName)} 次` : '',
+        (loopGuard.snapshot().get(screenName) ?? 0) >= 4 ? `「${screenName}」已操作 ${loopGuard.snapshot().get(screenName)} 次都沒有反應` : '',
         cmd.override === 'app_restart' ? '遊戲剛被重新啟動' : '',
         blockedDir ? `往 ${blockedDir} 走被擋住` : '',
       ].filter(Boolean).join(';');

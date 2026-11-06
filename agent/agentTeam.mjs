@@ -113,6 +113,9 @@ const DECIDE_SYSTEM = `你是遊戲自動化測試的「決策 Agent」。你看
 5. 上一步沒有效果時(畫面沒變、輔助 Agent 判斷 no_effect):同一個做法失敗 2 次就換(換元件、等動畫播完、back、換方向、換區域),不要一直重複。
 6. 只能用「可用動作」清單裡的動作,並配合這款遊戲的操作方式。
 7. 要點的東西一定要用元件清單裡的編號(element);清單裡沒有你要的元件時,採用視覺 Agent 的建議動作(action 填 "vision")。
+   element 填的編號必須就是 goal 裡講的那個元件,而且 goal 要寫出元件清單上的名稱(例如「點『選擇服務器』下拉選單」)。
+   動作的座標完全取自你填的編號 —— 編號填錯,就會點到別的東西,而你的敘述看起來還是對的,沒有人看得出來。
+   系統會比對你寫的名稱與你填的編號:只對得上另一個元件時,會以【你寫的名稱】為準執行。
 8. 視覺 Agent 也會給一個建議動作;合理就可以採用,但你要依腳本進度與歷史判斷,不必照單全收。
 9. 不進行真實付費、不輸入真實個人資料。
 10. 腳本要求的事全部完成且畫面有證據時才用 done;明顯完全無法繼續(例如必要的登入服務不存在)時 suggestFail=true 並說明 —— 只是建議,不會直接結束測試。
@@ -176,6 +179,38 @@ export function normalizeElements(raw, cw, ch) {
   return out;
 }
 
+const normLabel = (s) => String(s ?? '').toLowerCase().replace(/[\s「」『』"'()()\[\]【】:,。.、_\-/]+/g, '');
+
+/**
+ * 決策 Agent 用文字講的目標,和它用 element 編號選到的元件,是不是同一個東西。
+ *
+ * 為什麼要查:座標完全來自元件清單,element 只是一個編號指標 —— 填錯一個數字,動作就會落在
+ * 另一個元件上,而它寫在 goal 裡的敘述照樣是對的。報告與執行軌跡顯示的是敘述,實際點的是座標,
+ * 於是出現客戶回報的「說要點『選擇服務器』下拉選單,實際點到下方的 Start 按鈕」—— 而且因為
+ * 敘述看起來合理,連續好幾步都看不出哪裡錯了。
+ *
+ * 判斷方式:在它自己寫的 goal / strategy 裡找元件清單的名稱。
+ *   · 它講的名稱就是選到的那個元件 → 一致,不動
+ *   · 它講的名稱【只】對得上另一個元件,而選到的那個名稱完全沒被提到 → 以「它講的那個」為準
+ *     (文字是意圖,編號只是指標;而且這樣報告寫的和實際做的才會是同一件事)
+ *   · 講得含糊、對得上好幾個、或完全沒提名稱 → 不改,只記一筆不一致供報告判讀
+ *
+ * @returns {{el: object|undefined, switched?: {from: string, to: string}, mismatch?: true}}
+ */
+function reconcileTarget(d, el, elements) {
+  if (!el || elements.length < 2) return { el };
+  const prose = normLabel(`${str(d?.goal, 160)} ${str(d?.strategy, 120)}`);
+  if (!prose) return { el };
+  const named = (e) => {
+    const l = normLabel(e.label);
+    return l.length >= 2 && prose.includes(l);
+  };
+  if (named(el)) return { el };
+  const others = elements.filter((e) => e.id !== el.id && named(e));
+  if (others.length === 1) return { el: others[0], switched: { from: el.label, to: others[0].label } };
+  return others.length > 1 ? { el, mismatch: true } : { el };
+}
+
 /**
  * 決策 → 可執行的動作(座標取自元件清單)。回 null = 無法執行(退回視覺 Agent 的建議)。
  * @param {object} d 決策 Agent 的 JSON
@@ -186,11 +221,19 @@ export function decisionToCommand(d, elements, { cw, ch }) {
   const action = str(d?.action, 12).toLowerCase();
   if (!action || action === 'vision') return null;
   const byId = (id) => (id == null || id === '' ? undefined : elements.find((e) => e.id === Number(id)));
-  const el = byId(d.element);
+  // 要操作元件的動作才需要對齊「講的目標」與「選的編號」;wait/back/done 沒有落點問題。
+  const picked = ACTIONS_NEED_ELEMENT.has(action) ? reconcileTarget(d, byId(d.element), elements) : { el: byId(d.element) };
+  const el = picked.el;
   if (ACTIONS_NEED_ELEMENT.has(action) && !el) return null;
   const dir = DIR_RE.test(str(d.dir, 12).toLowerCase()) ? str(d.dir, 12).toLowerCase() : '';
   const num = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : undefined);
-  const cmd = { action, ...(el ? { target: el.label } : {}) };
+  const cmd = {
+    action,
+    ...(el ? { target: el.label } : {}),
+    // 落點與敘述不一致的紀錄:switched = 已改成它自己講的那個元件;mismatch = 講得含糊,照編號執行。
+    ...(picked.switched ? { targetSwitched: picked.switched } : {}),
+    ...(picked.mismatch ? { targetMismatch: true } : {}),
+  };
   switch (action) {
     case 'tap':
       Object.assign(cmd, { x: el.x, y: el.y });
