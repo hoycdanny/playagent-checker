@@ -15,3 +15,9 @@ export function gridMovedAt(
   at: { x: number; y: number } | null | undefined,
   opt?: { size?: number; r?: number; cellDelta?: number; minCells?: number },
 ): boolean | null;
+
+/** 整張畫面幾乎全黑(Android 15 螢幕分享保護的特徵);null = 拿不到格子。 */
+export function frameIsBlank(
+  grid: Uint8Array | null | undefined,
+  opt?: { dark?: number; ratio?: number },
+): boolean | null;

@@ -23,6 +23,26 @@
 const CELL_DELTA = 8;
 const MIN_CELLS = 2;
 
+/**
+ * 整張畫面幾乎全黑嗎(格子亮度幾乎都壓在最低)。
+ *
+ * 為什麼需要:Android 15 起有「螢幕分享保護」—— 畫面上存在密碼欄位時,系統會把 App 畫面
+ * 在錄影/截圖裡整片遮黑。對 runner 來說那幾步的截圖是「一張全黑、而且完全不變的畫面」,
+ * 於是會同時觸發三種誤判:
+ *   · 死循環護欄 / 卡死偵測:畫面毫無變化 → 重啟 App(把已輸入的帳密清掉)或中止任務
+ *   · 證據協議:AI 看到黑畫面,會照規則回報「黑畫面」這個遊戲缺陷
+ *   · AI 看不到鍵盤與送出鈕,只能亂猜座標
+ * 這三個都要在偵測到遮黑時擋掉,不是靠量測某台裝置的鍵盤高度去硬點座標。
+ *
+ * 判準:98% 以上的格子亮度 ≤ dark。留 2% 餘裕給狀態列、導覽列這些沒有被遮黑的系統區域。
+ */
+export function frameIsBlank(grid, { dark = 12, ratio = 0.98 } = {}) {
+  if (!grid || !grid.length) return null;
+  let n = 0;
+  for (let i = 0; i < grid.length; i++) if (grid[i] <= dark) n++;
+  return n / grid.length >= ratio;
+}
+
 /** 整張圖有沒有任何一處真的變了。長度不符 / 缺資料回 null(= 沒有訊號,不是「沒變」)。 */
 export function gridMoved(a, b, cellDelta = CELL_DELTA, minCells = MIN_CELLS) {
   if (!a || !b || a.length !== b.length || !a.length) return null;

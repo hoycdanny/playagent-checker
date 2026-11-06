@@ -59,11 +59,11 @@ import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { liveJpeg, magickAvailable, gridOverlayB64, findBrightButton, findButtonBands, annotateTapAsync, pHashHex, pHashHamming, downscaleForVlmB64, resizeToSmartB64, grayGrid } from './imageTools.mjs';
 import { isAutoSpinWait, watchAutoSpin, watchNote } from './spinWatch.mjs';
 import { createLoopGuard } from './loopGuard.mjs';
-import { gridMoved, gridMovedAt } from './frameSignal.mjs';
+import { gridMoved, gridMovedAt, frameIsBlank } from './frameSignal.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
-import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure, identifyPage } from './memoryGraph.mjs';
+import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure, identifyPage, forgetHash } from './memoryGraph.mjs';
 import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, coolSpinOp, createReflexState, isPaidSpinTarget, opFromCmd, parseSpinCount, rtpSummary, spinCooledDown } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
@@ -296,13 +296,30 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls, coordM
   // 方案才保留割草類的移動說明;沒指定 = 舊行為(全部保留)。
   const includeMow = !controls || controls.battleMove;
   const controlsBlock = controls?.prompt ? `\n${controls.prompt}\n` : '';
-  const actionEnum = controls?.allowedActions?.length ? controls.allowedActions.join('|') : 'tap|swipe|move|back|type|wait|launch|done';
+  // path / circle 是「一個手勢裡走完整條路徑」,不是多個 swipe 的組合 —— 這個差別很重要:
+  // swipe 到終點就放手,遊戲會當成一次獨立操作,虛擬搖桿還會彈回中心,所以「搖桿轉三圈」
+  // 「沿路徑拖曳」這類測項用 swipe 拼不出來(客戶回報:測試步驟要寫得非常冗長才有機會成功)。
+  const pathHelp =
+    `path = 按住起點 → 依序經過 points 的每一個點 → 放開,全程不放手:points 依序給 2~12 個點,`
+    + `durationMs 是整條路徑的總毫秒(預設 1200),loops 可把整條路徑連續重複 2~5 次。`
+    + `circle = 繞圈(搖桿畫圓、轉盤、方向盤):x,y 是圓心(有虛擬搖桿時可省略,系統用搖桿中心),`
+    + `laps 圈數(1~10)、radius 半徑(省略約畫面短邊 18%)、dir "cw" 順時鐘 / "ccw" 逆時鐘、holdMs 每一圈的毫秒(預設 1200)。`
+    + `【重要】需要「按住不放連續經過多個位置」或「轉幾圈」時,一定要用 path 或 circle,不要用多個 swipe 去拼 ——`
+    + `swipe 一到終點就放手,遊戲會視為多次互不相關的操作,搖桿也會彈回中心。例:搖桿轉三圈 = circle 且 laps:3。`;
+  const pathFields = `,"points":[{"x":<${coordUnit}x>,"y":<${coordUnit}y>}],"loops":<整條路徑重複次數>,"laps":<圈數>,"radius":<半徑>,"durationMs":<毫秒>`;
+  // 有指定操作方式時,只介紹清單裡真的允許的動作(介紹了卻被拒絕只會浪費步數)。
+  const pathAllowed = !controls || controls.allowedActions?.some((a) => a === 'path' || a === 'circle');
+  const actionEnum = controls?.allowedActions?.length ? controls.allowedActions.join('|') : 'tap|swipe|move|path|circle|hold|back|type|wait|launch|done';
   const gestureFields = controls
-    ? `,"durationMs":<滑動毫秒>,"tx":<右手${coordUnit}x>,"ty":<右手${coordUnit}y>,"taps":<次數>,"scale":"in|out"`
-    : '';
+    ? `,"durationMs":<滑動毫秒>,"tx":<右手${coordUnit}x>,"ty":<右手${coordUnit}y>,"taps":<次數>,"scale":"in|out"` + (pathAllowed ? pathFields : '')
+    : `,"holdMs":<按住毫秒>` + pathFields;
   const gestureHelp = controls
-    ? `hold 需 x,y,holdMs(按住);swipe 可加 durationMs(長=拖曳、短=快劃);combo 需 x,y(左手)、可選 dir、holdMs、tx,ty(右手按鈕)、taps;pinch 需 x,y 與 scale。只能使用上面列出的可用動作。`
-    : '';
+    ? `hold 需 x,y,holdMs(按住);swipe 可加 durationMs(長=拖曳、短=快劃);combo 需 x,y(左手)、可選 dir、holdMs、tx,ty(右手按鈕)、taps;pinch 需 x,y 與 scale。`
+      + (pathAllowed ? pathHelp : '')
+      + `只能使用上面列出的可用動作。`
+    // 沒有指定操作方式的案例(多數舊案例)也要有連續路徑手勢,否則「轉三圈」只能靠把測試步驟
+    // 寫得很長去硬湊,而且仍然做不到。
+    : `hold 需 x,y,holdMs(按住不放,例如蓄力);swipe 可加 durationMs(長=拖曳、短=快劃)。` + pathHelp;
   const base =
     `你是專業遊戲測試工程師,正在測試一個 ${PLATFORM === 'ios' ? 'iOS' : PLATFORM === 'windows' ? 'Windows PC' : 'Android'} 遊戲。每一步你會看到一張最新截圖。` +
     (PLATFORM === 'windows' ? '這是 Windows 桌面:tap = 滑鼠左鍵單擊、swipe = 按住左鍵拖曳、back = 按 Esc;沒有多點觸控。截圖是整個螢幕,遊戲視窗外的桌面/工作列不要點。' : '') +
@@ -352,6 +369,11 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls, coordM
       : `move 需 dir(方向)與可選 holdMs(按住毫秒,預設1500)——虛擬搖桿在【畫面下方中央】(不是正中心),x,y 省略時預設以下方中央為搖桿中心;若你看得到搖桿(半透明圓圈/白圈)可用 x,y 指定它的中心更精準;`) +
     gestureHelp +
     `type 需 text;登入/表單有多個輸入框時,type 必須同時帶該欄位中心 x,y,runner 會先點該欄位再輸入;` +
+    // submit:取代「用座標去點軟鍵盤上的 OK」。鍵盤遮住送出鈕、或畫面被系統遮黑(Android 15
+    // 的螢幕分享保護會在有密碼欄位時把畫面遮黑)時,座標是看不到也量不準的;輸入法的動作鍵
+    // 在每台裝置上都在同一個邏輯位置,不需要量。
+    `type 可加 "submit":"done"(或 "go"/"search"/"next")—— 輸入完直接請輸入法送出,等同按軟鍵盤右下角那一顆;` +
+    `當送出鈕被鍵盤遮住、或你看不到鍵盤時,用它比用座標點 OK 可靠得多;` +
     `每次只輸入一個欄位(帳號、密碼分兩步),不要假設前一步焦點仍在。done 只在真正完成或完全無法進行時用。` +
     `【絕對禁止提前 done|重要】「載入中/Loading/請稍候/過場動畫/剛按了 Start 或 SELECT 正在進場」都【不是】完成,這時只能 wait 或觀察,【嚴禁用 done】。` +
     `【品牌 Logo/開場動畫畫面|重要】若畫面是純展示性的「遊戲 Logo/工作室 Logo/品牌動畫/Config Ready/Loading」(畫面上沒有任何按鈕,只有標題文字、角色插圖、特效動畫,正在自動播放等待載入完成),` +
@@ -1717,8 +1739,14 @@ async function main() {
     // 取格子失敗(ImageMagick 逾時)時保留上一張:下一步會跟「更早的那張」比,偏向判定有變化,
     // 這是安全的方向(護欄晚觸發而非誤殺);若直接清成 null,訊號會斷一步。
     lastGrid = curGrid ?? lastGrid;
+    // 【螢幕分享保護】畫面幾乎全黑:Android 15 起,畫面上有密碼欄位時系統會把 App 畫面在
+    // 錄影/截圖裡遮黑(見 frameSignal.frameIsBlank)。這不是遊戲黑屏,也不是當機 —— 下面會
+    // 擋掉三種誤判(卡死判定、死循環計數、把它當成遊戲缺陷),並告訴 AI 怎麼在看不見的情況下
+    // 完成輸入。誤判成「全黑」的代價很小(少數幾步不計入護欄),所以門檻取寬鬆一點。
+    const blankFrame = curGrid ? frameIsBlank(curGrid) === true : false;
     // 任一訊號看到動靜就歸零。拿不到格子訊號時退回只看 pHash(等同舊行為)。
-    quietCount = i === 0
+    // 遮黑期間不累計:一張全黑不變的畫面會讓這個計數一路衝到硬停止點,把登入流程整段砍掉。
+    quietCount = i === 0 || blankFrame
       ? 0
       : ((frameMoved === null ? !screenChanged : !(frameMoved || screenChanged)) ? quietCount + 1 : 0);
 
@@ -1789,7 +1817,19 @@ async function main() {
       && typeof lastStep.target === 'string' && lastStep.target
       ? { target: lastStep.target, x: lastStep.x, y: lastStep.y }
       : null;
-    const stuckNote = (stuckCount >= 2)
+    // 遮黑期間的提示要取代「畫面沒變化」那類提示:這時候叫 AI「換個位置點」只會讓它亂點。
+    const blankNote = blankFrame
+      ? `\n【系統|畫面被系統遮黑,不是遊戲黑屏】這張截圖整片是黑的,因為 Android 15 起的「螢幕分享保護」:`
+        + `畫面上有密碼欄位時,系統會把 App 畫面在錄影/截圖中遮黑。遊戲本身是正常的,看不到鍵盤與送出鈕都是預期的,`
+        + `【不要】把這個黑畫面回報成遊戲缺陷(issue),也不要因為看不到就亂點座標。做法:`
+        + `(1) 要輸入密碼就直接用 type 並把 text 填好 —— 它送到目前聚焦的欄位,不需要看到鍵盤;`
+        + `(2) 送出不要用座標點 OK,改在同一個 type 動作加上 "submit":"done"(等同按鍵盤右下角的完成/前往),`
+        + `這在任何裝置上都成立;(3) 若還沒聚焦到密碼欄,先 tap 密碼欄(位置可由遮黑前的畫面推斷),再 type;`
+        + `(4) 送出後畫面若離開密碼欄位,遮黑會自動解除,你就會重新看到畫面。`
+      : '';
+    const stuckNote = blankFrame
+      ? ''
+      : (stuckCount >= 2)
       ? (lastAim
         ? `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化。上一步你要操作的是「${lastAim.target}」、點在 (${lastAim.x}, ${lastAim.y}),畫面毫無反應 —— 代表那個座標上並不是「${lastAim.target}」。請在這張截圖上重新找出「${lastAim.target}」真正的位置(它可能不在你上次點的地方,也可能被彈窗遮住、或需要先展開別的東西),把座標對到它的正中心;如果這個畫面上根本找不到它,就說明找不到並改用別的做法,不要再點同一處。`
         : `【注意】畫面已連續 ${stuckCount + 1} 步沒有變化 —— 你先前點的位置不是可互動元件。請「換一個明顯不同的位置」,重新找出這個畫面上你真正要操作的元件(主按鈕、分頁、下拉選單、關閉鈕都算),把座標對到它的正中心,不要再點同一處或空白處。`)
@@ -1909,7 +1949,7 @@ async function main() {
       : '';
     if (!reflexCmd) reflexNotes = [];
 
-    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + memoNote + controlNote
+    const turnText = (i === 0 ? `第一張畫面。目標:${TASK}` : `上一步(${prevAction})執行後的最新畫面。`) + dimHint + stuckNote + blankNote + memoNote + controlNote
       + soundNote(sound)
       + reflexNote
       + (scriptTracker ? scriptTracker.turnNote() : '')
@@ -2094,7 +2134,7 @@ async function main() {
         updateScriptProgress(team);
         if (res.cmd) {
           // 用決策的動作取代視覺的建議(保留視覺的畫面名 / 描述 / 證據欄位)。
-          for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'dir', 'direction', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'scale', 'target']) delete cmd[k];
+          for (const k of ['x', 'y', 'x2', 'y2', 'tx', 'ty', 'dir', 'direction', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'scale', 'target', 'points', 'loops', 'laps', 'radius']) delete cmd[k];
           Object.assign(cmd, res.cmd);
           if (cmd.targetSwitched) console.log(`[落點校正] 第 ${i} 步:決策 Agent 的目標寫「${cmd.targetSwitched.to}」,卻填了「${cmd.targetSwitched.from}」的元件編號 —— 以它寫的目標為準`);
           else if (cmd.targetMismatch) console.log(`[落點校正] 第 ${i} 步:決策 Agent 的目標敘述對不上它選的元件「${cmd.target}」,敘述含糊,照編號執行並記錄`);
@@ -2148,6 +2188,16 @@ async function main() {
     const clampTo = (v, span) => Math.max(0, Math.min(span, Math.round(v)));
     if (cmd.x != null && Number.isFinite(cmd.x)) cmd.x = clampTo(cmd.x, cw);
     if (cmd.y != null && Number.isFinite(cmd.y)) cmd.y = clampTo(cmd.y, ch);
+    // path 的座標點:逐點轉數字、夾進畫面、去掉無效點。
+    // 點數上限 12:一個手勢的時間是固定的(見 appiumClient 的 path),點太多每段就短到遊戲
+    // 來不及追蹤;真的需要很多點的路徑(繞圈)用 circle 的 laps,不要靠貼一長串座標。
+    if (Array.isArray(cmd.points)) {
+      cmd.points = cmd.points
+        .map((p) => ({ x: Number(p?.x), y: Number(p?.y) }))
+        .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+        .map((p) => ({ x: clampTo(p.x, cw), y: clampTo(p.y, ch) }))
+        .slice(0, 12);
+    }
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) cmd.x2 = clampTo(cmd.x2, cw);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) cmd.y2 = clampTo(cmd.y2, ch);
     if (cmd.tx != null && Number.isFinite(cmd.tx)) cmd.tx = clampTo(cmd.tx, cw);
@@ -2243,7 +2293,9 @@ async function main() {
       cmd.override = 'app_restart';
       escapeOverride = true;
       controlNote = '【系統】遊戲剛被重新啟動,請從第一個畫面重新依知識庫流程進入。';
-    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery && !operatorDirected && !loadingWaitCapped) {
+    } else if (looksLoading && cmd.action !== 'wait' && !allowRecovery && !operatorDirected && !loadingWaitCapped && !blankFrame) {
+      // blankFrame 排除:畫面被螢幕分享保護遮黑時,AI 常把它命名成「載入中/黑畫面」,
+      // 這時強制等待只會讓它一直等 —— 遮黑要靠輸入與送出(type + submit)自己走出去。
       const origAction = cmd.action;
       cmd.action = 'wait'; cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined; cmd.duration = 3;
       cmd.thinking = `偵測到載入/開場動畫畫面(無可互動元素),強制改為等待,不亂點(同一畫面最多連續 ${LOADING_WAIT_CAP} 次,之後會放行讓你試)。原動作:${origAction}。` + String(cmd.thinking || '');
@@ -2427,6 +2479,13 @@ async function main() {
       if (guess) cmd.screen = guess;
     }
     const screenName = cmd.screen || `畫面 ${i}`;
+    // 遮黑期間不收「黑畫面/畫面全黑」這類缺陷回報:那是系統的螢幕分享保護,不是遊戲的問題。
+    // prompt 已經講了,但證據會進報告,所以這裡再擋一層(其他類型的 issue 照收 —— 它可能是
+    // 遮黑前就看到的問題)。
+    if (blankFrame && cmd.issue && /黑|black|blank|看不到|看不見/i.test(`${cmd.issue.title ?? ''}${cmd.issue.cat ?? ''}`)) {
+      console.log(`[螢幕分享保護] 第 ${i} 步:忽略「${String(cmd.issue.title ?? '').slice(0, 40)}」—— 畫面是被系統遮黑的,不是遊戲缺陷`);
+      delete cmd.issue;
+    }
 
     // 落點標記圖:tap/swipe 時在點擊座標畫紅十字+圓圈+座標,存 annotated/<i>.png(前端顯示 AI 點在哪)。
     // 這張圖只給人看,不影響判斷,而 ImageMagick 要跑約 1.2 秒 → 先只決定 key,圖在背景產生並上傳
@@ -2451,6 +2510,10 @@ async function main() {
       ...(cmd.action === 'hold' ? { holdMs: cmd.holdMs ?? null } : {}),
       ...(cmd.action === 'combo' ? { dir: cmd.dir ?? null, holdMs: cmd.holdMs ?? null, tx: cmd.tx ?? null, ty: cmd.ty ?? null, taps: cmd.taps ?? null } : {}),
       ...(cmd.action === 'pinch' ? { scale: cmd.scale ?? null } : {}),
+      // path / circle:整條路徑都要留證據,否則報告只看到「做了一個手勢」,無法判斷
+      // 「搖桿轉三圈」是真的轉了三圈還是只畫了一段弧。points 為縮圖空間座標(與落點標記同一個空間)。
+      ...(cmd.action === 'path' ? { points: cmd.points ?? [], loops: cmd.loops ?? 1, swipeMs: cmd.durationMs ?? null } : {}),
+      ...(cmd.action === 'circle' ? { laps: cmd.laps ?? 1, radius: cmd.radius ?? null, dir: cmd.dir ?? 'cw', holdMs: cmd.holdMs ?? null } : {}),
       ...(cmd.action === 'swipe' && Number.isFinite(cmd.durationMs) ? { swipeMs: cmd.durationMs } : {}),
       // swipe 終點(縮圖空間 + 裝置像素)—— 之前只記起點,看不出 AI/測試人員往哪拖。
       ...(cmd.action === 'swipe' && Number.isFinite(cmd.x2) && Number.isFinite(cmd.y2)
@@ -2481,6 +2544,9 @@ async function main() {
       // tapResponded:上一步點擊的落點附近有沒有反應。false 而 frameChanged 為 true =
       // 「畫面在動,但你點的那個地方沒有」—— 這正是「點到的東西不是你說的那個」的特徵。
       ...(i > 0 && frameMovedAtTap !== null ? { tapResponded: frameMovedAtTap } : {}),
+      // secureBlackout:這一步的截圖是被系統遮黑的(有密碼欄位時的螢幕分享保護)。
+      // 報告端需要這個旗標才能把「看不到畫面」與「遊戲黑屏」分開 —— 前者是量測限制,後者是缺陷。
+      ...(blankFrame ? { secureBlackout: true } : {}),
       ...evidenceFields(cmd, aiAction),
       ...(cmd.override ? { override: cmd.override } : {}),
       // runner 改寫了動作時,把「AI 原本要做什麼」一起記下來(aiAction 是覆寫鏈之前的動作)。
@@ -2584,6 +2650,17 @@ async function main() {
     // 增量記憶地圖:建/更新當前畫面節點 + 從上一畫面的轉移邊,即時寫回供前端重繪。
     // 畫面身分用「視覺指紋 + 正規化名稱 + 模組」判斷(見 memoryGraph.mjs),AI 換說法不會長出重複節點。
     const { pageId: pid, isNew } = upsertPage(struct, { name: screenName, pHash: curPhash, module: cmd.module });
+    // 【辨識自我修正】這一幀有兩個獨立判斷:herePage 是「只靠指紋認」的結果(迴圈前段,用來決定
+    // 記憶腳本與記憶提醒),pid 是「AI 看了畫面說它是什麼」之後歸到的節點。兩者指向不同節點,
+    // 就代表 herePage 裡有一個樣本長得像這一幀、但其實是別的畫面 —— 把那個樣本拿掉,不然每次
+    // 經過這個畫面都會認錯,而且樣本存在 structure.json 裡,下一次任務會繼續錯
+    // (客戶回報:把主畫面認成戰鬥畫面)。
+    // 只在 AI 的判斷可信時修正:有畫面名、不是解析失敗、而且這一幀的指紋資訊量足夠。
+    if (herePage?.pageId && pid && herePage.pageId !== pid && curPhash && cmd.screen && !cmd.parseFailed) {
+      const wrongName = struct.pages?.[herePage.pageId]?.name ?? herePage.pageId;
+      const dropped = forgetHash(struct, herePage.pageId, curPhash);
+      if (dropped) console.log(`[記憶地圖] 第 ${i} 步:指紋把這個畫面認成「${wrongName}」,AI 看到的是「${screenName}」—— 已移除「${wrongName}」裡誤判的 ${dropped} 個指紋樣本`);
+    }
     if (isNew) s3putBg(`${MEM_PREFIX}/screenshots/${pid}.png`, Buffer.from(shot, 'base64'), 'image/png');
     // 記憶命中(必須在 recordTransition 之前:那之後本步的轉場已算進次數,分不出是不是舊記憶)。
     const memHit = memTrace.onStep({
@@ -2668,7 +2745,8 @@ async function main() {
     //   · SPIN 迴圈的反射步:每局都停在同一個畫面是這個任務要做的事,而且它自己會驗證轉輪有沒有動
     //   · 測試人員正在指揮:人叫它點的,不是 AI 在亂撞,不能因此重啟或中止
     // done 也不算對畫面的操作(被駁回的 done 不是「操作了沒反應」)—— 這一條在 loopGuard 裡。
-    const loopExempt = screenLoopExempt || cmd.reflex?.kind === 'spin' || operatorDirected;
+    //   · 畫面被系統遮黑(螢幕分享保護):截圖全黑且不會變,問「有沒有反應」沒有意義
+    const loopExempt = screenLoopExempt || cmd.reflex?.kind === 'spin' || operatorDirected || blankFrame;
     // changed 配的是 prevAction(上一步實際執行的動作,changed 的成因),不是這一步還沒執行的
     // 動作 —— 配錯會把「上一步 wait 沒變化 + 這一步要 tap」錯算成一次無效操作。
     const loopVerdict = loopExempt
@@ -2785,6 +2863,8 @@ async function main() {
       // 改成 wait,避免送出「沒有位置的點擊」被 Appium 擋下(連續失敗 3 次會直接判 error)。
       const needsXY = back === 'tap' || back === 'swipe' || back === 'hold' || back === 'combo';
       if (needsXY && !(Number.isFinite(cmd.x) && Number.isFinite(cmd.y))) back = 'wait';
+      // path 沒有 points 就送不出去(裝置端會丟錯,連續失敗 3 次直接判 error)。
+      if (back === 'path' && !(Array.isArray(cmd.points) && cmd.points.length >= 2)) back = 'wait';
       cmd.action = back;
       if (back === 'wait') { cmd.duration = 2; cmd.x = undefined; cmd.y = undefined; }
       cmd.thinking = `[拒絕假完成] 決策 Agent 想結束,但看畫面的視覺 Agent 判斷還要繼續(${back}),第 ${agentDoneOverrides} 次以視覺為準。` + String(cmd.thinking || '');
@@ -2926,6 +3006,12 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) deviceCmd.y = toDeviceY(cmd.y);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDeviceX(cmd.x2);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) deviceCmd.y2 = toDeviceY(cmd.y2);
+    // path 的每一個點、circle 的半徑也要從縮圖空間換算到裝置像素(半徑用 x 方向的比例,
+    // 兩個方向的縮放比理論上相同)。漏掉這一步手勢會整個縮在畫面左上角。
+    if (Array.isArray(cmd.points) && cmd.points.length) {
+      deviceCmd.points = cmd.points.map((p) => ({ x: toDeviceX(p.x), y: toDeviceY(p.y) }));
+    }
+    if (cmd.radius != null && Number.isFinite(cmd.radius)) deviceCmd.radius = Math.round(cmd.radius * devScaleX);
     // 憑證替換:僅在「輸入到裝置」時把 text 的 ${key}/secretRef 換成真值(step/trace 已存原佔位符)。
     // 找不到時重載一次(使用者可能剛更新憑證);仍缺少就 fail closed,絕不把 `${...}` 原樣打進遊戲。
     if (deviceCmd.action === 'type' && typeof deviceCmd.text === 'string' && deviceCmd.text.length > 0) {
@@ -2999,10 +3085,31 @@ async function main() {
       } else
       await timedAsync(tm, 'act', () => client.act(deviceCmd));
       actOk = true;
-      // 【輸入狀態保護】這個畫面上真的打進去了文字 → 之後若撞上死循環門檻,重啟前先給一次
-      // 換做法的機會(見迴圈前段的死循環護欄)。標記在動作送出成功之後,所以它永遠代表
-      // 「這個畫面上先前已經輸入過」,不是「這一步打算輸入」。
-      if (cmd.action === 'type') typedScreens.add(screenName);
+      if (cmd.action === 'type') {
+        // 【輸入驗真】裝置端會回報這段字到底有沒有進到欄位裡(見 appiumClient.#typeText):
+        // verified=false 是確定性證據(欄位讀回來沒有這段字),null = 無法確認(密碼遮罩、
+        // 遊戲自繪輸入框讀不到元件)。三個輸入管道都可能「不丟錯也沒輸入」—— 模擬器通常第一個
+        // 管道就成功,真機上 `mobile: type` 遇到遊戲自繪輸入框會靜默無效,於是出現客戶回報的
+        // 「測試憑證預設值只能在模擬器上用,真機就無法輸入」。不驗的話 runner 只會看到「type 成功」。
+        const chk = client.lastTypeCheck ?? null;
+        if (chk) {
+          step.typeCheck = chk;
+          s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
+          console.log(`[輸入驗真] 第 ${i} 步:管道 ${chk.how}、${chk.verified === true ? '已確認字在欄位裡' : chk.verified === false ? '欄位裡沒有這段字' : '無法確認(密碼遮罩或讀不到元件)'}`);
+        }
+        if (chk?.verified === false) {
+          controlNote += `【系統|輸入沒有進去】剛才的 type 已經送到裝置,但讀回那個欄位發現文字沒有進去(三種輸入管道都試過了)。`
+            + `常見原因與對策:(1) 焦點不在輸入框 → 先 tap 輸入框正中心,看到游標或鍵盤彈出再 type;`
+            + `(2) 這是遊戲自繪的輸入框或自製數字鍵盤(不是系統輸入框)→ 系統層的文字注入無效,`
+            + `請改用畫面上的按鍵一個字一個字 tap;(3) 欄位有長度或字元限制 → 確認要輸入的內容符合規則。`
+            + `不要重複送一模一樣的 type,先換上面其中一種做法。`;
+        } else {
+          // 【輸入狀態保護】這個畫面上真的打進去了文字 → 之後若撞上死循環門檻,重啟前先給一次
+          // 換做法的機會(見迴圈前段的死循環護欄)。標記在動作送出成功之後,所以它永遠代表
+          // 「這個畫面上先前已經輸入過」,不是「這一步打算輸入」。
+          typedScreens.add(screenName);
+        }
+      }
       // 這一步點在哪(0~1 相對座標):下一步要用它檢查「手指底下那一塊有沒有反應」。
       // 只有 tap/hold 算 —— swipe/move 的效果是整個版面在捲,不在落點附近。
       lastTapAt = (cmd.action === 'tap' || cmd.action === 'hold') && Number.isFinite(cmd.x) && Number.isFinite(cmd.y) && cw > 0 && ch > 0

@@ -39,3 +39,39 @@ The physical device that actually ran a task is captured and shown back to the u
 - Loop/stuck detection ends early with a clear message instead of spinning.
 - **Frozen-screen patience + abort**: when the screen (perceptual hash) does not change for several consecutive steps, the runner does not blindly tap. It first waits patiently — especially when the screen looks like an install/loading screen (a large APK's first install can take minutes) — and only after a longer unchanged window rotates through escape actions. If the screen is *still* completely unchanged past a hard cap, the run ends as `error` with a clear message rather than spinning forever (which, on a metered real device, would keep billing). The Web runner has an equivalent frozen-screen abort (also treating login/`reCAPTCHA` walls as a stuck loading state).
 - The top-level handler always stops the self-owned Device Farm session on exit to release the device and stop billing.
+
+## Secure-capture blackout (Android 15 sensitive content protection)
+
+From Android 15, the OS blanks the app window in screen recordings and screen-share captures while a password field is on screen. Device Farm remote access is such a capture path, so the runner's screenshots go **completely black** the moment a password field is focused — the game itself is fine, but the agent cannot see the keyboard or the submit button.
+
+This is a measurement limitation, not a game defect, and it used to break three separate things at once:
+
+- **Stuck/loop guards**: an all-black, never-changing frame looks exactly like a frozen app, so the runner would restart the app (wiping the account/OTP already typed) or abort the run.
+- **Evidence protocol**: the agent is told to report a black screen as a defect, so the run produced a bogus graphics bug.
+- **Input**: with the keyboard invisible, the agent could only guess coordinates.
+
+What the runner does instead (`frameSignal.frameIsBlank` + `explorationRunner`):
+
+1. Detects the blackout (≥98% of the 48×48 luminance grid at near-zero) and marks the step `secureBlackout: true`.
+2. Exempts those steps from the loop guard and the frozen-screen counter, so nothing is restarted or aborted while the capture is blanked.
+3. Drops black-screen/"cannot see" defect reports for those steps (other defect categories still pass through).
+4. Tells the agent how to proceed without vision: `type` goes to the focused field and needs no keyboard, and `type` with `"submit":"done"` asks the IME to fire its action key (`mobile: performEditorAction`, falling back to `KEYCODE_ENTER`) instead of tapping a measured OK coordinate.
+
+Submitting through the IME action key is the part that generalizes. Measuring "the password keyboard is N pixels taller than the account keyboard, so OK sits at (x, y−N)" works only on the device it was measured on; the IME action key is in the same logical place on every device.
+
+## No ADB on Device Farm real devices
+
+AWS Device Farm remote-access sessions expose **Appium only** — there is no `adb` channel, and Appium's `mobile: shell` requires `--relaxed-security`, which Device Farm does not enable. So pre-test system configuration (e.g. turning off the sensitive-content protection above, toggling developer settings) cannot be done on real devices through this backend. Device logs are available because Device Farm itself provides them.
+
+Where ADB *is* available, the runner already uses it: `PA_DRIVER=adb` (`adbClient.mjs`, Redroid containers / self-hosted emulators) runs `adb shell` directly and implements the same action set, including `path`/`circle` via `input motionevent`.
+
+Practical consequence: a need of the form "run this adb command before the test" must either (a) be solved inside the Appium action set — as the blackout case now is — or (b) run on the emulator backend.
+
+## Continuous-path gestures (`path`, `circle`)
+
+Tapping and "drag to a point and release" cannot express test items like "rotate the joystick three times": releasing the finger ends the gesture and the stick springs back to centre, so the game sees several unrelated inputs. Two actions cover this, both a single uninterrupted gesture (W3C pointer chain on Appium, `input motionevent` on ADB):
+
+- `path`: press at the first point, move through up to 12 ordered points, release. `durationMs` is the total time for the path; `loops` repeats the whole path 2–5 times.
+- `circle`: press at the centre, move out to the radius and go round. `laps` sets the number of laps (1–10), `radius`/`dir`/`holdMs` tune it. "Rotate the joystick three times" is `circle` with `laps: 3`.
+
+They are opened by the control schemes that need them (joysticks, drag-and-drop, steering) and are in the default action set for cases with no control scheme configured. The decision agent addresses a `path` through element ids (`pathElements`), keeping the rule that coordinates always come from the vision agent's element list; free-form paths with no matching elements are left to the vision agent.

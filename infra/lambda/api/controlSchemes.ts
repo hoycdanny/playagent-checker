@@ -31,8 +31,15 @@ export const CONTROL_IDS = [
 ] as const;
 export type ControlId = (typeof CONTROL_IDS)[number];
 
-/** runner 的手勢動作(基礎動作之外,依方案開放)。key = 鍵盤按鍵(網頁 / Windows)。 */
-export type GestureAction = 'move' | 'hold' | 'combo' | 'pinch' | 'key';
+/**
+ * runner 的手勢動作(基礎動作之外,依方案開放)。key = 鍵盤按鍵(網頁 / Windows)。
+ *
+ * path / circle 是「一個手勢內連續經過多個位置」:
+ *   path   按住起點 → 依序經過多個座標 → 放開(沿路徑拖曳、連線消除、畫手勢)
+ *   circle 繞圈(搖桿畫圓、轉盤、方向盤);laps 指定圈數
+ * 這兩個不能用多個 swipe 取代 —— swipe 到終點就放手,遊戲會當成多次獨立操作,搖桿還會彈回中心。
+ */
+export type GestureAction = 'move' | 'hold' | 'combo' | 'pinch' | 'key' | 'path' | 'circle';
 
 /** 方案適用的平台:mobile = Android/iOS 觸控;web = 瀏覽器;windows = PC。 */
 export type ControlPlatform = 'mobile' | 'web' | 'windows';
@@ -101,8 +108,9 @@ export const CONTROL_SCHEMES: ControlScheme[] = [
     desc: L('把物件拖到目標位置(放塔、出牌、合成)', 'Drag an object onto a target (place tower, play card, merge)'),
     fingers: 1,
     zone: 'any',
-    actions: [],
-    prompt: '需要「拖曳放置」:用 swipe 並給較長的 durationMs(600~1200),x,y=被拖物件中心,x2,y2=放置目標中心。',
+    actions: ['path'],
+    prompt: '需要「拖曳放置」:用 swipe 並給較長的 durationMs(600~1200),x,y=被拖物件中心,x2,y2=放置目標中心。'
+      + '若要「按住不放連續經過好幾個位置」(連線消除、沿路徑拖曳、依序經過多個格子),用 path 並把每個要經過的位置依序放進 points —— 不要用多個 swipe 拼,中間一放手就變成多次獨立操作。',
   },
   {
     id: 'joystick_center',
@@ -110,8 +118,9 @@ export const CONTROL_SCHEMES: ControlScheme[] = [
     desc: L('按住畫面下方拖曳走位(割草、生存類)', 'Hold and drag at bottom-center to move (survivor-like)'),
     fingers: 1,
     zone: 'bottom_center',
-    actions: ['move'],
-    prompt: '移動靠「下方中央的虛擬搖桿」:戰鬥中移動只能用 move(dir 方向 + holdMs 按住 1500~3000),不要用 tap 移動。x,y 省略時 runner 自動以下方中央為搖桿中心。',
+    actions: ['move', 'path', 'circle'],
+    prompt: '移動靠「下方中央的虛擬搖桿」:戰鬥中移動只能用 move(dir 方向 + holdMs 按住 1500~3000),不要用 tap 移動。x,y 省略時 runner 自動以下方中央為搖桿中心。'
+      + '要「繞圈」時用 circle(laps=圈數,例:搖桿轉三圈 = circle + laps:3);要「依序走出一條路線」時用 path(points 依序列出要經過的位置)。這兩個都是一個手勢全程不放手,用 move/swipe 拼不出來(放手搖桿就彈回中心)。',
   },
   {
     id: 'joystick_left',
@@ -119,8 +128,9 @@ export const CONTROL_SCHEMES: ControlScheme[] = [
     desc: L('左手拇指在左下控制方向', 'Left thumb controls direction at bottom-left'),
     fingers: 1,
     zone: 'left',
-    actions: ['move'],
-    prompt: '移動靠「左下角的虛擬搖桿」:用 move(dir 方向 + holdMs)。若看得到搖桿圓圈,用 x,y 指定其中心;省略時 runner 以左下區域(約寬 18%、高 72%)為中心。不要用 tap 移動角色。',
+    actions: ['move', 'path', 'circle'],
+    prompt: '移動靠「左下角的虛擬搖桿」:用 move(dir 方向 + holdMs)。若看得到搖桿圓圈,用 x,y 指定其中心;省略時 runner 以左下區域(約寬 18%、高 72%)為中心。不要用 tap 移動角色。'
+      + '要「繞圈」時用 circle(x,y=搖桿中心、laps=圈數);要「依序走出一條路線」時用 path(points 依序列出要經過的位置)。兩者都是一個手勢全程不放手。',
   },
   {
     id: 'skill_right',
@@ -146,8 +156,9 @@ export const CONTROL_SCHEMES: ControlScheme[] = [
     desc: L('按住左右方向鍵或左右半邊轉向(賽車)', 'Hold left/right buttons or screen halves to steer (racing)'),
     fingers: 1,
     zone: 'left',
-    actions: ['hold'],
-    prompt: '轉向靠「按住左/右方向鍵」(常見在左下兩顆箭頭;若沒有箭頭,則按住畫面左半邊=左轉、右半邊=右轉):用 hold(x,y=方向鍵或半邊中心,holdMs 300~1200 依彎道大小)。不要用 tap 轉向,點一下幾乎沒有效果。',
+    actions: ['hold', 'path'],
+    prompt: '轉向靠「按住左/右方向鍵」(常見在左下兩顆箭頭;若沒有箭頭,則按住畫面左半邊=左轉、右半邊=右轉):用 hold(x,y=方向鍵或半邊中心,holdMs 300~1200 依彎道大小)。不要用 tap 轉向,點一下幾乎沒有效果。'
+      + '若是「按住方向盤拖出一段軌跡」的轉向,用 path(points 依序列出軌跡上的位置,全程不放手)。',
   },
   {
     id: 'pedals',
@@ -455,6 +466,20 @@ export function buildControlsProtocol(ids: ControlId[], source: 'case' | 'genre'
       '【雙指同時操作】需要「左手移動/轉向 + 右手按技能/開火/氮氣」同時進行時,用 combo 動作:' +
         'x,y=左手位置(搖桿中心或方向鍵),dir=搖桿方向(轉向鍵按住則省略 dir),holdMs=左手按住毫秒(800~3000),' +
         'tx,ty=右手要點的按鈕中心,taps=按住期間右手點擊次數(1~5)。邊走邊打、邊轉彎邊開氮氣都用 combo。',
+    );
+  }
+  if (gestures.has('path') || gestures.has('circle')) {
+    // 這一段要講清楚「為什麼不能用 swipe 拼」:客戶回報「搖桿轉三圈」這類測項做不到,
+    // 測試步驟得寫得非常冗長才有機會成功 —— 根因是只有「拖到某點就放開」一種手勢。
+    lines.push(
+      '【連續路徑手勢】需要「按住不放、連續經過多個位置」時,不要用好幾個 swipe 拼 ——' +
+        'swipe 一到終點就放手,遊戲會視為多次互不相關的操作,虛擬搖桿還會彈回中心。改用:' +
+        (gestures.has('path')
+          ? '\n- path:按住起點 → 依序經過 points 的每個點 → 放開(全程不放手)。points 依序給 2~12 個座標;durationMs=整條路徑的總毫秒(預設 1200);loops=整條路徑連續重複幾次(1~5)。'
+          : '') +
+        (gestures.has('circle')
+          ? '\n- circle:繞圈(搖桿畫圓、轉盤、方向盤)。x,y=圓心(有虛擬搖桿時可省略,系統用搖桿中心);laps=圈數(1~10);radius=半徑(省略約畫面短邊 18%);dir="cw" 順時鐘 /"ccw" 逆時鐘;holdMs=每一圈的毫秒(預設 1200)。例:「搖桿轉三圈」= circle 且 laps:3。'
+          : ''),
     );
   }
   if (keyboardKeys.length) {

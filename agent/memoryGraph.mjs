@@ -193,10 +193,16 @@ function refreshName(page) {
   if (top) page.name = displayName(top[0]) || top[0];
 }
 
-/** 找最佳匹配頁;回 page id 或 null。 */
+/**
+ * 找最佳匹配頁;回 { id, dist } —— id 為 null 代表沒有匹配。
+ * dist = 與該頁現有樣本的最小視覺距離(Infinity = 純粹靠名稱匹配到的,視覺上完全不像)。
+ * 呼叫端需要 dist:靠名稱匹配到的畫面【不可以】把這一幀的指紋收為樣本(見 upsertPage)。
+ */
 function findMatch(struct, { canon, pHash, module, transient = false }) {
   let best = null;
   let bestScore = Infinity;
+  let bestDist = Infinity;
+  const take = (p, score, dist) => { if (score < bestScore) { bestScore = score; best = p.id; bestDist = dist; } };
   for (const p of Object.values(struct.pages)) {
     const pc = p.canonical ?? canonicalName(p.name);
     const sameModule = !module || !p.module || p.module === module;
@@ -205,7 +211,7 @@ function findMatch(struct, { canon, pHash, module, transient = false }) {
     // 條件:指紋資訊量足夠(排除全黑/全白的退化指紋)、且「載入類」屬性一致
     // (載入畫面不與正式畫面合併,否則記憶腳本會在載入畫面上動作)。
     if (dist <= IDENTICAL_MATCH && richHash(pHash) && transient === Boolean(p.transient)) {
-      if (dist < bestScore) { bestScore = dist; best = p.id; }
+      take(p, dist, dist);
       continue;
     }
     if (transient || p.transient) {
@@ -215,7 +221,7 @@ function findMatch(struct, { canon, pHash, module, transient = false }) {
       let score = Infinity;
       if (dist <= STRONG_MATCH) score = dist;
       else if (canon === pc && !isGenericTransient(canon) && sameModule) score = STRONG_MATCH + 1;
-      if (score < bestScore) { bestScore = score; best = p.id; }
+      take(p, score, dist);
       continue;
     }
     let score = Infinity;
@@ -225,9 +231,9 @@ function findMatch(struct, { canon, pHash, module, transient = false }) {
     else if (canon && canon === pc && sameModule) score = STRONG_MATCH + 1;                         // 同名同模組(動態畫面)
     else if (namesEquivalent(canon, pc) && sameModule) score = STRONG_MATCH + 2;                    // 只差修飾字(「大廳」≈「遊戲大廳」)
     else if (dist <= WEAK_MATCH && namesCompatible(canon, pc) && sameModule) score = STRONG_MATCH + 3 + dist; // 相近 + 名稱相容
-    if (score < bestScore) { bestScore = score; best = p.id; }
+    take(p, score, dist);
   }
-  return best;
+  return { id: best, dist: best ? bestDist : Infinity };
 }
 
 /**
@@ -240,13 +246,21 @@ export function upsertPage(struct, frame) {
   const now = frame.at ?? new Date().toISOString();
   const canon = canonicalName(frame.name);
   const transient = isTransientName(frame.name);
-  const id = findMatch(struct, { canon, pHash: frame.pHash, module: frame.module, transient });
+  const { id, dist } = findMatch(struct, { canon, pHash: frame.pHash, module: frame.module, transient });
   if (id) {
     const p = struct.pages[id];
     p.visitCount = (p.visitCount ?? 0) + 1;
     p.lastSeenAt = now;
     if (frame.module && !p.module) p.module = frame.module;
-    if (frame.pHash) {
+    // 指紋樣本是 identifyPage(不靠 AI 命名、直接認畫面)唯一的依據,所以只收「視覺上真的
+    // 像這一頁」的樣本。
+    //
+    // 2026-11-06:原本不看匹配原因一律收,而 findMatch 允許「同名同模組」靠名稱匹配(動態畫面
+    // 需要),於是 AI 只要有一次把戰鬥畫面叫成「主畫面」,那一幀的指紋就被收進主畫面,而且因為
+    // 它與既有樣本差異大,恰好通過「只收有明顯差異的新樣本」這個條件 —— 從此主畫面會認得戰鬥
+    // 畫面。一次命名漂移永久污染辨識,這就是客戶回報的「把主畫面認成戰鬥畫面」。
+    // 名稱匹配照樣累計造訪次數與別名(導覽圖需要),只是不給它投票辨識的權利。
+    if (frame.pHash && dist <= WEAK_MATCH) {
       const hs = pageHashes(p);
       // 只收「與既有樣本有明顯差異」的新樣本,保留代表性。
       if (!hs.some((h) => hamming(h, frame.pHash) <= 16)) p.pHashes = [...hs, frame.pHash].slice(-MAX_HASH_SAMPLES);
@@ -440,6 +454,27 @@ export function identifyPage(struct, pHash, { maxDist = 40, margin = 12 } = {}) 
 }
 
 /**
+ * 辨識錯了之後把兇手樣本拿掉:pageId 這一頁裡與 pHash 相近(≤ tol)的指紋樣本全部移除。
+ *
+ * 為什麼需要:identifyPage 只靠指紋認畫面,一個錯誤樣本會讓它每次經過那個畫面都認錯,
+ * 而且樣本是存在 structure.json 裡的 —— 不主動拿掉,下一次任務會繼續錯。
+ * 呼叫端在「指紋說是 A,但 AI 看了畫面說這是 B」時呼叫(見 explorationRunner)。
+ *
+ * 回移除了幾個樣本。頁面本身不刪(造訪次數、導覽邊、人工教學都還有效)。
+ */
+export function forgetHash(struct, pageId, pHash, { tol = 24 } = {}) {
+  const p = struct?.pages?.[pageId];
+  if (!p || !pHash) return 0;
+  const before = pageHashes(p);
+  const keep = before.filter((h) => hamming(h, pHash) > tol);
+  if (keep.length === before.length) return 0;
+  p.pHashes = keep.slice(-MAX_HASH_SAMPLES);
+  // pHash(主樣本)也可能就是兇手:換成還留著的第一個,沒有就清空(之後靠名稱匹配重新長)。
+  if (hamming(p.pHash ?? '', pHash) <= tol) p.pHash = keep[0] ?? '';
+  return before.length - keep.length;
+}
+
+/**
  * 把舊格式/雜亂的結構就地收斂:依新規則重新歸併頁面、重導邊、合併重複邊、去自環與懸空邊。
  * 回新的結構物件(不修改輸入)。可重複套用(冪等)。
  */
@@ -459,14 +494,18 @@ export function compactStructure(input) {
     const canon = canonicalName(topAlias ?? p.name);
     const hashes = pageHashes(p);
     const transient = Boolean(p.transient) || isTransientName(topAlias ?? p.name);
-    const match = findMatch(out, { canon, pHash: hashes[0], module: p.module, transient });
+    const { id: match, dist } = findMatch(out, { canon, pHash: hashes[0], module: p.module, transient });
     if (match) {
       const t = out.pages[match];
       t.visitCount += p.visitCount ?? 1;
       t.hitCount = (t.hitCount ?? 0) + (p.hitCount ?? 0);
       t.firstSeenAt = [t.firstSeenAt, p.firstSeenAt].filter(Boolean).sort()[0];
       t.lastSeenAt = [t.lastSeenAt, p.lastSeenAt].filter(Boolean).sort().slice(-1)[0];
-      for (const h of hashes) if (!t.pHashes.some((x) => hamming(x, h) <= 16)) t.pHashes = [...t.pHashes, h].slice(-MAX_HASH_SAMPLES);
+      // 同 upsertPage:靠名稱併進來的頁(視覺上不像)不把指紋帶過去,否則一次合併就讓目標頁
+      // 認得另一個畫面。導覽圖的邊、別名、次數照常合併。
+      if (dist <= WEAK_MATCH) {
+        for (const h of hashes) if (!t.pHashes.some((x) => hamming(x, h) <= 16)) t.pHashes = [...t.pHashes, h].slice(-MAX_HASH_SAMPLES);
+      }
       const aliases = p.aliases && Object.keys(p.aliases).length ? p.aliases : { [p.name]: p.visitCount ?? 1 };
       for (const [n, c] of Object.entries(aliases)) if (!isPlaceholderName(n)) t.aliases[n] = (t.aliases[n] ?? 0) + c;
       refreshName(t);
