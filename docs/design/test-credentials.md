@@ -84,3 +84,15 @@ The earlier standalone form still works: `secretRef:playagent/tenant/<t>/<KEY>` 
 - Engine: submitted `job-mumr8ios-mvmhs4`; `context.json` contained the visible values (`伺服器名稱=daily-aws`, `192.168.0.1`) **and** the masked keys as `${帳號}`/`${密碼}` — with **zero** masked values (`qa_surv_9527`, `P@ss_654321`) present anywhere.
 - Runner: `secretsResolver.mjs` parses `{ value, visible }` and legacy string entries; the exact module resolved `${帳號}`/`${密碼}`/`${伺服器名稱}` to real values at type time with no `${` left — confirming the substitution path is unchanged for both classes.
 - Unit tests (`infra/test/app-credentials.test.ts`) cover keys-only listing with the visible flag, visible-only value read, legacy-string → masked normalisation, CJK keys, standalone fallback, cross-tenant rejection, and delete-empties-secret. Full suite: 197 tests pass.
+
+## Verifying that the text actually landed
+
+Typing can fail silently. The Appium client tries three channels in order — `mobile: type`, `setValue` on the focused element, then `keys()` — and on an emulator the first one almost always works. On a real device with a game-drawn input field, `mobile: type` can return success while nothing is entered, which looked like "credential defaults only work on the emulator".
+
+`AppiumClient` now reads the focused field back after typing and reports `{ how, verified }` on `lastTypeCheck`:
+
+- `verified: true` — the field contains the text.
+- `verified: false` — deterministic evidence that it does not; the client escalates to the next channel automatically, and if all three fail the runner records `typeCheck` on the step and tells the agent what to try instead (tap the field first, or use the game's own on-screen keypad because system-level text injection cannot reach a self-drawn field).
+- `verified: null` — cannot tell (password masking, or a canvas with no readable element). "Cannot tell" is never treated as success.
+
+Only a step that is not known-failed marks the screen as "has typed data" for the input-state protection in the loop guard, so a failed type does not make the runner protect a screen that holds nothing.

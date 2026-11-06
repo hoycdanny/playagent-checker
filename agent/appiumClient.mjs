@@ -171,6 +171,8 @@ export class AppiumClient {
   }
 
   async #actOnce(cmd) {
+    // 每次 type 前清掉上一次的驗真結果,呼叫端才不會讀到舊的(讀到舊的比沒有更糟)。
+    if (cmd.action === 'type') this.lastTypeCheck = null;
     switch (cmd.action) {
       case 'tap': {
         const [tx, ty] = this.#toWindow(Math.round(cmd.x), Math.round(cmd.y));
@@ -294,6 +296,65 @@ export class AppiumClient {
         await this.#driver.releaseActions().catch(() => {});
         break;
       }
+      // path:按住起點 → 依序經過多個座標 → 放開(單一手勢,全程不放手)。
+      // 「搖桿轉三圈」「沿著路徑拖曳」「連線消除」這類測項沒辦法用「拖到 A 點放開」拼出來:
+      // 中間一放手,遊戲就當成一次獨立操作。points 是截圖空間座標,由呼叫端換算好。
+      // loops:整條路徑重複幾次(轉三圈 = 一圈的點 + loops:3),省得模型自己把點列貼三遍。
+      case 'path': {
+        const pts = Array.isArray(cmd.points) ? cmd.points.filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y)) : [];
+        if (pts.length < 2) throw new Error('path 至少需要 2 個座標點');
+        const loops = Math.max(1, Math.min(5, Math.round(Number(cmd.loops) || 1)));
+        // 每段移動耗時:總時長平均分配到各段。太快遊戲收不到中間點,太慢一個手勢佔掉整步。
+        const totalMs = clampHold(cmd.durationMs ?? cmd.holdMs, 1200);
+        const segs = (pts.length - 1) * loops;
+        const segMs = Math.max(16, Math.round(totalMs / Math.max(1, segs)));
+        const win = pts.map((p) => this.#toWindow(Math.round(p.x), Math.round(p.y)));
+        let chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ x: win[0][0], y: win[0][1], duration: 0 })
+          .down({ button: 0 });
+        // 按住後先停一下:有些遊戲要先認到「按下」才開始追蹤手指移動。
+        chain = chain.pause(Math.max(0, Math.min(500, Number(cmd.pressMs) || 80)));
+        for (let lap = 0; lap < loops; lap++) {
+          // 第二圈起從第 2 個點接續(第 1 個點就是上一圈的終點,重複送會停頓)。
+          for (let k = lap === 0 ? 1 : 0; k < win.length; k++) {
+            if (lap > 0 && k === 0) continue;
+            chain = chain.move({ x: win[k][0], y: win[k][1], duration: segMs });
+          }
+          if (lap < loops - 1) chain = chain.move({ x: win[0][0], y: win[0][1], duration: segMs });
+        }
+        const endHold = Math.max(0, Math.min(2000, Number(cmd.endHoldMs) || 0));
+        if (endHold) chain = chain.pause(endHold);
+        await chain.up({ button: 0 }).perform();
+        await this.#driver.releaseActions().catch(() => {});
+        break;
+      }
+      // circle:繞圈手勢(搖桿畫圓、轉盤)。語意與 kite 相同,但開放給 AI 使用並可指定圈數。
+      // 「搖桿轉三圈」= circle + laps:3,不必由模型自己算出圓周上的十幾個座標。
+      case 'circle': {
+        const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#shotW ?? 0) * 0.495);
+        const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#shotH ?? 0) * 0.821);
+        const short = Math.min(this.#shotW || 1080, this.#shotH || 2340);
+        const r = Math.max(20, Math.min(Math.round(short * 0.45), Number.isFinite(cmd.radius) ? Math.round(cmd.radius) : Math.round(short * 0.18)));
+        const laps = Math.max(1, Math.min(10, Math.round(Number(cmd.laps) || 1)));
+        // holdMs = 每一圈的時間(預設 1200ms/圈):太快遊戲判定不到連續轉動。
+        const perLap = clampHold(cmd.holdMs, 1200);
+        const segs = 12;
+        const dirSign = String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false ? -1 : 1;
+        const a0 = Number.isFinite(cmd.start) ? cmd.start : Math.PI; // 從左側起點開始,避開手指遮擋
+        const pt = (a) => this.#toWindow(Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a)));
+        const [sx, sy] = this.#toWindow(cx, cy);
+        let chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
+          .move({ x: sx, y: sy, duration: 0 }).down({ button: 0 });
+        const [fx, fy] = pt(a0);
+        chain = chain.move({ x: fx, y: fy, duration: 150 });
+        for (let k = 1; k <= segs * laps; k++) {
+          const [px, py] = pt(a0 + dirSign * (2 * Math.PI * k) / segs);
+          chain = chain.move({ x: px, y: py, duration: Math.round(perLap / segs) });
+        }
+        await chain.up({ button: 0 }).perform();
+        await this.#driver.releaseActions().catch(() => {});
+        break;
+      }
       case 'type':
         // type 若帶 x/y,先精確點該欄位再輸入;避免登入頁有多個輸入框時文字跑到前一個焦點。
         if (Number.isFinite(cmd.x) && Number.isFinite(cmd.y)) {
@@ -301,7 +362,11 @@ export class AppiumClient {
           await this.#tapWithFallback(tx, ty);
           await sleep(150);
         }
-        await this.#typeText(cmd.text ?? '');
+        this.lastTypeCheck = await this.#typeText(cmd.text ?? '', { keepKeyboard: Boolean(cmd.submit) });
+        // submit:輸入完直接請輸入法送出(Enter / 完成 / 前往 / 搜尋),不必用座標去點 OK。
+        // 這是 Android 15「螢幕分享保護」下唯一可靠的做法:有密碼欄位時畫面在截圖裡是黑的,
+        // 看不到鍵盤也看不到 OK 鈕,用量好的固定座標只對那一台裝置有效,換裝置就要重量。
+        if (cmd.submit) await this.#editorAction(cmd.submit === true ? 'done' : String(cmd.submit));
         break;
       case 'back':
         await this.#driver.execute('mobile: pressKey', { keycode: 4 });
@@ -348,6 +413,12 @@ export class AppiumClient {
    */
   /** 最近一次 ensureForeground 查到的 queryAppState(1=未執行→疑似閃退;2/3=背景→跳到其他 App)。 */
   lastAppState = 4;
+
+  /**
+   * 最近一次 type 的結果:{ how, verified }。verified=false 代表「字沒進去」(確定性證據),
+   * null = 無法確認(密碼遮罩 / 遊戲自繪輸入框)。runner 讀它來決定要不要告訴 AI 重試。
+   */
+  lastTypeCheck = null;
 
   async ensureForeground(pkg) {
     if (!pkg) return true;
@@ -452,23 +523,88 @@ export class AppiumClient {
     await this.#driver.releaseActions().catch(() => {});
   }
 
-  async #typeText(text) {
+  /**
+   * 輸入文字,並回報「字到底有沒有進去」。
+   *
+   * 回 { how, verified } —— how = 實際成功的管道(type / setValue / keys),
+   * verified = true 字確實在欄位裡 / false 欄位讀回來沒有這段字 / null 無法確認
+   * (密碼欄位讀回來是遮罩、Unity canvas 沒有可讀元件 —— 這兩種「不知道」不可以當成成功)。
+   *
+   * 為什麼要驗:三個管道都可能「不丟錯但也沒輸入」(模擬器通常第一個就成功,真機上
+   * `mobile: type` 遇到遊戲自繪輸入框會靜默無效)。不驗的話 runner 只會看到「type 成功」,
+   * 接著按送出、失敗,再從頭猜 —— 客戶回報的「測試憑證預設值只能在模擬器上用」就是這個樣子。
+   */
+  async #typeText(text, { keepKeyboard = false } = {}) {
+    const want = String(text ?? '');
+    let last = null;
+    /**
+     * 一個輸入管道:送出 → 讀回欄位驗證。
+     * 回 true = 可以收工(確認成功,或無法確認);false = 確定沒進去或管道不可用 → 換下一個。
+     * 鍵盤留到最後才收:中途收鍵盤可能讓欄位失焦,下一個管道就白試了。
+     */
+    const attempt = async (how, fn) => {
+      try { await fn(); } catch { return false; }
+      last = { how, verified: await this.#verifyTyped(want) };
+      return last.verified !== false;
+    };
     // 優先用 UiAutomator2 的 `mobile: type`(底層文字注入,不觸發畫面輸入法互動,避免軟鍵盤遮住按鈕致卡死)。
-    try {
-      await this.#driver.execute('mobile: type', { text });
-      await this.#hideKeyboard();
-      return;
-    } catch { /* fall through to element setValue */ }
+    let ok = await attempt('type', () => this.#driver.execute('mobile: type', { text: want }));
+    if (!ok) {
+      ok = await attempt('setValue', async () => {
+        const active = await this.#driver.getActiveElement();
+        if (!active || typeof active.setValue !== 'function') throw new Error('沒有可寫入的聚焦元件');
+        await active.setValue(want);
+      });
+    }
+    if (!ok) {
+      // 最後一個管道不吞錯:連逐字送鍵都失敗代表裝置連線有問題,要讓上層的連續失敗計數看到。
+      await this.#driver.keys(want.split(''));
+      last = { how: 'keys', verified: await this.#verifyTyped(want) };
+    }
+    if (!keepKeyboard) await this.#hideKeyboard();
+    return last;
+  }
+
+  /**
+   * 讀回目前聚焦欄位的內容,確認剛才那段字真的在裡面。
+   * 回 true / false / null(讀不到或是遮罩過的密碼 → 不知道,不是失敗)。
+   */
+  async #verifyTyped(want) {
+    if (!want) return null;
     try {
       const active = await this.#driver.getActiveElement();
-      if (active && typeof active.setValue === 'function') {
-        await active.setValue(text);
-        await this.#hideKeyboard();
-        return;
-      }
-    } catch { /* fall through */ }
-    await this.#driver.keys(text.split(''));
-    await this.#hideKeyboard();
+      if (!active || typeof active.getText !== 'function') return null;
+      const got = String((await active.getText()) ?? '');
+      if (!got) return null;
+      if (got.includes(want)) return true;
+      // 密碼欄位回的是遮罩(••••)或固定字元:長度對得上就當作「可能成功,無法確認」。
+      if (/^[•*●·\u2022\u25cf]+$/.test(got.trim())) return got.trim().length === want.length ? null : false;
+      return false;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 請輸入法執行動作鍵(完成 / 前往 / 搜尋 / 下一欄),等同使用者按軟鍵盤右下角那一顆。
+   *
+   * 這是「看不到鍵盤也能送出」的關鍵:Android 15 起有螢幕分享保護,畫面上有密碼欄位時,
+   * 系統會把 App 畫面在錄影/截圖中遮黑 —— AI 看不到鍵盤與 OK 鈕。靠「密碼鍵盤比帳號鍵盤高
+   * 固定像素」去推算座標只對量過的那一台裝置有效,換裝置就要重量;輸入法動作鍵沒有這個問題。
+   */
+  async #editorAction(action) {
+    const name = ['done', 'go', 'search', 'send', 'next', 'previous', 'normal', 'unspecified', 'none'].includes(String(action).toLowerCase())
+      ? String(action).toLowerCase()
+      : 'done';
+    try {
+      await this.#driver.execute('mobile: performEditorAction', { action: name });
+      return;
+    } catch { /* 退回送 Enter 鍵碼 */ }
+    try {
+      await this.#driver.execute('mobile: pressKey', { keycode: 66 }); // KEYCODE_ENTER
+      return;
+    } catch { /* 最後再試 WebDriver 的 pressKeyCode */ }
+    await this.#driver.pressKeyCode(66).catch(() => {});
   }
 
   /**

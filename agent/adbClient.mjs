@@ -36,6 +36,21 @@ function dirOffset(dir, mag) {
   return [dx, dy];
 }
 
+/**
+ * 繞圈手勢的座標點(圓心 + 半徑 + 圈數 + 方向)。
+ * 每圈 12 點:再少遊戲會把它當成幾段直線拖曳,再多則因為 adb 每次呼叫的往返時間而拖太慢。
+ * 起點取圓周左側(π),手指不會從一開始就遮住圓心的搖桿。
+ */
+function circlePoints(cx, cy, r, laps, sign) {
+  const segs = 12;
+  const pts = [];
+  for (let k = 0; k <= segs * laps; k++) {
+    const a = Math.PI + sign * (2 * Math.PI * k) / segs;
+    pts.push([Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))]);
+  }
+  return pts;
+}
+
 export class AdbClient {
   #serial;
   #adb;
@@ -122,10 +137,44 @@ export class AdbClient {
       }
       case 'pinch':
         throw new Error('adb 不支援雙指縮放(pinch)');
+      // path / circle:按住不放、依序經過多個座標點 → 放開。
+      // adb 沒有 W3C actions,改用 `input motionevent`:DOWN 之後指標狀態留在裝置上,
+      // 後續每個 MOVE 都是同一根手指繼續移動,最後 UP 才放開 —— 等同一個連續手勢。
+      // 每次 adb 呼叫約數十毫秒,所以點數上限壓在 60(約 3 秒的手勢)。
+      case 'path':
+      case 'circle': {
+        const pts = cmd.action === 'circle'
+          ? circlePoints(
+            Number.isFinite(cmd.x) ? r(cmd.x) : r(W * 0.495),
+            Number.isFinite(cmd.y) ? r(cmd.y) : r(H * 0.821),
+            Number.isFinite(cmd.radius) ? r(cmd.radius) : r(Math.min(W, H) * 0.18),
+            Math.max(1, Math.min(10, Math.round(Number(cmd.laps) || 1))),
+            String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false ? -1 : 1,
+          )
+          : (Array.isArray(cmd.points) ? cmd.points : [])
+            .filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y))
+            .map((p) => [r(p.x), r(p.y)]);
+        const loops = cmd.action === 'circle' ? 1 : Math.max(1, Math.min(5, Math.round(Number(cmd.loops) || 1)));
+        const seq = loops > 1 ? Array.from({ length: loops }, () => pts).flat() : pts;
+        if (seq.length < 2) throw new Error(`${cmd.action} 至少需要 2 個座標點`);
+        const path = seq.slice(0, 60);
+        await this.#input(['motionevent', 'DOWN', path[0][0], path[0][1]]);
+        try {
+          for (const [x, y] of path.slice(1)) await this.#input(['motionevent', 'MOVE', x, y]);
+        } finally {
+          const [lx, ly] = path[path.length - 1];
+          await this.#input(['motionevent', 'UP', lx, ly]).catch(() => {});
+        }
+        return undefined;
+      }
       case 'type': {
         const text = String(cmd.text ?? '');
         if (!SAFE_TEXT.test(text)) throw new Error('adb input text 只支援英數與 @._-+ 空白');
-        return this.#input(['text', text.replace(/ /g, '%s')]);
+        await this.#input(['text', text.replace(/ /g, '%s')]);
+        // submit:請輸入法送出(等同按軟鍵盤的「完成 / 前往」)。adb 沒有 performEditorAction,
+        // 送 Enter 鍵碼(66)—— 絕大多數輸入框會把它當成動作鍵。
+        if (cmd.submit) await this.#input(['keyevent', 66]);
+        return undefined;
       }
       case 'back':
         return this.#input(['keyevent', 4]);

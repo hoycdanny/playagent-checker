@@ -130,8 +130,13 @@ const DECIDE_SYSTEM = `你是遊戲自動化測試的「決策 Agent」。你看
 - type:text(先 tap 輸入框);wait:duration(秒);back;launch(重開遊戲);done
 - vision:採用視覺 Agent 的建議動作
 
+- path(按住不放依序經過多個位置):pathElements=要依序經過的元件編號清單(至少 2 個)+ 可選 durationMs / loops。
+  畫面上沒有對應元件的路徑(空白處畫手勢、繞圈)你決定不了 → action 填 "vision",交給看得到畫面的視覺 Agent。
+- circle(繞圈:搖桿畫圓、轉盤):element=圓心元件(有虛擬搖桿但清單沒列出時可省略)+ laps 圈數 + 可選 radius / holdMs / dir("cw"|"ccw")。
+  「搖桿轉三圈」這種測項用 circle + laps:3 一個動作完成,不要用好幾個 swipe 拼(放手搖桿就彈回中心)。
+
 只輸出 JSON:
-{"action":"tap","element":1,"toElement":null,"tapElement":null,"dir":"","holdMs":null,"durationMs":null,"duration":null,"text":"","taps":null,"goal":"這一步要做的事(30 字內)","expect":"做完後畫面應該出現什麼(30 字內)","scriptStep":1,"strategy":"為什麼這樣做 / 換了什麼方法(40 字內)","suggestFail":false,"reason":""}`;
+{"action":"tap","element":1,"toElement":null,"tapElement":null,"pathElements":[],"laps":null,"radius":null,"dir":"","holdMs":null,"durationMs":null,"loops":null,"duration":null,"text":"","taps":null,"goal":"這一步要做的事(30 字內)","expect":"做完後畫面應該出現什麼(30 字內)","scriptStep":1,"strategy":"為什麼這樣做 / 換了什麼方法(40 字內)","suggestFail":false,"reason":""}`;
 
 /** 視覺 Agent 要額外回報的欄位(附加在視覺 Agent 的系統提示後面)。 */
 export const VISION_ELEMENTS_NOTE = `
@@ -274,6 +279,32 @@ export function decisionToCommand(d, elements, { cw, ch }) {
     }
     case 'pinch':
       Object.assign(cmd, { ...(el ? { x: el.x, y: el.y } : {}), scale: str(d.scale, 4) === 'in' ? 'in' : 'out' });
+      break;
+    // path:按住不放依序經過多個位置。決策 Agent 看不到畫面,所以路徑用「元件編號清單」表達
+    // (pathElements:[1,3,5]),座標照樣取自元件清單 —— 它自己編座標會落在錯的地方。
+    // 畫面上沒有對應元件的路徑(例如空白處畫手勢)不是它能決定的:回 null 退回視覺 Agent 的建議,
+    // 由看得到畫面的那一邊給 points。
+    case 'path': {
+      const ids = Array.isArray(d.pathElements) ? d.pathElements : [];
+      const pts = ids.map((id) => byId(id)).filter(Boolean).map((e) => ({ x: e.x, y: e.y }));
+      if (pts.length < 2) return null;
+      Object.assign(cmd, {
+        points: pts,
+        target: ids.map((id) => byId(id)?.label).filter(Boolean).join(' → '),
+        ...(num(d.durationMs) ? { durationMs: num(d.durationMs) } : {}),
+        ...(num(d.loops) ? { loops: num(d.loops) } : {}),
+      });
+      break;
+    }
+    // circle:繞圈。圓心可以是元件(看得到的搖桿),省略時由 runner 用操作方式設定的搖桿中心。
+    case 'circle':
+      Object.assign(cmd, {
+        ...(el ? { x: el.x, y: el.y } : {}),
+        ...(num(d.laps) ? { laps: num(d.laps) } : {}),
+        ...(num(d.radius) ? { radius: num(d.radius) } : {}),
+        ...(num(d.holdMs) ? { holdMs: num(d.holdMs) } : {}),
+        ...(String(d.dir ?? '').toLowerCase() === 'ccw' ? { dir: 'ccw' } : {}),
+      });
       break;
     case 'type':
       if (!str(d.text, 200)) return null;

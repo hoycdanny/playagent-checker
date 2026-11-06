@@ -597,7 +597,7 @@ async function main() {
         stepPlans.set(i, res.decision);
         if (res.cmd) {
           // 用決策的動作取代視覺的建議(保留視覺的畫面名 / 描述 / 證據欄位)。
-          for (const k of ['x', 'y', 'x2', 'y2', 'dir', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'key', 'repeat', 'target']) delete cmd[k];
+          for (const k of ['x', 'y', 'x2', 'y2', 'dir', 'holdMs', 'durationMs', 'duration', 'text', 'taps', 'key', 'repeat', 'target', 'points', 'loops', 'laps', 'radius']) delete cmd[k];
           Object.assign(cmd, res.cmd);
           if (res.decision.expect) cmd.expect = res.decision.expect;
           cmd.decidedBy = 'agent';
