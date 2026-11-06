@@ -129,11 +129,36 @@ export function applyEdits(struct, edits, opts = {}) {
 
 const norm = (s) => String(s ?? '').toLowerCase().replace(/[\s「」『』"'()()\[\]【】:,。.、_-]+/g, '');
 
-/** 兩個畫面名是否指同一畫面(寬鬆:去標點空白後互相包含)。 */
+/**
+ * 畫面名之間可以忽略的「通用畫面字」—— AI 對同一個畫面的命名漂移就長這樣:
+ * 「老虎機」/「老虎機主畫面」、「會員登入」/「會員登入頁」。
+ * 刻意不包含「彈窗」「失敗」「教學」這類字:那些會改變指的是哪個畫面狀態。
+ */
+const SCREEN_FILLER = /^(?:主|main|the)?(?:畫面|画面|頁面|页面|頁|页|介面|界面|視窗|窗口|screen|page|view)?$/;
+
+/**
+ * 兩個畫面名是否指同一畫面。
+ *
+ * 寬鬆到什麼程度是有代價的:AI 每次給的畫面名本來就會有小差異,太嚴會讓教過的東西認不出來;
+ * 太鬆則會把不同畫面混為一談 —— 2026-11-06 修正前的規則是「其中一個包含另一個、長度 ≥2」,
+ * 於是「登入」命中「會員登入」「登入獎勵彈窗」「登入失敗」、「大廳」命中「大廳開場教學」,
+ * 測試人員在某個畫面教的做法會被拿到另一個畫面上照做(客戶回報的「記憶指正套用到錯誤的地方」)。
+ *
+ * 現在:正規化後完全相同,或「一個包含另一個,而且多出來的部分只是通用畫面字」才算同一畫面。
+ *   「老虎機」vs「老虎機主畫面」→ 多出「主畫面」,通用字 → 同一畫面
+ *   「會員登入」vs「會員登入頁」→ 多出「頁」,通用字 → 同一畫面
+ *   「登入」vs「會員登入」→ 多出「會員」,是限定語 → 不同畫面
+ *   「大廳」vs「大廳開場教學」→ 多出「開場教學」→ 不同畫面
+ */
 export function sameScreen(a, b) {
   const x = norm(a), y = norm(b);
   if (!x || !y) return false;
-  return x === y || (x.length >= 2 && y.length >= 2 && (x.includes(y) || y.includes(x)));
+  if (x === y) return true;
+  const [short, long] = x.length <= y.length ? [x, y] : [y, x];
+  if (short.length < 2 || !long.includes(short)) return false;
+  // 多出來的部分(短名在長名裡的前後兩段)每一段都必須是通用畫面字。
+  const at = long.indexOf(short);
+  return [long.slice(0, at), long.slice(at + short.length)].every((part) => SCREEN_FILLER.test(part));
 }
 
 /** 啟用中的記憶 → system prompt 段落(全部列出,依畫面分組;上限 maxChars)。 */
@@ -148,11 +173,15 @@ export function hintsPromptSection(hints, pageName = (id) => id, maxChars = 3500
   const scoped = list.filter((h) => h.pageId || h.screen);
   const lines = [
     '【使用者教過你的經驗|高優先|重要】以下是測試人員在先前測試中親自糾正/教你的操作方式,代表這款遊戲的正確玩法,' +
-    '比你自己的推測更可靠。遇到對應畫面時【優先照做】,不要再重複過去撞牆的做法(畫面仍以截圖為準,若畫面明顯不同才自行判斷)。' +
-    '清單依時間排序、越後面越新;同一情境的教學若互相矛盾(例如先說選 A、後來又說改選 B),【只照最新那條】:',
+    '比你自己的推測更可靠。不要再重複過去撞牆的做法(畫面仍以截圖為準,若畫面明顯不同才自行判斷)。' +
+    '清單依時間排序、越後面越新;同一情境的教學若互相矛盾(例如先說選 A、後來又說改選 B),【只照最新那條】。' +
+    '【作用範圍】標了畫面的那幾條【只在你現在真的看到那個畫面時才適用】—— 不要把某個畫面教的做法' +
+    '(例如「在登入畫面先點帳號欄」)拿到別的畫面上執行;現在的畫面沒有對應的教學時,就照你自己對截圖的判斷做:',
   ];
+  if (general.length) lines.push('〔任何畫面都適用〕');
   for (const h of general) lines.push(`- ${h.text}`);
-  for (const h of scoped) lines.push(`- 在「${h.screen || pageName(h.pageId)}」畫面:${h.text}`);
+  if (scoped.length) lines.push('〔只在指定畫面適用〕');
+  for (const h of scoped) lines.push(`- 只在「${h.screen || pageName(h.pageId)}」畫面:${h.text}`);
   let text = lines.join('\n');
   if (text.length > maxChars) text = `${text.slice(0, maxChars)}\n…`;
   return `\n\n${text}`;
