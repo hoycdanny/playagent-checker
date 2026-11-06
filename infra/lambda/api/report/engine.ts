@@ -314,9 +314,9 @@ export function normalizeSteps(rawSteps: unknown, opts: { legacySlot: boolean })
     if (s['by'] === 'operator' || s['takeover'] === true) step.by = 'operator';
     out.push(step);
     prevResults.push(assertionOf(s['prevResult']));
-    changed.push(typeof s['screenChanged'] === 'boolean' ? (s['screenChanged'] as boolean) : undefined);
+    changed.push(effectiveSignal(s));
   });
-  // 本步的 prevResult / screenChanged 是「上一步」的 Actual + Assertion:回填到上一步。
+  // 本步的 prevResult / 變化訊號是「上一步」的 Actual + Assertion:回填到上一步。
   for (let i = 1; i < out.length; i++) {
     const prev = out[i - 1]!;
     const cur = out[i]!;
@@ -327,6 +327,35 @@ export function normalizeSteps(rawSteps: unknown, opts: { legacySlot: boolean })
     if (changed[i] !== undefined) prev.effective = changed[i];
   }
   return out;
+}
+
+/**
+ * 這一步的截圖相對上一步「有沒有變化」—— 也就是上一步的動作有沒有生效。
+ *
+ * 2026-11-06:原本只讀 screenChanged(pHash)。pHash 是 32×32 DCT 低頻雜湊、門檻 40/1024,
+ * 它看得出「換了一個畫面」,卻看不出「輸入框多了一個字」「血條掉一截」「船往前走了一點」,
+ * 於是填表單、小幅推進的步驟被整批標成「動作沒反應 / 無效操作」,連測試人員自己在即時畫面
+ * 上點的位置也被這樣標 —— 這就是客戶看到的「畫面沒變;動作沒反應」。
+ *
+ * runner 現在會多記兩個訊號(見 agent/frameSignal.mjs):
+ *   frameChanged  48×48 灰階格子,逐格比對,抓得到細微變化
+ *   tapResponded  上一步 tap/hold 的落點附近有沒有反應(畫面角落有動畫在播,不代表你點的
+ *                 那顆按鈕有反應,所以點擊類動作以落點為準)
+ * 判準與 runner 的死循環護欄一致:有落點訊號就看落點,否則看整張圖;整個畫面換掉(pHash)
+ * 一律算有效。
+ *
+ * 畫面被系統遮黑時(Android 15 螢幕分享保護,secureBlackout)回 undefined —— 那幾步是
+ * 「無法判斷」,不是「沒反應」,不可以計進無效操作與動作有效率。
+ */
+function effectiveSignal(s: Record<string, unknown>): boolean | undefined {
+  if (s['secureBlackout'] === true) return undefined;
+  const bool = (k: string) => (typeof s[k] === 'boolean' ? (s[k] as boolean) : undefined);
+  const phash = bool('screenChanged');
+  const tap = bool('tapResponded');
+  const frame = bool('frameChanged');
+  if (tap !== undefined) return tap || phash === true;
+  if (frame !== undefined) return frame || phash === true;
+  return phash;
 }
 
 // ───────── 模組/機制歸屬 ─────────
