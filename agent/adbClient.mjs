@@ -9,6 +9,7 @@
  *  - type 只送 ASCII 可安全輸入的字元;其他字元回報 unsupported。
  */
 import { execFile } from 'node:child_process';
+import { circleSequence, pathSequence } from './gestures.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const SAFE_PKG = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
@@ -34,21 +35,6 @@ function dirOffset(dir, mag) {
   if (d.includes('right')) dx += mag;
   if (!dx && !dy) dy = -mag;
   return [dx, dy];
-}
-
-/**
- * 繞圈手勢的座標點(圓心 + 半徑 + 圈數 + 方向)。
- * 每圈 12 點:再少遊戲會把它當成幾段直線拖曳,再多則因為 adb 每次呼叫的往返時間而拖太慢。
- * 起點取圓周左側(π),手指不會從一開始就遮住圓心的搖桿。
- */
-function circlePoints(cx, cy, r, laps, sign) {
-  const segs = 12;
-  const pts = [];
-  for (let k = 0; k <= segs * laps; k++) {
-    const a = Math.PI + sign * (2 * Math.PI * k) / segs;
-    pts.push([Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a))]);
-  }
-  return pts;
 }
 
 export class AdbClient {
@@ -143,27 +129,35 @@ export class AdbClient {
       // 每次 adb 呼叫約數十毫秒,所以點數上限壓在 60(約 3 秒的手勢)。
       case 'path':
       case 'circle': {
-        const pts = cmd.action === 'circle'
-          ? circlePoints(
-            Number.isFinite(cmd.x) ? r(cmd.x) : r(W * 0.495),
-            Number.isFinite(cmd.y) ? r(cmd.y) : r(H * 0.821),
-            Number.isFinite(cmd.radius) ? r(cmd.radius) : r(Math.min(W, H) * 0.18),
-            Math.max(1, Math.min(10, Math.round(Number(cmd.laps) || 1))),
-            String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false ? -1 : 1,
-          )
-          : (Array.isArray(cmd.points) ? cmd.points : [])
+        // 幾何與 Appium 版共用(gestures.mjs):起點按下的位置 + 之後要依序經過的點。
+        let start;
+        let seq;
+        if (cmd.action === 'circle') {
+          const cx = Number.isFinite(cmd.x) ? r(cmd.x) : r(W * 0.495);
+          const cy = Number.isFinite(cmd.y) ? r(cmd.y) : r(H * 0.821);
+          const rad = Number.isFinite(cmd.radius) ? r(cmd.radius) : r(Math.min(W, H) * 0.18);
+          start = { x: cx, y: cy };
+          seq = circleSequence(cx, cy, rad, Number(cmd.laps) || 1, {
+            clockwise: !(String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false),
+          });
+        } else {
+          const pts = (Array.isArray(cmd.points) ? cmd.points : [])
             .filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y))
-            .map((p) => [r(p.x), r(p.y)]);
-        const loops = cmd.action === 'circle' ? 1 : Math.max(1, Math.min(5, Math.round(Number(cmd.loops) || 1)));
-        const seq = loops > 1 ? Array.from({ length: loops }, () => pts).flat() : pts;
-        if (seq.length < 2) throw new Error(`${cmd.action} 至少需要 2 個座標點`);
-        const path = seq.slice(0, 60);
-        await this.#input(['motionevent', 'DOWN', path[0][0], path[0][1]]);
+            .map((p) => ({ x: r(p.x), y: r(p.y) }));
+          if (pts.length < 2) throw new Error('path 至少需要 2 個座標點');
+          start = pts[0];
+          seq = pathSequence(pts, cmd.loops);
+        }
+        if (!seq.length) throw new Error(`${cmd.action} 算不出有效的路徑`);
+        // 每個點一次 adb 呼叫(約數十毫秒),所以點數上限壓在 60(約 3 秒的手勢)。
+        const moves = seq.slice(0, 60);
+        await this.#input(['motionevent', 'DOWN', start.x, start.y]);
         try {
-          for (const [x, y] of path.slice(1)) await this.#input(['motionevent', 'MOVE', x, y]);
+          for (const p of moves) await this.#input(['motionevent', 'MOVE', p.x, p.y]);
         } finally {
-          const [lx, ly] = path[path.length - 1];
-          await this.#input(['motionevent', 'UP', lx, ly]).catch(() => {});
+          // 不論中途是否出錯都要放開手指,否則裝置會留著一根按住不放的虛擬手指。
+          const last = moves[moves.length - 1] ?? start;
+          await this.#input(['motionevent', 'UP', last.x, last.y]).catch(() => {});
         }
         return undefined;
       }

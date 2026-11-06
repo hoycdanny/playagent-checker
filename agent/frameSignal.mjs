@@ -24,7 +24,7 @@ const CELL_DELTA = 8;
 const MIN_CELLS = 2;
 
 /**
- * 整張畫面幾乎全黑嗎(格子亮度幾乎都壓在最低)。
+ * App 畫面被系統遮黑了嗎。
  *
  * 為什麼需要:Android 15 起有「螢幕分享保護」—— 畫面上存在密碼欄位時,系統會把 App 畫面
  * 在錄影/截圖裡整片遮黑。對 runner 來說那幾步的截圖是「一張全黑、而且完全不變的畫面」,
@@ -34,13 +34,34 @@ const MIN_CELLS = 2;
  *   · AI 看不到鍵盤與送出鈕,只能亂猜座標
  * 這三個都要在偵測到遮黑時擋掉,不是靠量測某台裝置的鍵盤高度去硬點座標。
  *
- * 判準:98% 以上的格子亮度 ≤ dark。留 2% 餘裕給狀態列、導覽列這些沒有被遮黑的系統區域。
+ * 判準為什麼看「中央區域」而不是整張圖(2026-11-06 修正):
+ *   系統遮黑的是【App 的視窗】,狀態列與導覽列是系統視窗,照樣亮著。以 1080x2400、
+ *   狀態列 77px、導覽列 132px 估算,它們佔 48x48 格子的 5 列 = 10.4% —— 原本「整張圖 98%
+ *   以上是暗的」這個判準在非全螢幕的遊戲上永遠不會成立,整套遮黑處理等於沒有啟用。
+ *   所以改成:扣掉上下各 edgeRows 列(系統列只會落在這個範圍)之後,中央區域幾乎全暗,
+ *   同時整張圖也大多是暗的(擋掉「只有畫面中段是暗的」那種正常遊戲畫面)。
+ *
+ * 誤判成遮黑的代價是有上限的:呼叫端只在連續若干步內套用遮黑的豁免,超過就恢復正常判定
+ * (見 explorationRunner 的 blankStreak),所以寧可抓得到,不要抓不到。
  */
-export function frameIsBlank(grid, { dark = 12, ratio = 0.98 } = {}) {
-  if (!grid || !grid.length) return null;
-  let n = 0;
-  for (let i = 0; i < grid.length; i++) if (grid[i] <= dark) n++;
-  return n / grid.length >= ratio;
+export function frameIsBlank(grid, { dark = 12, size = 48, edgeRows = 6, centreRatio = 0.99, overallRatio = 0.85 } = {}) {
+  if (!grid || grid.length !== size * size) return null;
+  let centreDark = 0;
+  let centreTotal = 0;
+  let allDark = 0;
+  for (let gy = 0; gy < size; gy++) {
+    const inCentre = gy >= edgeRows && gy < size - edgeRows;
+    for (let gx = 0; gx < size; gx++) {
+      const isDark = grid[gy * size + gx] <= dark;
+      if (isDark) allDark++;
+      if (inCentre) {
+        centreTotal++;
+        if (isDark) centreDark++;
+      }
+    }
+  }
+  if (!centreTotal) return null;
+  return centreDark / centreTotal >= centreRatio && allDark / (size * size) >= overallRatio;
 }
 
 /** 整張圖有沒有任何一處真的變了。長度不符 / 缺資料回 null(= 沒有訊號,不是「沒變」)。 */

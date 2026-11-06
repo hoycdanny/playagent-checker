@@ -16,8 +16,11 @@ export function gridMovedAt(
   opt?: { size?: number; r?: number; cellDelta?: number; minCells?: number },
 ): boolean | null;
 
-/** 整張畫面幾乎全黑(Android 15 螢幕分享保護的特徵);null = 拿不到格子。 */
+/**
+ * App 畫面被系統遮黑(Android 15 螢幕分享保護的特徵);null = 拿不到格子。
+ * 判「中央區域幾乎全暗 + 整張圖大多是暗的」—— 狀態列/導覽列是系統視窗,不會被遮黑。
+ */
 export function frameIsBlank(
   grid: Uint8Array | null | undefined,
-  opt?: { dark?: number; ratio?: number },
+  opt?: { dark?: number; size?: number; edgeRows?: number; centreRatio?: number; overallRatio?: number },
 ): boolean | null;

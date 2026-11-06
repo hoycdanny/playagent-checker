@@ -28,6 +28,10 @@ function synth() {
   return Template.fromStack(stack);
 }
 
+/** 合成一次,整個檔案共用(理由見 control-plane-stack.test.ts)。Template 只被讀取。 */
+let cached: Template | undefined;
+const template = () => (cached ??= synth());
+
 type Stmt = { Action: string | string[]; Resource: unknown; Condition?: unknown };
 function statementsOf(t: Template, roleLogicalIdPrefix: string): Stmt[] {
   const roles = t.findResources('AWS::IAM::Role');
@@ -42,7 +46,7 @@ const actions = (s: Stmt) => (Array.isArray(s.Action) ? s.Action : [s.Action]);
 
 describe('UpdaterStack — runner 映像建置角色', () => {
   test('stack 自己建一個只給 CodeBuild 扮的角色', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::IAM::Role', {
       AssumeRolePolicyDocument: Match.objectLike({
         Statement: Match.arrayWith([Match.objectLike({ Principal: { Service: 'codebuild.amazonaws.com' } })]),
@@ -52,7 +56,7 @@ describe('UpdaterStack — runner 映像建置角色', () => {
   });
 
   test('權限只到指定的 log / ECR repo / codebuild/ 前綴(沒有萬用 S3 或 IAM)', () => {
-    const t = synth();
+    const t = template();
     const stmts = statementsOf(t, 'ImageBuildRole');
     const all = stmts.flatMap(actions);
     expect(all.some((a) => a.startsWith('iam:'))).toBe(false);
@@ -71,7 +75,7 @@ describe('UpdaterStack — runner 映像建置角色', () => {
   });
 
   test('更新器拿得到角色 ARN,而且只能把它交給 CodeBuild', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::CodeBuild::Project', {
       Environment: Match.objectLike({
         EnvironmentVariables: Match.arrayWith([Match.objectLike({ Name: 'PA_IMAGE_BUILD_ROLE_ARN' })]),
@@ -117,7 +121,7 @@ describe('UpdaterStack — 部署前的測試閘門', () => {
   });
 
   test('PA_RUN_TESTS=0 仍可跳過(救急用,預設是 1)', () => {
-    const t = synth();
+    const t = template();
     expect(buildSpecOf(t)).toContain('$PA_RUN_TESTS');
     t.hasResourceProperties('AWS::CodeBuild::Project', {
       Environment: Match.objectLike({

@@ -13,14 +13,19 @@ function synth() {
   return Template.fromStack(stack);
 }
 
+/** 合成一次,整個檔案共用(理由見 control-plane-stack.test.ts:重複合成會慢到讓 vitest 的
+ *  worker 回報逾時,整個 run 以 exit 1 結束)。Template 只被讀取,共用不影響彼此。 */
+let cached: Template | undefined;
+const template = () => (cached ??= synth());
+
 describe('FoundationStack', () => {
   test('建立單一 Cognito User Pool', () => {
-    const t = synth();
+    const t = template();
     t.resourceCountIs('AWS::Cognito::UserPool', 1);
   });
 
   test('User Pool 設 RETAIN(有狀態資源不隨 destroy 刪除)', () => {
-    const t = synth();
+    const t = template();
     t.hasResource('AWS::Cognito::UserPool', {
       DeletionPolicy: 'Retain',
       UpdateReplacePolicy: 'Retain',
@@ -28,7 +33,7 @@ describe('FoundationStack', () => {
   });
 
   test('User Pool 含不可變的 custom:tenantId 屬性', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::Cognito::UserPool', {
       Schema: Match.arrayWith([
         Match.objectLike({
@@ -40,19 +45,19 @@ describe('FoundationStack', () => {
   });
 
   test('關閉自助註冊(僅管理者建立使用者)', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::Cognito::UserPool', {
       AdminCreateUserConfig: Match.objectLike({ AllowAdminCreateUserOnly: true }),
     });
   });
 
   test('不把初始管理員密碼放進 CloudFormation custom resource', () => {
-    const t = synth();
+    const t = template();
     t.resourceCountIs('Custom::AWS', 0);
   });
 
   test('app client 啟用 USER_PASSWORD_AUTH 且無 client secret', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::Cognito::UserPoolClient', {
       ExplicitAuthFlows: Match.arrayWith(['ALLOW_USER_PASSWORD_AUTH']),
       GenerateSecret: false,
