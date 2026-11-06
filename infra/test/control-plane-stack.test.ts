@@ -34,29 +34,40 @@ function synth() {
   return Template.fromStack(cp);
 }
 
+/**
+ * 合成一次,四個測試共用。
+ *
+ * 每個測試各合成一遍的代價不只是慢:這個檔案會把四個 stack(含所有 Lambda 的 esbuild
+ * bundling)重跑四次,實測單檔 60 秒,其中第一個測試就佔 34 秒。單一測試長時間佔住事件迴圈
+ * 會讓 vitest 的 worker 來不及回報進度(Timeout calling "onTaskUpdate"),整個 run 以 exit 1
+ * 結束 —— 即使所有測試都通過。Template 只被讀取(hasResourceProperties 等斷言),共用不會互相影響。
+ */
+let cached: Template | undefined;
+const template = () => (cached ??= synth());
+
 describe('ControlPlaneStack', () => {
   test('建立 HTTP API', () => {
     // HTTP API + WebSocket API 各一
-    synth().hasResourceProperties('AWS::ApiGatewayV2::Api', {
+    template().hasResourceProperties('AWS::ApiGatewayV2::Api', {
       ProtocolType: 'HTTP',
     });
   });
 
   test('建立 JWT authorizer', () => {
-    synth().hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
+    template().hasResourceProperties('AWS::ApiGatewayV2::Authorizer', {
       AuthorizerType: 'JWT',
       IdentitySource: ['$request.header.Authorization'],
     });
   });
 
   test('路由套用 authorizer(非匿名可存取)', () => {
-    synth().hasResourceProperties('AWS::ApiGatewayV2::Route', {
+    template().hasResourceProperties('AWS::ApiGatewayV2::Route', {
       AuthorizationType: 'JWT',
     });
   });
 
   test('API Lambda 使用 Node 22 runtime', () => {
-    synth().hasResourceProperties('AWS::Lambda::Function', {
+    template().hasResourceProperties('AWS::Lambda::Function', {
       Runtime: 'nodejs22.x',
     });
   });

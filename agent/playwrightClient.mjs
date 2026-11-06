@@ -16,6 +16,7 @@
  * 故 setCoordinateSpace/#toWindow 為恆等(保留同介面以相容 runner 呼叫)。
  */
 import { chromium } from 'playwright';
+import { circleSequence, pathSequence } from './gestures.mjs';
 import { normalizeKey } from './keyNames.mjs';
 import { buildPageSignature } from './pageSignature.mjs';
 import { createPageTracker, safePageUrl } from './pageTracker.mjs';
@@ -271,6 +272,47 @@ export class PlaywrightClient {
         // 預設左鍵;測試腳本把滑鼠右鍵/中鍵定義了用途時,模型可給 "button":"right"|"middle"。
         const button = cmd.button === 'right' || cmd.button === 'middle' ? cmd.button : 'left';
         await this.#page.mouse.click(Math.round(cmd.x), Math.round(cmd.y), { button });
+        break;
+      }
+      // path / circle:按住不放、依序經過多個位置、再放開(連線拖曳、畫手勢、轉盤)。
+      // 幾何與 Appium / adb 驅動共用(gestures.mjs),同一個測項在三個平台上語意一致。
+      case 'path':
+      case 'circle': {
+        let start;
+        let seq;
+        if (cmd.action === 'circle') {
+          const cx = Number.isFinite(cmd.x) ? Math.round(cmd.x) : Math.round((this.#w || 1280) / 2);
+          const cy = Number.isFinite(cmd.y) ? Math.round(cmd.y) : Math.round((this.#h || 720) / 2);
+          const rad = Number.isFinite(cmd.radius)
+            ? Math.round(cmd.radius)
+            : Math.round(Math.min(this.#w || 1280, this.#h || 720) * 0.18);
+          start = { x: cx, y: cy };
+          seq = circleSequence(cx, cy, rad, Number(cmd.laps) || 1, {
+            clockwise: !(String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false),
+          });
+        } else {
+          const pts = (Array.isArray(cmd.points) ? cmd.points : [])
+            .filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y))
+            .map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) }));
+          if (pts.length < 2) throw new Error('path 至少需要 2 個座標點');
+          start = pts[0];
+          seq = pathSequence(pts, cmd.loops);
+        }
+        if (!seq.length) throw new Error(`${cmd.action} 算不出有效的路徑`);
+        const total = Math.max(200, Math.min(8000, Number(cmd.durationMs ?? cmd.holdMs) || 1200));
+        const perSeg = Math.max(16, Math.round(total / seq.length));
+        await this.#page.mouse.move(start.x, start.y);
+        await this.#page.mouse.down();
+        try {
+          for (const p of seq) {
+            // 每段再切小步:一次大跳躍的 move 會讓網頁的拖曳邏輯收不到中間事件。
+            await this.#page.mouse.move(p.x, p.y, { steps: Math.max(2, Math.round(perSeg / 16)) });
+            await sleep(2);
+          }
+        } finally {
+          // 不論中途是否出錯都要放開滑鼠,否則後續操作全部帶著按住狀態。
+          await this.#page.mouse.up();
+        }
         break;
       }
       case 'hold': {

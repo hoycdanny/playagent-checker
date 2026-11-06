@@ -9,6 +9,8 @@
  * 內建:tap 三層 fallback、presigned endpoint 過期自動重連、60s idle keep-alive。
  */
 import { attach, remote } from 'webdriverio';
+import { circleSequence, pathSequence } from './gestures.mjs';
+import { judgeTypedText } from './inputCheck.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -304,23 +306,20 @@ export class AppiumClient {
         const pts = Array.isArray(cmd.points) ? cmd.points.filter((p) => Number.isFinite(p?.x) && Number.isFinite(p?.y)) : [];
         if (pts.length < 2) throw new Error('path 至少需要 2 個座標點');
         const loops = Math.max(1, Math.min(5, Math.round(Number(cmd.loops) || 1)));
+        // 要經過哪些點由 gestures.pathSequence 算(純計算,可單獨驗證);這裡只負責送出。
+        const seq = pathSequence(pts, loops);
         // 每段移動耗時:總時長平均分配到各段。太快遊戲收不到中間點,太慢一個手勢佔掉整步。
         const totalMs = clampHold(cmd.durationMs ?? cmd.holdMs, 1200);
-        const segs = (pts.length - 1) * loops;
-        const segMs = Math.max(16, Math.round(totalMs / Math.max(1, segs)));
-        const win = pts.map((p) => this.#toWindow(Math.round(p.x), Math.round(p.y)));
+        const segMs = Math.max(16, Math.round(totalMs / Math.max(1, seq.length)));
+        const [sx, sy] = this.#toWindow(Math.round(pts[0].x), Math.round(pts[0].y));
         let chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
-          .move({ x: win[0][0], y: win[0][1], duration: 0 })
+          .move({ x: sx, y: sy, duration: 0 })
           .down({ button: 0 });
         // 按住後先停一下:有些遊戲要先認到「按下」才開始追蹤手指移動。
         chain = chain.pause(Math.max(0, Math.min(500, Number(cmd.pressMs) || 80)));
-        for (let lap = 0; lap < loops; lap++) {
-          // 第二圈起從第 2 個點接續(第 1 個點就是上一圈的終點,重複送會停頓)。
-          for (let k = lap === 0 ? 1 : 0; k < win.length; k++) {
-            if (lap > 0 && k === 0) continue;
-            chain = chain.move({ x: win[k][0], y: win[k][1], duration: segMs });
-          }
-          if (lap < loops - 1) chain = chain.move({ x: win[0][0], y: win[0][1], duration: segMs });
+        for (const p of seq) {
+          const [px, py] = this.#toWindow(Math.round(p.x), Math.round(p.y));
+          chain = chain.move({ x: px, y: py, duration: segMs });
         }
         const endHold = Math.max(0, Math.min(2000, Number(cmd.endHoldMs) || 0));
         if (endHold) chain = chain.pause(endHold);
@@ -339,18 +338,17 @@ export class AppiumClient {
         // holdMs = 每一圈的時間(預設 1200ms/圈):太快遊戲判定不到連續轉動。
         const perLap = clampHold(cmd.holdMs, 1200);
         const segs = 12;
-        const dirSign = String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false ? -1 : 1;
-        const a0 = Number.isFinite(cmd.start) ? cmd.start : Math.PI; // 從左側起點開始,避開手指遮擋
-        const pt = (a) => this.#toWindow(Math.round(cx + r * Math.cos(a)), Math.round(cy + r * Math.sin(a)));
+        const clockwise = !(String(cmd.dir ?? '').toLowerCase() === 'ccw' || cmd.clockwise === false);
+        // 圓周座標由 gestures.circleSequence 算(與 adb 驅動共用同一份幾何,可單獨驗證)。
+        const seq = circleSequence(cx, cy, r, laps, { segs, clockwise, ...(Number.isFinite(cmd.start) ? { start: cmd.start } : {}) });
         const [sx, sy] = this.#toWindow(cx, cy);
         let chain = this.#driver.action('pointer', { parameters: { pointerType: 'touch' } })
           .move({ x: sx, y: sy, duration: 0 }).down({ button: 0 });
-        const [fx, fy] = pt(a0);
-        chain = chain.move({ x: fx, y: fy, duration: 150 });
-        for (let k = 1; k <= segs * laps; k++) {
-          const [px, py] = pt(a0 + dirSign * (2 * Math.PI * k) / segs);
-          chain = chain.move({ x: px, y: py, duration: Math.round(perLap / segs) });
-        }
+        seq.forEach((p, k) => {
+          const [px, py] = this.#toWindow(p.x, p.y);
+          // 第一個點是「從圓心推到圓周」,給固定 150ms;之後才是沿圓周轉動的每一段。
+          chain = chain.move({ x: px, y: py, duration: k === 0 ? 150 : Math.round(perLap / segs) });
+        });
         await chain.up({ button: 0 }).perform();
         await this.#driver.releaseActions().catch(() => {});
         break;
@@ -568,18 +566,14 @@ export class AppiumClient {
   /**
    * 讀回目前聚焦欄位的內容,確認剛才那段字真的在裡面。
    * 回 true / false / null(讀不到或是遮罩過的密碼 → 不知道,不是失敗)。
+   * 「讀到什麼算成功」的判斷在 inputCheck.judgeTypedText(純函式,可單獨驗證)。
    */
   async #verifyTyped(want) {
     if (!want) return null;
     try {
       const active = await this.#driver.getActiveElement();
       if (!active || typeof active.getText !== 'function') return null;
-      const got = String((await active.getText()) ?? '');
-      if (!got) return null;
-      if (got.includes(want)) return true;
-      // 密碼欄位回的是遮罩(••••)或固定字元:長度對得上就當作「可能成功,無法確認」。
-      if (/^[•*●·\u2022\u25cf]+$/.test(got.trim())) return got.trim().length === want.length ? null : false;
-      return false;
+      return judgeTypedText(want, await active.getText());
     } catch {
       return null;
     }

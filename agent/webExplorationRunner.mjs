@@ -628,6 +628,14 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) cmd.y = clampTo(cmd.y, ch);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) cmd.x2 = clampTo(cmd.x2, cw);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) cmd.y2 = clampTo(cmd.y2, ch);
+    // path 的座標點:逐點夾進畫面、去掉無效點、限制點數(與真機 runner 同一套規則)。
+    if (Array.isArray(cmd.points)) {
+      cmd.points = cmd.points
+        .map((p) => ({ x: Number(p?.x), y: Number(p?.y) }))
+        .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y))
+        .map((p) => ({ x: clampTo(p.x, cw), y: clampTo(p.y, ch) }))
+        .slice(0, 12);
+    }
     // smart-resize 空間 → 視埠像素。
     const toDevX = (x) => Math.max(0, Math.min(origW, Math.round(x * (cw > 0 ? origW / cw : 1))));
     const toDevY = (y) => Math.max(0, Math.min(origH, Math.round(y * (ch > 0 ? origH / ch : 1))));
@@ -851,6 +859,13 @@ async function main() {
     if (cmd.y != null && Number.isFinite(cmd.y)) deviceCmd.y = toDevY(cmd.y);
     if (cmd.x2 != null && Number.isFinite(cmd.x2)) deviceCmd.x2 = toDevX(cmd.x2);
     if (cmd.y2 != null && Number.isFinite(cmd.y2)) deviceCmd.y2 = toDevY(cmd.y2);
+    // path 的每個點、circle 的半徑同樣要換算到視埠像素(漏掉手勢會整個縮在左上角)。
+    if (Array.isArray(cmd.points) && cmd.points.length) {
+      deviceCmd.points = cmd.points.map((p) => ({ x: toDevX(p.x), y: toDevY(p.y) }));
+    }
+    if (cmd.radius != null && Number.isFinite(cmd.radius)) {
+      deviceCmd.radius = Math.round(cmd.radius * (cw > 0 ? origW / cw : 1));
+    }
     // 憑證替換:僅在「輸入到頁面」時換成真值。缺值時重載一次後 fail closed,不輸入 literal `${...}`。
     if (deviceCmd.action === 'type' && typeof deviceCmd.text === 'string' && deviceCmd.text.length > 0) {
       try {
@@ -874,7 +889,23 @@ async function main() {
       }
     }
     let actOk = false;
-    try { await client.act(deviceCmd); actOk = true; consecFail = 0; } catch (e) { consecFail++; if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = '連續動作失敗'; break; } }
+    try {
+      await client.act(deviceCmd);
+      actOk = true;
+      consecFail = 0;
+    } catch (e) {
+      const why = String(e?.message || e).replace(/\s+/g, ' ').slice(0, 300);
+      // 「這個平台不支援這個動作 / 動作欄位不齊」不是瀏覽器故障:不計入連續失敗
+      // (否則三次就把任務判成 error),改成告訴 AI 換做法。
+      if (/不支援的動作|至少需要 2 個座標點|算不出有效的路徑/.test(why)) {
+        console.warn(`[act] 第 ${i} 步 ${cmd.action}:${why} —— 不計入連續失敗,改要求 AI 換做法`);
+        controlNote += `【系統】這一步的「${cmd.action}」沒有送到頁面:${why}。請改用其他可用動作完成同一件事,並確認動作需要的欄位都給齊了。`;
+      } else {
+        console.warn(`[act] 第 ${i} 步 ${cmd.action} 失敗(連續 ${consecFail + 1} 次):${why}`);
+        consecFail++;
+        if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = `連續動作失敗(${consecFail} 次):${why}`; break; }
+      }
+    }
     // 導覽圖:AI 沒給畫面名時沿用上一個已知畫面;該步只是 wait 則不覆蓋真正造成轉場的動作。
     prevAction = cmd.action; // 給 prompt 用
     if (cmd.screen) prevScreen = screenName;

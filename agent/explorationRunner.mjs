@@ -1146,6 +1146,13 @@ async function main() {
   let lastGrid = null;
   // 上一步 tap/hold 的落點(0~1 相對座標);用來只檢查「手指底下那一塊」有沒有反應。
   let lastTapAt = null;
+  // 連續被判定「App 畫面被系統遮黑」的步數,以及這個狀態的豁免上限。
+  // 遮黑期間 runner 會關掉卡死判定、死循環計數與黑畫面缺陷回報(見 blankGuarded)——
+  // 那是為了讓登入流程走完,但不能無限期:真的黑屏當機在截圖上長得一模一樣,
+  // 若永久豁免,當機就永遠不會被偵測、任務會一路燒到步數或預算上限。
+  // 15 步足夠「點密碼欄 → 輸入 → 送出」好幾輪;超過就恢復正常判定並要 AI 照缺陷流程處理。
+  let blankStreak = 0;
+  const BLANK_MAX = Math.max(1, Number(process.env.PA_BLANK_MAX ?? 15));
   let stuckCount = 0;
   // 連續幾步「連細粒度訊號都看不到任何變化」。stuckCount 只看 pHash,在填表單這種
   // 「每一步都有效、但 pHash 翻不過 40/1024 門檻」的畫面上會一路累加到硬停止點,
@@ -1421,7 +1428,7 @@ async function main() {
     liveTimer = setInterval(liveTick, 400);
     if (liveTimer.unref) liveTimer.unref();
     // 新遊戲狀態:卡住 / 死循環計數歸零,數值不跟前一段比。
-    lastPhash = null; lastGrid = null; lastTapAt = null; stuckCount = 0; quietCount = 0; loadingStreak = 0; consecWaitCount = 0; lastMove = null;
+    lastPhash = null; lastGrid = null; lastTapAt = null; stuckCount = 0; quietCount = 0; loadingStreak = 0; consecWaitCount = 0; lastMove = null; blankStreak = 0;
     loadingWaitRun = 0; loadingWaitKey = '';
     loopGuard.reset();
     // 新的連線 = 重新安裝啟動,先前輸入的資料已經不存在。
@@ -1743,7 +1750,14 @@ async function main() {
     // 錄影/截圖裡遮黑(見 frameSignal.frameIsBlank)。這不是遊戲黑屏,也不是當機 —— 下面會
     // 擋掉三種誤判(卡死判定、死循環計數、把它當成遊戲缺陷),並告訴 AI 怎麼在看不見的情況下
     // 完成輸入。誤判成「全黑」的代價很小(少數幾步不計入護欄),所以門檻取寬鬆一點。
-    const blankFrame = curGrid ? frameIsBlank(curGrid) === true : false;
+    const blankScreen = curGrid ? frameIsBlank(curGrid) === true : false;
+    blankStreak = blankScreen ? blankStreak + 1 : 0;
+    // blankGuarded = 「仍在遮黑豁免期內」。超過上限後所有判定恢復正常:一張持續全黑的畫面
+    // 若不是密碼欄位造成的,就是真的黑屏/當機,那時該讓卡死偵測與缺陷回報照常運作。
+    const blankFrame = blankScreen && blankStreak <= BLANK_MAX;
+    if (blankScreen && blankStreak === BLANK_MAX + 1) {
+      console.log(`[螢幕分享保護] 畫面已連續 ${blankStreak} 步全黑,超過豁免上限 ${BLANK_MAX} 步 —— 恢復正常的卡死判定與缺陷回報`);
+    }
     // 卡住偵測的計數:遮黑期間一律凍住(不累計也不歸零)。
     // 連續好幾張「全黑而且一模一樣」的截圖會讓 stuckCount 一路衝高,接著觸發下面兩段脫困邏輯:
     // 先把 AI 要打的字改成 wait,再開始亂點與按 back —— 在登入畫面上那會把彈窗關掉、前面輸入
@@ -1833,6 +1847,11 @@ async function main() {
         + `(2) 送出不要用座標點 OK,改在同一個 type 動作加上 "submit":"done"(等同按鍵盤右下角的完成/前往),`
         + `這在任何裝置上都成立;(3) 若還沒聚焦到密碼欄,先 tap 密碼欄(位置可由遮黑前的畫面推斷),再 type;`
         + `(4) 送出後畫面若離開密碼欄位,遮黑會自動解除,你就會重新看到畫面。`
+      // 豁免期用完還是全黑:這時要把它當成可能的真缺陷處理,不能再用「這是系統遮黑」帶過。
+      : blankScreen
+      ? `\n【系統|畫面已連續 ${blankStreak} 步全黑】如果你剛才並不是在輸入密碼,那這很可能是「真的黑畫面/當機」,`
+        + `不是系統的螢幕分享保護:請依證據協議回報這個缺陷,並嘗試 back、或用 launch 重新開啟遊戲。`
+        + `若確實還在密碼欄位上,請用 type(帶 text)配合 "submit":"done" 把表單送出,讓畫面離開密碼欄位。`
       : '';
     const stuckNote = blankFrame
       ? ''
@@ -3145,9 +3164,21 @@ async function main() {
     } catch (e) {
       // 記下錯誤原因(之前完全吞掉,報告只剩「連續動作失敗」,看不出是連線斷了還是指令不被接受)。
       const why = String(e?.message || e).replace(/\s+/g, ' ').slice(0, 300);
-      console.warn(`[act] 第 ${i} 步 ${cmd.action} 失敗(連續 ${consecFail + 1} 次):${why}`);
-      consecFail++;
-      if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = `連續動作失敗(${consecFail} 次):${why}`; break; }
+      // 「這個平台不支援這個動作」不是裝置故障,不可以計入連續失敗 —— 否則 AI 連試三次
+      // 就把整個任務判成 error(例:Windows 驅動沒有多點路徑手勢,但案例的操作方式開放了 path)。
+      // 改成明確告訴它「這個平台沒有這個動作」,讓它換做法。
+      if (/不支援的動作|至少需要 2 個座標點|算不出有效的路徑/.test(why)) {
+        console.warn(`[act] 第 ${i} 步 ${cmd.action}:${why} —— 不計入連續失敗,改要求 AI 換做法`);
+        step.override = 'unsupported_action';
+        step.actError = why;
+        s3putBg(`${PREFIX}/steps/${i}.json`, JSON.stringify(step), 'application/json');
+        controlNote += `【系統】這一步的「${cmd.action}」沒有送到裝置:${why}。請改用別的方式完成同一件事`
+          + `(例如用 swipe 分段拖曳、或用 tap 逐一點擊),並確認動作需要的欄位都給齊了。`;
+      } else {
+        console.warn(`[act] 第 ${i} 步 ${cmd.action} 失敗(連續 ${consecFail + 1} 次):${why}`);
+        consecFail++;
+        if (consecFail >= CONSEC_FAIL_LIMIT) { finalState = 'error'; finalMsg = `連續動作失敗(${consecFail} 次):${why}`; break; }
+      }
     }
     // 【SPIN 迴圈】這一步是照記憶按的 SPIN:runner 自己等盤面停下,再只讀數字(不做決策,快又省)。
     if (cmd.reflex?.kind === 'spin' && actOk) {

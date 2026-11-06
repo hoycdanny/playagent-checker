@@ -16,9 +16,13 @@ function synth() {
   return Template.fromStack(stack);
 }
 
+/** 合成一次,整個檔案共用(理由見 control-plane-stack.test.ts)。Template 只被讀取。 */
+let cached: Template | undefined;
+const template = () => (cached ??= synth());
+
 describe('FrontendStack', () => {
   test('前端 S3 桶封鎖所有公開存取', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::S3::Bucket', {
       PublicAccessBlockConfiguration: {
         BlockPublicAcls: true,
@@ -30,7 +34,7 @@ describe('FrontendStack', () => {
   });
 
   test('桶政策強制 SSL(拒絕非加密傳輸)', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::S3::BucketPolicy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
@@ -44,13 +48,13 @@ describe('FrontendStack', () => {
   });
 
   test('建立 CloudFront distribution 並使用 OAC', () => {
-    const t = synth();
+    const t = template();
     t.resourceCountIs('AWS::CloudFront::Distribution', 1);
     t.resourceCountIs('AWS::CloudFront::OriginAccessControl', 1);
   });
 
   test('桶政策只允許 CloudFront service principal 讀取', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::S3::BucketPolicy', {
       PolicyDocument: {
         Statement: Match.arrayWith([
@@ -65,7 +69,7 @@ describe('FrontendStack', () => {
   });
 
   test('CloudFront 預設回退 index.html 供 SPA 路由(403/404 → 200)', () => {
-    const t = synth();
+    const t = template();
     t.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: Match.objectLike({
         DefaultRootObject: 'index.html',
