@@ -8,6 +8,9 @@ infra/cdk.out/
 # Windows 主機套件的組裝輸出(約 180 MB,setup.mjs 每次重建)
 worker/windows-host/gamelift/.build/
 
+# TypeScript 增量編譯快取:每次 build 都會變,追蹤它會讓每個貢獻者都看到假 diff。
+*.tsbuildinfo
+
 # CDK
 *.js.map
 cdk.context.json
