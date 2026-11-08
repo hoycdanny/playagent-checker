@@ -219,8 +219,8 @@ describe('emulator run.sh 與白名單的一致性', () => {
    * 快照必須證明自己屬於這個產物。
    *
    * 2026-11-01 實測踩到的:快照 key 帶 artifactVersion,但那只是檔名 —— 沒有任何東西
-   * 把快照的「內容」綁到那個產物。一份手動放進去的實驗快照裝的是 com.example.gameB,
-   * 而該 key 的產物 art-mva92xdd-s6il77 實際裝的是 com.example.gameA。主機照樣還原、
+   * 把快照的「內容」綁到那個產物。一份手動放進去的實驗快照裝的是 com.example.gameA,
+   * 而該 key 的產物 art-mva92xdd-s6il77 實際裝的是 com.example.gameB。主機照樣還原、
    * 跳過安裝、啟動了那個不相干的 App,報告上卻寫著 art-mva92xdd-s6il77。
    *
    * 這比「快照壞掉」嚴重:壞掉會失敗,這個會給出看似正常的假資料。

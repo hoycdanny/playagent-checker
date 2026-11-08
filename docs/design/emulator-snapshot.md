@@ -41,10 +41,10 @@ APK 下載加安裝只佔 10 秒(7%)。同區域 S3 到 EC2 有 46 MB/s,而 `ins
 
 | 任務 | 實際啟動的包 | 結果 |
 | --- | --- | --- |
-| `job-mvxtpxj7-5ny1ji` | `com.example.gameB`(**G9 啟動器**,來自那份過期快照) | 下載 1.36 GB,25 步沒進到大廳 |
-| `job-mw1yd67y-qkmgoo` | `com.example.gameA`(產物 `art-mva92xdd-s6il77` 真正安裝的) | 乾淨安裝,**9 步進到大廳**,沒有大檔下載 |
+| `job-mvxtpxj7-5ny1ji` | `com.example.gameA`(**gameA 啟動器**,來自那份過期快照) | 下載 1.36 GB,25 步沒進到大廳 |
+| `job-mw1yd67y-qkmgoo` | `com.example.gameB`(產物 `art-mva92xdd-s6il77` 真正安裝的) | 乾淨安裝,**9 步進到大廳**,沒有大檔下載 |
 
-所以:**被測產物自己不需要那 1.36 GB**;會下載的是 G9 啟動器,而它只是被誤放在
+所以:**被測產物自己不需要那 1.36 GB**;會下載的是 gameA 啟動器,而它只是被誤放在
 那個 key 上的實驗快照。「啟動器 → 下載一大包 → 更新 → 登入」這條路在這個市場很常見
 (所以值得支援),但它不是這個 App 現在的狀況。
 
@@ -72,12 +72,12 @@ Redroid 的 `/data` 用 `-v <hostdir>:/data` 外掛後:
 ```
 data_files_after_boot=49        外掛確實生效
 data_mb_after_boot=30           Redroid 自己初始化的 /data
-pkg_installed=[com.example.gameB]
-pkg_after_restore=[com.example.gameB]   從 S3 還原後 App 還在
+pkg_installed=[com.example.gameA]
+pkg_after_restore=[com.example.gameA]   從 S3 還原後 App 還在
 ```
 
-> 注意這裡的包名是 `com.example.gameB`。那是這次實驗自己抓的 APK,**不是**
-> App `app-mva95wxf-camd57` 目前的產物(`art-mva92xdd-s6il77` 裝的是 `com.example.gameA`)。
+> 注意這裡的包名是 `com.example.gameA`。那是這次實驗自己抓的 APK,**不是**
+> App `app-mva95wxf-camd57` 目前的產物(`art-mva92xdd-s6il77` 裝的是 `com.example.gameB`)。
 > 當時沒注意到這件事,而實驗產出的快照又被放到以那個 artifactVersion 命名的 key 上,
 > 後來就踩出坑六。
 
@@ -98,7 +98,7 @@ pkg_after_restore=[com.example.gameB]   從 S3 還原後 App 還在
   其中:
     shared_prefs/com.facebook.sdk.USER_SETTINGS.xml           Facebook SDK(第三方登入)
     shared_prefs/com.facebook.internal.preferences.APP_SETTINGS.xml
-    shared_prefs/com.example.gameB.v2.playerprefs.xml      Unity PlayerPrefs
+    shared_prefs/com.example.gameA.v2.playerprefs.xml      Unity PlayerPrefs
     files/PersistedInstallation...json                        Firebase 裝置身分
     databases/com.google.android.datatransport.events
 
@@ -197,22 +197,22 @@ tenants/<t>/apps/<appId>/snap-<artifactVersion>-<av>-<arch>-<w>x<h>.tar.zst
 這是目前找到最嚴重的一個,因為它不會失敗 —— 它會給出看似正常的假資料。
 
 事情是這樣發現的:還原同一個 key 的快照,兩次任務回報的包名不一樣,一次
-`com.example.gameB`、一次 `com.example.gameA`。查下去才知道**不是挑錯**,而是
+`com.example.gameA`、一次 `com.example.gameB`。查下去才知道**不是挑錯**,而是
 那個 key 底下的檔案被換過:
 
 - `art-mva92xdd-s6il77` 這個產物(使用者上傳的 split APK)實際安裝的是
-  `com.example.gameA`(`XPKG=com.example.gameA`,`am start -n com.example.gameA/.SlotsActivity`)。
-- 但 10-30 那份手動放進去的實驗快照裝的是 `com.example.gameB` —— 另一個 APK。
+  `com.example.gameB`(`XPKG=com.example.gameB`,`am start -n com.example.gameB/.SlotsActivity`)。
+- 但 10-30 那份手動放進去的實驗快照裝的是 `com.example.gameA` —— 另一個 APK。
   它被放在 `snap-art-mva92xdd-s6il77-…` 這個 key 上,所以主機照樣還原、跳過安裝、
   啟動了那個完全不相干的 App,而報告寫的是 `art-mva92xdd-s6il77`。
 
 **整份報告在測一個不是被測對象的東西,而從結果完全看不出來。** 快照 key 裡的
 `artifactVersion` 只是檔名;快照路徑不下載 APK,所以沒有機會用 APK 去核對。
 
-(順帶推翻一個我自己寫過的猜測:**不是**「`com.example.gameA` 的啟動器另外裝一個遊戲」。
+(順帶推翻一個我自己寫過的猜測:**不是**「`com.example.gameB` 的啟動器另外裝一個遊戲」。
 那個猜測是從「兩次任務包名不同」倒推來的,方向錯了 —— 真正的變因是快照檔案被換過,
 兩次任務各自跑的是兩個不相干的 App,各自只有一個第三方包。
-而那 1.36 GB 是 `com.example.gameB` 這個啟動器在下載,跟被測產物無關;
+而那 1.36 GB 是 `com.example.gameA` 這個啟動器在下載,跟被測產物無關;
 詳見最前面「更新(2026-11-04)」。)
 
 **修法**:打包時把包名寫進歸檔(`/data/.playagent-package`),還原後跟實際裝的比對,
@@ -270,7 +270,7 @@ operation: ... is not authorized to perform: s3:GetObjectTagging
 
 | 路徑 | 任務 | 結果 |
 | --- | --- | --- |
-| 送出時帶 `snapshot.use` → job.json → run.sh | `job-mvx8ea4h-9z6h7c` | `use=1 save=1 restored=1`,並「沿用已安裝的 `com.example.gameB`,跳過 APK 安裝」(包名不對 —— 這一次就是坑六,當時沒看出來) |
+| 送出時帶 `snapshot.use` → job.json → run.sh | `job-mvx8ea4h-9z6h7c` | `use=1 save=1 restored=1`,並「沿用已安裝的 `com.example.gameA`,跳過 APK 安裝」(包名不對 —— 這一次就是坑六,當時沒看出來) |
 | 非 `pass` 時不建立 | 同上(`maxSteps=3` 必然 fail) | `snapshot: 不建立(save=1 state=fail …)` |
 | `pass` 時打包 | `job-mvxuuvj2-6wpzql` | tar+zstd 產出 817 MiB、上傳成功,但搬正失敗(見坑五)→ 已修 |
 | `pass` 時打包(修好後) | `job-mvy1w79z-xmfqd7` | `snapshot: 已建立(817 MB)`,物件由 157 MB 換成 857,061,954 bytes;打包到上傳完共 15 秒 |
@@ -306,7 +306,7 @@ operation: ... is not authorized to perform: s3:GetObjectTagging
 
 這一節處理的不是快照,而是「載入畫面本身很貴」這件事,兩者獨立。
 
-起因是 `job-mvxtpxj7-5ny1ji`:G9 啟動器首次啟動要下載 1.36 GB(約 1.2 MB/s、
+起因是 `job-mvxtpxj7-5ny1ji`:gameA 啟動器首次啟動要下載 1.36 GB(約 1.2 MB/s、
 將近 20 分鐘),而 AI 每 11 秒看一次畫面、每次一次 VLM 呼叫,`maxSteps=25` 的
 25 步全部花在同一條進度條上,連大廳都沒進到。
 
@@ -357,7 +357,7 @@ operation: ... is not authorized to perform: s3:GetObjectTagging
 | 門檻 160 在真機上落在正確的那一側 | **已驗**:上面那三個讀數落在離線量到的「換畫面」區間(297~560),離 160 很遠 |
 | 裝置端真的讀得到 `/proc/net/dev`,速率算得出來 | **已驗**(`job-mw1zngyk`:`下載 2.37 MB/s`)。順帶證明這個遊戲啟動時確實有在收資料,而 2.37 MB/s 遠高於 150 KB/s 的門檻,會被判定為「下載中」 |
 | `parseRxBytes` / `rxRateBps` / 取樣器的所有分支 | **已驗**(`infra/test/download-probe.test.ts`,17 項) |
-| 長 hold(90 秒)與「下載中連續 20 步不重啟」 | **還沒驗**:需要一個首次啟動會持續下載好幾分鐘的 App。那個 App(G9 啟動器)不是目前任何一個產物,現在沒有素材可重現 |
+| 長 hold(90 秒)與「下載中連續 20 步不重啟」 | **還沒驗**:需要一個首次啟動會持續下載好幾分鐘的 App。那個 App(gameA 啟動器)不是目前任何一個產物,現在沒有素材可重現 |
 
 最後一項的範圍很窄:它依賴的 `downloading` 已經證明算得出來、而且在真機上會變成 true;
 沒驗到的是「連續 20 個載入步」那條路。

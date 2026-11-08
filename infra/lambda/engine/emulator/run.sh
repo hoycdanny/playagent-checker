@@ -205,8 +205,8 @@ if [ "$SNAP_RESTORED" = 1 ]; then
   #
   # 為什麼需要這道檢查:快照 key 帶 artifactVersion,但那只是檔名 —— 沒有任何東西把
   # 快照的「內容」綁到那個產物。實測踩到過:一份手動放進去的實驗快照裝的是
-  # com.example.gameB,而該 key 的產物 art-mva92xdd-s6il77 其實裝的是
-  # com.example.gameA。主機照樣還原、跳過安裝、啟動了那個完全不同的 App,
+  # com.example.gameA,而該 key 的產物 art-mva92xdd-s6il77 其實裝的是
+  # com.example.gameB。主機照樣還原、跳過安裝、啟動了那個完全不同的 App,
   # 而報告上寫的是 art-mva92xdd-s6il77 —— 整份報告在測一個不是被測對象的東西,
   # 從結果完全看不出來。這比「快照壞掉」嚴重:壞掉會失敗,這個會給出看似正常的假資料。
   #

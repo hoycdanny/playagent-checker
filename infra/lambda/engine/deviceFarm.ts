@@ -23,7 +23,7 @@ import { formFactorFilterValues } from '../api/deviceOptions.js';
  *
  * 用 CreateRemoteAccessSession 取得真機的 Appium 端點(remoteDriverEndpoint),
  * 讓截圖→VLM→操作迴圈能驅動實體 Android/iOS 裝置。真機有真實網路/GMS,可通過
- * ExampleVendor 等遊戲伺服器對模擬器環境的檢查(解決 Redroid 的 50019999)。
+ * 部分遊戲伺服器對模擬器環境的檢查(解決 Redroid 的 50019999)。
  */
 
 /**
