@@ -411,6 +411,50 @@ const BUILTIN: Record<string, Calc> = {
     const mean = BUILTIN['fps_avg']!(c);
     return mean !== null ? Math.min(v, mean) : v;
   },
+  /**
+   * 卡頓率(%)= 幀時間 ≥ `stutterFrameMs` 的幀數 ÷ 總幀數。
+   *
+   * 預設 32ms:一幀拖過兩個 60Hz 刷新週期(約低於 31 FPS),玩家開始感覺到頓。
+   * 門檻可由知識庫的 `stutterFrameMs` 覆寫 —— 「卡頓」各家定義不同,
+   * 要拿它跟外部門檻比對前,必須先把這個界線對齊,否則比的是兩個不同的量。
+   */
+  stutter_rate: (c) => {
+    const h = mergedFrameHist(c);
+    const total = [...h.values()].reduce((a, b) => a + b, 0);
+    if (total === 0) return null;
+    const limit = c.thresholds['stutterFrameMs'] ?? 32;
+    let slow = 0;
+    for (const [ms, n] of h) if (ms >= limit) slow += n;
+    return round2((slow / total) * 100);
+  },
+  /**
+   * 幀時間標準差(ms)—— 幀生成時間的離散程度,越小代表越穩。
+   * 直方圖以 1ms 取整分桶,取桶中點(+0.5)估算。
+   *
+   * **這不是任何外部「穩幀指數」的換算值。** 只給門檻值而沒有公式的指數無法對應:
+   * 要用它判定允收,得先取得對方的定義並確認一致。
+   */
+  frame_time_stddev: (c) => {
+    const h = mergedFrameHist(c);
+    const total = [...h.values()].reduce((a, b) => a + b, 0);
+    if (total === 0) return null;
+    let sum = 0;
+    for (const [ms, n] of h) sum += (ms + 0.5) * n;
+    const mean = sum / total;
+    let varSum = 0;
+    for (const [ms, n] of h) varSum += n * ((ms + 0.5 - mean) ** 2);
+    return round2(Math.sqrt(varSum / total));
+  },
+  /**
+   * 耗電百分比(%)= App 估算耗電 ÷ 電池容量。
+   * 容量未知就回 null —— 不能把 mAh 當百分比去對「耗電 < 10%」這類門檻。
+   */
+  battery_drain_pct: (c) => {
+    const drain = BUILTIN['battery_drain']!(c);
+    const cap = c.perfMeta?.batteryCapacityMah;
+    if (drain === null || typeof cap !== 'number' || cap <= 0) return null;
+    return round2((drain / cap) * 100);
+  },
   frame_time_p95: (c) => {
     const p95 = histPercentile(mergedFrameHist(c), 95);
     return p95 === null ? null : p95 + 0.5;

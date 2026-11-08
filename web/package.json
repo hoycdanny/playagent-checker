@@ -7,6 +7,7 @@
     "dev": "vite",
     "prebuild": "npm run check:i18n",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
     "preview": "vite preview",
     "test": "vitest run",
     "check:i18n": "tsx scripts/check-i18n.ts",

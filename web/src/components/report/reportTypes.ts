@@ -167,6 +167,26 @@ export interface CoverageItem {
   basis?: 'ai' | 'inferred';
 }
 
+/** 門檻來源:客戶核定(知識庫)或平台預設(顧問參考值)。 */
+export type ThresholdOrigin = 'knowledge_base' | 'platform_default';
+
+export interface ThresholdSource {
+  key: string;
+  value: number;
+  origin: ThresholdOrigin;
+  sources: string[];
+  note: L10n;
+}
+
+/** 本次結果的適用邊界 —— 報告「不得主張」什麼。 */
+export interface ClaimScope {
+  /** 統計截止點。 */
+  cutoff?: string;
+  envelope: Array<{ id: string; label: L10n; value: string; observed: boolean }>;
+  notVaried: Array<{ id: string; label: L10n; note: L10n }>;
+  statements: L10n[];
+}
+
 export interface StructuredReport {
   schemaVersion: 1;
   header: {
@@ -196,7 +216,15 @@ export interface StructuredReport {
   overallStatus: OverallStatus;
   statusReason: L10n;
   terminal: { state: string; message?: string; classification?: FailureClass };
-  release: { readiness: ReleaseReadiness; hits: RuleHit[]; thresholds: Record<string, number> };
+  release: {
+    readiness: ReleaseReadiness;
+    hits: RuleHit[];
+    thresholds: Record<string, number>;
+    /** 每個門檻的來源(客戶核定 / 平台預設)。舊版後端沒有此欄位。 */
+    thresholdSources?: ThresholdSource[];
+  };
+  /** 本次結果的適用邊界。舊版後端沒有此欄位。 */
+  claimScope?: ClaimScope;
   summaryLines: L10n[];
   counts: {
     totalChecks: number;
@@ -213,7 +241,15 @@ export interface StructuredReport {
   };
   metrics: MetricValue[];
   dashboard: Array<{ dimension: string; score: number | null; executed: boolean; findingCount: number; metrics: string[] }>;
-  scope: Array<{ id: string; selected: boolean; status: 'executed' | 'not_executed' | 'not_applicable' }>;
+  scope: Array<{
+    id: string;
+    selected: boolean;
+    status: 'executed' | 'not_executed' | 'not_applicable';
+    /** 沒有執行證據的理由。舊版後端沒有此欄位。 */
+    reason?: L10n;
+    /** 平台能否為此範疇收集證據;false = 任何一次執行都不會有。舊版後端沒有此欄位。 */
+    detectable?: boolean;
+  }>;
   coverage: {
     feature: CoverageItem[];
     mechanic: CoverageItem[];
@@ -250,6 +286,69 @@ export interface StructuredReport {
   };
   /** 逐局盤面影片證據(slot-board-v1)。 */
   slotCapture?: SlotCaptureManifest;
+  /** 交付文件規範投影(QA-DS)。舊版後端沒有此欄位。 */
+  qaDocs?: QaDocumentSet;
+  notes: L10n[];
+}
+
+// ───────── 交付文件規範(後端 report/qaDocs.ts)─────────
+
+/** 交付文件的結果欄位只有四態;'NA' 印為 N/A。 */
+export type QaItemResult = 'PASS' | 'FAIL' | 'BLOCK' | 'NA';
+export type QaDefectGrade = 'A' | 'B' | 'C' | 'D';
+export type QaDiscoveryGrade = 'E0' | 'E1' | 'E2' | 'E3';
+export type QaDocGroup = 'planning' | 'execution' | 'defects' | 'closure' | 'specialty' | 'research' | 'training';
+/** not_derivable = 本文件的輸入不是執行證據,必附原因。 */
+export type QaDocCoverage = 'derived' | 'derived_with_gaps' | 'not_derivable';
+
+export interface QaStatistic {
+  id: 'item_coverage' | 'execution_pass_rate' | 'defect_fix_rate';
+  label: L10n;
+  formula: L10n;
+  numerator: number | null;
+  denominator: number | null;
+  value: number | null;
+  basis: L10n;
+  caveat: L10n;
+}
+
+export interface QaDocField {
+  key: string;
+  label: L10n;
+  value: string;
+}
+
+export interface QaDocTable {
+  id: string;
+  title: L10n;
+  columns: Array<{ key: string; label: L10n }>;
+  rows: Array<Record<string, string>>;
+  /** 無列或被截斷的原因。 */
+  emptyReason?: L10n;
+}
+
+export interface QaDocument {
+  code: string;
+  title: L10n;
+  group: QaDocGroup;
+  coverage: QaDocCoverage;
+  reason?: L10n;
+  header: QaDocField[];
+  tables: QaDocTable[];
+  links: QaDocField[];
+  unfilled: L10n[];
+}
+
+export interface QaDocumentSet {
+  standard: string;
+  generatedAt: string;
+  internalStandard: string;
+  resultLegend: Array<{ result: QaItemResult; label: string; definition: L10n }>;
+  gradeLegend: Array<{ grade: QaDefectGrade; label: L10n; definition: L10n }>;
+  discoveryLegend: Array<{ grade: QaDiscoveryGrade; definition: L10n }>;
+  statistics: QaStatistic[];
+  documents: QaDocument[];
+  coverageSummary: Record<QaDocCoverage, number>;
   notes: L10n[];
 }
 

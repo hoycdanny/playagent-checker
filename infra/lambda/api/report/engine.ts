@@ -14,12 +14,14 @@ import { applyExclude, mergeProfiles, metricOrigin, type MergedProfile } from '.
 import { mergeSpecs, specFromKb } from './reportSpec.js';
 import { sanitizeObs, type DataQuality } from './dataQuality.js';
 import { buildAcceptance } from './acceptance.js';
+import { buildQaDocumentSet } from './qaDocs.js';
 import type {
   Assertion,
   ChartData,
   ChartDefinition,
   CheckItem,
   CheckResult,
+  ClaimScope,
   CompareOp,
   CoverageItem,
   DimensionScore,
@@ -38,11 +40,13 @@ import type {
   PerfSample,
   QualityDimension,
   ReleaseReadiness,
+  ReportHeader,
   ReportSpec,
   Risk,
   RuleHit,
   ScopeStatus,
   Severity,
+  ThresholdSource,
   SlotCaptureManifest,
   StructuredReport,
   TestScopeId,
@@ -958,6 +962,139 @@ function compare(a: number, op: CompareOp, b: number): boolean {
     case '!=': return a !== b;
   }
 }
+/**
+ * 判定用到的每個門檻,標出它是客戶核定還是平台預設。
+ *
+ * `{ ...profile.thresholds, ...spec.thresholds }` 合併後來源就看不出來了,
+ * 但這個區別決定了這個數字能不能當標準用:平台預設是顧問參考值,
+ * 不是客戶核定值,也不能跨專案套用(歷史門檻的裝置分級與取樣條件各不相同)。
+ */
+function buildThresholdSources(
+  profileThresholds: Record<string, number> | undefined,
+  spec: ReportSpec,
+  merged: Record<string, number>,
+): ThresholdSource[] {
+  return Object.entries(merged)
+    .map(([key, value]): ThresholdSource => {
+      const fromKb = Object.prototype.hasOwnProperty.call(spec.thresholds, key);
+      const overrides = fromKb && Object.prototype.hasOwnProperty.call(profileThresholds ?? {}, key);
+      return {
+        key,
+        value,
+        origin: fromKb ? 'knowledge_base' : 'platform_default',
+        sources: fromKb ? [...spec.sources] : [],
+        note: fromKb
+          ? overrides
+            ? L('知識庫核定值(覆寫類型樣板預設)', 'Approved in the knowledge base (overrides the genre default)')
+            : L('知識庫核定值', 'Approved in the knowledge base')
+          : L('平台預設的顧問參考值,非客戶核定;不得作為跨專案標準', 'A platform consultant reference value, not customer-approved; it must not be used as a cross-project standard'),
+      };
+    })
+    .sort((a, b) => a.key.localeCompare(b.key));
+}
+
+/**
+ * 本次結果的適用邊界。
+ *
+ * 一次執行只覆蓋一個組合。報告最常見的誤用是把結論讀成普遍成立,
+ * 所以受測組合逐項列出(未觀測的標明未觀測),未變動的維度也明文說「不得主張」。
+ */
+function buildClaimScope(args: {
+  header: ReportHeader;
+  steps: EvidenceStep[];
+  scope: ScopeStatus[];
+  thresholdSources: ThresholdSource[];
+  cutoff?: string;
+}): ClaimScope {
+  const { header, steps, scope, thresholdSources, cutoff } = args;
+  const unknown = L('未觀測', 'Not observed');
+  const env = (id: string, label: L10n, value: string | undefined) => ({
+    id,
+    label,
+    value: value && value.trim() ? value : unknown.zh,
+    observed: Boolean(value && value.trim()),
+  });
+
+  const segments = new Set(steps.map((s) => s.segment ?? 0));
+  // 介面語系由 AI 逐步判讀(GLOBAL_PROFILE 的 observe);沒讀到就維持「未觀測」,不假設預設語系。
+  const locales = [
+    ...new Set(
+      steps
+        .map((s) => s.obs?.['locale'])
+        .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+        .map((v) => v.trim()),
+    ),
+  ];
+  const envelope = [
+    env('platform', L('平台', 'Platform'), header.platform),
+    env('os', L('作業系統版本', 'OS version'), header.operatingSystem),
+    env('device', L('裝置', 'Device'), header.device),
+    env('resolution', L('解析度', 'Resolution'), header.resolution),
+    env('build', L('受測版本', 'Build under test'), header.gameVersion ?? header.buildNumber),
+    env('environment', L('測試環境', 'Test environment'), header.testEnvironment),
+    env('region', L('伺服器區域', 'Server region'), header.serverRegion),
+    // 讀不到語系時留白會被當成「預設語系已驗」,所以明確標為未觀測。
+    env('locale', L('語系', 'Locale'), locales.join('、') || undefined),
+  ];
+
+  const notVaried: ClaimScope['notVaried'] = [
+    {
+      id: 'build',
+      label: L('版本', 'Build'),
+      note: L('只執行一個受測版本,無法證明修正複驗或版本回歸;需另一版本的執行結果對照', 'Only one build was executed, so a fix retest or regression cannot be shown; results from another build are required'),
+    },
+    {
+      id: 'device',
+      label: L('裝置與解析度', 'Device and resolution'),
+      note: L('只涵蓋上列單一裝置組合,不得主張跨機型或跨解析度適配已驗', 'Covers only the single device combination above; no claim of cross-device or cross-resolution adaptation is supported'),
+    },
+    {
+      id: 'locale',
+      label: L('語系', 'Locale'),
+      // 三種情況的主張強度不同:沒讀到、只跑一個語系、跑過多個語系。
+      // 但三者都不足以主張「文案正確」—— 那要對照核定文案,本平台不做這件事。
+      note:
+        locales.length === 0
+          ? L('未觀測到語系,也未比對核定文案;不得主張任何語系的顯示已驗', 'No locale was observed and no comparison against approved copy was made; no claim about any locale is supported')
+          : locales.length === 1
+            ? L(`本次只跑在 ${locales[0]} 一個語系,且未比對核定文案;不得主張其他語系或文案正確性已驗`, `The run exercised only ${locales[0]} and did not compare against approved copy; no claim about other locales or copy correctness is supported`)
+            : L(`本次觀測到 ${locales.length} 個語系(${locales.join('、')}),語系切換已發生,但未比對核定文案;不得主張文案正確性已驗`, `${locales.length} locales were observed (${locales.join(', ')}), so switching did occur, but copy was not compared against the approved version; no claim of copy correctness is supported`),
+    },
+  ];
+  if (scope.find((s) => s.id === 'network')?.status !== 'executed') {
+    notVaried.push({
+      id: 'network',
+      label: L('網路條件', 'Network condition'),
+      note: L('未觀測到斷線或重連證據,不得主張弱網與中斷復原行為已驗', 'No disconnect or reconnect evidence was observed; no claim about weak-network or interruption recovery is supported'),
+    });
+  }
+  if (segments.size <= 1) {
+    notVaried.push({
+      id: 'session',
+      label: L('連線段', 'Connection segment'),
+      note: L('只有一個連線段,不涵蓋長時掛測的跨段行為', 'Only one connection segment; cross-segment behaviour in long-run soak testing is not covered'),
+    });
+  }
+
+  const statements: L10n[] = [
+    L('本次結論僅適用於上列受測組合;未列出的平台、裝置、語系與網路條件不在本次證據範圍內。', 'The verdict applies only to the tested combination above; platforms, devices, locales and network conditions not listed are outside this run\u2019s evidence.'),
+    L('通過表示該項的預期與實際相符,不表示同一畫面或功能沒有其他未被檢查的問題。', 'A pass means the expectation matched the actual result for that item; it does not mean the same screen or feature has no other unchecked problems.'),
+    L('標為「平台限制」的範疇,任何一次執行都不會產生證據;那是工具缺口,不是本次沒走到。', 'Scopes marked as a platform limitation will never produce evidence in any run; that is a tooling gap, not something this run merely missed.'),
+  ];
+  if (locales.length > 0) {
+    statements.push(
+      L('語系是 AI 於畫面判讀的觀察值,只說明本次跑在哪個語系;它不是與核定文案的比對結果,不構成語系正確性的驗證。', 'The locale is an AI reading from the screen and only states which locale the run exercised. It is not a comparison against approved copy and does not verify localisation correctness.'),
+    );
+  }
+  if (thresholdSources.some((t) => t.origin === 'platform_default')) {
+    statements.push(
+      L('部分門檻來自平台預設(顧問參考值),非客戶核定值;不得作為跨專案標準或允收依據。', 'Some thresholds come from platform defaults (consultant reference values) rather than customer-approved values, and must not serve as a cross-project standard or an acceptance basis.'),
+    );
+  }
+
+  return { ...(cutoff ? { cutoff } : {}), envelope, notVaried, statements };
+}
+
 function resolveThreshold(v: ThresholdRef, thresholds: Record<string, number>): number | null {
   if (typeof v === 'number') return v;
   const t = thresholds[v.threshold];
@@ -974,6 +1111,29 @@ const CATEGORY_DIMENSION: Record<FindingCategory, QualityDimension> = {
   localization: 'localization', compatibility: 'compatibility',
 };
 const SEVERITY_PENALTY: Record<Severity, number> = { critical: 40, high: 20, medium: 10, low: 5 };
+/**
+ * 各測試範疇的證據偵測能力。
+ *
+ * 「未測」有兩種完全不同的意思,報告必須分開講:
+ *  - detectable: true  → 平台收得到這類證據,本次沒走到;重測有機會補上。
+ *  - detectable: false → 平台目前沒有這類偵測器,任何一次執行都不會有證據。
+ *
+ * 把後者也印成「未測」,讀者會以為「這次剛好沒測到」,從而高估這份報告的覆蓋範圍。
+ * 有 gap 的範疇即使被樣板選進範圍,也永遠不會變成 executed —— 那是工具限制,要揭露。
+ */
+const SCOPE_GAP: Partial<Record<TestScopeId, L10n>> = {
+  animation: L('沒有逐幀動畫比對器;動畫是否正確目前只能由 AI 在截圖上觀察,不產生此範疇的確定性證據', 'No frame-by-frame animation comparator; animation correctness is only observed by the AI on screenshots and yields no deterministic evidence for this scope'),
+  audio: L('runner 未擷取音訊軌,無法判定音效時機或破音', 'The runner does not capture an audio track, so sound timing and distortion cannot be judged'),
+  multiplayer: L('單一裝置單一帳號執行,沒有第二個客戶端可對照', 'Runs with a single device and account; there is no second client to compare against'),
+  // 可以讀出「當下是哪個語系」(GLOBAL_PROFILE 的 locale 觀測),但沒有核定文案可對照,
+  // 所以無法判定文案與版面是否正確 —— 缺的是比對基準,不是語系偵測。
+  localization: L('沒有核定文案可對照:只能讀出當下語系,無法判定文案與版面是否正確', 'There is no approved copy to compare against: the current locale can be read, but copy and layout correctness cannot be judged'),
+  save_load: L('未執行存檔／讀檔流程的前後狀態比對', 'No before-and-after comparison of a save/load flow is performed'),
+  payment: L('不使用真實金流,未執行付款流程', 'Real payment rails are not used and no purchase flow is executed'),
+  ai_behavior: L('未對遊戲內 NPC／AI 行為設置觀測點(此處指受測遊戲的 AI,非測試代理)', 'No observation points for in-game NPC/AI behaviour (the game\u2019s AI, not the test agent)'),
+  physics: L('未對物理模擬設置量測點', 'No measurement points for physics simulation'),
+};
+
 const ALL_SCOPES: TestScopeId[] = [
   'functional', 'gameplay', 'mechanics', 'ui', 'ux', 'graphics', 'animation', 'audio', 'performance',
   'compatibility', 'network', 'multiplayer', 'localization', 'save_load', 'account', 'economy', 'payment',
@@ -1202,7 +1362,18 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const scope: ScopeStatus[] = ALL_SCOPES.map((id) => {
     const selected = selectedScopes.has(id);
     const executed = executedEvidence[id];
-    return { id, selected, status: !selected && !executed ? 'not_applicable' : executed ? 'executed' : 'not_executed' };
+    const gap = SCOPE_GAP[id];
+    const status = !selected && !executed ? 'not_applicable' : executed ? 'executed' : 'not_executed';
+    // 未執行一律附理由。工具限制優先講 —— 那是「重測也不會有」,與「這次沒走到」要分開。
+    const reason: L10n | undefined =
+      status === 'executed'
+        ? undefined
+        : gap
+          ? L(`平台限制:${gap.zh}`, `Platform limitation: ${gap.en}`)
+          : status === 'not_applicable'
+            ? L('類型樣板與知識庫規格都未選定此範疇,不列入判定', 'Neither the genre profile nor the knowledge-base spec selected this scope, so it is not judged')
+            : L('已選定此範疇,但本次執行未產生對應證據', 'This scope was selected but the run produced no matching evidence');
+    return { id, selected, status, detectable: !gap, ...(reason ? { reason } : {}) };
   });
 
   // Quality Dashboard:分數 = 100 − Σ(該維度遊戲缺陷扣分);未執行的維度不給分(null)。
@@ -1304,6 +1475,8 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   if (overallStatus === 'FAIL') readiness = 'NOT_READY';
   else if (overallStatus === 'BLOCKED' && readiness !== 'NOT_READY') readiness = 'BLOCKED';
 
+  const thresholdSources = buildThresholdSources(profile.thresholds, spec, thresholds);
+
   // 判定明細:KPI 的通過/失敗/不確定數字 = 這張表的列數,點擊可一一對應。
   const checks = buildChecks(steps, state, terminal, findings, aiFailures, moduleOf, executedEvidence.gameplay);
   const countOf = (r: CheckResult) => checks.filter((c) => c.result === r).length;
@@ -1323,35 +1496,43 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const caseVersion = job?.caseVersion ?? input.testCase?.version;
   const confs = steps.map((s) => s.confidence).filter((c): c is number => typeof c === 'number');
 
+  const header: ReportHeader = {
+    reportId: `RPT-${job?.jobId ?? String(raw['jobId'] ?? '')}`,
+    ...(app?.name ? { gameName: app.name } : {}),
+    ...(app?.version ? { gameVersion: app.version } : {}),
+    ...(job?.artifactVersion ? { buildNumber: job.artifactVersion } : {}),
+    ...(genres[0] ? { genre: genres[0] } : {}),
+    secondaryGenres: genres.slice(1),
+    ...((job?.platform ?? app?.platform) ? { platform: job?.platform ?? app?.platform } : {}),
+    ...(job?.osVersion ? { operatingSystem: job.osVersion } : {}),
+    ...(deviceModel ? { device: deviceModel } : {}),
+    ...(resolution ? { resolution } : {}),
+    ...(job?.backend ? { testEnvironment: job.backend } : {}),
+    ...(startIso ? { testStartTime: startIso } : {}),
+    ...(endIso ? { testEndTime: endIso } : {}),
+    ...(wallClockMs !== undefined && Number.isFinite(wallClockMs) ? { testDurationMs: wallClockMs } : {}),
+    ...((typeof raw['vlmModel'] === 'string' ? raw['vlmModel'] : job?.vlmModel) ? { aiModelVersion: (typeof raw['vlmModel'] === 'string' ? raw['vlmModel'] : job?.vlmModel)! } : {}),
+    ...(job?.agentModel ? { agentModel: job.agentModel } : {}),
+    testEngineVersion: typeof raw['runnerVersion'] === 'string' ? raw['runnerVersion'] : 'legacy',
+    knowledgeBaseVersions: kbVersions,
+    ...(caseVersion ? { caseVersion } : {}),
+    testPlanVersion: profile.version,
+  };
+
+  // 統計截止點:報告的數字都是到這一刻為止的證據算出來的。
+  // 沒有結束時間(例如被中斷)就退回最後一步有時戳的證據,不留空白。
+  const cutoff = endIso ?? [...steps].reverse().find((s) => s.at)?.at;
+  const claimScope = buildClaimScope({ header, steps, scope, thresholdSources, ...(cutoff ? { cutoff } : {}) });
+
   const report: StructuredReport = {
     schemaVersion: 1,
-    header: {
-      reportId: `RPT-${job?.jobId ?? String(raw['jobId'] ?? '')}`,
-      ...(app?.name ? { gameName: app.name } : {}),
-      ...(app?.version ? { gameVersion: app.version } : {}),
-      ...(job?.artifactVersion ? { buildNumber: job.artifactVersion } : {}),
-      ...(genres[0] ? { genre: genres[0] } : {}),
-      secondaryGenres: genres.slice(1),
-      ...((job?.platform ?? app?.platform) ? { platform: job?.platform ?? app?.platform } : {}),
-      ...(job?.osVersion ? { operatingSystem: job.osVersion } : {}),
-      ...(deviceModel ? { device: deviceModel } : {}),
-      ...(resolution ? { resolution } : {}),
-      ...(job?.backend ? { testEnvironment: job.backend } : {}),
-      ...(startIso ? { testStartTime: startIso } : {}),
-      ...(endIso ? { testEndTime: endIso } : {}),
-      ...(wallClockMs !== undefined && Number.isFinite(wallClockMs) ? { testDurationMs: wallClockMs } : {}),
-      ...((typeof raw['vlmModel'] === 'string' ? raw['vlmModel'] : job?.vlmModel) ? { aiModelVersion: (typeof raw['vlmModel'] === 'string' ? raw['vlmModel'] : job?.vlmModel)! } : {}),
-      ...(job?.agentModel ? { agentModel: job.agentModel } : {}),
-      testEngineVersion: typeof raw['runnerVersion'] === 'string' ? raw['runnerVersion'] : 'legacy',
-      knowledgeBaseVersions: kbVersions,
-      ...(caseVersion ? { caseVersion } : {}),
-      testPlanVersion: profile.version,
-    },
+    header,
     overallStatus,
     statusReason,
     acceptance,
     terminal: { state, ...(message ? { message } : {}), ...(terminal.classification ? { classification: terminal.classification } : {}) },
-    release: { readiness, hits, thresholds },
+    release: { readiness, hits, thresholds, thresholdSources },
+    claimScope,
     summaryLines: [],
     counts: {
       totalChecks: expectCount,
@@ -1409,6 +1590,8 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     notes: [...qualityNotes(quality), ...buildNotes(steps, hasPerf, spec, genres)],
   };
   report.summaryLines = buildSummary(report, mval);
+  // 交付文件規範投影:放在最後,因為它只讀 report 既有欄位(含 summaryLines),不參與任何判定。
+  report.qaDocs = buildQaDocumentSet(report);
   return report;
 }
 

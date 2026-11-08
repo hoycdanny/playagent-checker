@@ -76,3 +76,35 @@
   color: var(--status-pass);
   background: color-mix(in srgb, var(--status-pass) 12%, transparent);
 }
+
+/* 受阻:既不是通過也不是失敗,那次測試沒有得出結果 */
+.trend__dot--blocked {
+  color: var(--status-cancelled);
+  border-color: var(--status-cancelled);
+}
+.trend__dot--none {
+  color: var(--text-tertiary);
+}
+
+/* 退回執行結果算出的結果點用虛線框:依據較弱,要看得出來 */
+.trend__dot--fallback {
+  border-style: dashed;
+  cursor: help;
+}
+
+.trend__rate--fallback {
+  cursor: help;
+  text-decoration: underline dotted;
+}
+
+.trend__flag--blocked {
+  color: var(--status-cancelled);
+  background: color-mix(in srgb, var(--status-cancelled) 12%, transparent);
+}
+
+.trend__retest {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: help;
+}

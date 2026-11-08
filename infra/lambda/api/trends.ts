@@ -5,6 +5,7 @@ import {
 } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
 import type { TaskState } from './status.js';
+import { verdictKey, type Verdict, type VerdictRecord } from './tasks.js';
 
 /**
  * 案例趨勢與 flaky 分診(Req 12)——純函式核心 + S3 彙整。
@@ -23,13 +24,72 @@ export interface RunPoint {
   /** 執行當下被測 App 的產物版本(用以判斷「有無被測變更」)。 */
   artifactVersion: string;
   createdAt: string;
+  /**
+   * 測試結論(verdict.json,由報告引擎依驗收標準算出)。
+   *
+   * 趨勢與 flaky 要用這個,不是 `state`。`state` 只代表 AI 有沒有走完流程 ——
+   * 「執行完成」不等於通過(見 docs/design/acceptance-standard.md §1)。
+   * 兩者混用過去造成過「列表通過、報告失敗」的矛盾。
+   */
+  verdict?: Verdict;
+}
+
+/** 趨勢分析用的結果訊號。blocked 不進通過率分母(那次測試沒有得出結果)。 */
+export type RunOutcome = 'pass' | 'fail' | 'blocked' | 'none';
+
+/** 這個訊號是依結論算的,還是沒有結論只好退回執行結果。 */
+export type OutcomeBasis = 'verdict' | 'execution_state';
+
+/**
+ * 一次執行的結果訊號。
+ *
+ * 優先用測試結論。沒有結論(舊任務尚未算過)才退回執行結果,並標明依據 ——
+ * 退回是為了不讓歷史資料整片變空白,但它的意義較弱,必須讓讀者看得到。
+ */
+export function runSignal(p: RunPoint): { outcome: RunOutcome; basis: OutcomeBasis } {
+  if (p.verdict) {
+    // 通過(有風險)仍是通過:必要項目全過,只是有建議項目或待判讀。
+    if (p.verdict === 'PASS' || p.verdict === 'PASS_WITH_RISK') return { outcome: 'pass', basis: 'verdict' };
+    if (p.verdict === 'FAIL') return { outcome: 'fail', basis: 'verdict' };
+    return { outcome: 'blocked', basis: 'verdict' };
+  }
+  if (p.state === 'pass') return { outcome: 'pass', basis: 'execution_state' };
+  if (p.state === 'fail') return { outcome: 'fail', basis: 'execution_state' };
+  return { outcome: 'none', basis: 'execution_state' };
+}
+
+/** 修正複驗鏈:初測失敗 → 換版本 → 複驗通過。 */
+export interface RetestChain {
+  /** 依時間新→舊的版本段(同一產物版本合併為一段)。 */
+  stages: Array<{
+    artifactVersion: string;
+    outcome: RunOutcome;
+    basis: OutcomeBasis;
+    firstAt: string;
+    lastAt: string;
+    jobIds: string[];
+  }>;
+  /** 偵測到的修正複驗:某版本失敗,之後的新版本通過。 */
+  links: Array<{ failedVersion: string; failedJobId: string; retestVersion: string; retestJobId: string }>;
+  /** 失敗後尚未在任何後續版本通過的版本。 */
+  unresolved: Array<{ artifactVersion: string; jobId: string }>;
+  note: string;
 }
 
 export interface CaseTrend {
   appId: string;
   caseId: string;
-  /** 最近 N 次結果(新→舊),供 UI 呈現趨勢條。 */
-  recent: Array<{ jobId: string; state: RunPoint['state']; createdAt: string }>;
+  /**
+   * 最近 N 次結果(新→舊),供 UI 呈現趨勢條。
+   * `outcome` 才是該次的測試結論;`state` 只是執行結果,保留供排錯對照,不該用來畫結果點。
+   */
+  recent: Array<{
+    jobId: string;
+    state: RunPoint['state'];
+    createdAt: string;
+    outcome: RunOutcome;
+    basis: OutcomeBasis;
+  }>;
   total: number;
   passCount: number;
   failCount: number;
@@ -40,11 +100,15 @@ export interface CaseTrend {
   flaky: boolean;
   /** 判定說明(供 UI/審計)。 */
   flakyReason: string;
-}
-
-/** 只有 pass/fail 才是「App 行為的確定性訊號」。 */
-function isDeterministic(state: RunPoint['state']): state is 'pass' | 'fail' {
-  return state === 'pass' || state === 'fail';
+  /** 受阻次數(不進通過率分母:那幾次沒有得出結果)。 */
+  blockedCount: number;
+  /**
+   * 判定依據的組成:有多少點是依測試結論算的。
+   * 依據混雜時,通過率的意義會被稀釋,所以要讓讀者看得到比例而不是只看到一個百分比。
+   */
+  verdictCoverage: { withVerdict: number; total: number; note: string };
+  /** 修正複驗鏈。 */
+  retest: RetestChain;
 }
 
 /**
@@ -60,29 +124,133 @@ export function computeCaseTrend(
   // 依時間新→舊排序。
   const sorted = [...points].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  const passCount = sorted.filter((p) => p.state === 'pass').length;
-  const failCount = sorted.filter((p) => p.state === 'fail').length;
+  const signals = sorted.map((p) => ({ point: p, ...runSignal(p) }));
+
+  const passCount = signals.filter((s) => s.outcome === 'pass').length;
+  const failCount = signals.filter((s) => s.outcome === 'fail').length;
+  const blockedCount = signals.filter((s) => s.outcome === 'blocked').length;
   const errorCount = sorted.filter((p) => p.state === 'error').length;
+  // 受阻不進分母:那次測試沒有得出結果(對齊驗收標準 §2)。
   const deterministic = passCount + failCount;
   const passRate = deterministic > 0 ? passCount / deterministic : null;
 
-  const { flaky, flakyReason } = detectFlaky(sorted);
+  const withVerdict = signals.filter((s) => s.basis === 'verdict').length;
+  const verdictCoverage = {
+    withVerdict,
+    total: sorted.length,
+    note:
+      sorted.length === 0
+        ? '無歷史執行'
+        : withVerdict === sorted.length
+          ? '全部依測試結論判定'
+          : withVerdict === 0
+            ? '皆無測試結論,全部退回執行結果;執行完成不等於通過,此通過率意義較弱'
+            : `${sorted.length - withVerdict}/${sorted.length} 筆沒有測試結論,已退回執行結果;依據混雜,通過率意義較弱`,
+  };
+
+  const { flaky, flakyReason } = detectFlaky(signals);
 
   return {
     appId,
     caseId,
-    recent: sorted.slice(0, recentN).map((p) => ({
-      jobId: p.jobId,
-      state: p.state,
-      createdAt: p.createdAt,
+    recent: signals.slice(0, recentN).map((s) => ({
+      jobId: s.point.jobId,
+      state: s.point.state,
+      createdAt: s.point.createdAt,
+      outcome: s.outcome,
+      basis: s.basis,
     })),
     total: sorted.length,
     passCount,
     failCount,
     errorCount,
+    blockedCount,
     passRate,
     flaky,
     flakyReason,
+    verdictCoverage,
+    retest: computeRetestChain(points),
+  };
+}
+
+/**
+ * 修正複驗鏈。
+ *
+ * 規則:**初測的失敗不被覆寫**。複驗通過只代表後續版本通過,原版本那一列仍是 FAIL ——
+ * 用新版本的結果蓋掉舊版本的失敗,會讓這份歷史看起來從沒出過問題。
+ */
+export function computeRetestChain(points: RunPoint[]): RetestChain {
+  const asc = [...points].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  // 同一產物版本合併為一段;段內若出現失敗,該段即記為失敗(不被同版本的後續通過抹掉)。
+  const order: string[] = [];
+  const groups = new Map<string, { jobIds: string[]; firstAt: string; lastAt: string; outcomes: Array<{ outcome: RunOutcome; basis: OutcomeBasis; jobId: string }> }>();
+  for (const p of asc) {
+    const g = groups.get(p.artifactVersion);
+    const sig = runSignal(p);
+    if (!g) {
+      order.push(p.artifactVersion);
+      groups.set(p.artifactVersion, {
+        jobIds: [p.jobId],
+        firstAt: p.createdAt,
+        lastAt: p.createdAt,
+        outcomes: [{ ...sig, jobId: p.jobId }],
+      });
+      continue;
+    }
+    g.jobIds.push(p.jobId);
+    g.lastAt = p.createdAt;
+    g.outcomes.push({ ...sig, jobId: p.jobId });
+  }
+
+  const stagesAsc = order.map((version) => {
+    const g = groups.get(version)!;
+    const firstFail = g.outcomes.find((o) => o.outcome === 'fail');
+    const firstPass = g.outcomes.find((o) => o.outcome === 'pass');
+    const firstBlocked = g.outcomes.find((o) => o.outcome === 'blocked');
+    const chosen = firstFail ?? firstPass ?? firstBlocked ?? g.outcomes[0]!;
+    return {
+      artifactVersion: version,
+      outcome: chosen.outcome,
+      basis: chosen.basis,
+      firstAt: g.firstAt,
+      lastAt: g.lastAt,
+      jobIds: g.jobIds,
+      failJobId: firstFail?.jobId,
+    };
+  });
+
+  const links: RetestChain['links'] = [];
+  const unresolved: RetestChain['unresolved'] = [];
+  for (let i = 0; i < stagesAsc.length; i++) {
+    const stage = stagesAsc[i]!;
+    if (stage.outcome !== 'fail') continue;
+    // 只往後找:同一版本的重跑不算複驗(被測沒有變更)。
+    const retest = stagesAsc.slice(i + 1).find((s) => s.outcome === 'pass');
+    if (retest) {
+      links.push({
+        failedVersion: stage.artifactVersion,
+        failedJobId: stage.failJobId ?? stage.jobIds[0]!,
+        retestVersion: retest.artifactVersion,
+        retestJobId: retest.jobIds[0]!,
+      });
+    } else {
+      unresolved.push({ artifactVersion: stage.artifactVersion, jobId: stage.failJobId ?? stage.jobIds[0]! });
+    }
+  }
+
+  const note =
+    stagesAsc.length === 0
+      ? '無歷史執行,無法建立複驗鏈'
+      : links.length === 0 && unresolved.length === 0
+        ? '歷史中沒有失敗的版本,無複驗鏈'
+        : `${links.length} 筆已複驗通過、${unresolved.length} 筆尚未複驗通過;原版本的失敗紀錄保留不覆寫`;
+
+  return {
+    stages: stagesAsc.reverse().map(({ failJobId: _failJobId, ...s }) => s),
+    links,
+    unresolved,
+    note,
   };
 }
 
@@ -90,19 +258,29 @@ export function computeCaseTrend(
  * flaky 偵測:對每個「產物版本」分組,若該組內同時出現 pass 與 fail(結果反覆但被測未變),
  * 即判為 flaky。跨產物版本的 pass→fail 變化可能是真回歸,不據此判 flaky。
  */
-function detectFlaky(sorted: RunPoint[]): { flaky: boolean; flakyReason: string } {
-  const byVersion = new Map<string, Set<'pass' | 'fail'>>();
-  for (const p of sorted) {
-    if (!isDeterministic(p.state)) continue;
-    const set = byVersion.get(p.artifactVersion) ?? new Set<'pass' | 'fail'>();
-    set.add(p.state);
-    byVersion.set(p.artifactVersion, set);
+function detectFlaky(
+  signals: Array<{ point: RunPoint; outcome: RunOutcome; basis: OutcomeBasis }>,
+): { flaky: boolean; flakyReason: string } {
+  // 依產物版本分組,只看 pass / fail(受阻與未得出結果不是 App 行為訊號)。
+  const byVersion = new Map<string, Array<{ outcome: 'pass' | 'fail'; basis: OutcomeBasis }>>();
+  for (const s of signals) {
+    if (s.outcome !== 'pass' && s.outcome !== 'fail') continue;
+    const list = byVersion.get(s.point.artifactVersion) ?? [];
+    list.push({ outcome: s.outcome, basis: s.basis });
+    byVersion.set(s.point.artifactVersion, list);
   }
+
   for (const [version, results] of byVersion) {
-    if (results.has('pass') && results.has('fail')) {
+    // 同一版本內依據不要混用:若已有依結論判定的點,就忽略退回執行結果的點。
+    // 否則「執行完成但結論失敗」的那一次會被算成 pass,憑空造出一個 flaky。
+    const hasVerdict = results.some((r) => r.basis === 'verdict');
+    const considered = hasVerdict ? results.filter((r) => r.basis === 'verdict') : results;
+    const outcomes = new Set(considered.map((r) => r.outcome));
+    if (outcomes.has('pass') && outcomes.has('fail')) {
       return {
         flaky: true,
-        flakyReason: `同一被測版本(${version})下結果反覆(pass 與 fail 皆出現),可能為 flaky`,
+        flakyReason: `同一被測版本(${version})下結果反覆(通過與失敗皆出現),可能為 flaky${hasVerdict ? '' :
+          ';此判定退回執行結果,非測試結論'}`,
       };
     }
   }
@@ -181,12 +359,17 @@ export async function readCaseTrend(
       const job = await readJson<JobMeta & { artifactVersion?: string }>(s3, bucket, key);
       if (!job || job.appId !== appId || job.caseId !== caseId) return;
       const statusKey = key.replace(/job\.json$/, 'status.json');
-      const status = await readJson<{ state: TaskState }>(s3, bucket, statusKey);
+      // 結論與執行結果一起讀:趨勢與 flaky 要用結論,缺結論才退回執行結果。
+      const [status, verdict] = await Promise.all([
+        readJson<{ state: TaskState }>(s3, bucket, statusKey),
+        readJson<VerdictRecord>(s3, bucket, verdictKey(tenantId, job.jobId)).catch(() => null),
+      ]);
       points.push({
         jobId: job.jobId,
         state: status?.state ?? 'queued',
         artifactVersion: job.artifactVersion ?? appId,
         createdAt: job.createdAt,
+        ...(verdict?.verdict ? { verdict: verdict.verdict } : {}),
       });
     }),
   );

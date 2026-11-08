@@ -150,6 +150,27 @@ const GLOBAL_METRICS: MetricDefinition[] = [
   metric('fps_p1', 'P1 FPS', 'P1 FPS', '', 'performance', 'fps_p1', { dimension: 'performance' }),
   metric('fps_min', '最低 FPS', 'Minimum FPS', '', 'performance', 'fps_min', { dimension: 'performance' }),
   metric('frame_time_p95', 'P95 Frame Time', 'P95 Frame Time', 'ms', 'performance', 'frame_time_p95', { dimension: 'performance' }),
+  metric('stutter_rate', '卡頓率', 'Stutter Rate', '%', 'performance', 'stutter_rate', {
+    dimension: 'performance',
+    higherIsBetter: false,
+    description: L(
+      '幀時間達到卡頓界線(預設 32ms,可由 stutterFrameMs 覆寫)的幀數佔比;與外部門檻比對前須先對齊界線',
+      'Share of frames at or above the stutter threshold (32ms by default, override via stutterFrameMs); align the threshold before comparing with an external target',
+    ),
+  }),
+  metric('frame_time_stddev', '幀時間標準差', 'Frame Time Std Dev', 'ms', 'performance', 'frame_time_stddev', {
+    dimension: 'performance',
+    higherIsBetter: false,
+    description: L(
+      '幀生成時間的離散程度,越小越穩;不是任何外部「穩幀指數」的換算值,對方未提供公式前不可互相套用',
+      'Dispersion of frame generation time; lower is steadier. Not a conversion of any external frame-stability index, which cannot be matched without its formula',
+    ),
+  }),
+  metric('battery_drain_pct', '耗電百分比', 'Battery Drain', '%', 'performance', 'battery_drain_pct', {
+    dimension: 'performance',
+    higherIsBetter: false,
+    description: L('App 估算耗電佔電池容量的百分比;容量未知時不計算,不以 mAh 充當百分比', 'Estimated app battery use as a share of battery capacity; not computed when capacity is unknown, and mAh is never substituted for a percentage'),
+  }),
   metric('cpu_avg', '平均 CPU', 'Avg CPU Usage', '%', 'performance', 'cpu_avg', { dimension: 'performance' }),
   metric('cpu_peak', '峰值 CPU', 'Peak CPU Usage', '%', 'performance', 'cpu_peak', { dimension: 'performance' }),
   metric('mem_avg_mb', '平均記憶體', 'Avg RAM', 'MB', 'performance', 'mem_avg_mb', { dimension: 'performance' }),
@@ -238,6 +259,8 @@ export const DEFAULT_THRESHOLDS: Record<string, number> = {
   maxCpuPeak: 90,
   minAvgFps: 25,
   maxFrameTimeP95Ms: 50,
+  // 卡頓的界線(幀時間 ms);卡頓率以此計算,客戶有自己的定義時覆寫這個值。
+  stutterFrameMs: 32,
   maxDeviceTempC: 45,
   maxColdStartMs: 5000,
   rtpTolerancePp: 2,
@@ -247,6 +270,7 @@ export const DEFAULT_THRESHOLDS: Record<string, number> = {
 
 /** 門檻的顯示名稱與單位(知識庫頁顯示「預設值 / 你的覆寫」)。 */
 export const THRESHOLD_DEFS: ThresholdDef[] = [
+  { key: 'stutterFrameMs', label: L('卡頓界線(幀時間)', 'Stutter threshold (frame time)'), unit: 'ms' },
   { key: 'maxCriticalDefects', label: L('允許 Critical 缺陷數', 'Max critical defects'), unit: 'count' },
   { key: 'maxCoreGameplayBlocks', label: L('允許核心玩法阻斷數', 'Max core gameplay blocks'), unit: 'count' },
   { key: 'maxCrashCount', label: L('允許 Crash 次數', 'Max crashes'), unit: 'count' },
@@ -278,7 +302,17 @@ export const GLOBAL_PROFILE: GenreProfile = {
     mech('navigation', 'UI 導覽', 'UI Navigation', ['menu', '選單', 'tab', '分頁']),
     mech('interaction', '互動', 'Interaction'),
   ],
-  observe: [],
+  // 介面語系:讓報告的適用邊界能寫出「本次實際跑在哪個語系」,而不是一律「未觀測」。
+  // 只是觀察值 —— 讀得出語系不等於文案正確,文案要對照核定版本才算驗過(見 claimScope)。
+  observe: [
+    obs(
+      'locale',
+      '介面語系',
+      'UI locale',
+      '畫面目前的介面語系(例如 zh-Hant、zh-Hans、en、ja、ko、th、vi);只在畫面文字明確看得出來時才填,看不出來就省略',
+      'string',
+    ),
+  ],
   metrics: GLOBAL_METRICS,
   charts: GLOBAL_CHARTS,
   riskRules: GLOBAL_RISKS,

@@ -114,6 +114,18 @@ describe('UpdaterStack — 部署前的測試閘門', () => {
     }
   });
 
+  test('三個 workspace 的型別檢查也在閘門裡(vitest 不做型別檢查)', () => {
+    const spec = buildSpecOf(synth());
+    for (const s of ['npm run typecheck:web', 'npm run typecheck:worker', 'npm run typecheck:infra']) {
+      expect(spec, `部署閘門少了 ${s}`).toContain(s);
+    }
+  });
+
+  test('型別檢查排在測試之前(先擋掉編不過的程式再跑測試)', () => {
+    const spec = buildSpecOf(synth());
+    expect(spec.indexOf('npm run typecheck:web')).toBeLessThan(spec.indexOf('npm run test:web'));
+  });
+
   test('測試不過就不部署(用 && 串,不是 ; 或 ||)', () => {
     const spec = buildSpecOf(synth());
     // `;` 會讓失敗被忽略、照樣往下部署,那就不是閘門了。

@@ -270,7 +270,10 @@ function buildSpec(): Record<string, unknown> {
           //
           // 代價是 build 多幾分鐘(多次 cdk synth + esbuild bundling)。timeout 已設 90 分鐘,
           // 放得下。
-          'if [ "$PA_RUN_TESTS" = "1" ]; then npm run test:web && npm run test:worker && npm run test:infra; else echo "skip tests"; fi',
+          // 型別檢查要在測試之前跑:vitest 只轉譯、不做型別檢查,所以單靠測試會讓
+          // 型別錯誤一路部署出去(實際發生過:一個測試檔的 FindingCategory 被推斷成 string,
+          // 測試全綠,只有 tsc 抓得到)。三個 workspace 都要檢查。
+          'if [ "$PA_RUN_TESTS" = "1" ]; then npm run typecheck:web && npm run typecheck:worker && npm run typecheck:infra && npm run test:web && npm run test:worker && npm run test:infra; else echo "skip tests"; fi',
           // web/.env 不進版控:從已部署 stack 的 Outputs 產生(Cognito / API 位址在更新前後不變)。
           // 任何一個值缺少就中止,絕不部署沒有設定的前端。
           'aws cloudformation describe-stacks --stack-name "$PA_FOUNDATION_STACK" --query "Stacks[0].Outputs" --output json > /tmp/out-foundation.json',

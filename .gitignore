@@ -36,3 +36,7 @@ APP-Windows/
 
 # 其他 AI 工具的本機工作紀錄
 .agents/
+
+# 客戶提供的內部資料包:只作為規格參考,不進版控、不作為開發資料。
+# 由它衍生的規範已改寫為與客戶無關的中性形式,見 docs/design/qa-report-standard.md。
+AWS_QA交流包/

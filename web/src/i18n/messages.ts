@@ -636,6 +636,11 @@ export type MessageKey =
   | 'trend.none'
   | 'trend.triageFail'
   | 'trend.triageError'
+  | 'trend.blocked'
+  | 'trend.fallbackHint'
+  | 'trend.retested'
+  | 'trend.unresolved'
+  | 'trend.retestHint'
   | 'list.loadMore'
   | 'backend.unsupported'
   | 'backend.webPreview'
@@ -1340,6 +1345,11 @@ const zhHant: Catalog = {
   'trend.none': '尚無歷史執行',
   'trend.triageFail': 'fail:查被測 App 或測試案例',
   'trend.triageError': 'error:查環境或基礎設施',
+  'trend.blocked': '受阻',
+  'trend.fallbackHint': '部分執行沒有測試結論,已退回執行結果;執行完成不等於通過,此通過率意義較弱。',
+  'trend.retested': '已複驗',
+  'trend.unresolved': '未複驗',
+  'trend.retestHint': '失敗的版本是否在後續版本通過。原版本的失敗紀錄保留,不被複驗結果覆寫。',
   'list.loadMore': '顯示更多',
   'backend.unsupported': '尚未支援',
   'backend.webPreview': '預覽版:僅檢查網址可達,尚未真正操作遊戲',
@@ -2043,6 +2053,11 @@ const en: Catalog = {
   'trend.none': 'No run history yet',
   'trend.triageFail': 'fail: check the app under test or the test case',
   'trend.triageError': 'error: check the environment or infrastructure',
+  'trend.blocked': 'Blocked',
+  'trend.fallbackHint': 'Some runs have no test verdict, so their execution state was used instead. Execution completing is not the same as passing, so this pass rate is weaker evidence.',
+  'trend.retested': 'Retested',
+  'trend.unresolved': 'Not retested',
+  'trend.retestHint': 'Whether a failing build later passed on a newer build. The original failure stays on record and is not overwritten by the retest.',
   'list.loadMore': 'Show more',
   'backend.unsupported': 'not yet supported',
   'backend.webPreview': 'Preview: only checks URL reachability, does not yet drive the game',
@@ -2749,6 +2764,11 @@ const zhHans: Catalog = {
   'trend.none': '尚无历史执行',
   'trend.triageFail': 'fail:查被测 App 或测试案例',
   'trend.triageError': 'error:查环境或基础设施',
+  'trend.blocked': '受阻',
+  'trend.fallbackHint': '部分执行没有测试结论,已退回执行结果;执行完成不等于通过,此通过率意义较弱。',
+  'trend.retested': '已复验',
+  'trend.unresolved': '未复验',
+  'trend.retestHint': '失败的版本是否在后续版本通过。原版本的失败纪录保留,不被复验结果覆写。',
   'list.loadMore': '显示更多',
   'backend.unsupported': '尚未支持',
   'backend.webPreview': '预览版:仅检查网址可达,尚未真正操作游戏',
@@ -3452,6 +3472,11 @@ const ja: Catalog = {
   'trend.none': '実行履歴はまだありません',
   'trend.triageFail': 'fail:テスト対象アプリまたはテストケースを確認',
   'trend.triageError': 'error:環境またはインフラを確認',
+  'trend.blocked': 'ブロック',
+  'trend.fallbackHint': 'テスト判定のない実行があるため、実行結果で代替しています。実行完了は合格と同義ではないため、この合格率の裏付けは弱くなります。',
+  'trend.retested': '再検証済み',
+  'trend.unresolved': '未再検証',
+  'trend.retestHint': '失敗したビルドが後続ビルドで合格したかどうか。元の失敗記録は残り、再検証結果で上書きされません。',
   'list.loadMore': 'もっと表示',
   'backend.unsupported': '未対応',
   'backend.webPreview': 'プレビュー:URL 到達性のみ確認、まだゲーム操作はしません',
@@ -4155,6 +4180,11 @@ const ko: Catalog = {
   'trend.none': '아직 실행 이력이 없습니다',
   'trend.triageFail': 'fail: 테스트 대상 앱 또는 테스트 케이스 확인',
   'trend.triageError': 'error: 환경 또는 인프라 확인',
+  'trend.blocked': '차단',
+  'trend.fallbackHint': '테스트 결론이 없는 실행이 있어 실행 결과로 대체했습니다. 실행 완료는 통과와 다르므로 이 통과율의 근거는 약합니다.',
+  'trend.retested': '재검증 완료',
+  'trend.unresolved': '재검증 안 됨',
+  'trend.retestHint': '실패한 빌드가 이후 빌드에서 통과했는지 여부입니다. 원래 실패 기록은 유지되며 재검증 결과로 덮어쓰지 않습니다.',
   'list.loadMore': '더 보기',
   'backend.unsupported': '아직 미지원',
   'backend.webPreview': '미리보기: URL 도달 여부만 확인, 아직 게임을 조작하지 않음',

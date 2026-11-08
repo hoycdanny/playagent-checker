@@ -513,6 +513,51 @@ export interface ScopeStatus {
   id: TestScopeId;
   selected: boolean;
   status: 'executed' | 'not_executed' | 'not_applicable';
+  /** 沒有執行證據的理由(status !== 'executed' 時必填)。 */
+  reason?: L10n;
+  /**
+   * 平台能否為此範疇收集證據。
+   * false = 目前沒有對應偵測器,**任何一次執行都不會**有證據(工具限制,不是這次沒走到)。
+   * 兩者都寫成「未測」會讓讀者高估覆蓋範圍,以為重測一次就能補上。
+   */
+  detectable: boolean;
+}
+
+/** 門檻來源:客戶核定(知識庫)或平台預設(顧問參考值)。 */
+export type ThresholdOrigin = 'knowledge_base' | 'platform_default';
+
+/**
+ * 判定用到的門檻及其來源。
+ *
+ * 來源必須外顯:同一個數字,來自客戶核定規格還是平台預設,意義完全不同。
+ * 平台預設是顧問參考值,不能當成客戶已核定的標準,也不能跨專案套用 ——
+ * 歷史門檻往往來自不同專案、不同裝置分級與取樣條件。
+ */
+export interface ThresholdSource {
+  key: string;
+  value: number;
+  origin: ThresholdOrigin;
+  /** origin = knowledge_base 時,提供此門檻的知識庫 id。 */
+  sources: string[];
+  note: L10n;
+}
+
+/**
+ * 本次結果的適用邊界 —— 報告「不得主張」什麼。
+ *
+ * 一次執行只覆蓋一個組合(一個版本、一台裝置、一組條件)。把結論讀成普遍成立
+ * 是測試報告最常見的誤用,所以受測組合與未變動的維度都要明文列出,
+ * 而不是留給讀者自己推斷。
+ */
+export interface ClaimScope {
+  /** 統計截止點:所有數字都是到這一刻為止的證據算出來的。 */
+  cutoff?: string;
+  /** 實際受測組合;未觀測到的維度標 observed=false,不以空白帶過。 */
+  envelope: Array<{ id: string; label: L10n; value: string; observed: boolean }>;
+  /** 本次未變動的維度 → 不得就該維度做出主張。 */
+  notVaried: Array<{ id: string; label: L10n; note: L10n }>;
+  /** 適用範圍的明文陳述。 */
+  statements: L10n[];
 }
 
 export interface CoverageItem {
@@ -641,7 +686,15 @@ export interface StructuredReport {
   /** 驗收標準判定(overallStatus 的唯一來源;每個項目含要求來源、門檻、實際值與證據步驟)。 */
   acceptance: import('./acceptance.js').Acceptance;
   terminal: { state: string; message?: string; classification?: FailureClass };
-  release: { readiness: ReleaseReadiness; hits: RuleHit[]; thresholds: Record<string, number> };
+  release: {
+    readiness: ReleaseReadiness;
+    hits: RuleHit[];
+    thresholds: Record<string, number>;
+    /** 每個門檻的來源(客戶核定 / 平台預設);判定可被覆核。 */
+    thresholdSources: ThresholdSource[];
+  };
+  /** 本次結果的適用邊界(受測組合、未變動的維度、不得延伸的主張)。 */
+  claimScope: ClaimScope;
   summaryLines: L10n[];
   counts: {
     totalChecks: number;
@@ -683,6 +736,11 @@ export interface StructuredReport {
   dataQuality?: import('./dataQuality.js').DataQuality;
   /** 逐局影片盤面擷取(有啟用 slot-board-v1 才有)。 */
   slotCapture?: SlotCaptureManifest;
+  /**
+   * 交付文件規範投影(QA-DS):把本報告重新表述成客戶要求的 19 類交付文件。
+   * 不是第二次判定 —— 結論仍以 acceptance 為準;見 docs/design/qa-report-standard.md。
+   */
+  qaDocs?: import('./qaDocs.js').QaDocumentSet;
   notes: L10n[];
 }
 

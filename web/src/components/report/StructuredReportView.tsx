@@ -3,6 +3,7 @@ import { useI18n } from '../../i18n/I18nProvider.tsx';
 import type { MessageKey } from '../../i18n/messages.ts';
 import { CaseVersionBadge } from '../cases/CaseVersions.tsx';
 import { AcceptancePanel } from './AcceptancePanel.tsx';
+import { QaDocsPanel } from './QaDocsPanel.tsx';
 import { SlotCapturePanel } from './SlotCapturePanel.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { ReportChart } from './ReportChart.tsx';
@@ -42,9 +43,9 @@ const INSIGHTS_AUTO_STATES = new Set([
 ]);
 
 type SectionId =
-  | 'cover' | 'acceptance' | 'boardCapture' | 'executive' | 'insights' | 'verdicts' | 'environment' | 'scope' | 'dashboard' | 'coverage' | 'results' | 'modules'
+  | 'cover' | 'acceptance' | 'boardCapture' | 'executive' | 'insights' | 'verdicts' | 'environment' | 'scope' | 'claimScope' | 'dashboard' | 'coverage' | 'results' | 'modules'
   | 'genre' | 'mechanics' | 'progression' | 'economy' | 'performance' | 'stability' | 'visual' | 'ux'
-  | 'aiReliability' | 'defects' | 'criticalDefects' | 'testCase' | 'evidence' | 'risk' | 'release' | 'appendix';
+  | 'aiReliability' | 'defects' | 'criticalDefects' | 'testCase' | 'evidence' | 'risk' | 'release' | 'qaDocs' | 'appendix';
 
 export function StructuredReportView({
   report,
@@ -118,6 +119,8 @@ export function StructuredReportView({
     { id: 'insights', key: 'insights', show: Boolean(jobId) || Boolean(ins) },
     { id: 'environment', key: 'environment', show: true },
     { id: 'scope', key: 'scope', show: true },
+    // 適用邊界:舊報告沒有這個欄位,沒有就不列這一節。
+    { id: 'claimScope', key: 'claimScope', show: Boolean(r.claimScope) },
     { id: 'dashboard', key: 'dashboard', show: true },
     { id: 'coverage', key: 'coverage', show: true },
     { id: 'results', key: 'results', show: true },
@@ -137,6 +140,8 @@ export function StructuredReportView({
     { id: 'evidence', key: 'evidence', show: r.evidence.length > 0 },
     { id: 'risk', key: 'risk', show: true },
     { id: 'release', key: 'release', show: true },
+    // 交付文件投影:舊報告沒有這個欄位,沒有就不列這一節(而不是列一節空白)。
+    { id: 'qaDocs', key: 'qaDocs', show: Boolean(r.qaDocs) },
     { id: 'appendix', key: 'appendix', show: true },
   ];
   const visible = sections.filter((s) => s.show);
@@ -396,13 +401,54 @@ export function StructuredReportView({
         {H('scope')}
         <div className="srep__chips">
           {r.scope.map((s) => (
-            <span key={s.id} className={`srep__chip srep__chip--${s.status}`}>
+            <span
+              key={s.id}
+              className={`srep__chip srep__chip--${s.status}${s.detectable === false ? ' srep__chip--undetectable' : ''}`}
+              title={s.reason ? tr(s.reason, lang) : undefined}
+            >
               {tr(SCOPE_TEXT[s.id], lang) || s.id}
-              <small>{s.status === 'executed' ? txt('executed', lang) : s.status === 'not_executed' ? txt('notExecuted', lang) : txt('notApplicable', lang)}{s.selected ? ` · ${txt('selected', lang)}` : ''}</small>
+              <small>{s.status === 'executed' ? txt('executed', lang) : s.status === 'not_executed' ? txt('notExecuted', lang) : txt('notApplicable', lang)}{s.selected ? ` · ${txt('selected', lang)}` : ''}{s.detectable === false ? ` · ${txt('scopeUndetectable', lang)}` : ''}</small>
             </span>
           ))}
         </div>
+        {/* 未測的理由逐條列出:工具缺口與「這次沒走到」要分開,否則覆蓋範圍會被高估。 */}
+        {r.scope.some((s) => s.reason) && (
+          <>
+            <h3 className="srep__h3">{txt('scopeReasons', lang)}</h3>
+            <p className="srep__note">{txt('scopeReasonsNote', lang)}</p>
+            <div className="srep__table-wrap">
+              <table className="srep__table">
+                <thead>
+                  <tr>
+                    <th>{txt('scopeCol', lang)}</th>
+                    <th>{txt('acResult', lang)}</th>
+                    <th>{txt('scopeDetectable', lang)}</th>
+                    <th>{txt('qaDocReason', lang)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.scope.filter((s) => s.reason).map((s) => (
+                    <tr key={s.id}>
+                      <td>{tr(SCOPE_TEXT[s.id], lang) || s.id}</td>
+                      <td>{s.status === 'not_executed' ? txt('notExecuted', lang) : txt('notApplicable', lang)}</td>
+                      <td>{s.detectable === false ? txt('no', lang) : txt('yes', lang)}</td>
+                      <td>{tr(s.reason, lang)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </section>
+
+      {/* 適用邊界:本次結論涵蓋哪個組合、不得延伸主張什麼 */}
+      {r.claimScope && (
+        <section className="srep__section">
+          {H('claimScope')}
+          <ClaimScopeBlock claim={r.claimScope} lang={lang} />
+        </section>
+      )}
 
       {/* 5. Quality Dashboard */}
       <section className="srep__section">
@@ -709,6 +755,40 @@ export function StructuredReportView({
         {H('release')}
         <StatusBadge kind="release" value={r.release.readiness} lang={lang} label={txt('readiness', lang)} large />
         <p className="srep__note">{txt('readinessNote', lang)}</p>
+        {/* 門檻來源:同一個數字來自客戶核定還是平台預設,決定它能不能當允收依據。 */}
+        {r.release.thresholdSources && r.release.thresholdSources.length > 0 && (
+          <>
+            <h3 className="srep__h3">{txt('thresholdSources', lang)}</h3>
+            <div className="srep__table-wrap">
+              <table className="srep__table">
+                <thead>
+                  <tr>
+                    <th>{txt('thresholdKey', lang)}</th>
+                    <th>{txt('qaDocValue', lang)}</th>
+                    <th>{txt('thresholdOrigin', lang)}</th>
+                    <th>{txt('acSource', lang)}</th>
+                    <th>{txt('qaDocBoundary', lang)}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.release.thresholdSources.map((t) => (
+                    <tr key={t.key}>
+                      <td><code className="srep__mono">{t.key}</code></td>
+                      <td>{t.value}</td>
+                      <td>
+                        <span className={`vm__pill vm__pill--${t.origin === 'knowledge_base' ? 'pass' : 'unclear'}`}>
+                          {txt(t.origin === 'knowledge_base' ? 'thresholdApproved' : 'thresholdDefault', lang)}
+                        </span>
+                      </td>
+                      <td>{t.sources.length ? t.sources.join(', ') : '—'}</td>
+                      <td>{tr(t.note, lang)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
         <h3 className="srep__h3">{txt('rulesHit', lang)}</h3>
         {r.release.hits.length === 0 ? <p className="srep__muted">{txt('noRulesHit', lang)}</p> : (
           <ul className="srep__rules">
@@ -722,6 +802,14 @@ export function StructuredReportView({
           </ul>
         )}
       </section>
+
+      {/* 交付文件規範投影(QA-DS):19 類文件的覆蓋狀態與可填內容;不做判定 */}
+      {r.qaDocs && (
+        <section className="srep__section">
+          {H('qaDocs')}
+          <QaDocsPanel set={r.qaDocs} reportId={r.header.reportId} lang={lang} />
+        </section>
+      )}
 
       {/* Appendix */}
       <section className="srep__section">
@@ -749,6 +837,60 @@ export function StructuredReportView({
 }
 
 const SEV_ORDER = ['critical', 'high', 'medium', 'low'];
+
+/**
+ * 適用邊界:這份報告「不得主張」什麼。
+ * 一次執行只覆蓋一個組合;把結論讀成普遍成立是測試報告最常見的誤用,
+ * 所以受測組合與未變動的維度都明文列出,未觀測的維度也標出來而不是留白。
+ */
+function ClaimScopeBlock({ claim, lang }: { claim: NonNullable<StructuredReport['claimScope']>; lang: RLang }) {
+  return (
+    <div className="srep__claim">
+      {claim.cutoff && (
+        <p className="srep__note">
+          <strong>{txt('claimCutoff', lang)}:</strong> <code className="srep__mono">{claim.cutoff}</code> · {txt('claimCutoffNote', lang)}
+        </p>
+      )}
+
+      <h3 className="srep__h3">{txt('claimEnvelope', lang)}</h3>
+      <div className="srep__table-wrap">
+        <table className="srep__table">
+          <thead>
+            <tr>
+              <th>{txt('claimDimension', lang)}</th>
+              <th>{txt('claimValue', lang)}</th>
+              <th>{txt('claimObserved', lang)}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {claim.envelope.map((e) => (
+              <tr key={e.id} className={e.observed ? undefined : 'srep__claim-row--unobserved'}>
+                <td>{tr(e.label, lang)}</td>
+                <td>{e.value}</td>
+                <td>{e.observed ? txt('yes', lang) : txt('no', lang)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 className="srep__h3">{txt('claimNotVaried', lang)}</h3>
+      <ul className="srep__claim-limits">
+        {claim.notVaried.map((n) => (
+          <li key={n.id}>
+            <strong>{tr(n.label, lang)}</strong>
+            <span>{tr(n.note, lang)}</span>
+          </li>
+        ))}
+      </ul>
+
+      <h3 className="srep__h3">{txt('claimStatements', lang)}</h3>
+      <ul className="srep__summary">
+        {claim.statements.map((s, i) => <li key={i}>{tr(s, lang)}</li>)}
+      </ul>
+    </div>
+  );
+}
 
 function Tile({ label, value, unit, tone, lang, onClick, hint, sev }: {
   label: string; value: number | null; unit?: string; tone?: 'pass' | 'fail' | 'warn'; lang?: RLang;

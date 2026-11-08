@@ -14,6 +14,9 @@
     "test:web": "npm run test --workspace web",
     "synth": "npm run synth --workspace infra",
     "test:infra": "npm run test --workspace infra",
+    "typecheck:web": "npm run typecheck --workspace web",
+    "typecheck:worker": "npm run typecheck --workspace worker",
+    "typecheck:infra": "npm run typecheck --workspace infra",
     "test:worker": "npm run test --workspace worker",
     "deploy:latest": "node scripts/deploy-latest.mjs",
     "upgrade:updater": "node scripts/upgrade-updater.mjs"
