@@ -1773,10 +1773,25 @@ export async function handleRequest(
               }
             }
           }
+          // 結構化報告交給問答:判定依據與「不得主張」的邊界都是引擎在讀取時算的,
+          // raw report.json 裡沒有。少了它,問答會對著邊界已經排除的問題照樣給答案。
+          // 組不出來(任務還在跑、舊資料、App 已刪)不該讓問答失敗 —— 退回只看 raw 報告。
+          let structuredForAsk: StructuredReport | null = null;
+          try {
+            const rawForAsk = await readJsonObject<Record<string, unknown>>(
+              s3, deps.bucket, `${tenantPrefix(tenant.tenantId)}jobs/${jobId}/report.json`,
+            ).catch(() => null);
+            if (rawForAsk) {
+              structuredForAsk = await buildReportForJob(deps, s3, tenant.tenantId, jobId, rawForAsk, { sign: false });
+            }
+          } catch (err) {
+            console.warn('[ask] structured report unavailable, falling back to raw', err);
+          }
           try {
             return json(200, await askTask(s3, deps.bucket, tenant.tenantId, jobId, question, body.lang === 'en' ? 'en' : 'zh', {
               ...(deps.askBedrock ? { bedrock: deps.askBedrock } : {}),
               ...(askModel ? { modelId: askModel } : {}),
+              structuredReport: structuredForAsk,
             }));
           } catch (err) {
             if (err instanceof AskValidationError) throw err;

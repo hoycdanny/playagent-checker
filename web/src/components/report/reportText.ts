@@ -50,6 +50,7 @@ const T = {
   asstOpen: ['報告導讀', 'Report guide'],
   asstClose: ['收合', 'Collapse'],
   asstTabGuide: ['導讀', 'Overview'],
+  asstTabAsk: ['問答', 'Q&A'],
   asstPending: ['待人工確認', 'Pending manual review'],
   asstVerdictWhy: ['判定結果 {status} — 依據', 'Verdict {status} — basis'],
   asstEvidencePath: ['檢視判定明細(各項依據與截圖)', 'View verdict detail (basis and screenshot per row)'],

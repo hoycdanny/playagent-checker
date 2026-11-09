@@ -109,16 +109,26 @@
 
 .rasst__tab {
   padding: var(--space-2) 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
   font-size: 0.75rem;
   color: var(--text-secondary);
-  border-bottom: 2px solid transparent;
+  cursor: pointer;
 }
+
+.rasst__tab:hover { color: var(--text-primary); }
+.rasst__tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 .rasst__tab.is-on {
   color: var(--text-primary);
   font-weight: 600;
   border-bottom-color: var(--brand);
 }
+
+/* 問答面板內嵌時由助手控制高度,不要再自己撐開 */
+.rasst__body > .ask { margin: 0; }
 
 .rasst__body {
   overflow-y: auto;

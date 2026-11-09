@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { StructuredReport } from './reportTypes.ts';
 import { tr, txt, type RLang } from './reportText.ts';
+import { TaskAskPanel } from '../tasks/TaskAskPanel.tsx';
 import './ReportAssistant.css';
 
 /**
@@ -19,7 +20,7 @@ import './ReportAssistant.css';
  * 所以這裡沒有任何運算,只有挑選與呈現;數字全部來自 report 物件。
  */
 
-type Tab = 'guide';
+type Tab = 'guide' | 'ask';
 
 /** 把 {n} / {status} / {total} 這類佔位符換掉(與 reportText 的 txt 搭配)。 */
 function fill(s: string, vars: Record<string, string | number>): string {
@@ -29,18 +30,24 @@ function fill(s: string, vars: Record<string, string | number>): string {
 export function ReportAssistant({
   report,
   lang,
+  jobId,
   onGoVerdicts,
   onGoSection,
 }: {
   report: StructuredReport;
   lang: RLang;
+  /**
+   * 有 jobId 才顯示問答分頁 —— 問答是對「某一次任務」發問,沒有任務 id
+   * 就沒有可問的對象(例如從匯出的報告檔開啟時)。
+   */
+  jobId?: string;
   /** 跳到判定明細並套用篩選。 */
   onGoVerdicts: (filter: 'all' | 'unclear') => void;
   /** 捲動到某一節(用報告既有的 section id)。 */
   onGoSection: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [tab] = useState<Tab>('guide');
+  const [tab, setTab] = useState<Tab>('guide');
   const r = report;
 
   // 待判斷的件數:AI 自己無法確定的缺陷 + 無法判斷的檢查項。
@@ -82,10 +89,31 @@ export function ReportAssistant({
       </header>
 
       <nav className="rasst__tabs">
-        <span className="rasst__tab is-on">{txt('asstTabGuide', lang)}</span>
+        <button
+          type="button"
+          className={`rasst__tab${tab === 'guide' ? ' is-on' : ''}`}
+          onClick={() => setTab('guide')}
+        >
+          {txt('asstTabGuide', lang)}
+        </button>
+        {jobId && (
+          <button
+            type="button"
+            className={`rasst__tab${tab === 'ask' ? ' is-on' : ''}`}
+            onClick={() => setTab('ask')}
+          >
+            {txt('asstTabAsk', lang)}
+          </button>
+        )}
       </nav>
 
       <div className="rasst__body">
+        {/*
+          問答重用任務詳情頁的那一個面板(同一個後端、同一份對話紀錄),
+          不另做一套 —— 兩套對話會讓同一個任務出現兩份歷史。
+        */}
+        {tab === 'ask' && jobId && <TaskAskPanel jobId={jobId} lang={lang} embedded />}
+
         {tab === 'guide' && (
           <>
             {/* 1. 結論憑什麼 —— 理由直接用驗收判定算出來的那一句,不自己改寫 */}

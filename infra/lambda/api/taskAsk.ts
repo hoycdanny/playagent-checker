@@ -9,6 +9,7 @@
 import { BedrockRuntimeClient, ConverseCommand, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
+import type { L10n, StructuredReport } from './report/types.js';
 
 export const ASK_MODELS = [
   'us.anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -23,6 +24,15 @@ const BUDGET = {
   steps: 16000,
   logs: 9000,
   report: 2500,
+  /**
+   * 結構化報告的判定結論與適用邊界。
+   *
+   * 為什麼需要單獨一段:raw report.json 只有 state 與 message,判定依據、
+   * 不得主張什麼、平台做不到什麼都是報告引擎在讀取時算出來的。少了這一段,
+   * 問答會對著「適用邊界已經明寫不得主張」的問題照樣給答案 —— 那會直接
+   * 推翻報告的主張紀律。
+   */
+  verdict: 6000,
 } as const;
 
 export class AskValidationError extends Error {}
@@ -156,8 +166,72 @@ export function summarizeSteps(steps: Json[], budget: number): string {
   return text;
 }
 
+/**
+ * 結構化報告 → 判定與適用邊界的純文字摘要。
+ *
+ * 這一段存在的理由是主張紀律:報告花了很大力氣算出「哪些事這次不得主張」
+ * (沒有音訊量測、沒施加網路條件、只跑一個語系…),如果問答看不到它,
+ * 使用者問「音效正常嗎」時模型會從別的資料硬湊一個答案 —— 那等於繞過
+ * 報告自己的邊界聲明,是比答不出來更糟的失效。
+ *
+ * 只摘要「判定與邊界」,不摘要整份報告:步驟、log、指標已經由別的段落提供。
+ */
+export function summarizeVerdict(r: StructuredReport | null | undefined, budget: number): string {
+  if (!r) return '(這次任務還沒有結構化報告,只能參考上面的 raw 報告欄位)';
+  const zh = (v: L10n | undefined) => (v ? v.zh : '');
+  const out: string[] = [];
+
+  out.push(`整體判定:${r.overallStatus}|發布建議:${r.release.readiness}`);
+  if (r.acceptance) {
+    out.push(`判定依據(${r.acceptance.standard}):${zh(r.acceptance.verdictReason)}`);
+    const decisive = r.acceptance.criteria.filter((c) => r.acceptance!.decidedBy.includes(c.id));
+    for (const c of decisive) {
+      out.push(`- 決定性項目 ${c.id} ${zh(c.title)}:${c.result}${c.actual ? `(實際:${zh(c.actual)})` : ''}`);
+    }
+  } else {
+    out.push(`判定理由:${zh(r.statusReason)}`);
+  }
+  out.push(`檢查項:已執行 ${r.counts.executedChecks}/${r.counts.totalChecks}、通過 ${r.counts.passed}、未通過 ${r.counts.failed}、無法認定 ${r.counts.unclear ?? 0}`);
+  out.push(`缺陷:重大 ${r.counts.defects.critical}、高 ${r.counts.defects.high}、中 ${r.counts.defects.medium}、低 ${r.counts.defects.low}`);
+
+  // 待判讀的缺陷要列 id:使用者問起時可以指名,也方便之後回報誤判。
+  const triage = r.findings.filter((f) => f.classification === 'NEEDS_TRIAGE');
+  if (triage.length) {
+    out.push(`待判讀缺陷(系統未能確認是否為實際缺陷,共 ${triage.length} 項):`);
+    for (const f of triage.slice(0, 12)) out.push(`- ${f.id} [${f.category}/${f.severity}] ${zh(f.title)}`);
+  }
+
+  if (r.claimScope) {
+    out.push('適用邊界 —— 以下各項本次不得主張:');
+    for (const n of r.claimScope.notVaried) out.push(`- ${zh(n.label)}:${zh(n.note)}`);
+    for (const s of r.claimScope.statements) out.push(`- ${zh(s)}`);
+  } else {
+    out.push('適用邊界:這份報告沒有適用邊界資料(舊版後端產生)。');
+  }
+
+  // 範疇層級的「平台做不到」與「本次沒測到」要分開,否則會被答成同一件事。
+  const gaps = r.scope.filter((s) => s.detectable === false && s.reason);
+  if (gaps.length) {
+    out.push('平台限制(任何一次執行都不會有證據,重測也不會改變):');
+    for (const g of gaps) out.push(`- ${g.id}:${zh(g.reason)}`);
+  }
+
+  const cap = r.qaDocs?.capability;
+  if (cap) {
+    out.push(`平台可執行範圍:${cap.total} 類測項分類中,${cap.automated} 類可自動執行、${cap.partial} 類部分(有缺口)、${cap.not_supported} 類結構性做不到。${zh(cap.note)}`);
+  }
+
+  return cut(out.join('\n'), budget);
+}
+
 /** 收集這次任務的資料 → 給模型的參考資料(純文字,分段標題)。 */
-export async function buildTaskContext(s3: S3Client, bucket: string, tenantId: string, jobId: string): Promise<string> {
+export async function buildTaskContext(
+  s3: S3Client,
+  bucket: string,
+  tenantId: string,
+  jobId: string,
+  structured?: StructuredReport | null,
+): Promise<string> {
   const p = jobPrefix(tenantId, jobId);
   const [job, status, report, ctx, cmdList, logList] = await Promise.all([
     readJson<Json>(s3, bucket, `${p}job.json`),
@@ -205,14 +279,20 @@ export async function buildTaskContext(s3: S3Client, bucket: string, tenantId: s
     `## 裝置 log(只列錯誤 / 當機 / ANR / 例外等重要訊息,由舊到新)\n${logs || '(沒有裝置 log 或沒有錯誤等級的訊息)'}`,
     `## 測試人員下過的即時指令\n${cmds.join('\n') || '(無)'}`,
     `## 報告結果\n${rep}`,
+    `## 判定與適用邊界(報告引擎算出的結論。「不得主張」的項目必須遵守)\n${summarizeVerdict(structured, BUDGET.verdict)}`,
     `## 注入給 AI 的知識(知識庫 / 應用記憶 / 導覽圖)\n${cut(knowledge, BUDGET.knowledge) || '(無)'}`,
   ].join('\n\n');
 }
 
 const SYSTEM = (lang: 'zh' | 'en') => `你是資深遊戲 QA 測試顧問,正在協助測試人員分析「一次自動化測試任務」。
-你會收到這次任務的參考資料:任務概要、測試腳本、執行步驟(AI 測試代理每一步看到的畫面、動作與想法)、裝置 log、測試人員指令、報告結果、注入給 AI 的知識。
+你會收到這次任務的參考資料:任務概要、測試腳本、執行步驟(AI 測試代理每一步看到的畫面、動作與想法)、裝置 log、測試人員指令、報告結果、判定與適用邊界、注入給 AI 的知識。
 規則:
 - 只根據參考資料回答;資料裡沒有的就直說「資料中看不到」,不要猜測或捏造步驟、數字、log 內容。
+- 「判定與適用邊界」那一段是報告自己的結論與邊界聲明,優先於你的推論:
+  列在「不得主張」裡的事項,即使其他資料看起來可以推論,也必須回答「本次沒有驗證」並說明原因,
+  不可從別處湊出一個答案。例如邊界寫明「沒有音訊量測」時,就不能回答音效是否正常。
+- 整體判定與放行建議以該段為準,不要自己重新判一次 PASS / FAIL。
+- 標為「平台限制」的範疇要說明「重測也不會有證據」,不要建議重跑一次來取得。
 - 引用證據時標出步驟編號(例:#123)或 log 片段(step=…),讓測試人員能回頭查。
 - 步驟後面 {…} 是 runner 的標記:「runner改寫=stuck_wait」= 畫面連續多步沒變,runner 主動改成等待(不是指令被誤解);
   「runner改寫=stuck_escape」= 卡住太久,runner 主動點畫面脫困;「runner改寫=reject_done」= AI 想結束但被駁回、繼續測;
@@ -238,6 +318,14 @@ export interface AskDeps {
   bedrock?: Pick<BedrockRuntimeClient, 'send'>;
   /** 指定問答模型(由管理員在模型管理開放、使用者在任務詳情選擇);未指定則用 ASK_MODELS 預設。 */
   modelId?: string;
+  /**
+   * 結構化報告(由呼叫端算好傳入)。
+   *
+   * 刻意由呼叫端提供而不是在這裡自己組:組它需要 App、案例版本與知識庫快照,
+   * 那是 core.ts 路由層已經有的東西,搬進來會讓這支模組依賴整個 ApiDeps。
+   * 傳 null / 不傳都可以 —— 問答會退回只看 raw 報告,並在上下文註明。
+   */
+  structuredReport?: StructuredReport | null;
 }
 
 const ASK_MAX_TOKENS = 1100;
@@ -302,7 +390,7 @@ export async function askTask(
   deps: AskDeps = {},
 ): Promise<{ answer: AskMessage; items: AskMessage[] }> {
   const [context, history] = await Promise.all([
-    buildTaskContext(s3, bucket, tenantId, jobId),
+    buildTaskContext(s3, bucket, tenantId, jobId, deps.structuredReport ?? null),
     readAskHistory(s3, bucket, tenantId, jobId),
   ]);
   const prior = history.slice(-HISTORY_TO_MODEL).map((m) => ({ role: m.role, content: m.text }));

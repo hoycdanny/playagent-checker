@@ -842,6 +842,7 @@ export function StructuredReportView({
       <ReportAssistant
         report={r}
         lang={lang}
+        {...(jobId ? { jobId } : {})}
         onGoVerdicts={(f) => goVerdicts(f)}
         onGoSection={scrollTo}
       />

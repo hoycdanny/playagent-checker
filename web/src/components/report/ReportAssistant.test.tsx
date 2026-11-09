@@ -67,6 +67,28 @@ describe('收合與展開', () => {
   });
 });
 
+describe('問答分頁', () => {
+  test('沒有 jobId 就不顯示問答分頁(例如從匯出的報告檔開啟)', () => {
+    open(report());
+    expect(screen.queryByRole('button', { name: '問答' })).toBeNull();
+  });
+
+  test('有 jobId 才出現,且預設停在導讀', () => {
+    render(<ReportAssistant report={report()} lang="zh" jobId="job-1" onGoVerdicts={noop} onGoSection={noop} />);
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
+    expect(screen.getByRole('button', { name: '問答' })).toBeTruthy();
+    // 預設是導讀:使用者先看到結論與邊界,而不是一個空的輸入框
+    expect(screen.getByText(/判定結果/)).toBeTruthy();
+  });
+
+  test('切到問答後導讀內容收起,不同時佔版面', () => {
+    render(<ReportAssistant report={report()} lang="zh" jobId="job-1" onGoVerdicts={noop} onGoSection={noop} />);
+    fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
+    fireEvent.click(screen.getByRole('button', { name: '問答' }));
+    expect(screen.queryByText(/判定結果/)).toBeNull();
+  });
+});
+
 describe('用語:中性、無第二人稱、與報告本文一致', () => {
   /** 介面文字會被客戶看到,語氣要與報告本文同一套:名詞短語、不對讀者說話。 */
   const panelText = (r: StructuredReport) => {
