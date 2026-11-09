@@ -216,6 +216,47 @@ export interface Finding {
   suggestion?: L10n;
   relatedTestCase?: string;
   status: 'open';
+  /** 人工覆寫紀錄;有值代表這一筆的分類或嚴重性被測試人員調整過。 */
+  override?: AppliedOverride;
+}
+
+/**
+ * 缺陷的人工覆寫 —— 測試人員回報誤判或調整嚴重性。
+ *
+ * 為什麼要有這個機制:AI 誤判一定會發生,不讓人修正會逼大家不信任整份報告。
+ * 但覆寫是**另一種主張**,不是機器判定 —— 它的依據是人的判斷而不是執行證據。
+ * 所以設計上有三條不可退讓的規則:
+ *
+ *   1. 原判定永久保留(original),覆寫只是疊上去,不是改寫。
+ *   2. 必填理由與覆寫者,否則報告無法交代這個數字為什麼變了。
+ *   3. 報告要明文標示「含人工覆寫」—— 讀者有權知道統計裡有人為調整。
+ *
+ * 覆寫會讓驗收判定自然重算(findings 餵給 acceptance / dashboard / 放行規則),
+ * 這是刻意的:標為誤判的缺陷不應該繼續擋放行。但重算的結果仍會標明含覆寫。
+ */
+export interface FindingOverride {
+  findingId: string;
+  /** 標為誤判(不是實際缺陷)。與 classification / severity 互斥使用。 */
+  dismissed?: boolean;
+  /** 改判分類(例:NEEDS_TRIAGE → GAME_FAILURE 確認是缺陷)。 */
+  classification?: FailureClass;
+  /** 改判嚴重性。 */
+  severity?: Severity;
+  /** 必填:為什麼。報告會原文顯示,也是回寫應用記憶的依據。 */
+  reason: string;
+  /** 覆寫者(登入身分)。 */
+  by: string;
+  at: string;
+}
+
+/** 套用後掛在 Finding 上的覆寫資訊(原判定永久保留)。 */
+export interface AppliedOverride {
+  /** 覆寫前的機器判定 —— 永遠不會被刪掉。 */
+  original: { classification: FailureClass; severity: Severity };
+  dismissed: boolean;
+  reason: string;
+  by: string;
+  at: string;
 }
 
 /**
@@ -749,6 +790,13 @@ export interface StructuredReport {
     thresholds: Record<string, number>;
     /** 每個門檻的來源(客戶核定 / 平台預設);判定可被覆核。 */
     thresholdSources: ThresholdSource[];
+    /**
+     * 人工覆寫的件數。只在真的有覆寫時才出現。
+     *
+     * 存在的理由是交代:覆寫會讓驗收判定重算(標為誤判的缺陷不再擋放行),
+     * 所以讀者必須知道這份統計含人為調整,否則會把它當成純機器判定的結果。
+     */
+    overrides?: { total: number; dismissed: number; reclassified: number };
   };
   /** 本次結果的適用邊界(受測組合、未變動的維度、不得延伸的主張)。 */
   claimScope: ClaimScope;

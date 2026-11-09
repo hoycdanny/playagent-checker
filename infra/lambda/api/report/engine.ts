@@ -15,6 +15,7 @@ import { mergeSpecs, specFromKb } from './reportSpec.js';
 import { sanitizeObs, type DataQuality } from './dataQuality.js';
 import { buildAcceptance } from './acceptance.js';
 import { buildQaDocumentSet } from './qaDocs.js';
+import { applyFindingOverrides, overrideSummary } from './findingOverrides.js';
 import type {
   Assertion,
   ChartData,
@@ -33,6 +34,7 @@ import type {
   MechanicResult,
   MetricValue,
   AudioEvidence,
+  FindingOverride,
   ModuleDef,
   ModuleResult,
   NetworkConditionRecord,
@@ -104,6 +106,14 @@ export interface EngineInput {
   /** version = 執行時的不可變案例版本號(舊任務無)。 */
   testCase?: { id: string; name: string; yaml: string; version?: string } | null;
   kbs?: EngineKb[];
+  /**
+   * 缺陷的人工覆寫(測試人員回報誤判或調整嚴重性)。
+   *
+   * 套用的位置刻意只有一處:findings 剛組好、還沒被任何東西消費之前。
+   * 之後的驗收條件、儀表板、模組統計、指標與放行規則都讀同一份 findings,
+   * 所以整條判定鏈會自然重算 —— 不必在六個地方各自處理覆寫。
+   */
+  overrides?: FindingOverride[];
 }
 
 /**
@@ -1271,7 +1281,13 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const moduleOf = (s: EvidenceStep) => moduleAttr.get(s.index)?.id;
 
   const terminal = classifyTerminal(state, message, steps);
-  const { findings, aiFailures } = buildFindings(steps, terminal, moduleOf, job?.caseId, quality);
+  const built = buildFindings(steps, terminal, moduleOf, job?.caseId, quality);
+  // 人工覆寫在這裡套用,之後所有消費 findings 的地方(驗收條件、儀表板、模組、
+  // 指標、放行規則)都會看到調整後的值 —— 單一套用點是刻意的,分散處理一定會漏。
+  // 原判定保留在 f.override.original,報告並列顯示。
+  const findings = applyFindingOverrides(built.findings, input.overrides);
+  const aiFailures = built.aiFailures;
+  const overrides = overrideSummary(findings);
   for (const f of [...findings, ...aiFailures]) f.suggestion ??= suggestFor(f);
 
   // 機制歸屬(AI 標註優先,其次以畫面名/思考關鍵字推斷)。
@@ -1644,7 +1660,12 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     statusReason,
     acceptance,
     terminal: { state, ...(message ? { message } : {}), ...(terminal.classification ? { classification: terminal.classification } : {}) },
-    release: { readiness, hits, thresholds, thresholdSources },
+    release: {
+      readiness, hits, thresholds, thresholdSources,
+      // 含人工覆寫時要明文標示:統計裡有人為調整,讀者有權知道。
+      // 只在真的有覆寫時才出現這個欄位,舊報告不會多一個 0。
+      ...(overrides.total > 0 ? { overrides } : {}),
+    },
     claimScope,
     summaryLines: [],
     counts: {
@@ -1700,7 +1721,18 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     evidence: steps,
     ...(slotCapture ? { slotCapture } : {}),
     dataQuality: quality,
-    notes: [...qualityNotes(quality), ...buildNotes(steps, hasPerf, spec, genres)],
+    notes: [
+      ...qualityNotes(quality),
+      ...buildNotes(steps, hasPerf, spec, genres),
+      // 含人工覆寫時加一條說明。放在 notes 而不是只放 release 欄位,是因為
+      // 匯出的文件與摘要都會讀 notes —— 覆寫不該只在某一頁看得到。
+      ...(overrides.total > 0
+        ? [L(
+          `本報告含 ${overrides.total} 筆人工覆寫(標為誤判 ${overrides.dismissed} 筆、改判分類或嚴重性 ${overrides.reclassified} 筆)。驗收判定已依覆寫後的值重算;每一筆的原判定、理由與覆寫者保留在缺陷明細。`,
+          `This report includes ${overrides.total} manual override(s) (${overrides.dismissed} dismissed as misjudgements, ${overrides.reclassified} reclassified). The acceptance verdict was recomputed from the overridden values; each original judgement, reason and author is kept in the defect detail.`,
+        )]
+        : []),
+    ],
   };
   report.summaryLines = buildSummary(report, mval);
   // 交付文件規範投影:放在最後,因為它只讀 report 既有欄位(含 summaryLines),不參與任何判定。
