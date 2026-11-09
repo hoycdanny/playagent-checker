@@ -39,12 +39,20 @@ describe('scope status distinguishes "not reached" from "cannot be detected"', (
   test('scopes the platform has no detector for are flagged, not silently "not tested"', () => {
     const r = report();
     // 這些範疇在引擎裡是寫死的 false:沒有偵測器,任何一次執行都不會有證據。
-    const gaps = ['animation', 'audio', 'multiplayer', 'localization', 'save_load', 'payment', 'ai_behavior', 'physics'];
+    // 音訊**不在**這份清單裡:裝置後端會擷取含聲音的錄影並算音量,所以它的
+    // 可偵測性依本次有沒有量測而定,不是固定的平台限制(見 audio-evidence.test.ts)。
+    const gaps = ['animation', 'multiplayer', 'localization', 'save_load', 'payment', 'ai_behavior', 'physics'];
     for (const id of gaps) {
       const s = r.scope.find((x) => x.id === id)!;
       expect(s.detectable).toBe(false);
       expect(s.reason?.zh).toContain('平台限制');
     }
+  });
+
+  test('音訊不被當成永久限制:沒量到是「本次沒量到」,不是「做不到」', () => {
+    const s = report().scope.find((x) => x.id === 'audio')!;
+    expect(s.detectable, '說音訊偵測不到會把一個可修的設定問題寫成永久限制').toBe(true);
+    expect(s.reason?.zh).not.toContain('平台限制');
   });
 
   test('a scope that could have produced evidence is marked detectable', () => {
@@ -213,10 +221,20 @@ describe('claim scope states what the run does not prove', () => {
     // 未測理由表要帶出「平台可偵測」欄,否則工具缺口會被讀成「這次沒測到」。
     const notTested = t07.tables.find((t) => t.id === 'not_tested')!;
     expect(notTested.columns.map((c) => c.key)).toContain('detectable');
+    // 動畫沒有逐幀比對器,任何一次執行都不會有證據 → 必須標成不可偵測。
+    const animation = notTested.rows.find((x) => x['scope'] === 'animation');
+    if (animation) {
+      expect(animation['detectable']).toBe('N');
+      expect(animation['reason']).toContain('平台限制');
+    }
+    // 音訊相反:平台量得到,所以不標成工具缺口。這份報告是 slot 類型,樣板沒選音訊,
+    // 因此理由是「未選定」—— 不是「平台做不到」,也不是「沒量到」。
+    // (選定了卻沒量到的那條路徑在 audio-evidence.test.ts,用會選音訊的 rhythm 類型。)
     const audio = notTested.rows.find((x) => x['scope'] === 'audio');
     if (audio) {
-      expect(audio['detectable']).toBe('N');
-      expect(audio['reason']).toContain('音訊');
+      expect(audio['detectable']).toBe('Y');
+      expect(audio['reason']).toContain('未選定');
+      expect(audio['reason']).not.toContain('平台限制');
     }
   });
 });

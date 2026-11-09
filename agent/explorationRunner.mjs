@@ -70,6 +70,7 @@ import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
 import { conditionRecord, parseNetworkCondition } from './networkConditions.mjs';
 import { applyNetem, clearNetem } from './netemShaper.mjs';
+import { describeAudio, fromHostMeter, fromRecording } from './audioEvidence.mjs';
 
 let APPIUM_URL = process.env.PA_APPIUM_URL;
 let SESSION_ARN = process.env.PA_SESSION_ARN;
@@ -1004,6 +1005,13 @@ async function main() {
     ? () => client.audioSample(250).catch(() => null)
     : null;
   let soundSeq = 0;
+  // 逐步的音量取樣留一份在記憶體,報告結束時彙整成音訊證據。
+  // 先前這些取樣只寫進 devlogs/ 與 VLM 提示,沒有進 report.json —— 於是報告把
+  // 音訊範疇標成「未擷取音訊軌」,把已經收到的證據當成不存在。
+  const soundSamples = [];
+  // audioSelfTest 是否驗過擷取鏈。這一欄決定「整段無聲」能不能當結論:
+  // 沒驗過的靜音分不出是遊戲沒聲音還是沒抓到,不可寫成「無音效」。
+  let soundChainVerified = false;
   if (soundProbe) {
     // 先確認音訊鏈真的通:主機自己播一段測試音,看音量表會不會動。要在遊戲啟動前做,
     // 不然測試音會疊在遊戲的聲音上。
@@ -1013,6 +1021,7 @@ async function main() {
     const st = await client.audioSelfTest().catch(() => ({ chainOk: false, peak: 0, quiet: 0, why: 'selftest-failed' }));
     s3putBg(`${PREFIX}/audio/selftest.json`, JSON.stringify({ ...st, at: Date.now() }), 'application/json');
     if (st.chainOk) {
+      soundChainVerified = true;
       console.log(`聲音自我檢查通過:播測試音時峰值 ${st.peak.toFixed(3)},停止後 ${st.quiet.toFixed(3)}`);
     } else {
       console.log(`聲音自我檢查失敗(${st.why}):停用聲音判斷 —— 量不準的靜音會被寫成「沒有音效」,那是憑空生出一個缺陷`);
@@ -1795,6 +1804,7 @@ async function main() {
     let sound = null;
     if (soundProbe) {
       sound = await timedAsync(tm, 'sound', () => soundProbe());
+      soundSamples.push(sound);
       const snap = audioSnapshot(i, sound);
       s3putBg(`${PREFIX}/devlogs/audio/${String(soundSeq++).padStart(6, '0')}.json`, JSON.stringify(snap), 'application/json');
     }
@@ -3578,6 +3588,12 @@ async function main() {
       }, []).map(({ n, rtp: v }) => ({ n, rtp: v })),
     }
     : (isRtpTask(TASK) ? computeRtpStats(steps) : null);
+  // 音訊證據:錄影優先(有音訊軌、有時間解析度),沒有錄影才用主機音量表的逐步取樣。
+  // 兩者都沒有就是 null —— 報告會據此標明這個範疇沒有證據,而不是當成「無音效」。
+  const audioEvidence = fromRecording(recorder?.chunks)
+    ?? fromHostMeter(soundSamples, { chainVerified: soundChainVerified });
+  if (audioEvidence) console.log(`[音訊] ${describeAudio(audioEvidence)}`);
+
   const report = { jobId: JOB, state: finalState, message: finalMsg, task: TASK, device: { w, h }, vlmModel: VLM,
     runnerVersion: RUNNER_VERSION,
     ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}),
@@ -3590,6 +3606,8 @@ async function main() {
     // 弱網條件的施加紀錄(要求什麼、實際套了什麼、哪一項做不到、有沒有量測佐證)。
     // 報告的適用邊界要據此判斷能不能主張「這個網路條件下驗過」。
     ...(networkConditions ? { networkConditions } : {}),
+    // 音訊量測的彙整。報告據此判定音訊範疇有沒有證據,以及「整段無聲」能不能當結論。
+    ...(audioEvidence ? { audioEvidence } : {}),
     // tokens = 三個 Agent 合計;tokensBySeat 分開記(花費依各 Agent 的模型單價分別計算)。
     ...(team ? {
       tokensBySeat: { vlm: { ...tok }, agent: { ...team.tokens.agent }, subagent: { ...team.tokens.subagent } },

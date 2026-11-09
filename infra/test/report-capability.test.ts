@@ -51,10 +51,12 @@ describe('宣告的完整性', () => {
 });
 
 describe('關鍵缺口要如實標示', () => {
-  test('影音語系:結構性做不到,理由點明沒有音軌也沒有核定文案', () => {
+  test('影音語系:部分可行,但判定基準的缺口要點明', () => {
     const c = capabilityOf('M08')!;
-    expect(c.level).toBe('not_supported');
-    expect(c.gap!.zh).toContain('音訊軌未擷取');
+    // 音訊有量測(裝置後端的錄影含聲音),所以不是結構性做不到;
+    // 但「音效是否正確」與「文案是否正確」都缺判定基準,那兩個缺口要寫出來。
+    expect(c.level).toBe('partial');
+    expect(c.gap!.zh).toContain('參考音軌');
     expect(c.gap!.zh).toContain('核定文案');
   });
 
@@ -100,9 +102,14 @@ describe('接進結案報告', () => {
     const cap = t07.tables.find((t) => t.id === 'platform_capability')!;
     expect(cap.rows).toHaveLength(19);
     expect(cap.columns.map((c) => c.key)).toEqual(['code', 'name', 'level', 'covers', 'gap', 'fallback']);
-    // 做不到的類在表上要有原因,不能是空白
+    // 做不到的類在表上要有原因,不能是空白。
+    // 用 M15(設備周邊)當例子:沒有實體 I/O,那是真的結構性做不到。
+    const m15 = cap.rows.find((r) => r['code'] === 'M15')!;
+    expect(m15['level']).toBe('結構性做不到');
+    expect(m15['gap']).not.toBe('—');
+    // 部分可行的類也一樣要有原因 —— 「部分」最容易被讀成「差不多都行」。
     const m08 = cap.rows.find((r) => r['code'] === 'M08')!;
-    expect(m08['level']).toBe('結構性做不到');
+    expect(m08['level']).toBe('部分(有缺口)');
     expect(m08['gap']).not.toBe('—');
   });
 

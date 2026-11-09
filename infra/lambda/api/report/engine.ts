@@ -32,6 +32,7 @@ import type {
   L10n,
   MechanicResult,
   MetricValue,
+  AudioEvidence,
   ModuleDef,
   ModuleResult,
   NetworkConditionRecord,
@@ -1007,8 +1008,9 @@ function buildClaimScope(args: {
   thresholdSources: ThresholdSource[];
   cutoff?: string;
   network?: NetworkConditionRecord | null;
+  audio?: AudioEvidence;
 }): ClaimScope {
-  const { header, steps, scope, thresholdSources, cutoff, network } = args;
+  const { header, steps, scope, thresholdSources, cutoff, network, audio } = args;
   const unknown = L('未觀測', 'Not observed');
   const env = (id: string, label: L10n, value: string | undefined) => ({
     id,
@@ -1061,6 +1063,25 @@ function buildClaimScope(args: {
           : locales.length === 1
             ? L(`本次只跑在 ${locales[0]} 一個語系,且未比對核定文案;不得主張其他語系或文案正確性已驗`, `The run exercised only ${locales[0]} and did not compare against approved copy; no claim about other locales or copy correctness is supported`)
             : L(`本次觀測到 ${locales.length} 個語系(${locales.join('、')}),語系切換已發生,但未比對核定文案;不得主張文案正確性已驗`, `${locales.length} locales were observed (${locales.join(', ')}), so switching did occur, but copy was not compared against the approved version; no claim of copy correctness is supported`),
+    },
+    {
+      id: 'audio',
+      label: L('音訊', 'Audio'),
+      // 與語系同一種缺口:量到聲音 ≠ 聲音正確。
+      // 有參考音軌可對照才談得上「音效正確」,平台沒有,所以不論量到什麼都要收斂主張。
+      note: !audio
+        ? L('本次沒有音訊量測;不得主張音效的有無、時機或正確性已驗', 'This run has no audio measurement; no claim about the presence, timing or correctness of sound is supported')
+        : audio.verdict === 'audible'
+          ? L(
+            `本次量到音訊輸出(${Math.round(audio.audibleRatio * 100)}% 的取樣有聲音),可主張有聲音與其出現時機;但沒有參考音軌可對照,不得主張音效內容正確、音量合適或無破音`,
+            `Audio output was measured (sound in ${Math.round(audio.audibleRatio * 100)}% of samples), so its presence and timing are claimable; but there is no reference audio to compare against, so no claim about correctness, level or absence of distortion is supported`,
+          )
+          : audio.verdict === 'silent'
+            ? L('擷取鏈已驗證且整段沒有量到音訊輸出,可主張本次無聲音;但無法判定應該有什麼聲音', 'The capture chain was verified and no audio output was measured across the run, so the absence of sound is claimable; what the sound should have been cannot be judged')
+            : L(
+              `整段沒有量到聲音,但擷取鏈未經驗證(${audio.unknownReason ?? '原因不明'});不得主張遊戲無音效,也不得主張音效正常`,
+              `Nothing was heard across the run but the capture chain was never verified (${audio.unknownReason ?? 'reason unknown'}); neither the absence nor the correctness of game audio can be claimed`,
+            ),
     },
   ];
   // 網路條件分三種情況,主張強度完全不同:
@@ -1160,9 +1181,32 @@ const SEVERITY_PENALTY: Record<Severity, number> = { critical: 40, high: 20, med
  * 把後者也印成「未測」,讀者會以為「這次剛好沒測到」,從而高估這份報告的覆蓋範圍。
  * 有 gap 的範疇即使被樣板選進範圍,也永遠不會變成 executed —— 那是工具限制,要揭露。
  */
+/**
+ * 音訊範疇未執行時的理由。
+ *
+ * 分開兩種情況是必要的:
+ *   有量測但無定論 —— 擷取鏈未驗證且整段無聲,分不出是遊戲沒聲音還是沒抓到。
+ *   完全沒有量測   —— 本次沒跑音訊擷取(網頁與容器後端沒有這條路)。
+ * 兩者都不是「平台永遠做不到」,所以不走 SCOPE_GAP。
+ */
+function audioScopeReason(ev?: AudioEvidence): L10n {
+  if (ev?.verdict === 'unknown') {
+    return L(
+      `本次有音訊量測但無法下結論:${ev.unknownReason ?? '整段沒量到聲音且擷取鏈未經驗證'}`,
+      `Audio was measured but no conclusion is possible: ${ev.unknownReason ?? 'nothing was heard across the run and the capture chain was never verified'}`,
+    );
+  }
+  return L(
+    '本次沒有任何音訊量測(網頁與容器後端沒有音訊擷取;裝置後端未啟用錄影或音量表時也會沒有),因此不得主張音效的有無或時機',
+    'This run has no audio measurement at all (the web and container backends have no audio capture, and device backends also produce none when recording or the output meter is off), so no claim about the presence or timing of sound is supported',
+  );
+}
+
 const SCOPE_GAP: Partial<Record<TestScopeId, L10n>> = {
   animation: L('沒有逐幀動畫比對器;動畫是否正確目前只能由 AI 在截圖上觀察,不產生此範疇的確定性證據', 'No frame-by-frame animation comparator; animation correctness is only observed by the AI on screenshots and yields no deterministic evidence for this scope'),
-  audio: L('runner 未擷取音訊軌,無法判定音效時機或破音', 'The runner does not capture an audio track, so sound timing and distortion cannot be judged'),
+  // 音訊刻意不在這裡:它的可偵測性依本次有沒有音訊量測而定,不是固定的平台限制。
+  // 裝置後端會擷取音訊軌並算音量,網頁與容器後端不會 —— 寫成靜態 gap 等於宣告
+  // 「重測也不會有」,那對裝置後端是假的。動態理由見 audioScopeReason()。
   multiplayer: L('單一裝置單一帳號執行,沒有第二個客戶端可對照', 'Runs with a single device and account; there is no second client to compare against'),
   // 可以讀出「當下是哪個語系」(GLOBAL_PROFILE 的 locale 觀測),但沒有核定文案可對照,
   // 所以無法判定文案與版面是否正確 —— 缺的是比對基準,不是語系偵測。
@@ -1375,6 +1419,10 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   // 測試範疇:profile/規格選定的才 selected;未選定 = Not Applicable(不得算 Fail)。
   const selectedScopes = new Set<TestScopeId>([...profile.scopes, ...spec.scopes]);
   const hasPerf = steps.some((s) => s.perf);
+  // runner 彙整的音訊量測;舊報告沒有這個欄位 → undefined(等同沒有音訊證據)。
+  const audioEvidence = (typeof raw['audioEvidence'] === 'object' && raw['audioEvidence'] !== null
+    ? (raw['audioEvidence'] as AudioEvidence)
+    : undefined);
   const executedEvidence: Record<TestScopeId, boolean> = {
     functional: steps.some(isInteractive),
     gameplay: coveredModules > 0 && modulesResult.some((m) => m.steps > 0 && modules.find((x) => x.id === m.id)?.core),
@@ -1383,7 +1431,10 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     ux: steps.some(isInteractive),
     graphics: steps.some((s) => s.screenshotKey),
     animation: false,
-    audio: false,
+    // 音訊:只有「真的量到聲音」才算這個範疇有證據。
+    // 擷取鏈未驗證的整段無聲(verdict='unknown')不算 —— 那分不出是遊戲沒有音訊輸出
+    // 還是擷取沒抓到,當成已測會讓報告替一個沒有基礎的結論背書。
+    audio: audioEvidence?.verdict === 'audible' || audioEvidence?.verdict === 'silent',
     performance: hasPerf,
     compatibility: !!deviceModel,
       // 只代表「觀察到遊戲自己斷線／重連」。平台不會主動製造網路劣化條件 ——
@@ -1405,6 +1456,15 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     const executed = executedEvidence[id];
     const gap = SCOPE_GAP[id];
     const status = !selected && !executed ? 'not_applicable' : executed ? 'executed' : 'not_executed';
+    // 音訊:選定了卻沒產生證據時,理由要講清楚是「本次沒量到」而不是「平台做不到」,
+    // 而且 detectable 維持 true —— 裝置後端量得到,說它偵測不到會把一個可修的
+    // 設定問題寫成永久限制。
+    //
+    // 只覆寫 not_executed:範疇根本沒被選定時,「未選定」才是準確的理由,
+    // 換成「沒有音訊量測」反而把讀者引去查一個不存在的問題。
+    if (id === 'audio' && status === 'not_executed') {
+      return { id, selected, status, detectable: true, reason: audioScopeReason(audioEvidence) };
+    }
     // 未執行一律附理由。工具限制優先講 —— 那是「重測也不會有」,與「這次沒走到」要分開。
     const reason: L10n | undefined =
       status === 'executed'
@@ -1426,7 +1486,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     gameplay: anyExecuted && (executedEvidence.gameplay || executedEvidence.mechanics),
     performance: anyExecuted && hasPerf,
     visual: anyExecuted && executedEvidence.graphics,
-    audio: false,
+    audio: anyExecuted && executedEvidence.audio,
     ux: anyExecuted,
     compatibility: anyExecuted && executedEvidence.compatibility,
     localization: false,
@@ -1574,6 +1634,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     thresholdSources,
     ...(cutoff ? { cutoff } : {}),
     ...(networkRecord ? { network: networkRecord } : {}),
+    ...(audioEvidence ? { audio: audioEvidence } : {}),
   });
 
   const report: StructuredReport = {

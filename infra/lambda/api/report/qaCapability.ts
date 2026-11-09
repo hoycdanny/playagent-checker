@@ -84,10 +84,13 @@ export const CATEGORY_CAPABILITY: readonly CategoryCapability[] = [
   },
   {
     code: 'M08',
-    level: 'not_supported',
-    covers: L('可讀出當下介面語系,畫面上的文字破圖、缺字與排版異常可由 VLM 觀察', 'The current UI locale can be read, and broken glyphs, missing characters and layout faults are observable from screenshots'),
-    gap: L('音訊軌未擷取,音效時機與破音無法判定;也沒有核定文案可對照,無法判定各語系的文字與版面是否正確 —— 這一類的判定基準本身不在平台內', 'No audio track is captured, so sound timing and distortion cannot be judged; there is also no approved copy to compare against, so per-locale text and layout correctness cannot be judged \u2014 the basis for this judgement does not exist inside the platform'),
-    fallback: L('音效需人工聽測或另接音訊擷取;語系文案需專案提供核定文案後做比對', 'Audio needs manual listening or a separate audio capture path; locale copy needs the approved text from the project before it can be compared'),
+    level: 'partial',
+    // 先前標成「結構性做不到」,理由寫「音訊軌未擷取」—— 那是低報:裝置後端的
+    // 整場錄影含聲音,而且每 0.1 秒算一次 RMS,Windows 主機另有逐步音量峰值。
+    // 收了證據卻宣告做不到,跟高估一樣是準確性問題,只是方向相反。
+    covers: L('裝置後端擷取含聲音的整場錄影並算出每 0.1 秒的音量,Windows 主機另有逐步輸出音量峰值,因此音訊的有無與出現時機可判定,最長連續無聲也量得出來;可讀出當下介面語系,畫面上的文字破圖、缺字與排版異常可由 VLM 觀察', 'Device backends capture a full-session recording with sound and compute a loudness value every 0.1s, and the Windows host additionally samples output peak level per step, so the presence and timing of audio are determinable and the longest silent stretch is measurable; the current UI locale can be read, and broken glyphs, missing characters and layout faults are observable from screenshots'),
+    gap: L('沒有參考音軌可對照,所以只能判定有沒有聲音與何時出現,不能判定音效內容是否正確、音量是否合適或有無破音;量不到聲音時若擷取鏈未經驗證,分不出是遊戲沒有音訊輸出還是擷取沒抓到,一律不下結論;網頁與容器後端沒有音訊擷取;也沒有核定文案可對照,無法判定各語系的文字與版面是否正確', 'There is no reference audio to compare against, so only the presence and timing of sound are determinable \u2014 not whether the sound is the right one, at an appropriate level, or free of distortion; when nothing is heard and the capture chain was never verified, the absence of game audio cannot be distinguished from a capture failure and no conclusion is drawn; the web and container backends have no audio capture; and there is no approved copy to compare against, so per-locale text and layout correctness cannot be judged'),
+    fallback: L('音效正確性需人工聽測或由專案提供參考音軌後做比對;網頁與容器後端的音訊需另接擷取路徑;語系文案需專案提供核定文案後做比對', 'Sound correctness needs manual listening, or a reference audio track from the project to compare against; audio on the web and container backends needs a separate capture path; locale copy needs the approved text from the project before it can be compared'),
   },
   {
     code: 'M09',

@@ -572,6 +572,38 @@ export interface NetworkConditionRecord {
   summary: string | null;
 }
 
+/**
+ * 音訊量測的彙整(runner 寫在 report.json)。
+ *
+ * 平台本來就收音訊(裝置錄影含聲音 → 每 0.1 秒 RMS;Windows 主機 → 每步音量峰值),
+ * 但先前沒有送進報告,於是音訊範疇一直被標成「未擷取音訊軌」。那是低報。
+ *
+ * `verdict` 的三態是這份資料存在的理由:**量不到聲音不等於遊戲沒聲音**。
+ * 擷取鏈未經驗證的整段無聲分不出是缺陷還是工具問題,必須是 unknown 而不是 silent ——
+ * 把它當成「無音效」會憑空生出一個缺陷報告。
+ */
+export interface AudioEvidence {
+  source: 'recording' | 'host_meter';
+  /** 是否擷取到音訊軌(錄影路徑才有軌;主機音量表只有讀數)。 */
+  trackCaptured: boolean;
+  /** 擷取鏈是否確定可用;決定「整段無聲」能不能當結論。 */
+  chainVerified: boolean;
+  /** 量到聲音的時間(或步數)佔比。 */
+  audibleRatio: number;
+  verdict: 'audible' | 'silent' | 'unknown';
+  /** verdict 為 unknown 時,說明為什麼不下結論。 */
+  unknownReason?: string;
+  thresholdDb?: number;
+  durationSec?: number;
+  audibleSec?: number;
+  longestSilenceSec?: number;
+  peakRmsDb?: number | null;
+  segments?: number;
+  stepsSampled?: number;
+  stepsHeard?: number;
+  peakLinear?: number;
+}
+
 export interface ClaimScope {
   /** 統計截止點:所有數字都是到這一刻為止的證據算出來的。 */
   cutoff?: string;
