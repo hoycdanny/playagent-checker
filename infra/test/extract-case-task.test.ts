@@ -1,21 +1,31 @@
 import { describe, test, expect } from 'vitest';
 import { extractCaseNetwork, extractCaseTask } from '../lambda/api/core.js';
 
+/**
+ * 這個 fixture 的帳密是**合成值**,不是任何真實憑證。
+ *
+ * 這條測試守的是「多行 task 要完整取出,包含看起來像登入步驟的那幾行」——
+ * 驗這件事不需要真的帳密,合成值一樣能驗。而這支產品的設計本來就把測試帳密放在
+ * 案例資料裡,所以用真實案例當重現資料,等於把憑證複製進原始碼;原始碼會進
+ * 版本歷史,版本歷史不會因為之後刪掉就消失。重現問題請改用合成值。
+ */
 describe('extractCaseTask — 案例 YAML 取 task', () => {
-  test('YAML 區塊純量 task: | 取完整多行(含登入帳密)', () => {
+  test('YAML 區塊純量 task: | 取完整多行(含登入步驟)', () => {
     const yaml = [
       'name: 範例老虎機測試',
       'app: app-1',
       'task: |',
       '  1. 開啟範例老虎機應用',
-      '  2. 若出現登入頁,使用帳號 test.user 密碼 REDACTED 登入',
+      '  2. 若出現登入頁,使用帳號 ${帳號} 密碼 ${密碼} 登入',
       '  3. 進入拉霸遊戲',
       'assertions:',
       '  - 成功進入',
     ].join('\n');
     const t = extractCaseTask(yaml);
     expect(t).toContain('1. 開啟範例老虎機應用');
-    expect(t).toContain('帳號 test.user 密碼 REDACTED');
+    // 用 ${key} 佔位:這正是產品實際的寫法(遮蔽憑證由 runner 在輸入時填值),
+    // 所以 fixture 不必、也不應該放真實帳密。
+    expect(t).toContain('帳號 ${帳號} 密碼 ${密碼}');
     expect(t).toContain('3. 進入拉霸遊戲');
     // 不可只剩區塊指示符
     expect(t).not.toBe('|');

@@ -120,6 +120,7 @@ describe('buildPageSignature:機密邊界', () => {
   });
 
   test('非密碼欄不存明文,只存長度與雜湊', () => {
+    // 合成帳號:fixture 不放真實帳號,連「看起來像真的」都不必要。
     stubDom({ fields: [{ tag: 'input', type: 'text', value: 'test.user@example.test' }] });
     const sig = buildPageSignature();
     expect(sig).not.toContain('test.user@example.test');
