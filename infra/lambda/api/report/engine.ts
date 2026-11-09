@@ -1061,13 +1061,16 @@ function buildClaimScope(args: {
             : L(`本次觀測到 ${locales.length} 個語系(${locales.join('、')}),語系切換已發生,但未比對核定文案;不得主張文案正確性已驗`, `${locales.length} locales were observed (${locales.join(', ')}), so switching did occur, but copy was not compared against the approved version; no claim of copy correctness is supported`),
     },
   ];
-  if (scope.find((s) => s.id === 'network')?.status !== 'executed') {
-    notVaried.push({
-      id: 'network',
-      label: L('網路條件', 'Network condition'),
-      note: L('未觀測到斷線或重連證據,不得主張弱網與中斷復原行為已驗', 'No disconnect or reconnect evidence was observed; no claim about weak-network or interruption recovery is supported'),
-    });
-  }
+  // 網路條件要分兩件事講:**觀察得到**遊戲自己斷線,但**施加不了**指定的延遲或丟包。
+  // 只寫「未觀測到斷線」會讓人以為重測可能就有 —— 指定條件的弱網測項是永遠做不到。
+  const networkObserved = scope.find((s) => s.id === 'network')?.status === 'executed';
+  notVaried.push({
+    id: 'network',
+    label: L('網路條件', 'Network condition'),
+    note: networkObserved
+      ? L('本次雖觀測到斷線或重連,但平台無法施加指定的延遲或丟包率;任何指定網路條件的測項仍不在可執行範圍內', 'A disconnect or reconnect was observed, but the platform cannot impose a specified latency or loss rate; items that specify a network condition remain outside its executable range')
+      : L('未觀測到斷線或重連,且平台無法施加延遲、丟包或頻寬限制;不得主張弱網與中斷復原行為已驗', 'No disconnect or reconnect was observed, and the platform cannot impose latency, packet loss or bandwidth limits; no claim about weak-network or interruption recovery is supported'),
+  });
   if (segments.size <= 1) {
     notVaried.push({
       id: 'session',
@@ -1347,6 +1350,8 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     audio: false,
     performance: hasPerf,
     compatibility: !!deviceModel,
+      // 只代表「觀察到遊戲自己斷線／重連」。平台不會主動製造網路劣化條件 ——
+    // 指定延遲或丟包率的測項做不到,那一點寫在 claimScope 的網路條件欄,不在這裡。
     network: gameStateCov.some((g) => (g.id === 'disconnected' || g.id === 'reconnect') && g.covered),
     multiplayer: false,
     localization: false,

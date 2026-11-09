@@ -19,6 +19,7 @@
  * 本模組是純函式,不讀 S3、不呼叫模型,所有數字沿用 StructuredReport 既有欄位。
  */
 import { round2, spinTransactions } from './metrics.js';
+import { CATEGORY_CAPABILITY, capabilitySummary, type CapabilityLevel } from './qaCapability.js';
 import type { AcResult, Acceptance } from './acceptance.js';
 import type {
   CheckItem,
@@ -406,6 +407,13 @@ export interface QaDocumentSet {
 // ───────────────────────── 6. 文件產生 ─────────────────────────
 
 const DASH = '—';
+
+/** 可執行性分級的顯示名稱。 */
+const CAPABILITY_LABEL: Record<CapabilityLevel, L10n> = {
+  automated: L('可自動執行', 'Automated'),
+  partial: L('部分(有缺口)', 'Partial'),
+  not_supported: L('結構性做不到', 'Not supported'),
+};
 
 const f = (key: string, label: L10n, value: string | number | undefined | null): QaDocField => ({
   key,
@@ -904,6 +912,27 @@ function buildT07(report: StructuredReport, stats: QaStatistic[]): QaDocument {
           : { emptyReason: L('本報告未產生適用邊界(舊版報告)', 'This report carries no claim scope (legacy report)') }),
       },
       {
+        id: 'platform_capability',
+        title: L('本平台的可執行範圍(依測項分類)', 'What this platform can execute, by test-item category'),
+        columns: [
+          { key: 'code', label: L('分類', 'Category') },
+          { key: 'name', label: L('名稱', 'Name') },
+          { key: 'level', label: L('可執行性', 'Capability') },
+          { key: 'covers', label: L('做得到', 'Covered') },
+          { key: 'gap', label: L('做不到與原因', 'Gap and why') },
+          { key: 'fallback', label: L('缺口怎麼補', 'How to cover the gap') },
+        ],
+        // 分類數不等於測項數:這張表說明「哪些類做不到」,實際影響要用專案自己的測項庫按類統計。
+        rows: CATEGORY_CAPABILITY.map((c) => ({
+          code: c.code,
+          name: QA_CATEGORIES.find((x) => x.code === c.code)?.label.zh ?? DASH,
+          level: CAPABILITY_LABEL[c.level].zh,
+          covers: c.covers.zh,
+          gap: c.gap?.zh ?? DASH,
+          fallback: c.fallback?.zh ?? DASH,
+        })),
+      },
+      {
         id: 'claim_limits',
         title: L('不得延伸的主張', 'Claims the evidence does not support'),
         columns: [
@@ -1291,6 +1320,8 @@ export function buildQaDocumentSet(report: StructuredReport, opts: QaDocOptions 
       L('未執行與無資料不填 PASS:待判讀、無法判定與未執行一律列為 BLOCK,原判定保留在備註。', 'Not-executed and no-data rows are never recorded as PASS: indeterminate, unjudgeable and not-executed rows are all BLOCK, with the original judgement kept in the note.'),
       L('優先權由嚴重性推導,原文件由人工填寫;分級統計不等於實際修復數。', 'Priority is derived from severity, whereas the original document is filled in manually; grade counts are not a count of actual repairs.'),
       L(`${documents.filter((d) => d.coverage === 'not_derivable').length} 類文件的輸入不是執行證據(會議、計畫、研究、訓練與排程),已逐類列出原因而非省略。`, `${documents.filter((d) => d.coverage === 'not_derivable').length} document types take inputs that are not execution evidence (meetings, plans, research, training and scheduling); each is listed with its reason rather than omitted.`),
+      capabilitySummary().note,
+      L('結案報告附「本平台的可執行範圍」:做不到的分類逐類列出原因與補法。一份全綠的報告如果涵蓋的只是測試實務的一部分,而缺口沒寫出來,會被當成放行依據。', 'The closure report carries a statement of what this platform can execute, listing each out-of-reach category with its reason and the fallback. An all-green report that covers only part of the testing practice, with the gaps unstated, gets read as grounds for release.'),
     ],
   };
 }
