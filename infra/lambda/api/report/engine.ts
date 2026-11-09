@@ -34,6 +34,7 @@ import type {
   MetricValue,
   ModuleDef,
   ModuleResult,
+  NetworkConditionRecord,
   OverallStatus,
   OverrideKind,
   PerfMeta,
@@ -1005,8 +1006,9 @@ function buildClaimScope(args: {
   scope: ScopeStatus[];
   thresholdSources: ThresholdSource[];
   cutoff?: string;
+  network?: NetworkConditionRecord | null;
 }): ClaimScope {
-  const { header, steps, scope, thresholdSources, cutoff } = args;
+  const { header, steps, scope, thresholdSources, cutoff, network } = args;
   const unknown = L('未觀測', 'Not observed');
   const env = (id: string, label: L10n, value: string | undefined) => ({
     id,
@@ -1061,16 +1063,35 @@ function buildClaimScope(args: {
             : L(`本次觀測到 ${locales.length} 個語系(${locales.join('、')}),語系切換已發生,但未比對核定文案;不得主張文案正確性已驗`, `${locales.length} locales were observed (${locales.join(', ')}), so switching did occur, but copy was not compared against the approved version; no claim of copy correctness is supported`),
     },
   ];
-  // 網路條件要分兩件事講:**觀察得到**遊戲自己斷線,但**施加不了**指定的延遲或丟包。
-  // 只寫「未觀測到斷線」會讓人以為重測可能就有 —— 指定條件的弱網測項是永遠做不到。
+  // 網路條件分三種情況,主張強度完全不同:
+  //   1. 有施加且成功 → 可以主張「在這個條件下驗過」,但仍要標明哪一項做不到(例如丟包)。
+  //   2. 要求了但施加失敗 → 絕對不可主張;那是一次沒有條件的普通執行。
+  //   3. 沒要求 → 只能講觀察到什麼,不得主張弱網已驗。
   const networkObserved = scope.find((s) => s.id === 'network')?.status === 'executed';
-  notVaried.push({
-    id: 'network',
-    label: L('網路條件', 'Network condition'),
-    note: networkObserved
-      ? L('本次雖觀測到斷線或重連,但平台無法施加指定的延遲或丟包率;任何指定網路條件的測項仍不在可執行範圍內', 'A disconnect or reconnect was observed, but the platform cannot impose a specified latency or loss rate; items that specify a network condition remain outside its executable range')
-      : L('未觀測到斷線或重連,且平台無法施加延遲、丟包或頻寬限制;不得主張弱網與中斷復原行為已驗', 'No disconnect or reconnect was observed, and the platform cannot impose latency, packet loss or bandwidth limits; no claim about weak-network or interruption recovery is supported'),
-  });
+  if (network?.ok && network.applied) {
+    const unmet = network.unsupported.map((u) => u.key).join('、');
+    notVaried.push({
+      id: 'network',
+      label: L('網路條件', 'Network condition'),
+      note: unmet
+        ? L(`本次已施加 ${network.summary};但要求的 ${unmet} 這個後端做不到,該項不得視為已驗`, `The run imposed ${network.summary}; the requested ${unmet} is not supported on this backend and must not be treated as verified`)
+        : L(`本次已施加 ${network.summary};結論僅適用於這個網路條件,其他延遲或頻寬未涵蓋`, `The run imposed ${network.summary}; the verdict applies to this network condition only and others are not covered`),
+    });
+  } else if (network && !network.ok) {
+    notVaried.push({
+      id: 'network',
+      label: L('網路條件', 'Network condition'),
+      note: L(`要求的網路條件施加失敗(${network.error ?? '未知原因'}),本次是一次沒有網路條件的普通執行;不得主張弱網已驗`, `The requested network condition failed to apply (${network.error ?? 'unknown reason'}), so this was an ordinary run without any network condition; no weak-network claim is supported`),
+    });
+  } else {
+    notVaried.push({
+      id: 'network',
+      label: L('網路條件', 'Network condition'),
+      note: networkObserved
+        ? L('本次觀測到斷線或重連,但未施加任何指定的網路條件;不得主張特定延遲或丟包率下已驗', 'A disconnect or reconnect was observed, but no specified network condition was imposed; no claim about a particular latency or loss rate is supported')
+        : L('未施加任何網路條件,也未觀測到斷線或重連;不得主張弱網與中斷復原行為已驗', 'No network condition was imposed and no disconnect or reconnect was observed; no claim about weak-network or interruption recovery is supported'),
+    });
+  }
   if (segments.size <= 1) {
     notVaried.push({
       id: 'session',
@@ -1095,7 +1116,13 @@ function buildClaimScope(args: {
     );
   }
 
-  return { ...(cutoff ? { cutoff } : {}), envelope, notVaried, statements };
+  return {
+    ...(cutoff ? { cutoff } : {}),
+    ...(network !== undefined ? { network } : {}),
+    envelope,
+    notVaried,
+    statements,
+  };
 }
 
 function resolveThreshold(v: ThresholdRef, thresholds: Record<string, number>): number | null {
@@ -1527,7 +1554,18 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   // 統計截止點:報告的數字都是到這一刻為止的證據算出來的。
   // 沒有結束時間(例如被中斷)就退回最後一步有時戳的證據,不留空白。
   const cutoff = endIso ?? [...steps].reverse().find((s) => s.at)?.at;
-  const claimScope = buildClaimScope({ header, steps, scope, thresholdSources, ...(cutoff ? { cutoff } : {}) });
+  // runner 寫的弱網施加紀錄;舊報告沒有這個欄位 → undefined(等同沒施加條件)。
+  const networkRecord = (typeof raw['networkConditions'] === 'object' && raw['networkConditions'] !== null
+    ? (raw['networkConditions'] as NetworkConditionRecord)
+    : undefined);
+  const claimScope = buildClaimScope({
+    header,
+    steps,
+    scope,
+    thresholdSources,
+    ...(cutoff ? { cutoff } : {}),
+    ...(networkRecord ? { network: networkRecord } : {}),
+  });
 
   const report: StructuredReport = {
     schemaVersion: 1,

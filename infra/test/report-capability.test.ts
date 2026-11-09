@@ -58,12 +58,16 @@ describe('關鍵缺口要如實標示', () => {
     expect(c.gap!.zh).toContain('核定文案');
   });
 
-  test('網路:觀察得到但施加不了,兩者分開寫', () => {
+  test('網路:能施加的與施加不了的分開寫,並點明丟包任何後端都做不到', () => {
     const c = capabilityOf('M09')!;
     expect(c.level).toBe('partial');
-    expect(c.covers.zh).toContain('觀察');
-    expect(c.gap!.zh).toContain('無法施加');
-    expect(c.gap!.zh).toMatch(/延遲|丟包/);
+    // 網頁後端現在真的能施加延遲與頻寬
+    expect(c.covers.zh).toContain('延遲');
+    expect(c.covers.zh).toContain('頻寬');
+    // 但丟包與行動裝置仍做不到,而且要講清楚
+    expect(c.gap!.zh).toContain('封包遺失率');
+    expect(c.gap!.zh).toContain('行動裝置');
+    expect(c.fallback!.zh).toContain('流量塑形');
   });
 
   test('設備周邊:沒有實體 I/O,不能假裝部分可行', () => {
@@ -100,10 +104,68 @@ describe('接進結案報告', () => {
 });
 
 describe('適用邊界的網路條件', () => {
-  test('無論有沒有觀測到斷線,都要聲明平台無法施加網路條件', () => {
-    const r = report();
-    const net = r.claimScope.notVaried.find((n) => n.id === 'network')!;
-    expect(net).toBeDefined();
-    expect(net.note.zh).toContain('無法施加');
+  /** 用指定的弱網紀錄跑一份報告(不給就是沒施加條件的普通執行)。 */
+  const netNote = (networkConditions?: unknown) => {
+    const raw: RawStep = {
+      state: 'pass',
+      task: '探索遊戲',
+      steps: [st(0, '大廳', 'tap', { x: 5, y: 5 }), st(1, '選單', 'done')],
+      ...(networkConditions ? { networkConditions } : {}),
+    };
+    const r = buildStructuredReport({ raw, job: { jobId: 'job-test' }, app: { genre: 'slot' } } as never);
+    const net = r.claimScope.notVaried.find((n) => n.id === 'network');
+    expect(net, '網路條件必須永遠表態').toBeDefined();
+    return net!.note;
+  };
+
+  test('沒要求條件時,只能講觀察到什麼,不得主張弱網已驗', () => {
+    const note = netNote();
+    expect(note.zh).toContain('未施加任何網路條件');
+    expect(note.zh).toContain('不得主張');
+    expect(note.en).toContain('No network condition was imposed');
+  });
+
+  test('施加成功時,結論要收斂到那一組條件,不得外推到其他延遲與頻寬', () => {
+    const note = netNote({
+      requested: { latencyMs: 1000, downKbps: 400 },
+      applied: { latencyMs: 1000, downKbps: 400 },
+      unsupported: [],
+      ok: true,
+      verified: false,
+      summary: '延遲 1000 ms / 下行 400 kbps',
+    });
+    expect(note.zh).toContain('已施加');
+    expect(note.zh).toContain('延遲 1000 ms / 下行 400 kbps');
+    expect(note.zh).toContain('僅適用於這個網路條件');
+  });
+
+  test('後端做不到的項目要單獨點名,不能被「已施加」一句帶過', () => {
+    const note = netNote({
+      requested: { latencyMs: 1000, lossPct: 5 },
+      applied: { latencyMs: 1000 },
+      unsupported: [{ key: 'lossPct', reason: 'CDP 無法製造封包遺失' }],
+      ok: true,
+      verified: false,
+      summary: '延遲 1000 ms',
+    });
+    expect(note.zh).toContain('lossPct');
+    expect(note.zh).toContain('不得視為已驗');
+  });
+
+  test('施加失敗時,必須降級成一次沒有條件的普通執行', () => {
+    const note = netNote({
+      requested: { latencyMs: 1000 },
+      applied: null,
+      unsupported: [],
+      ok: false,
+      verified: false,
+      error: 'CDP session 無法建立',
+      summary: null,
+    });
+    expect(note.zh).toContain('施加失敗');
+    expect(note.zh).toContain('CDP session 無法建立');
+    expect(note.zh).toContain('不得主張弱網已驗');
+    // 失敗的一次絕對不可以留下「已施加」的字眼
+    expect(note.zh).not.toContain('已施加 ');
   });
 });

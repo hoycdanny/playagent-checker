@@ -549,9 +549,29 @@ export interface ThresholdSource {
  * 是測試報告最常見的誤用,所以受測組合與未變動的維度都要明文列出,
  * 而不是留給讀者自己推斷。
  */
+/**
+ * 弱網條件的施加紀錄(runner 寫在 report.json)。
+ *
+ * 分三塊是刻意的:案例要求什麼、實際套了什麼、哪一項這個後端做不到。
+ * 只有 ok 且該項目在 applied 裡,報告才可以主張「這個條件下驗過」。
+ */
+export interface NetworkConditionRecord {
+  requested: Record<string, number | boolean> | null;
+  applied: Record<string, number | boolean> | null;
+  unsupported: Array<{ key: string; reason: string }>;
+  ok: boolean;
+  /** 是否有獨立量測佐證(CDP 接受參數不等於行為達到該延遲)。 */
+  verified: boolean;
+  measuredRttMs?: number;
+  error?: string;
+  summary: string | null;
+}
+
 export interface ClaimScope {
   /** 統計截止點:所有數字都是到這一刻為止的證據算出來的。 */
   cutoff?: string;
+  /** 本次實際施加的網路條件(沒施加則為 null)。 */
+  network?: NetworkConditionRecord | null;
   /** 實際受測組合;未觀測到的維度標 observed=false,不以空白帶過。 */
   envelope: Array<{ id: string; label: L10n; value: string; observed: boolean }>;
   /** 本次未變動的維度 → 不得就該維度做出主張。 */

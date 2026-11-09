@@ -20,6 +20,7 @@ import { circleSequence, pathSequence } from './gestures.mjs';
 import { normalizeKey } from './keyNames.mjs';
 import { buildPageSignature } from './pageSignature.mjs';
 import { createPageTracker, safePageUrl } from './pageTracker.mjs';
+import { conditionRecord, toCdpPayload } from './networkConditions.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -62,6 +63,8 @@ export class PlaywrightClient {
   #h;
   /** 目前的 CDP screencast 設定與卸除函式;切換分頁時要重綁,否則即時畫面會停在舊分頁。 */
   #cast = null;
+  /** 施加網路條件用的 CDP session(解除條件時要用同一個)。 */
+  #netCdp = null;
   /** 瀏覽器 console / 錯誤 / 失敗請求的接收端(runner 設定;等同 DevTools 的 Console)。 */
   #logSink = null;
 
@@ -435,6 +438,42 @@ export class PlaywrightClient {
       this.#cast = null;
       if (c?.detach) await c.detach().catch(() => {});
     };
+  }
+
+  /**
+   * 施加網路劣化條件(延遲 / 頻寬 / 離線)。
+   *
+   * 回傳「實際套用了什麼、哪一項做不到」的紀錄,由 runner 寫進報告 ——
+   * 報告要主張「這個條件下驗過」,就必須有這份紀錄,不能只因為案例寫了就當成套用了。
+   *
+   * 作用範圍是 browser context,所以之後開的新分頁也套得到(弱網測項常會開彈出視窗)。
+   * @param cond parseNetworkCondition() 的輸出
+   */
+  async applyNetworkConditions(cond) {
+    if (!cond) return conditionRecord({ requested: null, ok: false });
+    const { payload, applied, unsupported } = toCdpPayload(cond);
+    let cdp;
+    try {
+      cdp = await this.#context.newCDPSession(this.#ensureAlive());
+      await cdp.send('Network.enable');
+      await cdp.send('Network.emulateNetworkConditions', payload);
+    } catch (err) {
+      // 套用失敗必須回報:否則報告會主張一個沒生效的條件。
+      return conditionRecord({ requested: cond, unsupported, ok: false, error: err?.message ?? err });
+    }
+    this.#netCdp = cdp;
+    return conditionRecord({ requested: cond, applied, unsupported, ok: true });
+  }
+
+  /** 解除網路劣化條件(回到不限制)。 */
+  async clearNetworkConditions() {
+    if (!this.#netCdp) return;
+    try {
+      await this.#netCdp.send('Network.emulateNetworkConditions', {
+        offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+      });
+    } catch { /* ignore */ }
+    this.#netCdp = null;
   }
 
   /** 把 screencast 接到目前的作用中分頁(先卸掉舊的)。沒設定過就什麼都不做。 */

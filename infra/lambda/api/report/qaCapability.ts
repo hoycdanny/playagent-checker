@@ -92,10 +92,10 @@ export const CATEGORY_CAPABILITY: readonly CategoryCapability[] = [
   {
     code: 'M09',
     level: 'partial',
-    covers: L('若遊戲自行斷線或重連,畫面狀態的變化可被觀察與記錄', 'If the game disconnects or reconnects on its own, the resulting screen states are observed and recorded'),
-    // 這是最容易被誤解的一條:能觀察 ≠ 能製造。
-    gap: L('平台無法施加網路劣化條件:沒有延遲注入、沒有丟包、沒有頻寬限制。任何指定「延遲 N ms」或「掉包 N%」的測項都不在可執行範圍內', 'The platform cannot impose degraded network conditions: no latency injection, no packet loss, no bandwidth limiting. Any item specifying a target latency or loss rate is outside its executable range'),
-    fallback: L('弱網測項需在執行環境外施加網路條件(主機層的流量塑形),目前不在平台能力內', 'Weak-network items need the condition imposed outside the run (traffic shaping at the host layer), which the platform does not currently provide'),
+    // 這一條最容易被誤解,所以三件事分開寫:能觀察、能施加哪些、哪些施加不了。
+    covers: L('網頁後端可施加延遲與上下行頻寬限制(含離線),整個探索迴圈都在該條件下跑,實際套用的條件寫進報告的適用邊界;遊戲自行斷線或重連的畫面變化也可觀察', 'On the web backend, latency and up/down bandwidth limits (including offline) are imposed and the whole exploration loop runs under them, with the condition actually applied recorded in the report\u2019s claim scope; self-initiated disconnects and reconnects are also observable'),
+    gap: L('封包遺失率任何後端都做不到(瀏覽器的開發者協定只有延遲與頻寬);行動裝置與 Windows 後端目前完全無法施加網路條件,只能觀察', 'Packet loss rate is unsupported on every backend (the browser devtools protocol offers only latency and bandwidth); the mobile and Windows backends currently cannot impose any network condition and can only observe'),
+    fallback: L('丟包與行動裝置的弱網需在主機層做流量塑形(容器的 tc netem 或主機的封包過濾驅動);施加失敗時報告會明寫「這是一次沒有網路條件的普通執行」,不會當成弱網已驗', 'Packet loss and mobile weak-network need traffic shaping at the host layer (tc netem in the container, or a packet-filter driver on the host); when the condition fails to apply the report states plainly that it was an ordinary run without a network condition rather than treating weak network as verified'),
   },
   {
     code: 'M10',

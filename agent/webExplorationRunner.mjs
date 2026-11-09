@@ -24,6 +24,7 @@ import { applyEdits, createOperatorChannel, hintsPromptSection, loadAppMemory, o
 import { foldSystemIntoFirstUser } from './converseShape.mjs';
 import { accumulate, addUsage, createUsageLedger, mergeByModel, usageFromAnthropic, usageFromConverse } from './tokenUsage.mjs';
 import { PlaywrightClient } from './playwrightClient.mjs';
+import { parseNetworkCondition } from './networkConditions.mjs';
 import { normalizeKey, KEY_IDS } from './keyNames.mjs';
 import { magickAvailable, annotateTapB64, pHashHex, pHashHamming, resizeToSmartB64 } from './imageTools.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
@@ -59,6 +60,8 @@ const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
 const [VP_W, VP_H] = (process.env.PA_VIEWPORT || '1280x800').split('x').map((n) => Number(n) || 0);
+// 弱網條件,例:'latency=1000'、'latency=1000,down=400,up=200'、'offline'。空 = 不施加。
+const NETWORK_SPEC = (process.env.PA_NETWORK || '').trim();
 const CONSEC_FAIL_LIMIT = 3;
 // runner 版本(寫進報告表頭 Test Engine Version)。
 const RUNNER_VERSION = 'web-runner/2.0 (evidence-v1)';
@@ -268,6 +271,28 @@ async function main() {
 
   await writeStatus('running', '瀏覽器啟動中', 0);
   const client = await PlaywrightClient.create({ width: VP_W || 1280, height: VP_H || 800, url: START_URL });
+
+  // 弱網條件:案例要求的網路劣化。在第一次截圖之前套用,整個探索迴圈都在該條件下跑。
+  // 紀錄寫進 report.networkConditions —— 報告要主張「這個條件下驗過」就得有這份證據,
+  // 而做不到的項目(例如瀏覽器無法丟包)也在這裡列出來,不會被當成已套用。
+  let networkConditions = null;
+  if (NETWORK_SPEC) {
+    const cond = parseNetworkCondition(NETWORK_SPEC);
+    if (cond) {
+      networkConditions = await client.applyNetworkConditions(cond);
+      const desc = networkConditions.summary ?? JSON.stringify(cond);
+      if (networkConditions.ok) {
+        console.log(`[弱網] 已套用:${desc}`);
+        if (networkConditions.unsupported.length) {
+          for (const u of networkConditions.unsupported) console.log(`[弱網] 做不到:${u.key} —— ${u.reason}`);
+        }
+      } else {
+        console.log(`[弱網] 套用失敗(${networkConditions.error ?? '未知原因'});報告不會主張此條件已套用`);
+      }
+    } else {
+      console.log(`[弱網] PA_NETWORK 無法解析:${NETWORK_SPEC};不施加任何條件`);
+    }
+  }
 
   // 瀏覽器 console log(任務詳情頁的「Console」分頁;相當於 Chrome DevTools 的 Console)。
   // 立刻訂閱:設定之前發生的事件沒人收。輸出成 logcat 格式,沿用真機那條 devlogs 管線。
@@ -946,6 +971,9 @@ async function main() {
     jobId: JOB, state: finalState, message: finalMsg, task: TASK,
     device: { w: VP_W || 1280, h: VP_H || 800 },
     vlmModel: VLM, runnerVersion: RUNNER_VERSION,
+    // 弱網條件的施加紀錄(要求什麼、實際套了什麼、哪一項做不到)。
+    // 報告的適用邊界要據此判斷能不能主張「這個網路條件下驗過」。
+    ...(networkConditions ? { networkConditions } : {}),
     ...(evidence?.profiles ? { evidenceProfiles: evidence.profiles } : {}),
     // 三個 Agent 協作:tokens 是三席合計,tokensBySeat 分開記(費用頁依各席位的模型單價分別計算)。
     ...(team ? {
