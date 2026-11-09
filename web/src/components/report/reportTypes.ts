@@ -61,6 +61,22 @@ export interface Finding {
   suspectedCause?: L10n;
   suggestion?: L10n;
   relatedTestCase?: string;
+  /** 人工覆寫紀錄。舊版後端沒有此欄位。 */
+  override?: AppliedOverride;
+}
+
+/**
+ * 缺陷的人工覆寫(測試人員回報誤判或調整嚴重性)。
+ *
+ * 覆寫是**另一種主張** —— 依據是人的判斷而不是執行證據。所以原判定永久
+ * 保留在 original,介面必須並列顯示,不能只顯示覆寫後的值。
+ */
+export interface AppliedOverride {
+  original: { classification: FailureClass; severity: Severity };
+  dismissed: boolean;
+  reason: string;
+  by: string;
+  at: string;
 }
 
 export type CheckResult = 'pass' | 'fail' | 'unclear' | 'skipped';
@@ -222,6 +238,8 @@ export interface StructuredReport {
     thresholds: Record<string, number>;
     /** 每個門檻的來源(客戶核定 / 平台預設)。舊版後端沒有此欄位。 */
     thresholdSources?: ThresholdSource[];
+    /** 人工覆寫的件數。只在真的有覆寫時才出現。 */
+    overrides?: { total: number; dismissed: number; reclassified: number };
   };
   /** 本次結果的適用邊界。舊版後端沒有此欄位。 */
   claimScope?: ClaimScope;

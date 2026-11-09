@@ -564,3 +564,42 @@
 }
 .srep__claim-limits > li > strong { font-size: 13px; }
 .srep__claim-limits > li > span { font-size: 13px; opacity: 0.85; }
+
+/*
+ * 缺陷的人工覆核痕跡。
+ *
+ * 用中性的凹陷底 + 左側 3px 色條,與報告其他「要注意但不是錯誤」的區塊一致。
+ * 刻意不用警示色填滿:覆核是正常流程的一部分,不是異常狀態。
+ */
+.srep__tag--ovr {
+  border-color: var(--status-error);
+  color: var(--status-error);
+}
+
+.srep__ovr {
+  margin: 0 var(--space-4) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  box-shadow: inset 3px 0 0 var(--status-error);
+}
+
+.srep__ovr-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: baseline;
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.srep__ovr-line + .srep__ovr-line { margin-top: var(--space-1); }
+.srep__ovr-line--meta { color: var(--text-tertiary); font-size: 0.6875rem; }
+
+.srep__ovr-k {
+  min-width: 4.5em;
+  font-weight: 600;
+  color: var(--text-primary);
+}

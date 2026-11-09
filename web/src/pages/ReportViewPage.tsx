@@ -90,6 +90,10 @@ export default function ReportViewPage() {
   const [narrativeLang, setNarrativeLang] = useState<string>(locale);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
+  // 人工覆核送出後要重新取整份報告:覆寫會讓驗收判定、缺陷統計與放行建議
+  // 一起重算,只改本地狀態會讓畫面與後端算出來的不一致。
+  const [reloadKey, setReloadKey] = useState(0);
+
   useEffect(() => {
     if (!jobId) return;
     apiGet<ReportDoc>(`/reports/${jobId}`)
@@ -101,7 +105,7 @@ export default function ReportViewPage() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId]);
+  }, [jobId, reloadKey]);
 
   if (loading) {
     return (
@@ -168,6 +172,7 @@ export default function ReportViewPage() {
           report={report.structured}
           onOpenImage={setLightbox}
           {...(jobId ? { jobId } : {})}
+          onReload={() => setReloadKey((k) => k + 1)}
           {...(report.insights ? { insights: report.insights } : {})}
           appendix={
             isEmulator ? (

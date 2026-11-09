@@ -180,6 +180,7 @@ import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } fr
 import { defaultControlsFor, describeControlCatalog, parseCaseControls, parseCaseKeys, reconcileControlsWithText, sanitizeControls } from './controlSchemes.js';
 import { isScriptedCase } from './scriptedCase.js';
 import { ASK_MODELS, AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
+import { OverrideValidationError, appendOverride, clearOverrides, readOverrides, validateOverrideInput } from './reportOverrides.js';
 import { describeProfile } from './report/profiles.js';
 import type { ReportInsights, StructuredReport } from './report/types.js';
 import {
@@ -1746,6 +1747,42 @@ export async function handleRequest(
         // 動態路由:GET /tasks/{id}/device-logs?kind=logcat|audio&after=<檔名>(真機 log,任務詳情頁展開時讀)
         // 動態路由:/tasks/{id}/ask —— 任務 AI 問答(依這次任務的步驟 / 裝置 log / 知識庫 / 報告回答)。
         //   GET 讀對話、POST { question, lang } 發問、DELETE 清空對話。
+        // 動態路由:/tasks/{id}/report-overrides —— 缺陷的人工覆寫(回報誤判 / 調整嚴重性)。
+        //   GET    讀紀錄
+        //   POST   追加一筆 { findingId, dismissed | classification | severity, reason }
+        //   DELETE 清空(會抹掉稽核軌跡,限管理員)
+        //
+        // 覆寫者與時間一律由伺服器填(登入身分 + 當下),不接受請求主體自報 ——
+        // 讓前端自報覆寫者等於讓任何人都能冒名覆寫。
+        const ovMatch = /^\/tasks\/([^/]+)\/report-overrides$/.exec(req.path);
+        if (ovMatch && (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE')) {
+          const jobId = ovMatch[1]!;
+          const s3 = await deps.getTenantS3(tenant.tenantId);
+          // 任務必須存在且屬於本租戶(tenantPrefix 已隔離,這裡再擋掉不存在的 id)
+          const jobRec = await readJsonObject<{ jobId?: string }>(
+            s3, deps.bucket, `${tenantPrefix(tenant.tenantId)}jobs/${jobId}/job.json`,
+          ).catch(() => null);
+          if (!jobRec) return json(404, { error: '找不到任務' });
+
+          if (req.method === 'GET') {
+            return json(200, { items: await readOverrides(s3, deps.bucket, tenant.tenantId, jobId) });
+          }
+          if (req.method === 'DELETE') {
+            requireAdmin(req.claims);
+            await clearOverrides(s3, deps.bucket, tenant.tenantId, jobId);
+            return json(200, { items: [] });
+          }
+          try {
+            const input = validateOverrideInput(req.body);
+            const items = await appendOverride(
+              s3, deps.bucket, tenant.tenantId, jobId, input, tenant.email ?? tenant.tenantId,
+            );
+            return json(201, { items });
+          } catch (err) {
+            if (err instanceof OverrideValidationError) return json(400, { error: err.message });
+            throw err;
+          }
+        }
         const askMatch = /^\/tasks\/([^/]+)\/ask$/.exec(req.path);
         if (askMatch && (req.method === 'GET' || req.method === 'POST' || req.method === 'DELETE')) {
           const jobId = askMatch[1]!;
@@ -2231,12 +2268,15 @@ async function buildReportForJob(
   const slotCaptureManifest = await readJsonObject<Record<string, unknown>>(
     s3, deps.bucket, `${tenantPrefix(tenantId)}jobs/${jobId}/spins/manifest.json`,
   ).catch(() => null);
+  // 缺陷的人工覆寫:讀不到就當沒有(readOverrides 自己吞錯),報告退回純機器判定。
+  const overrides = await readOverrides(s3, deps.bucket, tenantId, jobId);
   const structured = buildStructuredReport({
     raw: slotCaptureManifest ? { ...raw, slotCaptureManifest } : raw,
     job: job ?? null,
     app: app ?? null,
     testCase: testCase ?? null,
     kbs: kbs.filter((k): k is NonNullable<typeof k> => k !== null),
+    ...(overrides.length ? { overrides } : {}),
   });
   const sign = async (key: string | undefined): Promise<string | undefined> => {
     if (!key) return undefined;

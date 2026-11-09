@@ -54,6 +54,7 @@ export function StructuredReportView({
   appendix,
   jobId,
   insights: initialInsights,
+  onReload,
 }: {
   report: StructuredReport;
   onOpenImage: (url: string) => void;
@@ -61,6 +62,8 @@ export function StructuredReportView({
   /** 有值才顯示「產生 AI 分析」按鈕。 */
   jobId?: string;
   insights?: { zh?: ReportInsights; en?: ReportInsights };
+  /** 人工覆核送出後重新取整份報告(判定會重算)。 */
+  onReload?: () => void;
 }) {
   const { locale, t } = useI18n();
   const lang = reportLang(locale);
@@ -843,6 +846,7 @@ export function StructuredReportView({
         report={r}
         lang={lang}
         {...(jobId ? { jobId } : {})}
+        {...(onReload ? { onReloaded: onReload } : {})}
         onGoVerdicts={(f) => goVerdicts(f)}
         onGoSection={scrollTo}
       />
@@ -1045,7 +1049,36 @@ function FindingCard({ f, lang, onOpenImage, compact, anchor, note }: {
         <strong>{tr(f.title, lang)}</strong>
         <span className={`srep__class srep__class--${f.classification}`}>{tr(STATUS_TEXT[f.classification], lang)}</span>
         <span className="srep__tag">{tr(STATUS_TEXT[f.certainty], lang)}</span>
+        {f.override && <span className="srep__tag srep__tag--ovr">{txt('ovrTitle', lang)}</span>}
       </header>
+      {/*
+        人工覆核的痕跡。並列「原判定 / 覆核後 / 理由 / 覆核者 / 時間」是刻意的:
+        覆寫的依據是人的判斷而不是執行證據,所以它必須看得出是另一種主張,
+        不能只顯示覆寫後的值 —— 那會讓人以為機器本來就這樣判。
+      */}
+      {f.override && (
+        <div className="srep__ovr">
+          <p className="srep__ovr-line">
+            <span className="srep__ovr-k">{txt('ovrOriginal', lang)}</span>
+            <span className="srep__mono">
+              {tr(STATUS_TEXT[f.override.original.classification], lang)} / {f.override.original.severity}
+            </span>
+            <span aria-hidden="true">→</span>
+            <span className="srep__mono">
+              {tr(STATUS_TEXT[f.classification], lang)} / {f.severity}
+            </span>
+          </p>
+          {f.override.dismissed && <p className="srep__ovr-line">{txt('ovrDismissed', lang)}</p>}
+          <p className="srep__ovr-line">
+            <span className="srep__ovr-k">{txt('ovrReason', lang)}</span>
+            {f.override.reason}
+          </p>
+          <p className="srep__ovr-line srep__ovr-line--meta">
+            <span className="srep__ovr-k">{txt('ovrBy', lang)}</span>
+            {f.override.by} · {new Date(f.override.at).toLocaleString()}
+          </p>
+        </div>
+      )}
       <div className="srep__card-body">
         {img && (
           <button type="button" className="srep__shot" onClick={() => onOpenImage(img)} aria-label={tr(f.title, lang)}>

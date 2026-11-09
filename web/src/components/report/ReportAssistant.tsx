@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import type { StructuredReport } from './reportTypes.ts';
+import type { Finding, StructuredReport } from './reportTypes.ts';
 import { tr, txt, type RLang } from './reportText.ts';
 import { TaskAskPanel } from '../tasks/TaskAskPanel.tsx';
+import { apiPost } from '../../api/client.ts';
 import './ReportAssistant.css';
 
 /**
@@ -20,7 +21,75 @@ import './ReportAssistant.css';
  * 所以這裡沒有任何運算,只有挑選與呈現;數字全部來自 report 物件。
  */
 
-type Tab = 'guide' | 'ask';
+type Tab = 'guide' | 'ask' | 'review';
+
+/**
+ * 判定覆核的一列:確認是缺陷、或標為誤判。
+ *
+ * 理由是必填的,而且送出前就擋 —— 不是等後端退回。報告會原文顯示這段理由,
+ * 沒有理由的覆寫在後端也會被忽略,先擋住比較不會讓使用者白填一次。
+ */
+function ReviewRow({
+  finding,
+  lang,
+  onSubmit,
+}: {
+  finding: Finding;
+  lang: RLang;
+  onSubmit: (body: { findingId: string; reason: string; dismissed?: boolean; classification?: string }) => Promise<void>;
+}) {
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  const send = async (kind: 'confirm' | 'dismiss') => {
+    if (!reason.trim()) { setErr(txt('asstReasonRequired', lang)); return; }
+    setBusy(true);
+    setErr('');
+    try {
+      await onSubmit({
+        findingId: finding.id,
+        reason: reason.trim(),
+        ...(kind === 'dismiss' ? { dismissed: true } : { classification: 'GAME_FAILURE' }),
+      });
+      setReason('');
+    } catch (e) {
+      setErr(txt('asstOverrideFailed', lang) + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <li className="rasst__review">
+      <p className="rasst__review-title">
+        <code>{finding.id}</code> {tr(finding.title, lang)}
+      </p>
+      <p className="rasst__review-meta">{finding.category} / {finding.severity}</p>
+      <label className="rasst__review-label" htmlFor={`rasst-reason-${finding.id}`}>
+        {txt('asstReasonLabel', lang)}
+      </label>
+      <textarea
+        id={`rasst-reason-${finding.id}`}
+        className="rasst__review-input"
+        rows={2}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        disabled={busy}
+      />
+      <p className="rasst__review-hint">{txt('asstReasonHint', lang)}</p>
+      <div className="rasst__review-actions">
+        <button type="button" className="rasst__btn rasst__btn--confirm" disabled={busy} onClick={() => send('confirm')}>
+          {busy ? txt('asstSubmitting', lang) : txt('asstConfirm', lang)}
+        </button>
+        <button type="button" className="rasst__btn rasst__btn--dismiss" disabled={busy} onClick={() => send('dismiss')}>
+          {txt('asstDismiss', lang)}
+        </button>
+      </div>
+      {err && <p className="rasst__review-err">{err}</p>}
+    </li>
+  );
+}
 
 /** 把 {n} / {status} / {total} 這類佔位符換掉(與 reportText 的 txt 搭配)。 */
 function fill(s: string, vars: Record<string, string | number>): string {
@@ -33,6 +102,7 @@ export function ReportAssistant({
   jobId,
   onGoVerdicts,
   onGoSection,
+  onReloaded,
 }: {
   report: StructuredReport;
   lang: RLang;
@@ -45,9 +115,17 @@ export function ReportAssistant({
   onGoVerdicts: (filter: 'all' | 'unclear') => void;
   /** 捲動到某一節(用報告既有的 section id)。 */
   onGoSection: (id: string) => void;
+  /**
+   * 覆核送出後呼叫 —— 由上層重新取整份報告。
+   *
+   * 不在這裡做局部更新是刻意的:覆寫會讓驗收判定、缺陷統計與放行建議一起重算,
+   * 只改本地狀態會讓畫面上的判定與後端算出來的不一致。
+   */
+  onReloaded?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>('guide');
+  const [done, setDone] = useState(0);
   const r = report;
 
   // 待判斷的件數:AI 自己無法確定的缺陷 + 無法判斷的檢查項。
@@ -105,6 +183,16 @@ export function ReportAssistant({
             {txt('asstTabAsk', lang)}
           </button>
         )}
+        {jobId && (
+          <button
+            type="button"
+            className={`rasst__tab${tab === 'review' ? ' is-on' : ''}`}
+            onClick={() => setTab('review')}
+          >
+            {txt('asstTabReview', lang)}
+            {triage.length > 0 && <span className="rasst__tab-n">{triage.length}</span>}
+          </button>
+        )}
       </nav>
 
       <div className="rasst__body">
@@ -113,6 +201,38 @@ export function ReportAssistant({
           不另做一套 —— 兩套對話會讓同一個任務出現兩份歷史。
         */}
         {tab === 'ask' && jobId && <TaskAskPanel jobId={jobId} lang={lang} embedded />}
+
+        {/*
+          判定覆核:只列待判讀的缺陷 —— 那是系統自己說「無法確認」的那些,
+          也就是最需要人看一眼的。已確認的缺陷要調整的話從缺陷明細進去,
+          不放在這裡,避免這份清單變成「可以隨手改掉任何判定」的入口。
+        */}
+        {tab === 'review' && jobId && (
+          <>
+            <p className="rasst__card-text">{txt('asstReviewIntro', lang)}</p>
+            {triage.length === 0 ? (
+              <p className="rasst__card-text">{txt('asstReviewNone', lang)}</p>
+            ) : (
+              <ul className="rasst__reviews">
+                {triage.map((f) => (
+                  <ReviewRow
+                    key={f.id}
+                    finding={f}
+                    lang={lang}
+                    onSubmit={async (bodyIn) => {
+                      await apiPost(`/tasks/${encodeURIComponent(jobId)}/report-overrides`, bodyIn);
+                      // 覆寫會讓驗收判定重算,所以重新取整份報告而不是只改本地狀態 ——
+                      // 局部更新會讓畫面上的判定與後端算出來的不一致。
+                      setDone((n) => n + 1);
+                      onReloaded?.();
+                    }}
+                  />
+                ))}
+              </ul>
+            )}
+            {done > 0 && <p className="rasst__review-ok">{txt('asstOverridden', lang)} · {done}</p>}
+          </>
+        )}
 
         {tab === 'guide' && (
           <>
