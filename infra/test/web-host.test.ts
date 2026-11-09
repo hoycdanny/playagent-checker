@@ -120,3 +120,25 @@ describe('startWebRun:既有行為不能被改壞', () => {
     expect(res.ecsTaskArn).toBe('arn:aws:ecs:us-west-2:1:task/abc');
   });
 });
+
+describe('startWebRun:弱網條件要真的到得了 runner', () => {
+  test('案例宣告了條件 → PA_NETWORK 帶進容器', async () => {
+    const { startWebRun } = await loadWebHost();
+    await startWebRun({ ...BASE, network: 'latency=1000,down=400' });
+    expect(envOf(sent[0]!).PA_NETWORK).toBe('latency=1000,down=400');
+  });
+
+  test('沒宣告就不注入,讓「沒要求」在 task 定義上看得出來', async () => {
+    const { startWebRun } = await loadWebHost();
+    await startWebRun({ ...BASE });
+    expect(envOf(sent[0]!).PA_NETWORK).toBeUndefined();
+  });
+
+  test('engine 不改寫條件字串:原樣交給 runner 的解析器', async () => {
+    const { startWebRun } = await loadWebHost();
+    // loss 這個後端做不到,但擋掉它是 runner 的職責(要寫進 unsupported),不是 engine 的。
+    // engine 若在這裡先過濾,報告就不會知道案例曾經要求過丟包。
+    await startWebRun({ ...BASE, network: 'latency=500,loss=5' });
+    expect(envOf(sent[0]!).PA_NETWORK).toBe('latency=500,loss=5');
+  });
+});

@@ -318,12 +318,36 @@ retry 3 aws s3 cp "s3://$BUCKET/_engine/runner/" /opt/runner/ --recursive --only
 cp /opt/runner/exploration-runner.package.json /opt/runner/package.json
 (cd /opt/runner && retry 3 npm install --omit=dev --no-audit --no-fund)
 TASK=$(jq -r '.caseTask // empty' /tmp/job.json)
+
+# --- 弱網條件 ---
+# 案例宣告的網路劣化條件(engine 已把案例 YAML 的 network: 寫進 job.json)。
+# 這裡只做形狀把關 —— 語意解析由 runner 的 parseNetworkCondition 負責,一處實作。
+# 不合形狀就當作沒宣告:半個條件比沒有條件更危險。
+NETWORK=$(jq -r '.network // empty' /tmp/job.json 2>/dev/null || echo "")
+if [ -n "$NETWORK" ] && ! echo "$NETWORK" | grep -Eq '^[A-Za-z0-9=,.%_-]+$'; then
+  echo "!!! job.json 的 network 形狀不合(忽略):$NETWORK"
+  NETWORK=""
+fi
+if [ -n "$NETWORK" ]; then
+  echo "弱網條件:$NETWORK"
+  # tc / nsenter 來自 iproute2 與 util-linux;ping 用來在施加後獨立量測 RTT。
+  retry 5 apt-get install -y --no-install-recommends iproute2 iputils-ping || true
+  # netem 需要 sch_netem。AWS 的 Ubuntu 核心常把它放在 linux-modules-extra,
+  # 預設沒裝 —— 裝不到也不在這裡中止:runner 會把「施加失敗」寫進報告,
+  # 而報告據此不主張弱網已驗。靜默跳過才是真正的問題。
+  if ! modprobe sch_netem 2>/dev/null; then
+    retry 3 apt-get install -y --no-install-recommends "linux-modules-extra-$(uname -r)" || true
+    modprobe sch_netem 2>/dev/null || echo "!!! sch_netem 不可用,弱網條件會施加失敗(報告將標明未施加)"
+  fi
+fi
+
 writestatus running "AI agent starting" 0; uplog
 PA_DRIVER=adb PA_ADB_SERIAL=127.0.0.1:5555 PA_PLATFORM=android \
 PA_JOB="$JOB_ID" PA_TENANT="$TENANT_ID" PA_APP="$APP_ID" PA_BUCKET="$BUCKET" PA_PREFIX="$PREFIX" \
 PA_DATA_REGION="$AWS_DEFAULT_REGION" PA_VLM="$VLM_MODEL" PA_AGENT_MODEL="$AGENT_MODEL" PA_SUBAGENT_MODEL="$SUBAGENT_MODEL" \
 PA_PKG="$PKG" PA_TASK="$TASK" PA_MAXSTEPS="$MAX_STEPS" PA_DEVICE_MODEL="Redroid Android $AV ($(uname -m)) ${RW}x${RH}" \
 PA_DEADLINE_MS="$DEADLINE_MS" \
+PA_NETWORK="$NETWORK" PA_NETWORK_CONTAINER=android \
 node /opt/runner/explorationRunner.mjs > /var/log/runner.log 2>&1 || true
 aws s3 cp /var/log/runner.log "s3://$BUCKET/$PREFIX/runner.log" 2>/dev/null || true
 # runner 沒寫終態(例如啟動就崩潰)才補 error;已有終態不覆蓋。

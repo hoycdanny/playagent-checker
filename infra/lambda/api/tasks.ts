@@ -55,6 +55,12 @@ export interface JobRecord {
   artifactLabel?: string;
   /** 案例任務描述(emulator runner 給 VLM 的目標)。 */
   caseTask?: string;
+  /**
+   * 案例宣告的弱網條件(例 'latency=1000,loss=5')。
+   * 提交時從案例 YAML 解析一次並快照在此,emulator 的 run.sh 與 web 的 engine 都讀這一份 ——
+   * 兩邊各自解析會讓同一個案例在不同後端得到不同條件。
+   */
+  network?: string;
   /** guest ABI(emulator 選主機架構;預設 arm64-v8a)。 */
   abi?: string;
   /** Android 包名(OBB 推送與自動啟動遊戲用)。 */
@@ -416,7 +422,7 @@ export async function createJob(
   tenantId: string,
   input: SubmitInput,
   artifactVersion?: string,
-  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string; scripted?: boolean; submittedBy?: string; submittedBySub?: string },
+  extra?: { artifactKey?: string; artifactLabel?: string; caseTask?: string; network?: string; abi?: string; package?: string; platform?: string; genres?: string[]; kbSnapshot?: KbSnapshot[]; controls?: JobControls; caseVersion?: string; caseName?: string; scripted?: boolean; submittedBy?: string; submittedBySub?: string },
 ): Promise<JobRecord> {
   const jobId = newJobId();
   const record: JobRecord = {
@@ -450,6 +456,7 @@ export async function createJob(
     ...(extra?.artifactKey ? { artifactKey: extra.artifactKey } : {}),
     ...(extra?.artifactLabel ? { artifactLabel: extra.artifactLabel } : {}),
     ...(extra?.caseTask ? { caseTask: extra.caseTask } : {}),
+    ...(extra?.network ? { network: extra.network } : {}),
     ...(extra?.abi ? { abi: extra.abi } : {}),
     ...(extra?.package ? { package: extra.package } : {}),
     ...(extra?.platform ? { platform: extra.platform } : {}),

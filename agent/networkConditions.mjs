@@ -137,15 +137,21 @@ export function describeCondition(cond) {
  * `verified` 刻意預設 false:CDP 接受參數不代表實際行為達到那個延遲。
  * 要宣稱已驗證,得有獨立量測(例如對已知端點計時)把 measuredRttMs 填進來。
  * 沒有量測就誠實標 false —— 報告寧可說「已套用、未獨立驗證」。
+ *
+ * 但「有量測」也不足以當成驗過:要求 1000ms 卻量到 3ms,代表條件沒真的生效。
+ * 所以呼叫端可以傳明確的 `verified`(例如 netem 路徑比對過量值與要求值),
+ * 只有在沒傳時才退回「有量測即視為有佐證」。
  */
-export function conditionRecord({ requested, applied, unsupported, ok, error, measuredRttMs }) {
-    return {
+export function conditionRecord({ requested, applied, unsupported, ok, error, measuredRttMs, baselineRttMs, verified }) {
+  const hasMeasure = typeof measuredRttMs === 'number';
+  return {
     requested: requested ?? null,
     applied: ok ? (applied ?? null) : null,
     unsupported: unsupported ?? [],
     ok: Boolean(ok),
-    verified: typeof measuredRttMs === 'number',
-    ...(typeof measuredRttMs === 'number' ? { measuredRttMs } : {}),
+    verified: Boolean(ok) && (typeof verified === 'boolean' ? verified : hasMeasure),
+    ...(hasMeasure ? { measuredRttMs } : {}),
+    ...(typeof baselineRttMs === 'number' ? { baselineRttMs } : {}),
     ...(error ? { error: String(error) } : {}),
     summary: ok ? describeCondition(applied) : null,
   };

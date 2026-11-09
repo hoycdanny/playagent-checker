@@ -14,12 +14,35 @@ function jobPrefix(tenantId: string, jobId: string): string {
   return `tenants/${tenantId}/jobs/${jobId}/`;
 }
 
+/**
+ * 案例宣告的弱網條件 → 可安全注入容器環境變數的字串。
+ *
+ * 這是一個信任邊界:案例 YAML 是租戶自己寫的內容,而這個值會成為 runner 容器的
+ * 環境變數。所以這裡只做「形狀把關」,不做語意解析 ——
+ *
+ *   - 語意解析只有一個地方(runner 的 parseNetworkCondition),重複實作遲早會分歧,
+ *     而分歧的後果是報告主張一個沒施加的條件。
+ *   - 把關的理由不是怕解析錯,是怕超長或含控制字元的值被塞進容器環境。
+ *
+ * 看不懂形狀就回 null 並讓呼叫端記一筆,不猜、也不悄悄截斷。
+ */
+const NETWORK_SPEC_MAX = 120;
+export function sanitizeNetworkSpec(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const text = raw.trim().replace(/^["']|["']$/g, '').trim();
+  if (!text) return null;
+  if (text.length > NETWORK_SPEC_MAX) return null;
+  // 弱網條件的合法字元:鍵=值、逗號分隔、單位符號。其餘(含空白與控制字元)一律不放行。
+  if (!/^[A-Za-z0-9=,.%_-]+$/.test(text)) return null;
+  return text;
+}
+
 export async function readCaseTarget(
   s3: S3Client,
   bucket: string,
   tenantId: string,
   jobId: string,
-): Promise<{ url: string; task: string }> {
+): Promise<{ url: string; task: string; network: string | null }> {
   const jobObj = await s3.send(
     new GetObjectCommand({ Bucket: bucket, Key: `${jobPrefix(tenantId, jobId)}job.json` }),
   );
@@ -30,6 +53,8 @@ export async function readCaseTarget(
     identifier?: string;
     /** API 提交時已正確解析好的案例 task(含多行 task: | 內容,如登入帳密/步驟)。 */
     caseTask?: string;
+    /** 弱網條件(job 層覆寫;通常由案例 YAML 的 network: 帶入)。 */
+    network?: string;
   };
   let yaml = '';
   try {
@@ -52,9 +77,13 @@ export async function readCaseTarget(
     typeof job.caseTask === 'string' && job.caseTask.trim()
       ? job.caseTask
       : extractYamlTask(yaml);
+  // 弱網條件:job.json 覆寫 > 案例 YAML 的 network:。兩者都沒有 = 不施加任何條件。
+  const netMatch = /^network:\s*(\S+)/im.exec(yaml);
+  const network = sanitizeNetworkSpec(job.network) ?? sanitizeNetworkSpec(netMatch?.[1]);
   return {
     url: caseUrl || appUrl || 'https://example.com',
     task,
+    network,
   };
 }
 

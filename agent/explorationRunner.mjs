@@ -27,6 +27,7 @@
  * 容器內做——engine Lambda 512MB/5 分無法承載。engine 只負責起這個 task。
  */
 import { createWriteStream } from 'node:fs';
+import { execFile } from 'node:child_process';
 import { pipeline } from 'node:stream/promises';
 import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { BedrockRuntimeClient, InvokeModelCommand, ConverseCommand } from '@aws-sdk/client-bedrock-runtime';
@@ -67,6 +68,8 @@ import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructur
 import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, coolSpinOp, createReflexState, isPaidSpinTarget, opFromCmd, parseSpinCount, rtpSummary, spinCooledDown } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
 import { PerfMonitor } from './perfMonitor.mjs';
+import { conditionRecord, parseNetworkCondition } from './networkConditions.mjs';
+import { applyNetem, clearNetem } from './netemShaper.mjs';
 
 let APPIUM_URL = process.env.PA_APPIUM_URL;
 let SESSION_ARN = process.env.PA_SESSION_ARN;
@@ -82,6 +85,32 @@ const PLATFORM = process.env.PA_PLATFORM === 'ios' ? 'ios' : process.env.PA_PLAT
 // windows(GameLift Streams Windows 主機,runner 與遊戲在同一個桌面 session,輸入 / 截圖走 WinHelper.cs)。
 const DRIVER = process.env.PA_DRIVER === 'adb' ? 'adb' : process.env.PA_DRIVER === 'windows' ? 'windows' : 'appium';
 const ADB_SERIAL = process.env.PA_ADB_SERIAL || '127.0.0.1:5555';
+// 弱網條件,例:'latency=1000,loss=5'、'offline'。空 = 不施加。
+// 只有 adb 驅動(Redroid 容器,runner 與容器同主機)能施加;其餘後端會誠實回報做不到。
+const NETWORK_SPEC = (process.env.PA_NETWORK || '').trim();
+// 要塑形的容器名。runner 跑在主機上,塑形只套進這個容器的網路命名空間 ——
+// 主機自己的 Bedrock / S3 流量不能被劣化,否則 VLM 逾時與證據上傳失敗會被
+// 當成「遊戲在弱網下壞掉」。
+const NETWORK_CONTAINER = process.env.PA_NETWORK_CONTAINER || 'android';
+
+/**
+ * 給流量塑形用的命令執行器。
+ *
+ * 用 execFile(參數以陣列傳)而不是 shell 字串:塑形參數雖然都已正規化成數字,
+ * 但走 shell 等於多開一條注入路徑,沒有必要。
+ * 失敗不丟例外 —— 回傳碼與輸出要能原樣寫進報告的失敗原因。
+ */
+function shellRun(cmd, args) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 30_000, encoding: 'utf8' }, (err, stdout, stderr) => {
+      resolve({
+        code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+        stdout: stdout ?? '',
+        stderr: stderr ?? '',
+      });
+    });
+  });
+}
 const JOB = process.env.PA_JOB;
 const BUCKET = process.env.PA_BUCKET;
 const PREFIX = process.env.PA_PREFIX;
@@ -906,6 +935,52 @@ async function main() {
   console.log('VLM 座標系', vlmCoordSystem, normCoord ? '(回 0~1000,runner 換算像素)' : '(絕對像素)');
   // 操作行為:允許的動作集合(null = 未指定,不限定)。
   const allowedActions = controls ? new Set(controls.allowedActions) : null;
+
+  // --- 弱網條件 ---
+  // 在第一次截圖之前施加,整個探索迴圈都在該條件下跑。紀錄寫進 report.networkConditions,
+  // 報告的「適用邊界」據此決定能不能主張「這個網路條件下驗過」。
+  //
+  // 關鍵:施加失敗、或這個後端做不到,都必須留下紀錄。最糟的結果是案例寫了
+  // 延遲 1000ms、實際沒生效、報告照樣寫「弱網通過」—— 那比測不到更糟。
+  let networkConditions = null;
+  if (NETWORK_SPEC) {
+    const cond = parseNetworkCondition(NETWORK_SPEC);
+    if (!cond) {
+      console.log(`[弱網] PA_NETWORK 無法解析:${NETWORK_SPEC};不施加任何條件`);
+    } else if (DRIVER !== 'adb') {
+      // Device Farm 的 Remote Access Session 不接受網路設定檔,Windows 主機需封包過濾驅動。
+      // 兩者都做不到,但案例要求過這件事必須進報告,不能靜默忽略。
+      networkConditions = conditionRecord({
+        requested: cond,
+        ok: false,
+        error: DRIVER === 'windows'
+          ? 'Windows 後端無流量塑形能力(需封包過濾驅動),無法施加網路條件'
+          : 'Device Farm 真機後端無法施加網路條件(Remote Access Session 不接受網路設定檔)',
+      });
+      console.log(`[弱網] 此後端(${DRIVER})做不到施加網路條件;報告會標明未施加`);
+    } else {
+      const res = await applyNetem({ container: NETWORK_CONTAINER, cond, run: shellRun });
+      networkConditions = conditionRecord({
+        requested: cond,
+        applied: res.applied,
+        unsupported: res.unsupported,
+        ok: res.ok,
+        ...(res.error ? { error: res.error } : {}),
+        ...(typeof res.measuredRttMs === 'number' ? { measuredRttMs: res.measuredRttMs } : {}),
+        ...(typeof res.baselineRttMs === 'number' ? { baselineRttMs: res.baselineRttMs } : {}),
+        ...(typeof res.verified === 'boolean' ? { verified: res.verified } : {}),
+      });
+      if (res.ok) {
+        console.log(`[弱網] 已施加:${networkConditions.summary}`
+          + (networkConditions.verified
+            ? `(實測 RTT ${res.measuredRttMs}ms,施加前 ${res.baselineRttMs ?? '?'}ms)`
+            : '(未經獨立量測確認)'));
+        for (const u of res.unsupported) console.log(`[弱網] 做不到:${u.key} —— ${u.reason}`);
+      } else {
+        console.log(`[弱網] 套用失敗(${res.error ?? '未知原因'});報告不會主張此條件已套用`);
+      }
+    }
+  }
   if (controls) console.log('操作行為', controls.ids.join(','), `(${controls.source})`, '可用動作', controls.allowedActions.join('/'));
   // 測項為主:視覺 Agent 逐項判定完成、每項有時間盒(PA_ITEM_STEPS 可覆寫,預設 20 次操作)。
   scriptTracker = scripted
@@ -3512,6 +3587,9 @@ async function main() {
     ...(rtp ? { rtp } : {}),
     ...(slotCaptureSummary ? { slotCapture: slotCaptureSummary } : {}),
     ...(perfShell ? { perfMeta: perfMon.meta(launchInfo) } : {}),
+    // 弱網條件的施加紀錄(要求什麼、實際套了什麼、哪一項做不到、有沒有量測佐證)。
+    // 報告的適用邊界要據此判斷能不能主張「這個網路條件下驗過」。
+    ...(networkConditions ? { networkConditions } : {}),
     // tokens = 三個 Agent 合計;tokensBySeat 分開記(花費依各 Agent 的模型單價分別計算)。
     ...(team ? {
       tokensBySeat: { vlm: { ...tok }, agent: { ...team.tokens.agent }, subagent: { ...team.tokens.subagent } },
@@ -3524,6 +3602,11 @@ async function main() {
     generatedAt: new Date().toISOString() };
   await s3put(`${PREFIX}/report.json`, JSON.stringify(report), 'application/json').catch(() => {});
   await writeStatus(finalState, finalMsg, steps.length);
+  // 解除流量塑形。主機隨任務結束自我終結,所以這主要是為了快照打包與日誌收尾
+  // 不要在劣化的網路下進行;清不掉不影響任務結果。
+  if (networkConditions?.ok) {
+    await clearNetem({ container: NETWORK_CONTAINER, run: shellRun }).catch(() => {});
+  }
   await client.quit().catch(() => {});
   // runner 自建的 session 由 runner 收尾(釋放真機,停止計費);engine 預建的則不動。
   if (ownsSession) await stopSelfOwnedSession();

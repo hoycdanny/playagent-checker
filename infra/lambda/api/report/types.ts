@@ -560,9 +560,14 @@ export interface NetworkConditionRecord {
   applied: Record<string, number | boolean> | null;
   unsupported: Array<{ key: string; reason: string }>;
   ok: boolean;
-  /** 是否有獨立量測佐證(CDP 接受參數不等於行為達到該延遲)。 */
+  /**
+   * 是否有獨立量測佐證,且量值確認條件真的生效。
+   * 接受參數(CDP)或 tc 回傳 0 都不算 —— 要求 1000ms 卻量到 3ms 必須是 false。
+   */
   verified: boolean;
   measuredRttMs?: number;
+  /** 施加前的基準 RTT(ms),供讀者核對量測是否合理。 */
+  baselineRttMs?: number;
   error?: string;
   summary: string | null;
 }

@@ -2007,6 +2007,24 @@ class BadRequestError extends Error {}
  * 舊版用 /task:\s*(.+)/ 只抓第一行,對 `task: |` 只會抓到 "|",導致多行任務(含登入帳密/步驟)
  * 整段遺失。此函式正確處理區塊純量。回傳去除共同縮排後的多行字串;無 task 則回 undefined。
  */
+/**
+ * 從案例 YAML 取出弱網條件(`network: latency=1000,loss=5`)。
+ *
+ * 為什麼在提交時就解析進 job.json:兩個後端拿這個值的路徑不同 ——
+ * emulator 的 run.sh 直接讀 job.json,web 的 engine 走 readCaseTarget。
+ * 如果各自去解析案例 YAML,同一個案例可能在兩個後端得到不同條件,
+ * 而報告會以為自己驗的是案例寫的那一個。所以這裡解析一次,兩邊都讀同一份。
+ *
+ * 只取行內寫法:弱網條件是一行鍵值,不需要區塊純量。
+ * 形狀把關(長度與字元)由 engine 的 sanitizeNetworkSpec 負責,這裡只負責取出來。
+ */
+export function extractCaseNetwork(yaml: string): string | undefined {
+  const m = /^network:\s*(\S+)\s*$/im.exec(yaml);
+  if (!m) return undefined;
+  const value = m[1]!.replace(/^["']|["']$/g, '').trim();
+  return value || undefined;
+}
+
 export function extractCaseTask(yaml: string): string | undefined {
   const lines = yaml.split(/\r?\n/);
   const headIdx = lines.findIndex((l) => /^task:\s*/.test(l));
@@ -2493,6 +2511,7 @@ async function handleSubmitTask(
   // 任務目標取自「本次使用的版本」內容(不是 head,避免提交瞬間被改)。
   const caseYamlText = caseRecord.yaml;
   let caseTask: string | undefined = extractCaseTask(caseYamlText);
+  const caseNetwork: string | undefined = extractCaseNetwork(caseYamlText);
   // 「以測項為主」:結構化測項(items:)、分步驟的 task 或有驗收條件(assertions:)→ 標記 scripted,
   // 交給引擎 → runner 逐項判定、全部達成就結束,知識庫只用來看懂畫面(見 scriptedCase.ts)。
   const scripted = isScriptedCase(caseYamlText, caseTask);
@@ -2527,6 +2546,8 @@ async function handleSubmitTask(
       ...(jobArtifactKey ? { artifactKey: jobArtifactKey } : {}),
       ...(chosenBuild?.label ? { artifactLabel: chosenBuild.label } : {}),
       ...(caseTask ? { caseTask } : {}),
+      // 弱網條件:案例宣告什麼就快照進 job.json,兩個後端讀同一份。
+      ...(caseNetwork ? { network: caseNetwork } : {}),
       ...(pkg ? { package: pkg } : {}),
       ...(appRecord?.platform ? { platform: appRecord.platform } : {}),
       ...(genres.length > 0 ? { genres } : {}),

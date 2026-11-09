@@ -29,9 +29,11 @@ export interface NetworkConditionRecord {
   applied: NetworkCondition | null;
   unsupported: UnsupportedItem[];
   ok: boolean;
-  /** CDP 接受參數不等於行為達到該延遲;有獨立量測才為 true。 */
+  /** 接受參數不等於行為達到該延遲;有獨立量測且量值確認相符才為 true。 */
   verified: boolean;
   measuredRttMs?: number;
+  /** 施加前的基準 RTT(ms),供讀者自行核對量測是否合理。 */
+  baselineRttMs?: number;
   error?: string;
   summary: string | null;
 }
@@ -62,4 +64,7 @@ export function conditionRecord(args: {
   ok?: boolean;
   error?: unknown;
   measuredRttMs?: number;
+  baselineRttMs?: number;
+  /** 明確的驗證結論;未給時退回「有量測即視為有佐證」。 */
+  verified?: boolean;
 }): NetworkConditionRecord;

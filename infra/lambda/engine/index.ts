@@ -452,7 +452,7 @@ export async function handler(event: EngineEvent): Promise<void> {
       // 真實瀏覽器測試:engine 只起 Fargate task(headless Chromium),task 內的 webExplorationRunner
       // 跑 screenshot→VLM→click 迴圈並即時寫 S3(截圖/step/trace/report/終態)。engine 不 block。
       // 起始網址:case YAML 的 url: > App 測試網址(job.package/identifier)> 佔位(readCaseTarget 解析)。
-      const { url, task } = await resolveWebTarget(s3, BUCKET, event.tenantId, event.jobId);
+      const { url, task, network } = await resolveWebTarget(s3, BUCKET, event.tenantId, event.jobId);
       const meta = await readJobMeta(s3, BUCKET, event.tenantId, event.jobId);
       const { startWebRun } = await import('./webHost.js');
       await startWebRun({
@@ -468,11 +468,13 @@ export async function handler(event: EngineEvent): Promise<void> {
         ...(seatModel('subagent') ? { subagentModel: seatModel('subagent')! } : {}),
         ...(task ? { caseTask: task } : {}),
         ...(event.maxSteps && event.maxSteps > 0 ? { maxSteps: event.maxSteps } : {}),
+        // 弱網條件:案例宣告什麼就傳什麼,施加成敗由 runner 寫進報告。
+        ...(network ? { network } : {}),
       });
       await writeStatus(s3, BUCKET, event.tenantId, {
         jobId: event.jobId,
         state: 'running',
-        message: `網頁探索 task 已啟動(${url})`,
+        message: `網頁探索 task 已啟動(${url}${network ? `,弱網 ${network}` : ''})`,
         updatedAt: new Date().toISOString(),
       });
     } else if (event.backend === 'emulator') {

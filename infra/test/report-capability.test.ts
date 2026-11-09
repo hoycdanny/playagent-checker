@@ -58,16 +58,26 @@ describe('關鍵缺口要如實標示', () => {
     expect(c.gap!.zh).toContain('核定文案');
   });
 
-  test('網路:能施加的與施加不了的分開寫,並點明丟包任何後端都做不到', () => {
+  test('網路:兩個後端的能力不同,差別剛好在丟包,所以要分開寫', () => {
     const c = capabilityOf('M09')!;
     expect(c.level).toBe('partial');
-    // 網頁後端現在真的能施加延遲與頻寬
+    // Android 容器用流量塑形,做得到延遲、頻寬,**也做得到丟包**
     expect(c.covers.zh).toContain('延遲');
     expect(c.covers.zh).toContain('頻寬');
-    // 但丟包與行動裝置仍做不到,而且要講清楚
+    expect(c.covers.zh).toContain('封包遺失率');
+    // 但不能寫成「都做得到」:網頁後端的丟包仍是缺口,而且要指名是哪個後端
+    expect(c.gap!.zh).toContain('網頁後端');
     expect(c.gap!.zh).toContain('封包遺失率');
-    expect(c.gap!.zh).toContain('行動裝置');
-    expect(c.fallback!.zh).toContain('流量塑形');
+    // 容器的「離線」是全丟封包,不是鏈路斷開 —— 這個差別會讓測斷網提示的測項測不到,
+    // 屬於缺口而不是能力,必須寫在 gap 裡。
+    expect(c.gap!.zh).toContain('全丟');
+    expect(c.fallback!.zh).toContain('封包過濾驅動');
+  });
+
+  test('網路:宣告裡不能把「工具回報成功」講成已驗', () => {
+    const c = capabilityOf('M09')!;
+    // 量測不符時的處理必須寫出來,否則讀者會以為施加成功就等於條件生效
+    expect(c.fallback!.zh).toContain('未經獨立量測確認');
   });
 
   test('設備周邊:沒有實體 I/O,不能假裝部分可行', () => {

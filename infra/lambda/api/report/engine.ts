@@ -1070,12 +1070,21 @@ function buildClaimScope(args: {
   const networkObserved = scope.find((s) => s.id === 'network')?.status === 'executed';
   if (network?.ok && network.applied) {
     const unmet = network.unsupported.map((u) => u.key).join('、');
+    // 施加成功還要分「有獨立量測確認」與「只是工具回報成功」。後者常見於
+    // tc/CDP 收下參數但 qdisc 沒套到實際路徑上 —— 工具回 0,條件其實沒生效。
+    // 兩者的證據強度差很多,所以寫在同一句話裡讓讀者看得到差別。
+    const confirm = network.verified
+      ? L(
+        `(延遲經獨立量測確認:實測 ${network.measuredRttMs}ms${typeof network.baselineRttMs === 'number' ? `,施加前 ${network.baselineRttMs}ms` : ''})`,
+        ` (latency independently measured at ${network.measuredRttMs}ms${typeof network.baselineRttMs === 'number' ? `, ${network.baselineRttMs}ms before shaping` : ''})`,
+      )
+      : L('(僅工具回報施加成功,未經獨立量測確認)', ' (reported as applied by the tooling but not independently measured)');
     notVaried.push({
       id: 'network',
       label: L('網路條件', 'Network condition'),
       note: unmet
-        ? L(`本次已施加 ${network.summary};但要求的 ${unmet} 這個後端做不到,該項不得視為已驗`, `The run imposed ${network.summary}; the requested ${unmet} is not supported on this backend and must not be treated as verified`)
-        : L(`本次已施加 ${network.summary};結論僅適用於這個網路條件,其他延遲或頻寬未涵蓋`, `The run imposed ${network.summary}; the verdict applies to this network condition only and others are not covered`),
+        ? L(`本次已施加 ${network.summary}${confirm.zh};但要求的 ${unmet} 這個後端做不到,該項不得視為已驗`, `The run imposed ${network.summary}${confirm.en}; the requested ${unmet} is not supported on this backend and must not be treated as verified`)
+        : L(`本次已施加 ${network.summary}${confirm.zh};結論僅適用於這個網路條件,其他延遲或頻寬未涵蓋`, `The run imposed ${network.summary}${confirm.en}; the verdict applies to this network condition only and others are not covered`),
     });
   } else if (network && !network.ok) {
     notVaried.push({

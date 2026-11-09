@@ -37,6 +37,11 @@ export interface WebRunParams {
   caseTask?: string;
   /** 步數上限;未給代表無上限。 */
   maxSteps?: number;
+  /**
+   * 弱網條件(案例宣告,例 'latency=1000,down=400')。
+   * engine 不解析語意,原字串交給 runner 的 parseNetworkCondition;未給 = 不施加。
+   */
+  network?: string;
 }
 
 export interface WebRunResult {
@@ -73,6 +78,9 @@ export async function startWebRun(params: WebRunParams): Promise<WebRunResult> {
     ...(params.maxSteps && params.maxSteps > 0
       ? [{ name: 'PA_MAXSTEPS', value: String(params.maxSteps) }]
       : []),
+    // 弱網條件:只在案例真的宣告時注入。空字串與未注入對 runner 同義(不施加),
+    // 但不注入可以讓「沒要求」與「要求了但被擋掉」在 task 定義上看得出差別。
+    ...(params.network ? [{ name: 'PA_NETWORK', value: params.network }] : []),
   ];
 
   const runResp = await ecs.send(
