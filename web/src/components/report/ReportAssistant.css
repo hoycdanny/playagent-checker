@@ -1,0 +1,248 @@
+/*
+ * 報告助手。
+ *
+ * 配色一律用 tokens.css 的變數,不寫死色值 —— 深色主題靠同一組變數自動跟上
+ * (--status-pass 在淺色是 #1a7f3c、深色是 #4ec97a)。寫死會讓深色主題壞掉。
+ *
+ * 強調方式刻意用「白底 + 3px 左側狀態色條」而不是整塊染色:這份報告資料密度高,
+ * 大面積色塊會蓋過真正要讀的數字。
+ */
+
+.rasst__launch {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  box-shadow: var(--shadow-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.rasst__launch:hover { background: var(--brand-hover); }
+.rasst__launch:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.rasst__launch-mark {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgb(255 255 255 / 22%);
+  font-size: 0.625rem;
+  font-weight: 700;
+}
+
+/* 計數是「需要你判斷幾件」,用 fail 色;但底是白的,不做大面積紅 */
+.rasst__count {
+  min-width: 18px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--status-fail);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.rasst {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: min(420px, calc(100vw - 2 * var(--space-5)));
+  max-height: min(640px, calc(100vh - 2 * var(--space-5)));
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-md);
+}
+
+.rasst__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  /* 左側品牌色條:與卡片的狀態色條同一套語言 */
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+
+.rasst__title {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rasst__x {
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: var(--space-1);
+}
+
+.rasst__x:hover { color: var(--text-primary); }
+.rasst__x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+.rasst__tabs {
+  display: flex;
+  gap: var(--space-4);
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.rasst__tab {
+  padding: var(--space-2) 0;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+}
+
+.rasst__tab.is-on {
+  color: var(--text-primary);
+  font-weight: 600;
+  border-bottom-color: var(--brand);
+}
+
+.rasst__body {
+  overflow-y: auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.rasst__card {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--border-strong);
+}
+
+/* 狀態色條:只換左邊那 3px,卡片本身維持白底 */
+.rasst__card--pass { box-shadow: inset 3px 0 0 var(--status-pass); }
+.rasst__card--pass_with_risk { box-shadow: inset 3px 0 0 var(--status-error); }
+.rasst__card--fail { box-shadow: inset 3px 0 0 var(--status-fail); }
+.rasst__card--blocked { box-shadow: inset 3px 0 0 var(--status-cancelled); }
+.rasst__card--limit { box-shadow: inset 3px 0 0 var(--status-error); }
+
+.rasst__card-title {
+  margin: 0 0 var(--space-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.rasst__card-text {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.rasst__facts,
+.rasst__limits,
+.rasst__legend {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.rasst__facts li,
+.rasst__limits li { line-height: 1.55; }
+.rasst__limits li + li { margin-top: var(--space-1); }
+.rasst__limits b { color: var(--text-primary); font-weight: 600; }
+
+.rasst__link {
+  margin-top: var(--space-2);
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--brand);
+  font: inherit;
+  font-size: 0.6875rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rasst__link:hover { text-decoration: underline; }
+.rasst__link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+
+/* 三段條:flex-grow 由數量決定,所以比例永遠正確,不需要算百分比 */
+.rasst__bar {
+  display: flex;
+  overflow: hidden;
+  height: 20px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+}
+
+.rasst__seg {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--brand-contrast);
+}
+
+.rasst__seg--auto { background: var(--status-pass); }
+.rasst__seg--partial { background: var(--status-error); }
+.rasst__seg--none { background: var(--status-cancelled); }
+
+/* flex-grow 為 0 的段不佔空間,數字也不該露出來 */
+.rasst__seg[style*='flex-grow: 0'] { display: none; }
+
+.rasst__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.rasst__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.rasst__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.rasst__dot--auto { background: var(--status-pass); }
+.rasst__dot--partial { background: var(--status-error); }
+.rasst__dot--none { background: var(--status-cancelled); }
+
+.rasst__warn {
+  margin: var(--space-2) 0 0;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  color: var(--status-error);
+}
+
+/* 列印報告時助手不該出現 */
+@media print {
+  .rasst,
+  .rasst__launch { display: none; }
+}

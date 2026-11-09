@@ -4,6 +4,7 @@ import type { MessageKey } from '../../i18n/messages.ts';
 import { CaseVersionBadge } from '../cases/CaseVersions.tsx';
 import { AcceptancePanel } from './AcceptancePanel.tsx';
 import { QaDocsPanel } from './QaDocsPanel.tsx';
+import { ReportAssistant } from './ReportAssistant.tsx';
 import { SlotCapturePanel } from './SlotCapturePanel.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { ReportChart } from './ReportChart.tsx';
@@ -832,6 +833,18 @@ export function StructuredReportView({
         {appendix}
       </section>
       </div>
+
+      {/*
+        報告助手:29 個章節權重相同,讀者不會知道先看哪裡。助手把「結論憑什麼 /
+        不涵蓋什麼 / 平台做不到什麼」提到最前面,但不產生任何新結論 ——
+        它只重新排序報告已經算出來的東西。
+      */}
+      <ReportAssistant
+        report={r}
+        lang={lang}
+        onGoVerdicts={(f) => goVerdicts(f)}
+        onGoSection={scrollTo}
+      />
     </div>
   );
 }

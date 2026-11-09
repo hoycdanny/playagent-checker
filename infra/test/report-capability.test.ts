@@ -113,6 +113,22 @@ describe('接進結案報告', () => {
     expect(m08['gap']).not.toBe('—');
   });
 
+  test('能力統計以結構化數字輸出,前端不必去比對本地化的表格文字', () => {
+    // 前端如果靠讀 T07 表格的 level 欄(「可自動執行」/「部分(有缺口)」)來分類,
+    // 換語系或改字就會靜默算成 0 —— 而 0 會被讀成「沒有缺口」,與事實相反。
+    const set = buildQaDocumentSet(report());
+    expect(set.capability).toBeDefined();
+    const c = set.capability;
+    expect(c.automated + c.partial + c.not_supported).toBe(c.total);
+    expect(c.total).toBe(19);
+    // 數字必須與 19 類宣告一致,不能各算一套
+    expect(c.automated).toBe(CATEGORY_CAPABILITY.filter((x) => x.level === 'automated').length);
+    expect(c.partial).toBe(CATEGORY_CAPABILITY.filter((x) => x.level === 'partial').length);
+    expect(c.not_supported).toBe(CATEGORY_CAPABILITY.filter((x) => x.level === 'not_supported').length);
+    // 警告句要跟著數字走,否則讀者只看到三個數字
+    expect(c.note.zh).toContain('分類數不等於測項數');
+  });
+
   test('文件集的說明點出「全綠但有缺口」的風險', () => {
     const notes = buildQaDocumentSet(report()).notes.map((n) => n.zh).join(' ');
     expect(notes).toContain('分類數不等於測項數');

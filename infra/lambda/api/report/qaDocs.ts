@@ -19,7 +19,7 @@
  * 本模組是純函式,不讀 S3、不呼叫模型,所有數字沿用 StructuredReport 既有欄位。
  */
 import { round2, spinTransactions } from './metrics.js';
-import { CATEGORY_CAPABILITY, capabilitySummary, type CapabilityLevel } from './qaCapability.js';
+import { CATEGORY_CAPABILITY, capabilitySummary, type CapabilityLevel, type CapabilitySummary } from './qaCapability.js';
 import type { AcResult, Acceptance } from './acceptance.js';
 import type {
   CheckItem,
@@ -401,6 +401,15 @@ export interface QaDocumentSet {
   documents: QaDocument[];
   /** 覆蓋狀態統計(19 類文件一個都不漏)。 */
   coverageSummary: Record<QaDocCoverage, number>;
+  /**
+   * 平台可執行範圍的統計(19 類測項分類)。
+   *
+   * 為什麼要把數字單獨 expose,而不是讓前端去讀 T07 那張表:
+   * 表格的 level 欄是**本地化後的文字**(「可自動執行」/「部分(有缺口)」),
+   * 前端若靠比對那串字來分類,換個語系或改個字就壞掉,而且壞掉的方式是
+   * 靜默算錯 —— 數字會變成 0 而不是報錯。所以結構化的數字由這裡提供。
+   */
+  capability: CapabilitySummary;
   notes: L10n[];
 }
 
@@ -1315,6 +1324,7 @@ export function buildQaDocumentSet(report: StructuredReport, opts: QaDocOptions 
     statistics,
     documents,
     coverageSummary,
+    capability: capabilitySummary(),
     notes: [
       L('本文件集是內部判定結果的重新表述,不是另一次判定;結論仍以驗收標準為準。', 'This document set restates the internal verdict; it is not a second judgement. The verdict remains the one set by the acceptance standard.'),
       L('未執行與無資料不填 PASS:待判讀、無法判定與未執行一律列為 BLOCK,原判定保留在備註。', 'Not-executed and no-data rows are never recorded as PASS: indeterminate, unjudgeable and not-executed rows are all BLOCK, with the original judgement kept in the note.'),

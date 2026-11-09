@@ -41,6 +41,26 @@ const T = {
   risk: ['風險評估', 'Risk Assessment'],
   release: ['發布準備度', 'Release Readiness'],
   appendix: ['附錄', 'Appendix'],
+  // 報告助手:這份報告有 29 節、權重相同,讀者不容易知道先看哪裡。
+  // 助手不產生新結論,只把報告裡已經有的三件事提到最前面:結論憑什麼、
+  // 不涵蓋什麼、平台做不到什麼。
+  asstOpen: ['報告助手', 'Report assistant'],
+  asstClose: ['收起助手', 'Close assistant'],
+  asstTabGuide: ['導讀', 'Guide'],
+  asstPending: ['需要你判斷', 'Needs your call'],
+  asstVerdictWhy: ['結論 {status} — 憑什麼', 'Verdict {status} — on what basis'],
+  asstEvidencePath: ['看判定明細:每一筆的依據與截圖', 'Open the verdict detail: the basis and screenshot for each row'],
+  asstNotCovered: ['這個結論不涵蓋 {n} 件事', 'This verdict does not cover {n} thing(s)'],
+  asstNotCoveredFrom: ['取自「適用邊界」,助手把它提到最前面', 'Taken from the claim scope section and surfaced here'],
+  asstNoClaimScope: ['這份報告沒有適用邊界資料(舊版後端產生的報告)', 'This report has no claim-scope data (produced by an older backend)'],
+  asstCapability: ['平台可執行範圍({total} 類測項分類)', 'What this platform can execute ({total} test-item categories)'],
+  asstCapAuto: ['可自動執行', 'Automated'],
+  asstCapPartial: ['部分有缺口', 'Partial'],
+  asstCapNone: ['做不到', 'Out of reach'],
+  asstTriage: ['{n} 筆缺陷待判讀 — AI 無法確定是不是真的缺陷', '{n} finding(s) awaiting triage — the AI could not confirm these are real defects'],
+  asstTriageGo: ['逐筆查看', 'Review them'],
+  asstUnclear: ['{n} 項判定無法判斷,已列為未通過而非 PASS', '{n} check(s) could not be judged and are recorded as not-passed rather than PASS'],
+  asstAllClear: ['沒有待判讀的項目', 'Nothing awaiting your judgement'],
   // 欄位
   reportId: ['報告編號', 'Report ID'],
   gameName: ['遊戲名稱', 'Game Name'],

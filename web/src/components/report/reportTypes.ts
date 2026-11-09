@@ -349,7 +349,24 @@ export interface QaDocumentSet {
   statistics: QaStatistic[];
   documents: QaDocument[];
   coverageSummary: Record<QaDocCoverage, number>;
+  /**
+   * 平台可執行範圍的統計(19 類測項分類)。舊版後端沒有此欄位。
+   *
+   * 刻意用結構化數字,而不是去讀 T07 表格的 level 欄:那一欄是本地化後的文字,
+   * 靠比對字串分類會在換語系或改字時**靜默**算成 0,而不是報錯。
+   */
+  capability?: CapabilitySummary;
   notes: L10n[];
+}
+
+/** 平台可執行範圍的統計(後端 report/qaCapability.ts)。 */
+export interface CapabilitySummary {
+  automated: number;
+  partial: number;
+  not_supported: number;
+  total: number;
+  /** 一句話結論,避免只看三個數字就以為涵蓋率很高。 */
+  note: L10n;
 }
 
 // ───────── 驗收標準(後端 report/acceptance.ts、rtpLedger.ts)─────────
