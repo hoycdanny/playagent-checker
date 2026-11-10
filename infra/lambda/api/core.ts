@@ -180,7 +180,7 @@ import { addKbRefs, getKbUsage, removeKbRefs, syncAppKbRefs, tenantUsageMap } fr
 import { defaultControlsFor, describeControlCatalog, parseCaseControls, parseCaseKeys, reconcileControlsWithText, sanitizeControls } from './controlSchemes.js';
 import { isScriptedCase } from './scriptedCase.js';
 import { ASK_MODELS, AskValidationError, askTask, cleanQuestion, clearAskHistory, readAskHistory } from './taskAsk.js';
-import { OverrideValidationError, appendOverride, clearOverrides, readOverrides, validateOverrideInput } from './reportOverrides.js';
+import { OverrideValidationError, appendOverride, clearOverrides, composeHintText, parseRememberContext, readOverrides, validateOverrideInput } from './reportOverrides.js';
 import { describeProfile } from './report/profiles.js';
 import type { ReportInsights, StructuredReport } from './report/types.js';
 import {
@@ -1759,7 +1759,7 @@ export async function handleRequest(
           const jobId = ovMatch[1]!;
           const s3 = await deps.getTenantS3(tenant.tenantId);
           // 任務必須存在且屬於本租戶(tenantPrefix 已隔離,這裡再擋掉不存在的 id)
-          const jobRec = await readJsonObject<{ jobId?: string }>(
+          const jobRec = await readJsonObject<{ jobId?: string; appId?: string }>(
             s3, deps.bucket, `${tenantPrefix(tenant.tenantId)}jobs/${jobId}/job.json`,
           ).catch(() => null);
           if (!jobRec) return json(404, { error: '找不到任務' });
@@ -1774,10 +1774,37 @@ export async function handleRequest(
           }
           try {
             const input = validateOverrideInput(req.body);
-            const items = await appendOverride(
-              s3, deps.bucket, tenant.tenantId, jobId, input, tenant.email ?? tenant.tenantId,
-            );
-            return json(201, { items });
+            const by = tenant.email ?? tenant.tenantId;
+            const items = await appendOverride(s3, deps.bucket, tenant.tenantId, jobId, input, by);
+
+            // 勾「記住」才回寫應用記憶。這是**跨任務**的副作用 —— 一筆覆核理由會
+            // 影響之後所有測試,所以必須是明確選的,而且來源標成 verdict_review
+            // 讓記憶地圖看得出出處。回寫失敗不讓覆核失敗:覆核本身已經存好了。
+            const remember = parseRememberContext(req.body);
+            let hintId: string | undefined;
+            if (remember.remember && jobRec.appId) {
+              const text = composeHintText({
+                dismissed: input.dismissed === true,
+                reason: input.reason,
+                ...(remember.findingTitle ? { findingTitle: remember.findingTitle } : {}),
+                ...(remember.screen ? { screen: remember.screen } : {}),
+              });
+              // 載入/過場畫面不適合當記憶範圍(與操作員指令同一條規則)
+              const scope = remember.screen && !isTransientScreenName(remember.screen) ? remember.screen : undefined;
+              try {
+                const hint = await addHint(s3, deps.bucket, tenant.tenantId, jobRec.appId, {
+                  text,
+                  source: 'verdict_review',
+                  createdBy: by,
+                  jobId,
+                  ...(scope ? { screen: scope } : {}),
+                });
+                hintId = hint.id;
+              } catch (err) {
+                console.warn('[report-overrides] hint writeback failed', err);
+              }
+            }
+            return json(201, { items, ...(hintId ? { hintId } : {}) });
           } catch (err) {
             if (err instanceof OverrideValidationError) return json(400, { error: err.message });
             throw err;

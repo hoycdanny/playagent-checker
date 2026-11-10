@@ -60,6 +60,8 @@ const T = {
   asstDismiss: ['標為誤判', 'Dismiss as misjudgement'],
   asstReasonLabel: ['理由(必填)', 'Reason (required)'],
   asstReasonHint: ['報告會原文顯示這段理由,並記錄覆核者與時間。', 'The report shows this reason verbatim and records the reviewer and time.'],
+  asstRemember: ['記住,讓下次測試先知道', 'Remember this for future runs'],
+  asstRememberHint: ['會寫進這個應用的記憶,影響之後每一次測試(不只這一次)。可在記憶地圖停用,來源標為「判定覆核」。', 'This is written to the app\u2019s memory and affects every future run, not just this one. It can be disabled in the memory map, where its source is marked as a verdict review.'],
   asstSubmit: ['送出', 'Submit'],
   asstSubmitting: ['送出中…', 'Submitting…'],
   asstOverridden: ['已覆核', 'Reviewed'],

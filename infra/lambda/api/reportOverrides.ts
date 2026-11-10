@@ -19,6 +19,32 @@ import type { FailureClass, FindingOverride, Severity } from './report/types.js'
 
 export class OverrideValidationError extends Error {}
 
+/** 回寫記憶時,缺陷標題與畫面名的長度上限(避免把整段描述灌進記憶)。 */
+const MAX_CONTEXT = 120;
+
+/**
+ * 覆核理由 → 寫進應用記憶的教學文字。
+ *
+ * 為什麼要組一句話而不是直接存理由原文:記憶會被注入下一次測試的 prompt,
+ * 單獨一句「載入中的正常狀態」對 AI 沒有指向 —— 它不知道那是在說哪個畫面的
+ * 哪個現象。所以要把「系統報了什麼」與「人判斷是什麼」一起寫進去。
+ *
+ * 刻意保留理由原文(不改寫、不摘要):那是人寫的判斷依據,改寫就不再是他說的話。
+ */
+export function composeHintText(input: {
+  dismissed: boolean;
+  reason: string;
+  findingTitle?: string;
+  screen?: string;
+}): string {
+  const title = (input.findingTitle ?? '').trim().slice(0, MAX_CONTEXT);
+  const screen = (input.screen ?? '').trim().slice(0, MAX_CONTEXT);
+  const what = title ? `「${title}」` : '先前回報的現象';
+  const where = screen ? `在${screen}畫面,` : '';
+  const verdict = input.dismissed ? '經人工覆核判定不是缺陷' : '經人工覆核確認為缺陷';
+  return `${where}${what}${verdict}:${input.reason}`;
+}
+
 /** 單一任務的覆寫紀錄上限。超過就從最舊的開始丟(報告只看最新的那一筆)。 */
 const MAX_RECORDS = 500;
 export const MAX_REASON = 500;
@@ -53,6 +79,31 @@ export async function readOverrides(
  * `by` 與 `at` 刻意不接受請求主體的值 —— 由伺服器端填入登入身分與當下時間。
  * 讓前端自報覆寫者等於讓任何人都能冒名覆寫。
  */
+/**
+ * 回寫記憶的附帶資訊(不存進 overrides.json,只用來組記憶文字)。
+ *
+ * 標題與畫面名由前端提供 —— 那是使用者畫面上已經看到的文字,而且使用者
+ * 本來就能直接編輯應用記憶,所以這裡沒有新增權限。長度與字元由下游把關。
+ */
+export interface RememberContext {
+  remember: boolean;
+  findingTitle?: string;
+  screen?: string;
+}
+
+export function parseRememberContext(body: unknown): RememberContext {
+  const b = (body ?? {}) as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, MAX_CONTEXT) : undefined);
+  const title = str(b['findingTitle']);
+  const screen = str(b['screen']);
+  return {
+    // 預設不回寫:跨任務的副作用必須是明確選的,不能靠預設值悄悄發生
+    remember: b['remember'] === true,
+    ...(title ? { findingTitle: title } : {}),
+    ...(screen ? { screen } : {}),
+  };
+}
+
 export function validateOverrideInput(body: unknown): {
   findingId: string;
   reason: string;

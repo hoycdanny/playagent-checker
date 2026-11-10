@@ -36,9 +36,13 @@ function ReviewRow({
 }: {
   finding: Finding;
   lang: RLang;
-  onSubmit: (body: { findingId: string; reason: string; dismissed?: boolean; classification?: string }) => Promise<void>;
+  onSubmit: (body: {
+    findingId: string; reason: string; dismissed?: boolean; classification?: string;
+    remember: boolean; findingTitle: string; screen?: string;
+  }) => Promise<void>;
 }) {
   const [reason, setReason] = useState('');
+  const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -51,6 +55,10 @@ function ReviewRow({
         findingId: finding.id,
         reason: reason.trim(),
         ...(kind === 'dismiss' ? { dismissed: true } : { classification: 'GAME_FAILURE' }),
+        // 回寫應用記憶所需的上下文:標題與畫面名讓記憶對 AI 有指向
+        remember,
+        findingTitle: tr(finding.title, lang),
+        ...(finding.gameState ? { screen: finding.gameState } : {}),
       });
       setReason('');
     } catch (e) {
@@ -78,6 +86,21 @@ function ReviewRow({
         disabled={busy}
       />
       <p className="rasst__review-hint">{txt('asstReasonHint', lang)}</p>
+      {/*
+        回寫應用記憶是**跨任務**的副作用:這條理由會影響這個 App 之後所有測試。
+        所以要能取消,而且提示文字必須說清楚影響範圍 —— 預設勾選是因為多數
+        覆核確實想讓 AI 下次就知道,但使用者有權不要。
+      */}
+      <label className="rasst__review-remember">
+        <input
+          type="checkbox"
+          checked={remember}
+          disabled={busy}
+          onChange={(e) => setRemember(e.target.checked)}
+        />
+        {txt('asstRemember', lang)}
+      </label>
+      <p className="rasst__review-hint">{txt('asstRememberHint', lang)}</p>
       <div className="rasst__review-actions">
         <button type="button" className="rasst__btn rasst__btn--confirm" disabled={busy} onClick={() => send('confirm')}>
           {busy ? txt('asstSubmitting', lang) : txt('asstConfirm', lang)}

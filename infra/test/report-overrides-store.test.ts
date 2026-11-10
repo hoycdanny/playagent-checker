@@ -4,6 +4,8 @@ import {
   OverrideValidationError,
   appendOverride,
   clearOverrides,
+  composeHintText,
+  parseRememberContext,
   readOverrides,
   validateOverrideInput,
 } from '../lambda/api/reportOverrides.js';
@@ -183,5 +185,75 @@ describe('clearOverrides', () => {
       'a@example.test', () => '2026-11-09T10:00:00.000Z');
     await clearOverrides(client, B, T, J);
     expect(await readOverrides(client, B, T, J)).toEqual([]);
+  });
+});
+
+// ───────────────────── 回寫應用記憶 ─────────────────────
+
+/**
+ * 覆核理由回寫記憶。
+ *
+ * 這是**跨任務**的副作用:一筆理由會影響這個 App 之後所有測試。所以守兩件事:
+ *   1. 預設不回寫 —— 跨任務的影響必須是明確選的,不能靠預設值悄悄發生。
+ *   2. 記憶文字要有指向 —— 單獨一句理由對 AI 沒用,它不知道在說哪個畫面的哪個現象。
+ */
+describe('parseRememberContext', () => {
+  test('沒有指定就是不回寫', () => {
+    expect(parseRememberContext({}).remember).toBe(false);
+    expect(parseRememberContext({ remember: false }).remember).toBe(false);
+    // 字串 'true' 不算 —— 只接受布林,避免前端送錯型別就悄悄開啟
+    expect(parseRememberContext({ remember: 'true' }).remember).toBe(false);
+  });
+
+  test('明確勾選才回寫', () => {
+    expect(parseRememberContext({ remember: true }).remember).toBe(true);
+  });
+
+  test('標題與畫面名會去空白並截斷', () => {
+    const out = parseRememberContext({
+      remember: true, findingTitle: '  大廳列表空白  ', screen: 'x'.repeat(300),
+    });
+    expect(out.findingTitle).toBe('大廳列表空白');
+    expect(out.screen!.length).toBeLessThanOrEqual(120);
+  });
+
+  test('空白的標題與畫面名視為沒有', () => {
+    const out = parseRememberContext({ remember: true, findingTitle: '   ', screen: '' });
+    expect(out.findingTitle).toBeUndefined();
+    expect(out.screen).toBeUndefined();
+  });
+});
+
+describe('composeHintText', () => {
+  test('標為誤判:帶出畫面、現象與原文理由', () => {
+    const t = composeHintText({
+      dismissed: true, reason: '載入中的正常狀態', findingTitle: '大廳列表空白', screen: '大廳',
+    });
+    expect(t).toContain('大廳畫面');
+    expect(t).toContain('「大廳列表空白」');
+    expect(t).toContain('判定不是缺陷');
+    // 理由必須原文保留 —— 改寫就不再是他說的話
+    expect(t).toContain('載入中的正常狀態');
+  });
+
+  test('確認為缺陷:結論相反,其餘一致', () => {
+    const t = composeHintText({ dismissed: false, reason: '重現過三次', findingTitle: '餘額沒更新' });
+    expect(t).toContain('確認為缺陷');
+    expect(t).toContain('重現過三次');
+    expect(t).not.toContain('不是缺陷');
+  });
+
+  test('沒有標題時仍是一句可讀的話,不留空洞', () => {
+    const t = composeHintText({ dismissed: true, reason: '環境問題' });
+    expect(t).toContain('先前回報的現象');
+    expect(t).toContain('環境問題');
+    expect(t).not.toContain('「」');
+  });
+
+  test('過長的標題與畫面名會被截短,不把整段描述灌進記憶', () => {
+    const t = composeHintText({
+      dismissed: true, reason: 'x', findingTitle: 'a'.repeat(300), screen: 'b'.repeat(300),
+    });
+    expect(t.length).toBeLessThan(300);
   });
 });

@@ -18,7 +18,14 @@ import { sanitizeOp, type GraphOp } from '../../../agent/memoryGraph.mjs';
 export class HintValidationError extends Error {}
 export class HintNotFoundError extends Error {}
 
-export type HintSource = 'operator' | 'manual';
+/**
+ * 記憶的來源。
+ *
+ * verdict_review = 報告的判定覆核回寫(測試人員標為誤判或確認為缺陷時留下的理由)。
+ * 單獨一個來源是必要的:這類記憶是**跨任務**的,一筆覆核理由會影響之後所有測試,
+ * 所以記憶地圖要看得出哪幾條是這樣來的,出問題時才知道該停用哪些。
+ */
+export type HintSource = 'operator' | 'manual' | 'verdict_review';
 
 export interface MemoryHint {
   id: string;
