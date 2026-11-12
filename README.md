@@ -241,6 +241,437 @@ The **System admin** page (admins only) has three tools.
 
 ---
 
+## User manual
+
+The subsections below cover every page of the web console, in the order a first run passes through them. Four points apply throughout:
+
+- The screenshots show the English interface. The language selector in the top bar switches between all five interface languages.
+- Everything visible in them is synthetic demo data from an isolated tenant: `Example Slots`, `Example Slots Mobile`, `com.example.slotsgame` and `https://example.com` are placeholders, not real titles.
+- Pages and controls marked *admins only* are hidden from accounts without the admin role.
+- Routes are hash routes appended to the site URL the installer prints, for example `https://<site-url>/#/apps`.
+
+### Sign-in
+
+Route: `#/` — rendered until authentication succeeds, so no other route is reachable before it.
+
+![Sign-in page with empty fields](docs/screenshots/01-login.png)
+
+The sign-in card authenticates an account against the Cognito user pool the installer created.
+
+- Credentials: the email address and password issued during installation, or created later by an admin on **Members**.
+- Language: the selector inside the card changes the interface language before sign-in.
+- An invited account is required to set a permanent password at first sign-in.
+
+### Guide
+
+Route: `#/guide`
+
+![In-app guide](docs/screenshots/02-guide.png)
+
+**Guide** is the landing page after sign-in and describes the platform in 14 sections.
+
+- Covers the runtimes, the three model seats, cost guardrails, the report format and the glossary.
+- Any unrecognised route redirects here.
+
+### Apps
+
+Route: `#/apps`
+
+![Apps card wall](docs/screenshots/04-apps.png)
+
+**Apps** holds one workspace per game or application; selecting a card opens that workspace.
+
+- Each card carries the name, platform, genre and the current artifact or test URL.
+- Deleting an app cascades through its cases, tasks, reports and memory map, and keeps reporting progress until the purge finishes.
+
+#### Create an app
+
+![Create-app form](docs/screenshots/03-apps-create-form.png)
+
+The create form registers the target under test, which is the precondition for every other page.
+
+- Name and genre: the genre decides which built-in knowledge bases later tasks are offered.
+- Platform: `web`, `android`, `ios` or `windows`, which also fixes the default runtime.
+- Target: a test URL for a web title, or a package identifier such as `com.example.slotsgame` for a mobile build; binaries are uploaded afterwards on the **Builds** tab.
+
+### App workspace
+
+Route: `#/apps/:appId`
+
+The workspace is the per-app view. Its eight tabs keep their state in the `?tab=` query parameter, so a single tab can be linked directly.
+
+#### Overview
+
+![Workspace overview tab](docs/screenshots/09-workspace-overview.png)
+
+**Overview** summarises the app: counts for cases, tasks and reports, plus the most recent run.
+
+#### Test Cases
+
+![Workspace test-cases tab](docs/screenshots/11-workspace-cases.png)
+
+**Test Cases** lists the flows defined for this app, in the same editor documented under **Test Cases** below.
+
+- A row shows the case name, its version stamp and the author.
+- A case is versioned on save, so every report names the version that ran.
+
+#### Test Tasks
+
+![Workspace test-tasks tab](docs/screenshots/24-workspace-tasks.png)
+
+**Test Tasks** lists this app's runs and is where a new run is submitted.
+
+![Filled task submission form](docs/screenshots/25-task-submit-form.png)
+
+The submission form fixes everything a run needs before it starts:
+
+- Case and runtime: the runtime defaults to the app platform (`Web browser` for a web title).
+- Model seats: Agent, VLM and Subagent, each with a locked price snapshot; an unknown price refuses the run.
+- Limits: a step ceiling and a budget in US dollars; execution stops as soon as either is reached.
+- Knowledge bases: the genre built-ins are pre-selected and further bases can be attached.
+
+#### Test Reports
+
+**Test Reports** repeats the report list filtered to this app. The content is identical to **Test Reports** below, which is where it is illustrated.
+
+#### Memory Map
+
+![Workspace memory tab](docs/screenshots/45-workspace-memory.png)
+
+**Memory Map** shows the screens this app's runs have learned, as nodes with their thumbnails and transitions as edges.
+
+#### Test credentials
+
+![Workspace test-credentials tab](docs/screenshots/13-workspace-credentials.png)
+
+**Test credentials** keeps the login secrets of the app in AWS Secrets Manager and returns only their keys.
+
+- A case refers to a stored value as `${KEY}`; a literal password in a case is rejected on save.
+- Values are substituted inside the run container and are never written to reports or screenshots.
+
+#### Builds
+
+![Workspace builds tab](docs/screenshots/10-workspace-builds.png)
+
+**Builds** holds the uploaded artifacts (APK/IPA/XAPK/ZIP/EXE) and marks which one the next run installs.
+
+#### Knowledge
+
+![Workspace knowledge tab](docs/screenshots/12-workspace-knowledge.png)
+
+**Knowledge** binds knowledge bases to the app so that every task inherits them. The screenshot lists built-in bases only.
+
+### Test Cases
+
+Route: `#/cases`
+
+![Test cases across all apps](docs/screenshots/14-cases.png)
+
+**Test Cases** lists the cases of every app in the tenant and opens the same editor that the workspace tab embeds. The editor has three authoring modes.
+
+#### Natural language
+
+![Natural-language authoring mode](docs/screenshots/05-case-form-nl.png)
+
+**Natural language** drafts a case from a plain description: a drafting model turns it into YAML for review.
+
+- The drafting model is chosen in the form, and the draft always lands in **Raw YAML** for inspection before saving.
+
+#### Acceptance criteria
+
+![Structured acceptance criteria editor](docs/screenshots/06-case-form-acceptance.png)
+
+The acceptance editor states what counts as a pass, one row per criterion, and those rows become the verdict table of the report.
+
+- A row carries an id, a description and the evidence the AI has to produce.
+
+#### Raw YAML
+
+![Raw YAML authoring mode](docs/screenshots/07-case-form-yaml.png)
+
+**Raw YAML** is the stored form of a case and the deterministic path, with no model call involved.
+
+- Keys: `url` or the app target, `task` for the goal, `acceptance` for the criteria.
+- A credential-like key whose value is not a `${ENV}` placeholder or a secret reference is rejected on save.
+
+#### Import from Excel
+
+![Excel import mode](docs/screenshots/08-case-form-excel.png)
+
+**Import from Excel** converts an existing spreadsheet of test steps into cases, one case per row block.
+
+### Knowledge
+
+Route: `#/knowledge`
+
+![Built-in knowledge templates](docs/screenshots/15-knowledge-templates.png)
+
+**Knowledge** manages what a task may read: Markdown injected in full, PDFs retrieved on demand.
+
+#### Genre templates (built-in)
+
+The first tab serves the built-in genre and scenario bases, which ship with the platform and need no setup.
+
+#### My knowledge bases
+
+The second tab holds the bases uploaded on this platform. It is covered in prose without a screenshot because its contents are shared across tenants, and shared material cannot be shown in a public image.
+
+### Devices
+
+Route: `#/devices`
+
+![Devices page](docs/screenshots/16-devices.png)
+
+**Devices** reports the execution capacity currently available and the local devices attached to the platform.
+
+- **Cloud devices**: the Device Farm phones available right now; one is leased per run and released when it ends.
+- **Containers (Fargate)**, **Per-run hosts (EC2)** and **Windows streaming (GameLift Streams)**: read-only snapshots refreshed about every 30 seconds. These three lists are account-wide rather than per tenant, so the screenshot was taken with their rows hidden.
+- **Local devices**: a registered local machine runs the agent and is still driven from the cloud.
+- **Login secret references**: the same secret store as the workspace **Test credentials** tab, listed by key.
+
+### Cost Analysis
+
+Route: `#/cost`
+
+![Testing cost tab](docs/screenshots/17-cost.png)
+
+**Cost Analysis** separates what testing cost from what AWS billed.
+
+#### Testing cost (by app)
+
+The first tab derives spend per app and per model from the token counts and the metered device minutes of each run, grouped by day.
+
+#### AWS bill (actual)
+
+The second tab reads the actual bill from Cost Explorer. It is covered in prose without a screenshot because the view is account-wide and each load costs one Cost Explorer query. Rates and measured daily figures are in [What it costs](#what-it-costs).
+
+### Member management
+
+Route: `#/members` — *admins only*
+
+![Member list filtered to one account](docs/screenshots/18-members.png)
+
+**Members** manages who can sign in and which tenant each account belongs to.
+
+- The search box and the four filters (**All** / **Active** / **Disabled** / **Admins**) narrow the table; the screenshot is filtered to a single account.
+- Row actions: reset password, disable or enable, change tenant, grant or revoke admin, delete.
+
+#### Add member
+
+![Add-member form](docs/screenshots/19-members-add.png)
+
+The add form creates an account with a tenant and an initial password; accounts in one tenant share its apps and test data.
+
+- The **Initial password** has to be at least 8 characters with upper and lower case and a digit. The field is shown empty here.
+
+### Model admin
+
+Route: `#/model-admin` — *admins only*
+
+![Model admin page](docs/screenshots/20-model-admin.png)
+
+**Model admin** lists the models available to each seat together with their list prices, which is where the price snapshot of a run comes from.
+
+- A model with no known price cannot be selected, because a run at an unknown price is refused.
+
+### System admin
+
+Route: `#/system` — *admins only*
+
+#### System update
+
+![System update section](docs/screenshots/21-system-update.png)
+
+**System update** compares the deployed version with the latest on GitHub and redeploys through CodeBuild.
+
+- The deployed version, the available version and the update history are listed; the tests run before the deploy.
+- Confirming the action redeploys IAM and infrastructure, so it is restricted to admins and every run is recorded.
+
+#### UI-TARS grounding model
+
+![UI-TARS switch, off](docs/screenshots/22-system-uitars.png)
+
+The **UI-TARS grounding model** switch starts and stops the optional GPU endpoint, which bills continuously while on.
+
+- The switch is off by default and was left off for this capture. Measured cost while on is US$62.53 per day.
+
+#### Centralized logs
+
+![Centralized log filters](docs/screenshots/23-system-logs.png)
+
+**Centralized logs** queries CloudWatch Logs Insights across every service at once.
+
+- Controls: a service filter, a time range (15 minutes to 24 hours) and a keyword. The screenshot shows the controls with no query executed.
+
+### Test Tasks
+
+Route: `#/tasks`
+
+![Task list with a running task](docs/screenshots/26-tasks-running.png)
+
+**Test Tasks** lists every run in the tenant, newest first, and is the entry point to a run while it is live.
+
+- A row shows the job id, app, case, runtime, state and elapsed time.
+- Terminal states are `pass`, `fail`, `error`, `cancelled`, `budget_exceeded` and `dead`.
+
+### Task detail
+
+Route: `#/tasks/:jobId`
+
+The detail page keeps the live screen on the left and one of eight panes on the right. Three panes carry live data only while the run is in progress.
+
+#### Live log
+
+![Task detail during a run](docs/screenshots/27-task-detail-live.png)
+
+**Live log** follows the run step by step while it executes, beside the live screen and the step timeline.
+
+#### Full logs
+
+![Full logs pane during a run](docs/screenshots/28-task-detail-live-logs.png)
+
+**Full logs** collects the runner and device logs of the run.
+
+![Full logs pane after the run](docs/screenshots/31-task-detail-logs.png)
+
+After a terminal state the same pane holds the complete log of the finished run.
+
+#### Steps
+
+![Steps pane](docs/screenshots/30-task-detail-trace.png)
+
+**Steps** is the trace: one row per action with its screenshot, its target and its result.
+
+#### Metrics
+
+![Metrics pane](docs/screenshots/32-task-detail-analysis.png)
+
+**Metrics** charts the numeric values observed during the run, one series per selected metric.
+
+#### Token usage
+
+![Token usage pane](docs/screenshots/33-task-detail-usage.png)
+
+**Token usage** breaks spend down per seat and per step, with the total cost of the run.
+
+#### Script & run info
+
+![Script and run info pane](docs/screenshots/34-task-detail-script.png)
+
+**Script & run info** records which case version, runtime and limits produced this run.
+
+#### Ask AI
+
+![Ask AI pane with a question and an answer](docs/screenshots/35-task-detail-ask.png)
+
+**Ask AI** answers questions about this run from its own trace, logs and metrics.
+
+#### Interact with screen
+
+**Interact with screen** shows the agents' reasoning and accepts an instruction mid-run. It is a separate tab in the portrait layout only; in the landscape layout of the screenshots that content sits next to the live screen.
+
+### Live screen
+
+Route: `#/live/:jobId`
+
+![Pop-out live screen](docs/screenshots/29-live-popout.png)
+
+The pop-out renders the live screen alone, without navigation, for a second monitor or a shared view.
+
+- The route is opened from the detail page and stays available until the run reaches a terminal state.
+
+### Test Reports
+
+Route: `#/reports`
+
+![Report list](docs/screenshots/36-reports.png)
+
+**Test Reports** lists the finished reports of the tenant; one report is produced per run that reached a terminal state.
+
+### Report
+
+Route: `#/reports/:jobId`
+
+A report is one scrollable document. Its sections appear below in reading order.
+
+#### Cover
+
+![Report cover](docs/screenshots/37-report-cover.png)
+
+The cover carries the overall test status, the app, the case version and the run summary.
+
+#### Acceptance Verdict & Criteria
+
+![Acceptance verdict table](docs/screenshots/38-report-acceptance.png)
+
+This section judges each acceptance criterion of the case separately and states the evidence behind the verdict.
+
+#### Verdict Matrix
+
+![Verdict matrix](docs/screenshots/39-report-verdicts.png)
+
+The matrix holds one row per pass/fail decision: milestones decided by rules over the whole evidence, and step checks declared before an action and judged on the next screen.
+
+- A row expands to the before/after screenshots, the reasoning and a fix suggestion.
+
+#### AI Execution Evidence
+
+![AI execution evidence](docs/screenshots/40-report-evidence.png)
+
+The evidence section replays the run step by step, each step with its screenshot and the reasoning recorded at the time.
+
+#### Release Readiness
+
+![Release readiness](docs/screenshots/41-report-release.png)
+
+Release readiness turns the verdicts into a recommendation against the configured thresholds, including the case where coverage is too thin to judge.
+
+#### Report guide — Overview
+
+![Report assistant, overview tab](docs/screenshots/42-report-assistant-guide.png)
+
+The report assistant opens from the launcher at the edge of the report and starts on **Overview**, which states what the verdict rests on and where the claim stops.
+
+#### Report guide — Q&A
+
+![Report assistant, Q&A tab](docs/screenshots/43-report-assistant-ask.png)
+
+**Q&A** answers questions about the open report from the report's own data. The screenshot shows the empty question box; an answered exchange in the same component appears under [Ask AI](#ask-ai) above.
+
+#### Report guide — Review
+
+![Report assistant, review tab](docs/screenshots/44-report-assistant-review.png)
+
+**Review** is where a disputed verdict is corrected: a finding can be overridden with a reason, which is stored with the report and written back to the memory map of the app. The screenshot shows the empty state of a run with no findings awaiting triage.
+
+### Memory Map
+
+Route: `#/memory`
+
+The memory map accumulates across runs: screens become nodes, transitions become edges, and later runs navigate with it instead of exploring again.
+
+#### Graph
+
+![Memory map, graph view](docs/screenshots/46-memory-graph.png)
+
+**Graph** draws the screens and transitions of the app selected in the picker, with counts for screens, transitions and controls.
+
+#### Gallery
+
+![Memory map, gallery view](docs/screenshots/47-memory-grid.png)
+
+**Gallery** shows the same screens as thumbnails, which is the faster way to find one by appearance.
+
+#### Screen workspace
+
+![Screen workspace open on one screen](docs/screenshots/48-memory-screen-studio.png)
+
+Selecting a screen opens its workspace with three tabs: **Script & actions** for the recorded controls, **Screen details** for the description, and **Appium code** for the generated script.
+
+- Clearing the memory of an app makes the next run relearn it from scratch.
+
+---
+
 ## Manual installation
 
 Prefer to deploy from your own machine, or need one of the one-time optional setups? Use the paths below. The CloudShell one-liner in [Quick start](#quick-start) is the easiest route; this section covers everything else.
