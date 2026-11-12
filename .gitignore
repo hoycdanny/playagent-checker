@@ -27,6 +27,10 @@ cdk.context.json
 # test coverage
 coverage/
 
+# 使用說明書的截圖清單:由 scripts/capture-screenshots.mjs 產生的工作檔
+# (PNG 本身要進版控,這份索引只是當次擷取的紀錄)。
+docs/screenshots/manifest.json
+
 # 本地測試用的遊戲 APK(大型二進位檔,不應進版控)
 *.apk
 
