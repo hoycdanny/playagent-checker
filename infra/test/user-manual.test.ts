@@ -18,8 +18,10 @@ describe('illustrated user manual in all five READMEs', () => {
   test('every non-wildcard route in App.tsx is documented in all five languages', () => {
     expect(routes).toContain('/live/:jobId');
     expect(routes.length).toBeGreaterThanOrEqual(16);
+    // 比對加了反引號的 `#/apps`,而不是裸的 #/apps:後者會被 #/apps/:appId 這類帶參數的
+    // 子路由順便滿足,於是少寫一頁也測得過。手冊每個條目都以 Route: `#X` 標註路由。
     for (const { file, text } of readmes) {
-      for (const route of routes) expect(text, `${file} ${route}`).toContain(`#${route}`);
+      for (const route of routes) expect(text, `${file} ${route}`).toContain(`\`#${route}\``);
     }
   });
 
