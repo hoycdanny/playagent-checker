@@ -27,7 +27,7 @@ cdk.context.json
 # test coverage
 coverage/
 
-# 使用說明書的截圖清單:由 scripts/capture-screenshots.mjs 產生的工作檔
+# 使用說明書的截圖清單:由 tools/screenshots/capture.mjs 產生的工作檔
 # (PNG 本身要進版控,這份索引只是當次擷取的紀錄)。
 docs/screenshots/manifest.json
 

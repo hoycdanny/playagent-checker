@@ -1,0 +1,19 @@
+{
+  "name": "playagent-screenshots",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Manual screenshot capture tooling. Deliberately NOT a root workspace so the deploy install path never resolves it.",
+  "scripts": {
+    "capture": "node capture.mjs",
+    "teardown": "node capture.mjs --teardown",
+    "selftest": "node capture.mjs --selftest"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.1140.0",
+    "playwright": "1.64.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
