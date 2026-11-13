@@ -58,7 +58,7 @@ describe('隱藏載入畫面不產生假路徑', () => {
     expect(pairs(r.edges)).toContain('compat>login');
     const bridged = r.edges.find((x) => x.fromPageId === 'compat' && x.toPageId === 'login')!;
     expect(bridged.synthetic).toBe(true);
-    expect(actionText(bridged.trigger, 'zh')).toBe('點擊 OK');
+    expect(actionText(bridged.trigger, 'zh-Hant')).toBe('點擊 OK');
   });
 
   test('被多條流程共用的載入畫面保留,不畫出沒發生過的捷徑', () => {
@@ -83,12 +83,12 @@ describe('隱藏載入畫面不產生假路徑', () => {
     expect(r2.pages.map((p) => p.id)).toEqual(['a', 'b']);
     expect(pairs(r2.edges)).toEqual(['a>b']);
     expect(r2.edges[0]!.via).toEqual(['遊戲載入', '新手任務載入']);
-    expect(edgeCaption(r2.edges, 'zh')).toBe('點擊 PLAY · 1 次 · 經載入');
+    expect(edgeCaption(r2.edges, 'zh-Hant')).toBe('點擊 PLAY · 1 次 · 經載入');
   });
 });
 
 describe('同名畫面自動區分', () => {
-  const labels = screenLabels(pages, (m) => moduleLabel(m, 'zh'));
+  const labels = screenLabels(pages, (m) => moduleLabel(m, 'zh-Hant'));
 
   test('補上 AI 命名中能分辨畫面的描述', () => {
     expect(labels.get('betPopup')).toEqual({ title: '轉軸畫面', subtitle: 'EXTRA BET 彈窗' });
@@ -124,22 +124,22 @@ describe('同名畫面自動區分', () => {
 
 describe('線上的文字一般人看得懂', () => {
   test('動作翻成白話,重新啟動不顯示目標', () => {
-    expect(actionText({ kind: 'tap', target: 'XING ZHAO 3 機台' }, 'zh')).toBe('點擊 XING ZHAO 3 機台');
-    expect(actionText({ kind: 'auto', label: 'auto' }, 'zh')).toBe('自動切換');
-    expect(actionText({ kind: 'launch' }, 'zh')).toBe('重新啟動遊戲');
+    expect(actionText({ kind: 'tap', target: 'XING ZHAO 3 機台' }, 'zh-Hant')).toBe('點擊 XING ZHAO 3 機台');
+    expect(actionText({ kind: 'auto', label: 'auto' }, 'zh-Hant')).toBe('自動切換');
+    expect(actionText({ kind: 'launch' }, 'zh-Hant')).toBe('重新啟動遊戲');
     expect(actionText({ kind: 'tap', target: 'PLAY' }, 'en')).toBe('Tap PLAY');
   });
 
   test('成功與無效次數分開寫', () => {
     const list: GraphEdge[] = [{ ...e('a', 'b', 'tap', 'SPIN'), hitCount: 5, missCount: 2 }];
-    expect(edgeCaption(list, 'zh')).toBe('點擊 SPIN · 5 次 · 無效 2 次');
+    expect(edgeCaption(list, 'zh-Hant')).toBe('點擊 SPIN · 5 次 · 無效 2 次');
     expect(edgeCaption(list, 'en')).toBe('Tap SPIN · ×5 · ✗2');
   });
 
   test('模組 id 顯示成名稱', () => {
-    expect(moduleLabel('reels', 'zh')).toBe('轉軸');
+    expect(moduleLabel('reels', 'zh-Hant')).toBe('轉軸');
     expect(moduleLabel('machine_select', 'en')).toBe('Machine Select');
-    expect(moduleLabel('custom_mod', 'zh')).toBe('custom_mod');
+    expect(moduleLabel('custom_mod', 'zh-Hant')).toBe('custom_mod');
   });
 });
 

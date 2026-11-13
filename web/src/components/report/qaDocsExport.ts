@@ -1,5 +1,6 @@
 import type { QaDocument, QaDocumentSet, QaDocCoverage, QaDocGroup } from './reportTypes.ts';
 import { tr, txt, type RLang, type TextKey } from './reportText.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 
 /**
  * 交付文件規範投影 → 試算表。
@@ -214,5 +215,5 @@ export function qaDocsFileName(set: QaDocumentSet, reportId: string | undefined,
   const id = (reportId ?? 'report').replace(FORBIDDEN, '-').replace(/\s+/g, '');
   const day = (set.generatedAt || '').split('T')[0] ?? '';
   const stem = [id, set.standard, day].filter(Boolean).join('_');
-  return `${stem}_${['交付文件', 'deliverables'][lang === 'zh' ? 0 : 1]}.xlsx`;
+  return `${stem}_${pick5(['交付文件', 'deliverables', '交付文档', '納品ドキュメント', '납품 문서'], lang)}.xlsx`;
 }

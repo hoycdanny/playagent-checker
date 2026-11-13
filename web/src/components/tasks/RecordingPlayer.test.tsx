@@ -20,7 +20,7 @@ describe('RecordingPlayer', () => {
   const steps = [{ index: 0, t: 1_000_000 }, { index: 1, t: 1_004_000 }, { index: 2, t: 9_999_999 }];
 
   it('renders the video with sound, waveform bars and in-range step markers', () => {
-    const { container } = render(<RecordingPlayer levels={levels} steps={steps} lang="zh" />);
+    const { container } = render(<RecordingPlayer levels={levels} steps={steps} lang="zh-Hant" />);
     const video = container.querySelector('video')!;
     expect(video.getAttribute('src')).toBe('https://example/rec-0.mp4');
     expect(video.muted).toBe(false);
@@ -38,7 +38,7 @@ describe('RecordingPlayer', () => {
   });
 
   it('renders nothing when there is no playable recording', () => {
-    const { container } = render(<RecordingPlayer levels={{ ...levels, chunks: [{ ...levels.chunks[0]!, url: undefined }] }} steps={[]} lang="zh" />);
+    const { container } = render(<RecordingPlayer levels={{ ...levels, chunks: [{ ...levels.chunks[0]!, url: undefined }] }} steps={[]} lang="zh-Hant" />);
     expect(container.firstChild).toBeNull();
   });
 });

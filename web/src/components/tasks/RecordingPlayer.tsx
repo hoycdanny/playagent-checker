@@ -3,21 +3,22 @@ import type { RLang } from '../report/reportText.ts';
 import { downsampleBars, type AudioLevels } from './audioLevels.ts';
 import { InfoIcon } from './InfoIcon.tsx';
 import { contentCrop } from './orientation.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 import './RecordingPlayer.css';
 
 const T = {
-  title: ['測試錄影(含聲音)', 'Test recording (with sound)'],
-  mute: ['靜音', 'Mute'],
-  unmute: ['開啟聲音', 'Unmute'],
-  full: ['全螢幕', 'Full screen'],
-  exitFull: ['離開全螢幕', 'Exit full screen'],
-  playHint: ['點畫面播放 / 暫停', 'Click to play / pause'],
-  part: ['第 {n} 段', 'Part {n}'],
-  wave: ['聲音波形:點一下跳到該時間', 'Sound waveform: click to jump to that time'],
-  step: ['第 {n} 步', 'Step {n}'],
-  noSound: ['這段錄影沒有偵測到聲音', 'No sound detected in this recording'],
+  title: ['測試錄影(含聲音)', 'Test recording (with sound)', '测试录像(含声音)', 'テスト録画(音声付き)', '테스트 녹화(소리 포함)'],
+  mute: ['靜音', 'Mute', '静音', 'ミュート', '음소거'],
+  unmute: ['開啟聲音', 'Unmute', '打开声音', '音声をオン', '소리 켜기'],
+  full: ['全螢幕', 'Full screen', '全屏幕', '全画面', '전체 화면'],
+  exitFull: ['離開全螢幕', 'Exit full screen', '离开全屏幕', '全画面を終了', '전체 화면 종료'],
+  playHint: ['點畫面播放 / 暫停', 'Click to play / pause', '点画面播放 / 暂停', '画面をクリックで再生 / 一時停止', '화면을 클릭하여 재생 / 일시정지'],
+  part: ['第 {n} 段', 'Part {n}', '第 {n} 段', 'パート {n}', '{n}구간'],
+  wave: ['聲音波形:點一下跳到該時間', 'Sound waveform: click to jump to that time', '声音波形:点一下跳到该时间', '音声波形:クリックでその時刻へ移動', '소리 파형: 클릭하면 해당 시간으로 이동'],
+  step: ['第 {n} 步', 'Step {n}', '第 {n} 步', 'ステップ {n}', '{n}단계'],
+  noSound: ['這段錄影沒有偵測到聲音', 'No sound detected in this recording', '这段录像没有侦测到声音', 'この録画では音声が検出されませんでした', '이 녹화에서는 소리가 감지되지 않았습니다'],
 } as const;
-const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+const tx = (k: keyof typeof T, lang: RLang) => pick5(T[k], lang);
 
 type Chunk = AudioLevels['chunks'][number] & { url: string };
 export interface StepMark { index: number; t: number }

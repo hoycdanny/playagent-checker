@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client.ts';
 import type { EvidenceStep, ReportInsights } from './reportTypes.ts';
-import { tr, txt, type RLang } from './reportText.ts';
+import { dataLang, tr, txt, type RLang } from './reportText.ts';
 import { ResultPill } from './VerdictMatrix.tsx';
 
 type InsightsMap = { zh?: ReportInsights; en?: ReportInsights };
@@ -32,7 +32,9 @@ export function InsightsPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
-  const ins = insights?.[lang] ?? insights?.[lang === 'zh' ? 'en' : 'zh'];
+  // 後端洞察只有 zh / en 兩份:zh-Hant 與 zh-Hans 讀 zh,其餘讀 en。
+  const dl = dataLang(lang);
+  const ins = insights?.[dl] ?? insights?.[dl === 'zh' ? 'en' : 'zh'];
 
   const shotOf = (step: number) => {
     const s = evidence.find((e) => e.index === step);
@@ -44,8 +46,8 @@ export function InsightsPanel({
     setBusy(true);
     setError(false);
     try {
-      const res = await apiPost<ReportInsights>(`/reports/${jobId}/insights`, { lang, force });
-      onChange({ ...insights, [lang]: res });
+      const res = await apiPost<ReportInsights>(`/reports/${jobId}/insights`, { lang: dl, force });
+      onChange({ ...insights, [dl]: res });
     } catch {
       // 逾時:輪詢報告直到快取出現(最多約 60 秒)。
       const since = ins?.generatedAt;
@@ -54,11 +56,11 @@ export function InsightsPanel({
         await new Promise((r) => setTimeout(r, 5000));
         try {
           const doc = await apiGet<{ insights?: InsightsMap }>(`/reports/${jobId}`);
-          const cand = doc.insights?.[lang];
+          const cand = doc.insights?.[dl];
           if (cand && cand.generatedAt !== since) got = cand;
         } catch { /* 繼續等 */ }
       }
-      if (got) onChange({ ...insights, [lang]: got });
+      if (got) onChange({ ...insights, [dl]: got });
       else setError(true);
     } finally {
       setBusy(false);

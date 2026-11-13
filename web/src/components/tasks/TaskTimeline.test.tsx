@@ -16,13 +16,13 @@ const tl = buildTimeline({
 function setup(cursor: number | null = T0 + 21_500) {
   const onSeek = vi.fn();
   const onTogglePlay = vi.fn();
-  render(<TaskTimeline tl={tl} cursor={cursor} onSeek={onSeek} lang="zh" hasVideo playing={false} onTogglePlay={onTogglePlay} />);
+  render(<TaskTimeline tl={tl} cursor={cursor} onSeek={onSeek} lang="zh-Hant" hasVideo playing={false} onTogglePlay={onTogglePlay} />);
   return { onSeek, onTogglePlay };
 }
 
 describe('TaskTimeline', () => {
   it('shows the playhead time and who triggered each step', () => {
-    const { container } = render(<TaskTimeline tl={tl} cursor={T0 + 21_500} onSeek={vi.fn()} lang="zh" hasVideo playing={false} onTogglePlay={vi.fn()} />);
+    const { container } = render(<TaskTimeline tl={tl} cursor={T0 + 21_500} onSeek={vi.fn()} lang="zh-Hant" hasVideo playing={false} onTogglePlay={vi.fn()} />);
     expect(screen.getByText('0:21.500')).toBeTruthy();
     expect(screen.getByRole('slider').getAttribute('aria-valuetext')).toContain('#1 大廳');
     const marks = [...container.querySelectorAll('.ttl__mark')];

@@ -1,4 +1,4 @@
-import type { ExcludeKey, L10n, ReportSpecInput, TemplateDescriptor } from './kbTypes.ts';
+import type { ExcludeKey, ReportSpecInput, TemplateDescriptor } from './kbTypes.ts';
 import { SCOPES } from './kbTypes.ts';
 import { kt, tr, type KbLang } from './kbText.ts';
 import { SCOPE_TEXT } from '../report/reportText.ts';
@@ -176,7 +176,7 @@ export function KbSpecEditor({
                   disabled={ro || inherited}
                   onChange={(e) => set({ scopes: e.target.checked ? [...(spec.scopes ?? []), s] : (spec.scopes ?? []).filter((x) => x !== s) })}
                 />
-                {tr(SCOPE_TEXT[s] as L10n, lang) || s}
+                {tr(SCOPE_TEXT[s], lang) || s}
               </label>
             );
           })}

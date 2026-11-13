@@ -97,7 +97,7 @@ describe('sheet names respect Excel limits', () => {
       doc({ code: 'T05', coverage: 'derived_with_gaps', reason: l('後續版本才有') }),
       doc({ code: 'T04', coverage: 'not_derivable', reason: l('人工會議紀錄') }),
     ]);
-    const names = qaDocsToSheets(set, 'zh').map((s) => s.name);
+    const names = qaDocsToSheets(set, 'zh-Hant').map((s) => s.name);
     expect(new Set(names).size).toBe(names.length);
     for (const n of names) {
       expect(n.length).toBeLessThanOrEqual(31);
@@ -140,7 +140,7 @@ describe('sheet composition', () => {
   ]);
 
   test('leads with overview, statistics and coverage, and ends with the legends', () => {
-    const sheets = qaDocsToSheets(set, 'zh');
+    const sheets = qaDocsToSheets(set, 'zh-Hant');
     expect(sheets[0]!.name).toBe('總覽');
     expect(sheets[1]!.name).toBe('原有統計指標');
     expect(sheets[2]!.name).toBe('文件覆蓋');
@@ -148,14 +148,14 @@ describe('sheet composition', () => {
   });
 
   test('one sheet per derivable document; non-derivable documents get none', () => {
-    const names = qaDocsToSheets(set, 'zh').map((s) => s.name);
+    const names = qaDocsToSheets(set, 'zh-Hant').map((s) => s.name);
     expect(names.some((n) => n.startsWith('T03'))).toBe(true);
     expect(names.some((n) => n.startsWith('T05'))).toBe(true);
     expect(names.some((n) => n.startsWith('T04'))).toBe(false);
   });
 
   test('the coverage sheet still lists every document, with its reason', () => {
-    const coverage = qaDocsToSheets(set, 'zh')[2]!;
+    const coverage = qaDocsToSheets(set, 'zh-Hant')[2]!;
     const codes = coverage.rows.slice(1).map((r) => r[0]);
     expect(codes).toEqual(['T03', 'T05', 'T04']);
     const t04 = coverage.rows.find((r) => r[0] === 'T04')!;
@@ -163,7 +163,7 @@ describe('sheet composition', () => {
   });
 
   test('a statistic that cannot be computed exports as "not computed", never 0%', () => {
-    const stats = qaDocsToSheets(set, 'zh')[1]!;
+    const stats = qaDocsToSheets(set, 'zh-Hant')[1]!;
     const row = stats.rows.find((r) => r[0] === '測項覆蓋率')!;
     expect(row).toContain('不計算');
     expect(row).not.toContain('0%');
@@ -173,19 +173,19 @@ describe('sheet composition', () => {
   });
 
   test('an empty table carries its reason into the file', () => {
-    const t05 = qaDocsToSheets(set, 'zh').find((s) => s.name.startsWith('T05'))!;
+    const t05 = qaDocsToSheets(set, 'zh-Hant').find((s) => s.name.startsWith('T05'))!;
     expect(t05.rows.flat().join(' ')).toContain('本次執行未開立遊戲缺陷');
   });
 
   test('a document sheet keeps header, rows, links and the manual-entry note', () => {
-    const t03 = qaDocsToSheets(set, 'zh').find((s) => s.name.startsWith('T03'))!;
+    const t03 = qaDocsToSheets(set, 'zh-Hant').find((s) => s.name.startsWith('T03'))!;
     const flat = t03.rows.map((r) => r.join('|'));
     expect(flat).toContain('專案代碼|case-1');
     expect(flat).toContain('編號|結果狀態');
     expect(flat).toContain('1|PASS');
     expect(flat).toContain('環境代碼|farm');
 
-    const t05 = qaDocsToSheets(set, 'zh').find((s) => s.name.startsWith('T05'))!;
+    const t05 = qaDocsToSheets(set, 'zh-Hant').find((s) => s.name.startsWith('T05'))!;
     expect(t05.rows.flat().join(' ')).toContain('回報人代碼');
   });
 
@@ -199,7 +199,7 @@ describe('sheet composition', () => {
 
 describe('file name', () => {
   test('carries the report id, standard and date, and is a legal file name', () => {
-    const name = qaDocsFileName(makeSet([doc({ code: 'T03' })]), 'RPT-job-abc', 'zh');
+    const name = qaDocsFileName(makeSet([doc({ code: 'T03' })]), 'RPT-job-abc', 'zh-Hant');
     expect(name).toBe('RPT-job-abc_QA-DS-1.0_2026-11-07_交付文件.xlsx');
     expect(name).not.toMatch(/[[\]:*?/\\]/);
   });

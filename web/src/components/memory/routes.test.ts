@@ -10,7 +10,7 @@ describe('route editing helpers', () => {
   });
 
   test('add / move / remove steps keeps branches consistent', () => {
-    let r = emptyRoute(1, 'zh');
+    let r = emptyRoute(1, 'zh-Hant');
     r = addStep(addStep(addStep(r, 'p1'), 'p2'), 'p3');
     const [s1, s2, s3] = r.steps;
     r = addBranch(r, s2!.id, 'p9');

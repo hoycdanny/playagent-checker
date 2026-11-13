@@ -25,12 +25,13 @@ import { buildSoundEvents } from '../components/tasks/soundEvents.ts';
 import { aspectAt, orientationAt, type Orientation } from '../components/tasks/orientation.ts';
 import { TaskAskPanel } from '../components/tasks/TaskAskPanel.tsx';
 import { soundInWindow, useAudioLevels } from '../components/tasks/audioLevels.ts';
-import { reportLang, type RLang } from '../components/report/reportText.ts';
+import { reportLang, tr, type RLang } from '../components/report/reportText.ts';
 import { outcomeKey, outcomeOf, outcomeTip } from '../components/outcome.ts';
 import { MemoryUsagePanel, StepMemoryChips } from '../components/tasks/MemoryUsagePanel.tsx';
 // 數據分析 / Token 用量:原本是「完整日誌」裡的子分頁,現在是這一層的分頁。
 import { LiveAnalysisView, analysisHint } from '../components/tasks/LiveAnalysisView.tsx';
 import { UsageView, usageHint } from '../components/tasks/UsageView.tsx';
+import { pick5 } from '../i18n/locale5.ts';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -56,56 +57,56 @@ export function stripStepPrefix(msg: string | undefined | null): string {
 
 /** 本頁新增文案(zh/en)。 */
 const PT = {
-  progress: ['第 {n} 步', 'Step {n}'],
-  limit: ['上限 {m}', 'of {m}'],
-  newestFirst: ['最新在上', 'Newest first'],
-  current: ['目前', 'Now'],
-  stepCount: ['{n} 步', '{n} steps'],
-  booting: ['啟動中…', 'Starting…'],
-  bootingDevicefarm: ['真機啟動中…', 'Starting the device…'],
-  bootingEmulator: ['Android 容器啟動中…', 'Starting the Android container…'],
-  bootingWeb: ['瀏覽器啟動中…', 'Starting the browser…'],
-  bootingWindows: ['Windows 主機啟動中…', 'Starting the Windows host…'],
-  bootingHint: ['畫面就緒後會自動出現。', 'The screen appears automatically once ready.'],
-  bootingHintDevicefarm: ['Device Farm 開機通常需要 3–5 分鐘,畫面就緒後會自動出現。', 'Device Farm usually takes 3–5 minutes; the screen appears automatically.'],
-  bootingHintEmulator: ['正在準備 Android 容器(Redroid 雲端主機),畫面就緒後會自動出現。', 'Preparing the Android container (Redroid cloud host); the screen appears automatically.'],
-  bootingHintWeb: ['正在啟動雲端瀏覽器,畫面就緒後會自動出現。', 'Starting the cloud browser; the screen appears automatically.'],
-  bootingHintWindows: ['Windows 主機(GameLift Streams)首次啟動約需 10–15 分鐘,畫面就緒後會自動出現。', 'The Windows host (GameLift Streams) takes about 10–15 minutes on first start; the screen appears automatically.'],
-  replay: ['回放', 'Replay'],
-  chat: ['與控制遊戲 Agent 互動', 'Interact with the game-control Agent'],
-  goalHint: ['決策 Agent 給這一步的目標', 'Goal set by the Decision Agent for this step'],
-  scriptStep: ['腳本 {n}/{m}', 'Script {n}/{m}'],
-  effectHint: ['輔助 Agent 判斷這一步的動作有沒有生效', 'Helper Agent verdict on whether this action worked'],
-  effectOk: ['✓ 有效', '✓ Worked'],
-  effectNone: ['✕ 沒有反應', '✕ No effect'],
-  effectOther: ['⚠ 畫面不如預期', '⚠ Unexpected'],
-  suspectValue: ['⚠ 疑似讀錯 {k}={v}(前一筆 #{s} = {p})', '⚠ Likely misread {k}={v} (previous #{s} = {p})'],
-  betChanged: ['⚠ 投注額變更 {f} → {t}(第 {s} 步起)', '⚠ Bet changed {f} → {t} (since step {s})'],
-  segment: ['第 {n} 段連線', 'Session {n}'],
-  replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound'],
-  seekStep: ['在時間軸上跳到這一步', 'Jump to this step on the timeline'],
-  tabMoment: ['即時日誌', 'Live log'],
-  tabTrace: ['執行軌跡', 'Steps'],
-  tabLogs: ['完整日誌', 'Full logs'],
-  tabAnalysis: ['數據分析', 'Metrics'],
-  tabUsage: ['Token 用量', 'Token usage'],
-  tabAsk: ['AI 問答', 'Ask AI'],
-  tabAgent: ['與畫面互動', 'Interact with screen'],
-  tabScript: ['腳本與執行資訊', 'Script & run info'],
-  agentEnded: ['這次測試沒有下過指令。測試進行中可以在這裡告訴控制遊戲的 Agent 該怎麼做,或在畫面上直接點。', 'No instructions were sent in this run. While a test is running you can tell the game-control Agent what to do here, or tap the screen directly.'],
-  layout: ['版面', 'Layout'],
-  layoutAuto: ['自動', 'Auto'],
-  layoutPortrait: ['直向', 'Portrait'],
-  layoutLandscape: ['橫向', 'Landscape'],
-  layoutHint: ['版面:自動 = 跟著被測 App 的方向切換', 'Layout: Auto follows the app orientation'],
-  liveFollow: ['回到即時', 'Back to live'],
-  stop: ['停止測試', 'Stop test'],
-  stopping: ['停止中…', 'Stopping…'],
-  stopConfirm: ['確定要停止這次測試嗎?AI 會在目前這一步結束後停下並釋放裝置,已完成的步驟和截圖都會保留。', 'Stop this test? The AI stops after the current step and releases the device. Completed steps and screenshots are kept.'],
-  stopFailed: ['停止失敗:', 'Could not stop: '],
-  stopSent: ['已送出停止,AI 會在這一步結束後停下。', 'Stop requested. The AI stops after the current step.'],
+  progress: ['第 {n} 步', 'Step {n}', '第 {n} 步', 'ステップ {n}', '{n}단계'],
+  limit: ['上限 {m}', 'of {m}', '上限 {m}', '上限 {m}', '최대 {m}'],
+  newestFirst: ['最新在上', 'Newest first', '最新在上', '新しい順', '최신순'],
+  current: ['目前', 'Now', '目前', '現在', '현재'],
+  stepCount: ['{n} 步', '{n} steps', '{n} 步', '{n} ステップ', '{n}단계'],
+  booting: ['啟動中…', 'Starting…', '启动中…', '起動中…', '시작 중…'],
+  bootingDevicefarm: ['真機啟動中…', 'Starting the device…', '真机启动中…', '実機を起動中…', '실제 기기 시작 중…'],
+  bootingEmulator: ['Android 容器啟動中…', 'Starting the Android container…', 'Android 容器启动中…', 'Android コンテナを起動中…', 'Android 컨테이너 시작 중…'],
+  bootingWeb: ['瀏覽器啟動中…', 'Starting the browser…', '浏览器启动中…', 'ブラウザを起動中…', '브라우저 시작 중…'],
+  bootingWindows: ['Windows 主機啟動中…', 'Starting the Windows host…', 'Windows 主机启动中…', 'Windows ホストを起動中…', 'Windows 호스트 시작 중…'],
+  bootingHint: ['畫面就緒後會自動出現。', 'The screen appears automatically once ready.', '画面就绪后会自动出现。', '準備ができると画面が自動的に表示されます。', '준비되면 화면이 자동으로 표시됩니다.'],
+  bootingHintDevicefarm: ['Device Farm 開機通常需要 3–5 分鐘,畫面就緒後會自動出現。', 'Device Farm usually takes 3–5 minutes; the screen appears automatically.', 'Device Farm 开机通常需要 3–5 分钟,画面就绪后会自动出现。', 'Device Farm の起動には通常 3〜5 分かかります。準備ができると画面が自動的に表示されます。', 'Device Farm 부팅에는 보통 3~5분이 걸리며, 준비되면 화면이 자동으로 표시됩니다.'],
+  bootingHintEmulator: ['正在準備 Android 容器(Redroid 雲端主機),畫面就緒後會自動出現。', 'Preparing the Android container (Redroid cloud host); the screen appears automatically.', '正在准备 Android 容器(Redroid 云端主机),画面就绪后会自动出现。', 'Android コンテナ(Redroid クラウドホスト)を準備中です。準備ができると画面が自動的に表示されます。', 'Android 컨테이너(Redroid 클라우드 호스트)를 준비하고 있습니다. 준비되면 화면이 자동으로 표시됩니다.'],
+  bootingHintWeb: ['正在啟動雲端瀏覽器,畫面就緒後會自動出現。', 'Starting the cloud browser; the screen appears automatically.', '正在启动云端浏览器,画面就绪后会自动出现。', 'クラウドブラウザを起動中です。準備ができると画面が自動的に表示されます。', '클라우드 브라우저를 시작하고 있습니다. 준비되면 화면이 자동으로 표시됩니다.'],
+  bootingHintWindows: ['Windows 主機(GameLift Streams)首次啟動約需 10–15 分鐘,畫面就緒後會自動出現。', 'The Windows host (GameLift Streams) takes about 10–15 minutes on first start; the screen appears automatically.', 'Windows 主机(GameLift Streams)首次启动约需 10–15 分钟,画面就绪后会自动出现。', 'Windows ホスト(GameLift Streams)の初回起動には約 10〜15 分かかります。準備ができると画面が自動的に表示されます。', 'Windows 호스트(GameLift Streams)는 처음 시작할 때 약 10~15분이 걸리며, 준비되면 화면이 자동으로 표시됩니다.'],
+  replay: ['回放', 'Replay', '回放', 'リプレイ', '다시 보기'],
+  chat: ['與控制遊戲 Agent 互動', 'Interact with the game-control Agent', '与控制游戏 Agent 交互', 'ゲーム操作エージェントとやり取りする', '게임 제어 에이전트와 상호작용'],
+  goalHint: ['決策 Agent 給這一步的目標', 'Goal set by the Decision Agent for this step', '决策 Agent 给这一步的目标', 'このステップで判断エージェントが設定した目標', '이 단계에서 판단 에이전트가 정한 목표'],
+  scriptStep: ['腳本 {n}/{m}', 'Script {n}/{m}', '脚本 {n}/{m}', 'スクリプト {n}/{m}', '스크립트 {n}/{m}'],
+  effectHint: ['輔助 Agent 判斷這一步的動作有沒有生效', 'Helper Agent verdict on whether this action worked', '辅助 Agent 判断这一步的动作有没有生效', 'この操作が有効だったかを補助エージェントが判定した結果', '이 동작이 효과가 있었는지에 대한 보조 에이전트의 판정'],
+  effectOk: ['✓ 有效', '✓ Worked', '✓ 有效', '✓ 有効', '✓ 효과 있음'],
+  effectNone: ['✕ 沒有反應', '✕ No effect', '✕ 没有反应', '✕ 反応なし', '✕ 반응 없음'],
+  effectOther: ['⚠ 畫面不如預期', '⚠ Unexpected', '⚠ 画面不如预期', '⚠ 画面が想定と異なる', '⚠ 예상과 다른 화면'],
+  suspectValue: ['⚠ 疑似讀錯 {k}={v}(前一筆 #{s} = {p})', '⚠ Likely misread {k}={v} (previous #{s} = {p})', '⚠ 疑似读错 {k}={v}(前一笔 #{s} = {p})', '⚠ 読み取りミスの疑い {k}={v}(直前 #{s} = {p})', '⚠ 잘못 읽은 것으로 의심 {k}={v}(이전 #{s} = {p})'],
+  betChanged: ['⚠ 投注額變更 {f} → {t}(第 {s} 步起)', '⚠ Bet changed {f} → {t} (since step {s})', '⚠ 投注额变更 {f} → {t}(第 {s} 步起)', '⚠ ベット額が変更 {f} → {t}(ステップ {s} 以降)', '⚠ 베팅액 변경 {f} → {t}({s}단계부터)'],
+  segment: ['第 {n} 段連線', 'Session {n}', '第 {n} 段连接', 'セッション {n}', '연결 구간 {n}'],
+  replayStep: ['回放第 {n} 步(含聲音)', 'Replay step {n} with sound', '回放第 {n} 步(含声音)', 'ステップ {n} をリプレイ(音声付き)', '{n}단계 다시 보기(소리 포함)'],
+  seekStep: ['在時間軸上跳到這一步', 'Jump to this step on the timeline', '在时间轴上跳到这一步', 'タイムライン上でこのステップへ移動', '타임라인에서 이 단계로 이동'],
+  tabMoment: ['即時日誌', 'Live log', '即时日志', 'ライブログ', '실시간 로그'],
+  tabTrace: ['執行軌跡', 'Steps', '运行轨迹', '実行履歴', '실행 기록'],
+  tabLogs: ['完整日誌', 'Full logs', '完整日志', '全ログ', '전체 로그'],
+  tabAnalysis: ['數據分析', 'Metrics', '数据分析', '指標分析', '지표 분석'],
+  tabUsage: ['Token 用量', 'Token usage', 'Token 用量', 'トークン使用量', '토큰 사용량'],
+  tabAsk: ['AI 問答', 'Ask AI', 'AI 问答', 'AI に質問', 'AI에게 질문'],
+  tabAgent: ['與畫面互動', 'Interact with screen', '与画面交互', '画面を操作', '화면 조작'],
+  tabScript: ['腳本與執行資訊', 'Script & run info', '脚本与运行信息', 'スクリプトと実行情報', '스크립트 및 실행 정보'],
+  agentEnded: ['這次測試沒有下過指令。測試進行中可以在這裡告訴控制遊戲的 Agent 該怎麼做,或在畫面上直接點。', 'No instructions were sent in this run. While a test is running you can tell the game-control Agent what to do here, or tap the screen directly.', '这次测试没有下过指令。测试进行中可以在这里告诉控制游戏的 Agent 该怎么做,或在画面上直接点。', 'この実行では指示が送られていません。テスト中はここでゲーム操作エージェントに指示を出すか、画面を直接タップできます。', '이번 실행에서는 지시를 보내지 않았습니다. 테스트 중에는 여기서 게임 제어 에이전트에게 지시하거나 화면을 직접 탭할 수 있습니다.'],
+  layout: ['版面', 'Layout', '版面', 'レイアウト', '레이아웃'],
+  layoutAuto: ['自動', 'Auto', '自动', '自動', '자동'],
+  layoutPortrait: ['直向', 'Portrait', '直向', '縦向き', '세로'],
+  layoutLandscape: ['橫向', 'Landscape', '横向', '横向き', '가로'],
+  layoutHint: ['版面:自動 = 跟著被測 App 的方向切換', 'Layout: Auto follows the app orientation', '版面:自动 = 跟着被测 App 的方向切换', 'レイアウト:自動 = テスト対象アプリの向きに合わせて切り替え', '레이아웃: 자동 = 테스트 대상 앱의 방향에 맞춰 전환'],
+  liveFollow: ['回到即時', 'Back to live', '回到即时', 'ライブに戻る', '실시간으로 돌아가기'],
+  stop: ['停止測試', 'Stop test', '停止测试', 'テストを停止', '테스트 중지'],
+  stopping: ['停止中…', 'Stopping…', '停止中…', '停止中…', '중지하는 중…'],
+  stopConfirm: ['確定要停止這次測試嗎?AI 會在目前這一步結束後停下並釋放裝置,已完成的步驟和截圖都會保留。', 'Stop this test? The AI stops after the current step and releases the device. Completed steps and screenshots are kept.', '确定要停止这次测试吗?AI 会在目前这一步结束后停下并释放设备,已完成的步骤和截图都会保留。', 'このテストを停止しますか?AI は現在のステップが終わった後に停止してデバイスを解放します。完了したステップとスクリーンショットは保持されます。', '이 테스트를 중지하시겠습니까? AI는 현재 단계가 끝난 뒤 멈추고 기기를 반환합니다. 완료된 단계와 스크린샷은 유지됩니다.'],
+  stopFailed: ['停止失敗:', 'Could not stop: ', '停止失败:', '停止に失敗しました:', '중지하지 못했습니다:'],
+  stopSent: ['已送出停止,AI 會在這一步結束後停下。', 'Stop requested. The AI stops after the current step.', '已送出停止,AI 会在这一步结束后停下。', '停止を送信しました。AI はこのステップが終わった後に停止します。', '중지를 요청했습니다. AI는 이 단계가 끝난 뒤 멈춥니다.'],
 } as const;
-const pt = (k: keyof typeof PT, lang: RLang) => PT[k][lang === 'zh' ? 0 : 1];
+const pt = (k: keyof typeof PT, lang: RLang) => pick5(PT[k], lang);
 
 /** 執行軌跡每一步的日期時間(使用者當地時區,依介面語言格式化),例如 2026/10/08 14:30:45。 */
 export function stepTime(iso: string, locale: string): string {
@@ -527,7 +528,7 @@ export default function TaskDetailPage() {
         {/* 測試結論的理由(驗收標準;細節在報告的「驗收結論與標準」)。 */}
         {verdict && verdict.status !== 'PASS' && (
           <p className={`detail__triage detail__triage--${verdict.status === 'FAIL' ? 'fail' : 'error'}`}>
-            {t('outcome.verdict')}:{verdict.reason[lang] ?? verdict.reason.zh}
+            {t('outcome.verdict')}:{tr(verdict.reason, lang)}
           </p>
         )}
         {/* 成因引導(Req 12.3):fail → 被測 App/案例;error → 環境/基礎設施 */}

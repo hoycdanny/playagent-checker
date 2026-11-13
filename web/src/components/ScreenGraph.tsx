@@ -34,6 +34,7 @@ import {
   moduleLabel,
   screenLabels,
 } from './memory/graphView.ts';
+import { pick5, type L5 } from '../i18n/locale5.ts';
 import './ScreenGraph.css';
 
 const ACCENT = '#ff2d95';
@@ -483,7 +484,7 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
   const shownRoute = draft ?? routes.find((r) => r.id === shownId) ?? null;
   const picking = Boolean(draft && pick);
   const base = useMemo(() => {
-    const b = overlayRoute(laid, shownRoute, picking, ['支', 'B'][lang === 'zh' ? 0 : 1]!);
+    const b = overlayRoute(laid, shownRoute, picking, pick5(['支', 'B', '支', '分', '분'], lang));
     if (!focusedPageId) return b;
     return { ...b, nodes: b.nodes.map((n) => (n.id === focusedPageId ? { ...n, data: { ...n.data, focused: true } } : n)) };
   }, [laid, shownRoute, picking, lang, focusedPageId]);
@@ -714,35 +715,35 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
 }
 
 /** 「怎麼看這張圖」的文字(zh / en)。 */
-const GUIDE: Record<string, [string, string]> = {
-  title: ['怎麼看這張圖', 'How to read this map'],
+const GUIDE: Record<string, L5> = {
+  title: ['怎麼看這張圖', 'How to read this map', '怎么看这张图', 'このマップの見方', '이 지도 보는 법'],
   intro: [
     '每張卡片是 AI 在測試中看過的一個畫面;線代表「在這個畫面做了什麼之後,到了哪個畫面」。所有線都來自實際測試記錄。',
-    'Each card is a screen the AI saw during testing; a line means "after doing this here, the game went there". Every line comes from real test runs.',
+    'Each card is a screen the AI saw during testing; a line means "after doing this here, the game went there". Every line comes from real test runs.', '每张卡片是 AI 在测试中看过的一个画面;线代表「在这个画面做了什么之后,到了哪个画面」。所有线都来自实际测试记录。', '各カードは AI がテスト中に見た画面です。線は「この画面で何かをした後、どの画面に移ったか」を表します。すべての線は実際のテスト記録に基づいています。', '각 카드는 AI가 테스트 중에 본 화면입니다. 선은 \'이 화면에서 무언가를 한 뒤 어느 화면으로 갔는지\'를 나타내며, 모든 선은 실제 테스트 기록에서 나옵니다.',
   ],
-  cardsTitle: ['畫面卡片', 'Screen cards'],
-  order: ['截圖右下角數字 = 第一次發現的順序,畫面大致由左到右照這個順序排', 'Number at the bottom-right of the screenshot = order in which the screen was first found; cards run left to right in that order'],
-  root: ['「起點」= 遊戲開啟後的第一個畫面', '"Start" = the first screen after the game opens'],
-  heat: ['上方粉紅條越長 = 到過這個畫面的次數越多', 'Longer pink bar on top = visited more often'],
-  loading: ['虛線框 +「載入」= 載入/過場畫面', 'Dashed border + "Loading" = loading or transition screen'],
-  sub: ['名稱下的灰字 = 用來區分同名畫面的描述(例如「轉軸畫面 · EXTRA BET 彈窗」)', 'Grey text under a name tells same-named screens apart (e.g. "Reels · EXTRA BET popup")'],
-  module: ['小標籤 = 遊戲模組(轉軸、彈窗、登入…)', 'Small tag = game module (reels, popup, login…)'],
-  alias: ['「+N 別名」= AI 對同一畫面用過的其他說法,滑鼠移到卡片上可看全部', '"+N aliases" = other names the AI used for the same screen; hover the card to see them'],
-  linesTitle: ['連線', 'Lines'],
-  action: ['粉紅實線 = AI 做了操作(點擊、滑動、重新啟動…)後畫面切換', 'Solid pink = the AI did something (tap, swipe, relaunch…) and the screen changed'],
-  auto: ['灰色虛線 = 畫面自己切換(載入完成、動畫結束),不是 AI 點出來的', 'Dashed grey = the screen changed by itself (loading finished, animation ended)'],
-  unreliable: ['黃線 = 常失敗:做了這個操作但畫面沒反應的次數比成功多', 'Yellow = unreliable: the action had no effect more often than it worked'],
-  manual: ['藍線 = 測試人員手動標註的路徑', 'Blue = path marked by a tester'],
-  back: ['↩ 沿整張圖最下方走回去的淡色線 = 往回走(返回、重新啟動、回到先前的畫面)', '↩ Faded line along the bottom of the map = going back (back key, relaunch, return to an earlier screen)'],
-  counts: ['線越粗 = 走過越多次;「N 次」= 成功次數,「無效 N 次」= 做了但畫面沒變', 'Thicker = used more; ×N = successes, ✗N = attempts with no effect'],
-  via: ['「經載入」= 隱藏了中間的載入畫面', '"via loading" = loading screens in between are hidden'],
+  cardsTitle: ['畫面卡片', 'Screen cards', '画面卡片', '画面カード', '화면 카드'],
+  order: ['截圖右下角數字 = 第一次發現的順序,畫面大致由左到右照這個順序排', 'Number at the bottom-right of the screenshot = order in which the screen was first found; cards run left to right in that order', '截图右下角数字 = 第一次发现的顺序,画面大致由左到右照这个顺序排', 'スクリーンショット右下の数字 = 最初に発見された順。画面はおおむね左から右へこの順に並びます', '스크린샷 오른쪽 아래 숫자 = 처음 발견된 순서. 화면은 대체로 왼쪽에서 오른쪽으로 이 순서대로 배치됩니다'],
+  root: ['「起點」= 遊戲開啟後的第一個畫面', '"Start" = the first screen after the game opens', '「起点」= 游戏打开后的第一个画面', '「開始」= ゲームを開いた直後の最初の画面', '\'시작\' = 게임을 연 직후의 첫 화면'],
+  heat: ['上方粉紅條越長 = 到過這個畫面的次數越多', 'Longer pink bar on top = visited more often', '上方粉红条越长 = 到过这个画面的次数越多', '上部のピンクのバーが長いほど、その画面を訪れた回数が多い', '위쪽 분홍색 막대가 길수록 그 화면에 간 횟수가 많음'],
+  loading: ['虛線框 +「載入」= 載入/過場畫面', 'Dashed border + "Loading" = loading or transition screen', '虚线框 +「加载」= 加载/过场画面', '破線の枠 +「読み込み」= 読み込み/遷移画面', '점선 테두리 + \'로딩\' = 로딩/전환 화면'],
+  sub: ['名稱下的灰字 = 用來區分同名畫面的描述(例如「轉軸畫面 · EXTRA BET 彈窗」)', 'Grey text under a name tells same-named screens apart (e.g. "Reels · EXTRA BET popup")', '名称下的灰字 = 用来区分同名画面的描述(例如「转轴画面 · EXTRA BET 弹窗」)', '名前の下のグレーの文字 = 同名の画面を区別する説明(例:「リール画面 · EXTRA BET ポップアップ」)', '이름 아래 회색 글자 = 이름이 같은 화면을 구분하는 설명(예: \'릴 화면 · EXTRA BET 팝업\')'],
+  module: ['小標籤 = 遊戲模組(轉軸、彈窗、登入…)', 'Small tag = game module (reels, popup, login…)', '小标签 = 游戏模块(转轴、弹窗、登录…)', '小さなタグ = ゲームモジュール(リール、ポップアップ、ログイン…)', '작은 태그 = 게임 모듈(릴, 팝업, 로그인…)'],
+  alias: ['「+N 別名」= AI 對同一畫面用過的其他說法,滑鼠移到卡片上可看全部', '"+N aliases" = other names the AI used for the same screen; hover the card to see them', '「+N 别名」= AI 对同一画面用过的其他说法,鼠标移到卡片上可看全部', '「+N 別名」= AI が同じ画面に使った別の呼び方。カードにカーソルを合わせると全て表示', '\'+N 별칭\' = AI가 같은 화면에 사용한 다른 이름. 카드에 마우스를 올리면 전체 표시'],
+  linesTitle: ['連線', 'Lines', '连接', '接続線', '연결선'],
+  action: ['粉紅實線 = AI 做了操作(點擊、滑動、重新啟動…)後畫面切換', 'Solid pink = the AI did something (tap, swipe, relaunch…) and the screen changed', '粉红实线 = AI 做了操作(点击、滑动、重新启动…)后画面切换', 'ピンクの実線 = AI が操作(タップ、スワイプ、再起動…)をして画面が切り替わった', '분홍색 실선 = AI가 동작(탭, 스와이프, 재시작…)을 수행해 화면이 전환됨'],
+  auto: ['灰色虛線 = 畫面自己切換(載入完成、動畫結束),不是 AI 點出來的', 'Dashed grey = the screen changed by itself (loading finished, animation ended)', '灰色虚线 = 画面自己切换(加载完成、动画结束),不是 AI 点出来的', 'グレーの破線 = 画面が自動で切り替わった(読み込み完了、アニメーション終了)。AI のタップによるものではない', '회색 점선 = 화면이 저절로 전환됨(로딩 완료, 애니메이션 종료). AI가 탭한 것이 아님'],
+  unreliable: ['黃線 = 常失敗:做了這個操作但畫面沒反應的次數比成功多', 'Yellow = unreliable: the action had no effect more often than it worked', '黄线 = 常失败:做了这个操作但画面没反应的次数比成功多', '黄色の線 = 失敗しやすい:この操作をしても画面が反応しなかった回数が成功より多い', '노란 선 = 자주 실패: 이 동작을 해도 화면이 반응하지 않은 횟수가 성공보다 많음'],
+  manual: ['藍線 = 測試人員手動標註的路徑', 'Blue = path marked by a tester', '蓝线 = 测试人员手动标注的路径', '青い線 = テスターが手動で付けた経路', '파란 선 = 테스터가 수동으로 표시한 경로'],
+  back: ['↩ 沿整張圖最下方走回去的淡色線 = 往回走(返回、重新啟動、回到先前的畫面)', '↩ Faded line along the bottom of the map = going back (back key, relaunch, return to an earlier screen)', '↩ 沿整张图最下方走回去的淡色线 = 往回走(返回、重新启动、回到先前的画面)', '↩ マップの最下部に沿って戻る薄い線 = 戻る動き(戻るキー、再起動、以前の画面に戻る)', '↩ 지도 맨 아래를 따라 돌아가는 옅은 선 = 되돌아가기(뒤로 키, 재시작, 이전 화면으로 복귀)'],
+  counts: ['線越粗 = 走過越多次;「N 次」= 成功次數,「無效 N 次」= 做了但畫面沒變', 'Thicker = used more; ×N = successes, ✗N = attempts with no effect', '线越粗 = 走过越多次;「N 次」= 成功次数,「无效 N 次」= 做了但画面没变', '線が太いほど通った回数が多い。「N 回」= 成功回数、「無効 N 回」= 操作したが画面が変わらなかった回数', '선이 굵을수록 지나간 횟수가 많음. \'N회\' = 성공 횟수, \'무효 N회\' = 동작했지만 화면이 바뀌지 않은 횟수'],
+  via: ['「經載入」= 隱藏了中間的載入畫面', '"via loading" = loading screens in between are hidden', '「经加载」= 隐藏了中间的加载画面', '「読み込み経由」= 途中の読み込み画面を非表示にしています', '\'로딩 경유\' = 중간의 로딩 화면을 숨겼습니다'],
   keptLoading: [
     '有 {n} 個載入畫面同時接到好幾條流程,隱藏後無法確定誰接誰,為避免畫出錯誤路線仍保留顯示。',
-    '{n} loading screen(s) connect several flows and stay visible, because hiding them would draw paths that never happened.',
+    '{n} loading screen(s) connect several flows and stay visible, because hiding them would draw paths that never happened.', '有 {n} 个加载画面同时接到好几条流程,隐藏后无法确定谁接谁,为避免画出错误路线仍保留显示。', '読み込み画面 {n} 件が複数のフローに接続されているため、非表示にするとどれがどれにつながるか判断できません。誤った経路を描かないよう表示したままにしています。', '로딩 화면 {n}개가 여러 흐름에 연결되어 있어 숨기면 무엇이 무엇에 이어지는지 알 수 없습니다. 잘못된 경로를 그리지 않도록 계속 표시합니다.',
   ],
 };
 function gt(key: keyof typeof GUIDE, lang: RLang): string {
-  return GUIDE[key]![lang === 'zh' ? 0 : 1];
+  return pick5(GUIDE[key]!, lang);
 }
 
 /** 圖例 + 看圖說明(預設展開;收合狀態記在本機)。 */
@@ -765,7 +766,7 @@ function GraphGuide({ lang }: { lang: RLang }) {
           <h4>{gt('cardsTitle', lang)}</h4>
           <ul>
             <li><span className="sg-guide__badge sg-guide__badge--order" aria-hidden="true">1</span>{gt('order', lang)}</li>
-            <li><span className="sg-guide__badge sg-guide__badge--root" aria-hidden="true">{['起點', 'Start'][lang === 'zh' ? 0 : 1]}</span>{gt('root', lang)}</li>
+            <li><span className="sg-guide__badge sg-guide__badge--root" aria-hidden="true">{pick5(['起點', 'Start', '起点', '開始', '시작'], lang)}</span>{gt('root', lang)}</li>
             <li>{line('sg-guide__line--heat')}{gt('heat', lang)}</li>
             <li><span className="sg-guide__box" aria-hidden="true" />{gt('loading', lang)}</li>
             <li>{gt('sub', lang)}</li>

@@ -1,4 +1,6 @@
+import { pick5 } from '../i18n/locale5.ts';
 import type { MessageKey } from '../i18n/messages.ts';
+import { dataLang, tr, type RLang } from './report/reportText.ts';
 
 /**
  * 任務結果(與報告封面同一個結論)。
@@ -61,9 +63,9 @@ export function outcomeClass(o: Outcome): string {
  * 報告引擎的理由常是「本次測試無法作為驗收依據 —— AC-G01 …、AC-S01 … 未通過或無法判定(…),需修正後重測」,
  * 有驗收標準編號時改成「N 項未通過或無法判定:AC-G01、AC-S01 等」;否則取第一句。
  */
-export function shortReason(reason: string, lang: 'zh' | 'en' = 'zh', max = lang === 'en' ? 28 : 16): string {
+export function shortReason(reason: string, lang: RLang = 'zh-Hant', max = dataLang(lang) === 'zh' ? 16 : 28): string {
   const ids = [...new Set(reason.match(/\bAC-[A-Z]+\d+\b/g) ?? [])];
-  if (ids.length) return [`${ids.length} 項未達標`, `${ids.length} criteria unmet`][lang === 'en' ? 1 : 0]!;
+  if (ids.length) return pick5([`${ids.length} 項未達標`, `${ids.length} criteria unmet`, `${ids.length} 项未达标`, `${ids.length} 件が未達`, `${ids.length}개 항목 미충족`], lang);
   const head = reason.trim().split(/\s+[—–]{1,2}\s+/)[0] ?? '';
   const first = head.split(/(?<=[。!?;!?;])\s*|\n|(?<=\.)\s+/)[0] ?? '';
   const s = first.replace(/[。;;,,.]+$/, '').trim();
@@ -77,11 +79,11 @@ export function shortReason(reason: string, lang: 'zh' | 'en' = 'zh', max = lang
 export function outcomeTip(
   x: { state: string; verdict?: VerdictInfo },
   t: (k: MessageKey) => string,
-  lang: 'zh' | 'en' = 'zh',
+  lang: RLang = 'zh-Hant',
 ): string {
   const o = outcomeOf(x);
   if (!x.verdict) return t(outcomeKey(o));
-  const reason = shortReason(x.verdict.reason[lang] ?? x.verdict.reason.zh ?? '', lang);
+  const reason = shortReason(tr(x.verdict.reason, lang), lang);
   const abnormal = x.state !== 'pass' && x.state !== 'fail' && x.state !== 'running' && x.state !== 'queued';
   // 執行本身出錯時,「執行錯誤」比理由更重要,只顯示它。
   const extra = abnormal ? t(`state.${x.state}` as MessageKey) : reason;

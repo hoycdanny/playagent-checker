@@ -8,6 +8,7 @@
  *  3. 依「第一次發現的順序」由左到右排;往回走的線另外標示,從卡片下方繞回。
  */
 import type { RLang } from '../report/reportText.ts';
+import { pick5, type L5 } from '../../i18n/locale5.ts';
 
 export interface GraphPage {
   id: string;
@@ -188,57 +189,58 @@ export function screenLabels(pages: GraphPage[], moduleName: (id: string) => str
 }
 
 /** 遊戲模組 id → 看得懂的名稱(與報告模組定義一致;未知 id 原樣顯示)。 */
-const MODULES: Record<string, [string, string]> = {
-  launch: ['啟動/載入', 'Launch'],
-  login: ['登入', 'Login'],
-  lobby: ['大廳', 'Lobby'],
-  tutorial: ['新手教學', 'Tutorial'],
-  gameplay: ['核心玩法', 'Gameplay'],
-  result: ['結算', 'Result'],
-  shop: ['商店', 'Shop'],
-  settings: ['設定', 'Settings'],
-  popup: ['彈窗', 'Popup'],
-  character: ['角色養成', 'Character'],
-  inventory: ['背包', 'Inventory'],
-  quest: ['任務', 'Quest'],
-  battle: ['戰鬥', 'Battle'],
-  stage_select: ['關卡選擇', 'Stage Select'],
-  machine_select: ['機台選擇', 'Machine Select'],
-  reels: ['轉軸', 'Reels'],
-  bet: ['下注', 'Bet'],
-  bonus: ['免費遊戲', 'Bonus'],
-  paytable: ['賠付表', 'Paytable'],
-  autospin: ['自動旋轉', 'Auto Spin'],
-  table_select: ['桌台選擇', 'Table Select'],
-  round: ['牌局', 'Round'],
-  history: ['遊戲紀錄', 'History'],
-  responsible_gaming: ['負責任博弈', 'Responsible Gaming'],
-  server: ['伺服器連線', 'Server'],
-  social: ['社交', 'Social'],
-  trade: ['交易', 'Trade'],
+const MODULES: Record<string, L5> = {
+  launch: ['啟動/載入', 'Launch', '启动/加载', '起動/読み込み', '시작/로딩'],
+  login: ['登入', 'Login', '登录', 'ログイン', '로그인'],
+  lobby: ['大廳', 'Lobby', '大厅', 'ロビー', '로비'],
+  tutorial: ['新手教學', 'Tutorial', '新手教学', 'チュートリアル', '튜토리얼'],
+  gameplay: ['核心玩法', 'Gameplay', '内核玩法', 'コアプレイ', '핵심 플레이'],
+  result: ['結算', 'Result', '结算', 'リザルト', '결과'],
+  shop: ['商店', 'Shop', '商店', 'ショップ', '상점'],
+  settings: ['設定', 'Settings', '设置', '設定', '설정'],
+  popup: ['彈窗', 'Popup', '弹窗', 'ポップアップ', '팝업'],
+  character: ['角色養成', 'Character', '角色养成', 'キャラ育成', '캐릭터 육성'],
+  inventory: ['背包', 'Inventory', '背包', '所持品', '인벤토리'],
+  quest: ['任務', 'Quest', '任务', 'クエスト', '퀘스트'],
+  battle: ['戰鬥', 'Battle', '战斗', 'バトル', '전투'],
+  stage_select: ['關卡選擇', 'Stage Select', '关卡选择', 'ステージ選択', '스테이지 선택'],
+  machine_select: ['機台選擇', 'Machine Select', '机台选择', 'マシン選択', '머신 선택'],
+  reels: ['轉軸', 'Reels', '转轴', 'リール', '릴'],
+  bet: ['下注', 'Bet', '下注', 'ベット', '베팅'],
+  bonus: ['免費遊戲', 'Bonus', '免费游戏', 'フリーゲーム', '프리 게임'],
+  paytable: ['賠付表', 'Paytable', '赔付表', '配当表', '배당표'],
+  autospin: ['自動旋轉', 'Auto Spin', '自动旋转', 'オートスピン', '오토 스핀'],
+  table_select: ['桌台選擇', 'Table Select', '桌台选择', 'テーブル選択', '테이블 선택'],
+  round: ['牌局', 'Round', '牌局', 'ラウンド', '라운드'],
+  history: ['遊戲紀錄', 'History', '游戏纪录', 'ゲーム履歴', '게임 기록'],
+  responsible_gaming: ['負責任博弈', 'Responsible Gaming', '负责任博弈', '責任あるギャンブル', '책임 있는 게임'],
+  server: ['伺服器連線', 'Server', '服务器连接', 'サーバー接続', '서버 연결'],
+  social: ['社交', 'Social', '社交', 'ソーシャル', '소셜'],
+  trade: ['交易', 'Trade', '交易', '取引', '거래'],
 };
 export function moduleLabel(id: string, lang: RLang): string {
   const m = MODULES[id];
-  return m ? m[lang === 'zh' ? 0 : 1] : id;
+  return m ? pick5(m, lang) : id;
 }
 
 // ───────────── 3. 線上的文字 ─────────────
 
-const ACTIONS: Record<string, [string, string]> = {
-  tap: ['點擊', 'Tap'],
-  swipe: ['滑動', 'Swipe'],
-  back: ['返回鍵', 'Back'],
-  launch: ['重新啟動遊戲', 'Relaunch game'],
-  type: ['輸入', 'Type'],
-  move: ['移動', 'Move'],
-  auto: ['自動切換', 'Auto'],
+const ACTIONS: Record<string, L5> = {
+  tap: ['點擊', 'Tap', '点击', 'タップ', '탭'],
+  swipe: ['滑動', 'Swipe', '滑动', 'スワイプ', '스와이프'],
+  back: ['返回鍵', 'Back', '返回键', '戻る', '뒤로'],
+  launch: ['重新啟動遊戲', 'Relaunch game', '重新启动游戏', 'ゲームを再起動', '게임 재시작'],
+  type: ['輸入', 'Type', '输入', '入力', '입력'],
+  move: ['移動', 'Move', '移动', '移動', '이동'],
+  auto: ['自動切換', 'Auto', '自动切换', '自動切替', '자동'],
 };
 
 /** 一個觸發 → 一般人看得懂的動作(「點擊 PLAY」「自動切換」「重新啟動遊戲」)。 */
 export function actionText(trigger: GraphEdge['trigger'], lang: RLang): string {
   const raw = trigger?.kind ?? trigger?.label ?? 'auto';
   const kind = raw === 'auto' || trigger?.label === 'auto' ? 'auto' : raw;
-  const verb = ACTIONS[kind]?.[lang === 'zh' ? 0 : 1] ?? kind;
+  const verbs = ACTIONS[kind];
+  const verb = verbs ? pick5(verbs, lang) : kind;
   const target = kind === 'auto' || kind === 'launch' ? '' : String(trigger?.target ?? '').trim();
   return target ? `${verb} ${target}` : verb;
 }
@@ -253,12 +255,11 @@ export function edgeCaption(list: GraphEdge[], lang: RLang): string {
   const shown = acts.slice(0, 3).join(' / ') + (acts.length > 3 ? ` +${acts.length - 3}` : '');
   const hit = list.reduce((a, x) => a + x.hitCount, 0);
   const miss = list.reduce((a, x) => a + x.missCount, 0);
-  const zh = lang === 'zh';
   const counts = [
-    hit ? [`${hit} 次`, `×${hit}`][zh ? 0 : 1] : '',
-    miss ? [`無效 ${miss} 次`, `✗${miss}`][zh ? 0 : 1] : '',
+    hit ? pick5([`${hit} 次`, `×${hit}`, `${hit} 次`, `${hit} 回`, `×${hit}`], lang) : '',
+    miss ? pick5([`無效 ${miss} 次`, `✗${miss}`, `无效 ${miss} 次`, `無効 ${miss} 回`, `✗${miss}`], lang) : '',
   ].filter(Boolean).join(' · ');
-  const via = list.some((x) => x.synthetic) ? ['經載入', 'via loading'][zh ? 0 : 1] : '';
+  const via = list.some((x) => x.synthetic) ? pick5(['經載入', 'via loading', '经加载', '読み込み経由', '로딩 경유'], lang) : '';
   return [shown, counts, via].filter(Boolean).join(' · ');
 }
 

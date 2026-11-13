@@ -43,13 +43,13 @@ const noop = () => {};
 const LAUNCH = '報告導讀';
 
 function open(r: StructuredReport, onVerdicts = noop, onSection = noop) {
-  render(<ReportAssistant report={r} lang="zh" onGoVerdicts={onVerdicts} onGoSection={onSection} />);
+  render(<ReportAssistant report={r} lang="zh-Hant" onGoVerdicts={onVerdicts} onGoSection={onSection} />);
   fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
 }
 
 describe('收合與展開', () => {
   test('預設收合,只有一顆啟動器', () => {
-    render(<ReportAssistant report={report()} lang="zh" onGoVerdicts={noop} onGoSection={noop} />);
+    render(<ReportAssistant report={report()} lang="zh-Hant" onGoVerdicts={noop} onGoSection={noop} />);
     expect(screen.getByRole('button', { name: LAUNCH })).toBeTruthy();
     expect(screen.queryByRole('complementary')).toBeNull();
   });
@@ -62,7 +62,7 @@ describe('收合與展開', () => {
   });
 
   test('沒有待確認項目時,啟動器不顯示數字', () => {
-    render(<ReportAssistant report={report()} lang="zh" onGoVerdicts={noop} onGoSection={noop} />);
+    render(<ReportAssistant report={report()} lang="zh-Hant" onGoVerdicts={noop} onGoSection={noop} />);
     expect(screen.getByRole('button', { name: LAUNCH }).textContent).not.toMatch(/\d/);
   });
 });
@@ -74,7 +74,7 @@ describe('問答分頁', () => {
   });
 
   test('有 jobId 才出現,且預設停在導讀', () => {
-    render(<ReportAssistant report={report()} lang="zh" jobId="job-1" onGoVerdicts={noop} onGoSection={noop} />);
+    render(<ReportAssistant report={report()} lang="zh-Hant" jobId="job-1" onGoVerdicts={noop} onGoSection={noop} />);
     fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     expect(screen.getByRole('button', { name: '問答' })).toBeTruthy();
     // 預設是導讀:使用者先看到結論與邊界,而不是一個空的輸入框
@@ -82,7 +82,7 @@ describe('問答分頁', () => {
   });
 
   test('切到問答後導讀內容收起,不同時佔版面', () => {
-    render(<ReportAssistant report={report()} lang="zh" jobId="job-1" onGoVerdicts={noop} onGoSection={noop} />);
+    render(<ReportAssistant report={report()} lang="zh-Hant" jobId="job-1" onGoVerdicts={noop} onGoSection={noop} />);
     fireEvent.click(screen.getByRole('button', { name: LAUNCH }));
     fireEvent.click(screen.getByRole('button', { name: '問答' }));
     expect(screen.queryByText(/判定結果/)).toBeNull();
@@ -215,7 +215,7 @@ describe('待你判斷', () => {
   test('無法認定的檢查項也要算進去,否則通過看起來比實際乾淨', () => {
     const r = report();
     (r.counts as { unclear?: number }).unclear = 3;
-    render(<ReportAssistant report={r} lang="zh" onGoVerdicts={noop} onGoSection={noop} />);
+    render(<ReportAssistant report={r} lang="zh-Hant" onGoVerdicts={noop} onGoSection={noop} />);
     expect(screen.getByRole('button', { name: LAUNCH }).textContent).toContain('3');
   });
 

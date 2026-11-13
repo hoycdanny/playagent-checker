@@ -2,22 +2,23 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ScriptProgress } from '../../api/useJobStream.ts';
 import type { RLang } from '../report/reportText.ts';
 import { parseScript } from './scriptSteps.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 
 const T = {
-  title: ['測試腳本', 'Test script'],
-  steps: ['{n} 個步驟', '{n} steps'],
-  progress: ['已完成 {d}/{n}', '{d}/{n} done'],
-  empty: ['這次測試沒有指定腳本(自主探索)。', 'No script for this run (free exploration).'],
-  show: ['展開', 'Show'],
-  hide: ['收合', 'Hide'],
-  version: ['版本', 'Version'],
-  done: ['已完成', 'Done'],
-  current: ['進行中', 'In progress'],
-  pending: ['未開始', 'Not started'],
-  stopped: ['停在這一步', 'Stopped here'],
-  progressHint: ['打勾依決策 Agent 回報的腳本進度,測試通過時全部打勾。', 'Ticks follow the script progress reported by the Decision Agent; all are ticked when the test passes.'],
+  title: ['測試腳本', 'Test script', '测试脚本', 'テストスクリプト', '테스트 스크립트'],
+  steps: ['{n} 個步驟', '{n} steps', '{n} 个步骤', '{n} ステップ', '{n}단계'],
+  progress: ['已完成 {d}/{n}', '{d}/{n} done', '已完成 {d}/{n}', '完了 {d}/{n}', '완료 {d}/{n}'],
+  empty: ['這次測試沒有指定腳本(自主探索)。', 'No script for this run (free exploration).', '这次测试没有指定脚本(自主探索)。', 'このテストにはスクリプトが指定されていません(自由探索)。', '이번 테스트에는 스크립트가 지정되지 않았습니다(자유 탐색).'],
+  show: ['展開', 'Show', '展开', '表示', '펼치기'],
+  hide: ['收合', 'Hide', '收合', '閉じる', '접기'],
+  version: ['版本', 'Version', '版本', 'バージョン', '버전'],
+  done: ['已完成', 'Done', '已完成', '完了', '완료'],
+  current: ['進行中', 'In progress', '进行中', '進行中', '진행 중'],
+  pending: ['未開始', 'Not started', '未开始', '未開始', '시작 전'],
+  stopped: ['停在這一步', 'Stopped here', '停在这一步', 'ここで停止', '여기서 멈춤'],
+  progressHint: ['打勾依決策 Agent 回報的腳本進度,測試通過時全部打勾。', 'Ticks follow the script progress reported by the Decision Agent; all are ticked when the test passes.', '打勾依决策 Agent 回报的脚本进度,测试通过时全部打勾。', 'チェックは判断エージェントが報告したスクリプトの進捗に従い、テスト合格時にはすべてチェックされます。', '체크 표시는 판단 에이전트가 보고한 스크립트 진행에 따르며, 테스트가 통과하면 모두 체크됩니다.'],
 } as const;
-const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+const tx = (k: keyof typeof T, lang: RLang) => pick5(T[k], lang);
 
 export type ItemState = 'done' | 'current' | 'stopped' | 'pending';
 

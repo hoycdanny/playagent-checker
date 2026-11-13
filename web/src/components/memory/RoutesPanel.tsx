@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { RLang } from '../report/reportText.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 
 /**
  * 操作路線:測試人員在關係圖上依序點畫面畫出的流程(整個應用共用,每次測試 AI 都會照著走)。
@@ -14,42 +15,42 @@ export interface MemoryRoute { id: string; name: string; enabled: boolean; steps
 export type RoutePick = { kind: 'step' } | { kind: 'branch'; fromStepId: string };
 
 const T = {
-  title: ['操作路線', 'Routes'],
+  title: ['操作路線', 'Routes', '操作路线', '操作ルート', '조작 경로'],
   desc: [
     'AI 每次測試都會照路線依序走(整個應用共用)。點「新增路線」後,依序點圖上的畫面,並寫下每一步要做什麼。某一步可能跳出活動彈窗之類的畫面時,用「+ 支線」畫一條岔路,告訴 AI 怎麼處理、處理完回到哪一步。',
-    'The AI follows these routes in order on every run (shared across the app). Click “New route”, then click screens on the graph in order and write what to do at each step. If a step may hit something like a daily event popup, add a branch to tell the AI how to handle it and which step to go back to.',
+    'The AI follows these routes in order on every run (shared across the app). Click “New route”, then click screens on the graph in order and write what to do at each step. If a step may hit something like a daily event popup, add a branch to tell the AI how to handle it and which step to go back to.', 'AI 每次测试都会照路线依序走(整个应用共用)。点「添加路线」后,依序点图上的画面,并写下每一步要做什么。某一步可能跳出活动弹窗之类的画面时,用「+ 支线」画一条岔路,告诉 AI 怎么处理、处理完回到哪一步。', 'AI は毎回のテストでこのルートを順番にたどります(アプリ全体で共通)。「ルートを追加」を押したら、グラフ上の画面を順にクリックし、各ステップでやることを書きます。デイリーイベントのポップアップなどが出る可能性がある場合は「+ 分岐」で脇道を描き、どう処理して、どのステップに戻るかを AI に伝えます。', 'AI는 매 테스트마다 이 경로를 순서대로 따라갑니다(앱 전체 공통). \'경로 추가\'를 누른 뒤 그래프에서 화면을 순서대로 클릭하고 각 단계에서 할 일을 적습니다. 이벤트 팝업 등이 나올 수 있는 단계에서는 \'+ 분기\'로 갈림길을 그려 어떻게 처리하고 어느 단계로 돌아갈지 AI에게 알려 주세요.',
   ],
-  none: ['還沒有路線。', 'No routes yet.'],
-  add: ['新增路線', 'New route'],
-  edit: ['編輯', 'Edit'],
-  del: ['刪除', 'Delete'],
-  delConfirm: ['刪除路線「{name}」?', 'Delete route “{name}”?'],
-  enabled: ['啟用', 'On'],
-  steps: ['{n} 步', '{n} steps'],
-  branches: ['{n} 條支線', '{n} branches'],
-  name: ['路線名稱', 'Route name'],
-  namePh: ['例:主線推關', 'e.g. Main stage run'],
-  pickStep: ['👆 點圖上的畫面,加入第 {n} 步', '👆 Click a screen on the graph to add step {n}'],
-  pickBranch: ['👆 點圖上的畫面當作第 {n} 步的支線(例如活動彈窗)', '👆 Click the screen that may pop up at step {n} (e.g. an event popup)'],
-  pickCancel: ['改回加步驟', 'Back to adding steps'],
-  actionPh: ['在這個畫面要做什麼(例:點選 xx 遊戲、除草殺敵直到通關)', 'What to do here (e.g. pick the game, fight until the stage is cleared)'],
-  branchIf: ['若出現', 'If'],
-  branchActionPh: ['怎麼處理(例:點右上角 X 關掉)', 'How to handle it (e.g. tap X at the top right)'],
-  branchBack: ['然後回到第', 'then go back to step'],
-  branchBackSuffix: ['步', ''],
-  addBranch: ['+ 支線', '+ Branch'],
-  up: ['上移', 'Move up'],
-  down: ['下移', 'Move down'],
-  remove: ['移除', 'Remove'],
-  save: ['儲存路線', 'Save route'],
-  saving: ['儲存中…', 'Saving…'],
-  cancel: ['取消', 'Cancel'],
-  needName: ['請填路線名稱', 'Please name the route'],
-  needSteps: ['路線至少要有一步', 'Add at least one step'],
-  missing: ['(畫面已刪除)', '(screen deleted)'],
-  show: ['在圖上顯示', 'Show on graph'],
+  none: ['還沒有路線。', 'No routes yet.', '还没有路线。', 'ルートはまだありません。', '아직 경로가 없습니다.'],
+  add: ['新增路線', 'New route', '添加路线', 'ルートを追加', '경로 추가'],
+  edit: ['編輯', 'Edit', '编辑', '編集', '편집'],
+  del: ['刪除', 'Delete', '删除', '削除', '삭제'],
+  delConfirm: ['刪除路線「{name}」?', 'Delete route “{name}”?', '删除路线「{name}」?', 'ルート「{name}」を削除しますか?', '경로 \'{name}\'을(를) 삭제하시겠습니까?'],
+  enabled: ['啟用', 'On', '激活', '有効', '켜짐'],
+  steps: ['{n} 步', '{n} steps', '{n} 步', '{n} ステップ', '{n}단계'],
+  branches: ['{n} 條支線', '{n} branches', '{n} 条支线', '分岐 {n} 件', '분기 {n}개'],
+  name: ['路線名稱', 'Route name', '路线名称', 'ルート名', '경로 이름'],
+  namePh: ['例:主線推關', 'e.g. Main stage run', '例:主线推关', '例:メインステージ攻略', '예: 메인 스테이지 진행'],
+  pickStep: ['👆 點圖上的畫面,加入第 {n} 步', '👆 Click a screen on the graph to add step {n}', '👆 点图上的画面,加入第 {n} 步', '👆 グラフ上の画面をクリックしてステップ {n} を追加', '👆 그래프에서 화면을 클릭해 {n}단계 추가'],
+  pickBranch: ['👆 點圖上的畫面當作第 {n} 步的支線(例如活動彈窗)', '👆 Click the screen that may pop up at step {n} (e.g. an event popup)', '👆 点图上的画面当作第 {n} 步的支线(例如活动弹窗)', '👆 グラフ上の画面をクリックして、ステップ {n} の分岐にします(例:イベントのポップアップ)', '👆 그래프에서 화면을 클릭해 {n}단계의 분기로 지정하세요(예: 이벤트 팝업)'],
+  pickCancel: ['改回加步驟', 'Back to adding steps', '改回加步骤', 'ステップ追加に戻る', '단계 추가로 돌아가기'],
+  actionPh: ['在這個畫面要做什麼(例:點選 xx 遊戲、除草殺敵直到通關)', 'What to do here (e.g. pick the game, fight until the stage is cleared)', '在这个画面要做什么(例:点击 xx 游戏、除草杀敌直到通关)', 'この画面でやること(例:xx ゲームを選ぶ、クリアまで敵を倒す)', '이 화면에서 할 일(예: xx 게임 선택, 클리어할 때까지 적 처치)'],
+  branchIf: ['若出現', 'If', '若出现', '次が出たら', '다음이 나타나면'],
+  branchActionPh: ['怎麼處理(例:點右上角 X 關掉)', 'How to handle it (e.g. tap X at the top right)', '怎么处理(例:点右上角 X 关掉)', '処理方法(例:右上の X をタップして閉じる)', '처리 방법(예: 오른쪽 위 X를 눌러 닫기)'],
+  branchBack: ['然後回到第', 'then go back to step', '然后回到第', 'その後ステップ', '그다음'],
+  branchBackSuffix: ['步', '', '步', 'に戻る', '단계로 돌아가기'],
+  addBranch: ['+ 支線', '+ Branch', '+ 支线', '+ 分岐', '+ 분기'],
+  up: ['上移', 'Move up', '上移', '上へ移動', '위로 이동'],
+  down: ['下移', 'Move down', '下移', '下へ移動', '아래로 이동'],
+  remove: ['移除', 'Remove', '移除', '削除', '제거'],
+  save: ['儲存路線', 'Save route', '保存路线', 'ルートを保存', '경로 저장'],
+  saving: ['儲存中…', 'Saving…', '保存中…', '保存中…', '저장하는 중…'],
+  cancel: ['取消', 'Cancel', '取消', 'キャンセル', '취소'],
+  needName: ['請填路線名稱', 'Please name the route', '请填路线名称', 'ルート名を入力してください', '경로 이름을 입력하세요'],
+  needSteps: ['路線至少要有一步', 'Add at least one step', '路线至少要有一步', 'ルートには少なくとも 1 ステップが必要です', '경로에는 최소 한 단계가 필요합니다'],
+  missing: ['(畫面已刪除)', '(screen deleted)', '(画面已删除)', '(画面は削除済み)', '(화면이 삭제됨)'],
+  show: ['在圖上顯示', 'Show on graph', '在图上显示', 'グラフ上に表示', '그래프에 표시'],
 } as const;
-export const rt = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+export const rt = (k: keyof typeof T, lang: RLang) => pick5(T[k], lang);
 
 const rand = () => (Math.random().toString(36).slice(2, 8) + Date.now().toString(36)).slice(0, 10);
 export const newRouteId = () => `route-${rand()}`;
@@ -57,7 +58,7 @@ export const newStepId = () => `s-${rand()}`;
 export const newBranchId = () => `b-${rand()}`;
 
 export function emptyRoute(n: number, lang: RLang): MemoryRoute {
-  return { id: newRouteId(), name: [`路線 ${n}`, `Route ${n}`][lang === 'zh' ? 0 : 1]!, enabled: true, steps: [], branches: [] };
+  return { id: newRouteId(), name: pick5([`路線 ${n}`, `Route ${n}`, `路线 ${n}`, `ルート ${n}`, `경로 ${n}`], lang), enabled: true, steps: [], branches: [] };
 }
 
 /** 加一步(在圖上點畫面)。 */

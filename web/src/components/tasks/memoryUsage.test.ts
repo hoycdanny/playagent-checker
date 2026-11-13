@@ -11,7 +11,7 @@ describe('執行軌跡的記憶標籤', () => {
       plan: { kind: 'tap', target: 'Slots', to: '機台選擇', hit: 1, miss: 0 },
       hints: [{ text: '先關簽到彈窗', matched: true }],
     };
-    const chips = memoryChips(m, 'zh');
+    const chips = memoryChips(m, 'zh-Hant');
     expect(chips.map((c) => c.text)).toEqual([
       '已知畫面', '記憶預測應驗', '照已驗證路徑:點擊 Slots → 機台選擇', '套用教學 1 條',
     ]);
@@ -22,12 +22,12 @@ describe('執行軌跡的記憶標籤', () => {
   });
 
   test('與記憶不符、新畫面要清楚標出', () => {
-    const chips = memoryChips({ screen: 'new', arrival: { from: '大廳', kind: 'tap', target: 'Slots', expected: ['機台選擇'], result: 'diverged' } }, 'zh');
+    const chips = memoryChips({ screen: 'new', arrival: { from: '大廳', kind: 'tap', target: 'Slots', expected: ['機台選擇'], result: 'diverged' } }, 'zh-Hant');
     expect(chips.map((c) => [c.text, c.tone])).toEqual([['新畫面', 'new'], ['與記憶不符', 'warn']]);
   });
 
   test('舊任務沒有記憶資料時不顯示', () => {
-    expect(memoryChips(undefined, 'zh')).toEqual([]);
+    expect(memoryChips(undefined, 'zh-Hant')).toEqual([]);
     expect(summarizeMemory([{}, {}])).toBeNull();
   });
 });
@@ -44,13 +44,13 @@ describe('整場記憶使用與結論', () => {
   test('統計已知畫面、預測應驗、照記憶操作', () => {
     const u = summarizeMemory(steps)!;
     expect(u).toMatchObject({ baseline, namedSteps: 5, knownSteps: 4, newScreens: 1, predictions: 4, followed: 3, diverged: 1, guided: 1, hintSteps: 1 });
-    expect(memoryVerdict(u, 'zh')).toMatchObject({ tone: 'hit', text: expect.stringContaining('記憶運作正常') });
+    expect(memoryVerdict(u, 'zh-Hant')).toMatchObject({ tone: 'hit', text: expect.stringContaining('記憶運作正常') });
   });
 
   test('第一次測試、導覽圖沒給 AI、記憶過時,各有明確結論', () => {
-    expect(memoryVerdict(summarizeMemory([{ memory: { baseline: { ...baseline, pages: 0 }, screen: 'new' } }])!, 'zh').text).toContain('第一次測試');
-    expect(memoryVerdict(summarizeMemory([{ memory: { baseline: { ...baseline, navInjected: false }, screen: 'known' } }])!, 'zh').tone).toBe('warn');
+    expect(memoryVerdict(summarizeMemory([{ memory: { baseline: { ...baseline, pages: 0 }, screen: 'new' } }])!, 'zh-Hant').text).toContain('第一次測試');
+    expect(memoryVerdict(summarizeMemory([{ memory: { baseline: { ...baseline, navInjected: false }, screen: 'known' } }])!, 'zh-Hant').tone).toBe('warn');
     const drift = [0, 1, 2, 3].map(() => ({ memory: { screen: 'known', arrival: { result: 'diverged' } } }));
-    expect(memoryVerdict(summarizeMemory([{ memory: { baseline } }, ...drift])!, 'zh').text).toContain('畫面或流程可能改版');
+    expect(memoryVerdict(summarizeMemory([{ memory: { baseline } }, ...drift])!, 'zh-Hant').text).toContain('畫面或流程可能改版');
   });
 });

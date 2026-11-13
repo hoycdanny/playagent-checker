@@ -29,7 +29,7 @@ function renderStudio(opEdits: Record<string, OpEdit> = {}) {
   const onEdited = vi.fn();
   render(
     <ScreenStudio
-      lang="zh"
+      lang="zh-Hant"
       appId="app-1"
       pageId="slot"
       pages={pages}

@@ -5,6 +5,7 @@ import { InfoIcon, type InfoIconName } from './InfoIcon.tsx';
 // 時鐘格式與任務列表的「操作時間」欄共用,同一個任務兩邊看到的字串一致。
 export { fmtDur } from '../duration.ts';
 import { fmtDur } from '../duration.ts';
+import { pick5, type L5 } from '../../i18n/locale5.ts';
 
 /**
  * 即時畫面上方的啟動時間軸:Device Farm 開機各階段(icon + 耗時)與總計時。
@@ -13,24 +14,24 @@ import { fmtDur } from '../duration.ts';
  */
 type Stage = 'queue' | BootPhase;
 
-const STAGES: Array<{ id: Stage; icon: InfoIconName; name: readonly [string, string]; tip: readonly [string, string] }> = [
-  { id: 'queue', icon: 'cloud', name: ['排隊', 'Queue'], tip: ['任務已送出,啟動執行容器', 'Run submitted, starting the runner container'] },
-  { id: 'download', icon: 'package', name: ['準備 APK', 'APK'], tip: ['下載並檢查安裝檔(XAPK 會先合併)', 'Downloading and checking the app package'] },
-  { id: 'upload', icon: 'upload', name: ['上傳', 'Upload'], tip: ['上傳安裝檔到 Device Farm(同版本會直接沿用)', 'Uploading to Device Farm (reused if unchanged)'] },
-  { id: 'device', icon: 'phone', name: ['配置真機', 'Device'], tip: ['Device Farm 分配實體手機、開機並安裝 App', 'Device Farm allocates, boots and installs the app'] },
-  { id: 'connect', icon: 'plug', name: ['連線', 'Connect'], tip: ['真機就緒,建立 Appium 遙控連線', 'Device ready, connecting Appium'] },
-  { id: 'run', icon: 'play', name: ['測試中', 'Testing'], tip: ['AI 開始操作遊戲', 'The AI is playing'] },
+const STAGES: Array<{ id: Stage; icon: InfoIconName; name: L5; tip: L5 }> = [
+  { id: 'queue', icon: 'cloud', name: ['排隊', 'Queue', '排队', 'キュー', '대기열'], tip: ['任務已送出,啟動執行容器', 'Run submitted, starting the runner container', '任务已送出,启动运行容器', 'タスクを送信しました。実行コンテナを起動中', '작업이 제출되었습니다. 실행 컨테이너 시작 중'] },
+  { id: 'download', icon: 'package', name: ['準備 APK', 'APK', '准备 APK', 'APK を準備', 'APK 준비'], tip: ['下載並檢查安裝檔(XAPK 會先合併)', 'Downloading and checking the app package', '下载并检查安装档(XAPK 会先合并)', 'インストールファイルをダウンロードして確認(XAPK は先に結合)', '설치 파일을 내려받아 확인(XAPK는 먼저 병합)'] },
+  { id: 'upload', icon: 'upload', name: ['上傳', 'Upload', '上传', 'アップロード', '업로드'], tip: ['上傳安裝檔到 Device Farm(同版本會直接沿用)', 'Uploading to Device Farm (reused if unchanged)', '上传安装档到 Device Farm(同版本会直接沿用)', 'インストールファイルを Device Farm にアップロード(同じバージョンはそのまま再利用)', '설치 파일을 Device Farm에 업로드(같은 버전은 그대로 재사용)'] },
+  { id: 'device', icon: 'phone', name: ['配置真機', 'Device', '配置真机', '実機を割り当て', '실제 기기 할당'], tip: ['Device Farm 分配實體手機、開機並安裝 App', 'Device Farm allocates, boots and installs the app', 'Device Farm 分配实体手机、开机并安装 App', 'Device Farm が実機を割り当て、起動して App をインストール', 'Device Farm이 실제 기기를 할당하고 부팅한 뒤 앱을 설치'] },
+  { id: 'connect', icon: 'plug', name: ['連線', 'Connect', '连接', '接続', '연결'], tip: ['真機就緒,建立 Appium 遙控連線', 'Device ready, connecting Appium', '真机就绪,创建 Appium 遥控连接', '実機の準備完了。Appium のリモート接続を確立', '실제 기기 준비 완료. Appium 원격 연결 설정'] },
+  { id: 'run', icon: 'play', name: ['測試中', 'Testing', '测试中', 'テスト中', '테스트 중'], tip: ['AI 開始操作遊戲', 'The AI is playing', 'AI 开始操作游戏', 'AI がゲームの操作を開始', 'AI가 게임 조작을 시작'] },
 ];
 
-const DEVICE_STATUS: Record<string, [string, string]> = {
-  PENDING: ['等待分配手機', 'Waiting for a device'],
-  PENDING_CONCURRENCY: ['等待可用名額', 'Waiting for capacity'],
-  PENDING_DEVICE: ['等待手機空出', 'Waiting for the device'],
-  SCHEDULING: ['排程中', 'Scheduling'],
-  PREPARING: ['手機準備中', 'Preparing device'],
-  INITIALIZING: ['開機並安裝 App', 'Booting and installing'],
-  PROCESSING: ['處理中', 'Processing'],
-  RUNNING: ['手機已開機', 'Device running'],
+const DEVICE_STATUS: Record<string, L5> = {
+  PENDING: ['等待分配手機', 'Waiting for a device', '等待分配手机', '端末の割り当て待ち', '기기 할당 대기 중'],
+  PENDING_CONCURRENCY: ['等待可用名額', 'Waiting for capacity', '等待可用名额', '空き枠待ち', '사용 가능한 자리 대기 중'],
+  PENDING_DEVICE: ['等待手機空出', 'Waiting for the device', '等待手机空出', '端末の空き待ち', '기기가 비기를 대기 중'],
+  SCHEDULING: ['排程中', 'Scheduling', '调度中', 'スケジュール中', '스케줄링 중'],
+  PREPARING: ['手機準備中', 'Preparing device', '手机准备中', '端末を準備中', '기기 준비 중'],
+  INITIALIZING: ['開機並安裝 App', 'Booting and installing', '开机并安装 App', '起動して App をインストール中', '부팅 및 앱 설치 중'],
+  PROCESSING: ['處理中', 'Processing', '处理中', '処理中', '처리 중'],
+  RUNNING: ['手機已開機', 'Device running', '手机已开机', '端末が起動済み', '기기 실행 중'],
 };
 
 const OPEN_KEY = 'pa.bootTimelineOpen';
@@ -107,25 +108,26 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
 
   const bootMs = booted ? runStart! - start : endAt - start;
   const runMs = booted ? endAt - runStart! : undefined;
-  const devLabel = boot?.deviceStatus ? DEVICE_STATUS[boot.deviceStatus]?.[lang === 'zh' ? 0 : 1] ?? boot.deviceStatus : undefined;
+  const devPair = boot?.deviceStatus ? DEVICE_STATUS[boot.deviceStatus] : undefined;
+  const devLabel = devPair ? pick5(devPair, lang) : boot?.deviceStatus;
   if (!Number.isFinite(start)) return null;
   const open = pref ?? !booted;
   const stepsId = 'dboot-steps';
 
   return (
-    <div className="dboot" aria-label={pr(['啟動進度', 'Startup progress'], lang)}>
+    <div className="dboot" aria-label={pr(['啟動進度', 'Startup progress', '启动进度', '起動の進捗', '시작 진행률'], lang)}>
       <div className="dboot__summary" aria-live="polite">
         <span className={`dboot__timer ${!booted && !ended ? 'is-active' : ''} ${failedDuringBoot ? 'is-fail' : ''}`}>
           <InfoIcon name={booted ? 'rocket' : failedDuringBoot ? 'x' : 'clock'} size={15} />
           <span className="dboot__timer-label">
-            {booted ? (pr(['啟動耗時', 'Startup'], lang)) : failedDuringBoot ? (pr(['啟動失敗', 'Startup failed'], lang)) : pr(['啟動中', 'Starting'], lang)}
+            {booted ? (pr(['啟動耗時', 'Startup', '启动耗时', '起動時間', '시작 소요 시간'], lang)) : failedDuringBoot ? (pr(['啟動失敗', 'Startup failed', '启动失败', '起動に失敗', '시작 실패'], lang)) : pr(['啟動中', 'Starting', '启动中', '起動中', '시작 중'], lang)}
           </span>
           <b>{fmtDur(bootMs)}</b>
         </span>
         {runMs !== undefined && (
           <span className={`dboot__timer ${!ended ? 'is-running' : ''}`}>
             <InfoIcon name={ended ? 'check' : 'play'} size={15} />
-            <span className="dboot__timer-label">{ended ? (pr(['測試耗時', 'Test time'], lang)) : pr(['已執行', 'Running'], lang)}</span>
+            <span className="dboot__timer-label">{ended ? (pr(['測試耗時', 'Test time', '测试耗时', 'テスト時間', '테스트 소요 시간'], lang)) : pr(['已執行', 'Running', '已运行', '実行済み', '실행됨'], lang)}</span>
             <b>{fmtDur(runMs)}</b>
           </span>
         )}
@@ -137,16 +139,16 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
           const last = ss.maxSegments !== 0 && ss.segment >= ss.maxSegments;
           const hhmm = new Date(wrapAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
           const segNo = `${ss.segment}${ss.maxSegments ? `/${ss.maxSegments}` : ''}`;
-          const segText = ss.maxSegments === 1 ? '' : pr([`第 ${segNo} 段 · `, `Session ${segNo} · `], lang);
-          const what = last ? (pr(['收尾', 'wrap-up'], lang)) : (pr(['換新連線', 'new session'], lang));
+          const segText = ss.maxSegments === 1 ? '' : pr([`第 ${segNo} 段 · `, `Session ${segNo} · `, `第 ${segNo} 段 · `, `セッション ${segNo} · `, `${segNo}번째 연결 · `], lang);
+          const what = last ? (pr(['收尾', 'wrap-up', '收尾', '終了処理', '마무리'], lang)) : (pr(['換新連線', 'new session', '换新连接', '新しい接続', '새 연결'], lang));
           return (
-            <span className="dboot__total" title={pr(['Device Farm 單次連線最長 150 分鐘', 'A Device Farm session lasts at most 150 minutes'], lang)}>
+            <span className="dboot__total" title={pr(['Device Farm 單次連線最長 150 分鐘', 'A Device Farm session lasts at most 150 minutes', 'Device Farm 单次连接最长 150 分钟', 'Device Farm の 1 回の接続は最長 150 分です', 'Device Farm의 한 번의 연결은 최대 150분입니다'], lang)}>
               {segText}{hhmm} {what}({fmtDur(Math.max(0, wrapAt - now))})
             </span>
           );
         })()}
         {ended && Number.isFinite(endAt) && (
-          <span className="dboot__total">{pr(['總計', 'Total'], lang)} {fmtDur(endAt - start)}</span>
+          <span className="dboot__total">{pr(['總計', 'Total', '总计', '合計', '합계'], lang)} {fmtDur(endAt - start)}</span>
         )}
         <button
           type="button"
@@ -154,10 +156,10 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
           aria-expanded={open}
           aria-controls={stepsId}
           onClick={() => toggle(!open)}
-          title={open ? (pr(['收合啟動階段', 'Hide startup stages'], lang)) : (pr(['展開啟動階段', 'Show startup stages'], lang))}
+          title={open ? (pr(['收合啟動階段', 'Hide startup stages', '收合启动阶段', '起動ステージを折りたたむ', '시작 단계 접기'], lang)) : (pr(['展開啟動階段', 'Show startup stages', '展打开动阶段', '起動ステージを展開', '시작 단계 펼치기'], lang))}
         >
           <span aria-hidden="true">{open ? '▴' : '▾'}</span>
-          <span className="visually-hidden">{open ? (pr(['收合啟動階段', 'Hide startup stages'], lang)) : (pr(['展開啟動階段', 'Show startup stages'], lang))}</span>
+          <span className="visually-hidden">{open ? (pr(['收合啟動階段', 'Hide startup stages', '收合启动阶段', '起動ステージを折りたたむ', '시작 단계 접기'], lang)) : (pr(['展開啟動階段', 'Show startup stages', '展打开动阶段', '起動ステージを展開', '시작 단계 펼치기'], lang))}</span>
         </button>
       </div>
 

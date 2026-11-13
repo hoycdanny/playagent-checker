@@ -22,8 +22,8 @@ export const kbLang = loc5;
  * 後端的 { zh, en } 雙語資料。五語系收斂回兩語:zh-Hant / zh-Hans → zh,其餘 → en。
  * (資料本身只有兩語,日韓拿英文是目前資料能給的最好結果。)
  */
-export function tr(v: L10n | undefined, lang: KbLang): string {
-  return trBilingual(v, lang.startsWith('zh') ? 'zh' : 'en');
+export function tr(v: L10n | L5 | undefined, lang: KbLang): string {
+  return trBilingual(v, lang);
 }
 
 const T = {

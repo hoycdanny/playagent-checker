@@ -1,6 +1,7 @@
 import { useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent } from 'react';
 import type { RLang } from '../report/reportText.ts';
 import type { MemOp, Trust } from './memoryScript.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 
 /**
  * 操作舞台:大張截圖 + 每個操作的位置標記。
@@ -18,13 +19,13 @@ export interface StageMarker {
 }
 
 const T = {
-  noShot: ['這個畫面還沒有截圖', 'No screenshot for this screen yet'],
-  dragHint: ['拖曳圓點調整位置,放開就儲存 · 方向鍵微調、Enter 儲存', 'Drag a dot to move it (saves on release) · arrow keys nudge, Enter saves'],
-  markerAria: ['第 {n} 個操作:{label},位置 {x}%、{y}%。可拖曳或用方向鍵調整', 'Action {n}: {label}, at {x}%, {y}%. Drag or use arrow keys to adjust'],
-  endAria: ['第 {n} 個操作的滑動終點', 'Swipe end of action {n}'],
+  noShot: ['這個畫面還沒有截圖', 'No screenshot for this screen yet', '这个画面还没有截图', 'この画面のスクリーンショットはまだありません', '이 화면의 스크린샷이 아직 없습니다'],
+  dragHint: ['拖曳圓點調整位置,放開就儲存 · 方向鍵微調、Enter 儲存', 'Drag a dot to move it (saves on release) · arrow keys nudge, Enter saves', '拖曳圆点调整位置,放开就保存 · 方向键微调、Enter 保存', '点をドラッグして位置を調整(離すと保存)· 矢印キーで微調整、Enter で保存', '점을 드래그해 위치 조정(놓으면 저장) · 방향키로 미세 조정, Enter로 저장'],
+  markerAria: ['第 {n} 個操作:{label},位置 {x}%、{y}%。可拖曳或用方向鍵調整', 'Action {n}: {label}, at {x}%, {y}%. Drag or use arrow keys to adjust', '第 {n} 个操作:{label},位置 {x}%、{y}%。可拖曳或用方向键调整', '操作 {n}:{label}、位置 {x}%、{y}%。ドラッグまたは矢印キーで調整できます', '동작 {n}: {label}, 위치 {x}%, {y}%. 드래그하거나 방향키로 조정할 수 있습니다'],
+  endAria: ['第 {n} 個操作的滑動終點', 'Swipe end of action {n}', '第 {n} 个操作的滑动终点', '操作 {n} のスワイプ終点', '동작 {n}의 스와이프 끝점'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang, vars: Record<string, string | number> = {}) =>
-  Object.entries(vars).reduce<string>((s, [n, v]) => s.replace(`{${n}}`, String(v)), T[k][lang === 'zh' ? 0 : 1]);
+  Object.entries(vars).reduce<string>((s, [n, v]) => s.replace(`{${n}}`, String(v)), pick5(T[k], lang));
 
 const clamp = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 10000) / 10000;
 const pct = (v: number | undefined) => Math.round((v ?? 0) * 1000) / 10;

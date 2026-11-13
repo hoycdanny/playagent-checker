@@ -15,6 +15,7 @@ import {
 } from './MemoryEditor.tsx';
 import { ScreenStudio } from './ScreenStudio.tsx';
 import type { MemOp, OpEdit, SelfOp } from './memoryScript.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 import './ScreenStudio.css';
 
 const ScreenGraph = lazy(() =>
@@ -89,11 +90,11 @@ export interface ScenarioTemplate {
 type ViewMode = 'grid' | 'graph';
 
 const L = {
-  mapTitle: ['畫面關係圖', 'Screen map'],
-  pickHint: ['👆 點上面任一個畫面,這裡會打開它的腳本、操作位置與說明。', '👆 Click any screen above to open its script, action positions and details here.'],
-  more: ['其他記憶設定(應用記憶、場景範本、已刪除)', 'More memory settings (app memory, scenario templates, deleted)'],
+  mapTitle: ['畫面關係圖', 'Screen map', '画面关系图', '画面関係図', '화면 관계도'],
+  pickHint: ['👆 點上面任一個畫面,這裡會打開它的腳本、操作位置與說明。', '👆 Click any screen above to open its script, action positions and details here.', '👆 点上面任一个画面,这里会打开它的脚本、操作位置与说明。', '👆 上のいずれかの画面をクリックすると、ここにそのスクリプト、操作位置、説明が開きます。', '👆 위의 화면을 아무거나 클릭하면 여기에 해당 스크립트, 동작 위치, 설명이 열립니다.'],
+  more: ['其他記憶設定(應用記憶、場景範本、已刪除)', 'More memory settings (app memory, scenario templates, deleted)', '其他记忆设置(应用记忆、场景范本、已删除)', 'その他のメモリ設定(アプリメモリ、シナリオテンプレート、削除済み)', '기타 기억 설정(앱 메모리, 시나리오 템플릿, 삭제됨)'],
 } as const;
-const lt = (k: keyof typeof L, lang: RLang) => L[k][lang === 'zh' ? 0 : 1];
+const lt = (k: keyof typeof L, lang: RLang) => pick5(L[k], lang);
 
 /**
  * MemoryPanel —— 記憶地圖本體。

@@ -1,3 +1,4 @@
+import { pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
 /**
  * 結構化驗收標準的前端資料模型與檢查(純函式,方便測試)。
  *
@@ -43,18 +44,18 @@ export function emptyDraftSpec(): DraftSpec {
 }
 
 /** 範例列(「帶入範例」用):對照使用者熟悉的測試案例表,一看就懂格式。 */
-export function sampleAcceptanceItems(lang: 'zh' | 'en'): AcceptanceItemDraft[] {
-  const p = (v: readonly [string, string]): string => v[lang === 'en' ? 1 : 0];
+export function sampleAcceptanceItems(lang: Loc5): AcceptanceItemDraft[] {
+  const p = (v: L5): string => pick5(v, lang);
   return [
     {
-      category: p(['中央畫面區', 'Lobby']),
-      module: p(['神秘商人', 'Mystery merchant']),
-      purpose: p(['X 鈕關閉', 'Close with the X button']),
+      category: p(['中央畫面區', 'Lobby', '中央画面区', '中央の画面エリア', '중앙 화면 영역']),
+      module: p(['神秘商人', 'Mystery merchant', '神秘商人', 'ミステリー商人', '미스터리 상인']),
+      purpose: p(['X 鈕關閉', 'Close with the X button', 'X 按钮关闭', 'X ボタンで閉じる', 'X 버튼으로 닫기']),
       steps: p([
         '1. 大廳點擊神秘商人 ICON\n2. 點擊神秘商人頁面右上 X 鈕',
-        '1. Tap the mystery-merchant icon in the lobby\n2. Tap the X at the top-right of the page',
+        '1. Tap the mystery-merchant icon in the lobby\n2. Tap the X at the top-right of the page', '1. 大厅点击神秘商人 ICON\n2. 点击神秘商人页面右上 X 按钮', '1. ロビーでミステリー商人のアイコンをタップ\n2. ミステリー商人ページ右上の X ボタンをタップ', '1. 로비에서 미스터리 상인 아이콘 탭\n2. 미스터리 상인 페이지 오른쪽 위 X 버튼 탭',
       ]),
-      expected: p(['1. 關閉神秘商人頁面\n2. 返回大廳', '1. The mystery-merchant page closes\n2. Returns to the lobby']),
+      expected: p(['1. 關閉神秘商人頁面\n2. 返回大廳', '1. The mystery-merchant page closes\n2. Returns to the lobby', '1. 关闭神秘商人页面\n2. 返回大厅', '1. ミステリー商人ページが閉じる\n2. ロビーに戻る', '1. 미스터리 상인 페이지가 닫힘\n2. 로비로 돌아감']),
     },
   ];
 }

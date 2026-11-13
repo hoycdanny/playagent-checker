@@ -17,72 +17,73 @@ import {
   type ImportField,
   type ImportedCase,
 } from './excelImport.ts';
+import { pick5, type L5 } from '../../i18n/locale5.ts';
 import './ExcelImport.css';
 
 const T = {
-  pick: ['選擇 Excel / CSV 檔案', 'Choose an Excel / CSV file'],
-  drop: ['或把檔案拖到這裡(.xlsx / .xls / .csv)', 'or drop a file here (.xlsx / .xls / .csv)'],
-  hint: ['每一列 = 一個測試案例;「一列一步驟」的表格(編號/名稱空白的列)會自動併入上一個案例。', 'One row = one test case. For one-step-per-row sheets, rows with an empty ID/title are merged into the case above.'],
-  template: ['下載範本', 'Download template'],
-  sheet: ['工作表', 'Sheet'],
-  headerRow: ['表頭在第 {n} 列', 'Header on row {n}'],
-  mapping: ['欄位對應', 'Column mapping'],
-  mappingHint: ['已依表頭自動判斷,可自行調整。', 'Detected from the header row; adjust if needed.'],
-  unused: ['(不使用)', '(not used)'],
-  preview: ['預覽', 'Preview'],
-  selectAll: ['全選', 'Select all'],
-  colRow: ['列', 'Row'],
-  colName: ['案例名稱', 'Case name'],
-  colModule: ['模組', 'Module'],
-  colSteps: ['步驟', 'Steps'],
-  colExpected: ['預期結果', 'Expected'],
-  showYaml: ['看 YAML', 'View YAML'],
-  create: ['建立 {n} 個案例', 'Create {n} cases'],
-  creating: ['建立中… {done}/{total}', 'Creating… {done}/{total}'],
-  needApp: ['請先選擇所屬應用', 'Select an app first'],
-  needName: ['請在「欄位對應」指定「名稱」或「步驟」欄', 'Map a Name or Steps column first'],
-  noRows: ['找不到可匯入的資料列', 'No rows to import'],
-  readError: ['無法讀取檔案:{msg}', 'Could not read the file: {msg}'],
-  done: ['已建立 {ok} 個案例', 'Created {ok} cases'],
-  failed: ['{n} 個失敗', '{n} failed'],
-  retry: ['重試失敗的項目', 'Retry failed rows'],
-  reset: ['換一個檔案', 'Choose another file'],
-  ai: ['AI 判讀格式', 'Let AI read the layout'],
-  aiBusy: ['判讀中…', 'Reading…'],
-  aiHint: ['表格格式不固定(多層表頭、欄位名不一樣)時按這個,AI 會判斷表頭在哪、每欄是什麼。判錯可以直接改下面的對應或逐列編輯。', 'Use this when the layout varies (multi-row headers, different column names). The AI decides where the header is and what each column means; you can still fix the mapping or edit any row below.'],
-  aiFail: ['AI 判讀失敗:{msg}', 'AI could not read the layout: {msg}'],
-  dataStart: ['資料從第 {n} 列開始', 'Data starts on row {n}'],
-  suiteMode: ['整份 = 一個測試任務', 'Whole file = one test task'],
-  suiteHint: ['勾選:整份 Excel 變成一個「測試套件」案例,送出一次測試任務,報告涵蓋全部項目。不勾:每一列各建一個獨立案例。', 'Checked: the whole file becomes one test-suite case, submitted as a single task whose report covers every item. Unchecked: one independent case per row.'],
-  suiteName: ['套件名稱', 'Suite name'],
-  createSuite: ['建立 1 個測試套件({n} 個項目)', 'Create 1 test suite ({n} items)'],
-  doneSuite: ['已建立測試套件({n} 個項目)', 'Test suite created ({n} items)'],
-  edit: ['編輯', 'Edit'],
-  editDone: ['完成', 'Done'],
-  colPurpose: ['測試目的', 'Purpose'],
-  fId: ['編號', 'ID'],
-  fName: ['項目', 'Item'],
-  fPurpose: ['測試目的', 'Purpose'],
-  fCategory: ['類別', 'Category'],
-  fSteps: ['步驟(一行一個)', 'Steps (one per line)'],
-  fExpected: ['預期結果(一行一個)', 'Expected results (one per line)'],
-  edited: ['已修改', 'edited'],
+  pick: ['選擇 Excel / CSV 檔案', 'Choose an Excel / CSV file', '选择 Excel / CSV 文件', 'Excel / CSV ファイルを選択', 'Excel / CSV 파일 선택'],
+  drop: ['或把檔案拖到這裡(.xlsx / .xls / .csv)', 'or drop a file here (.xlsx / .xls / .csv)', '或把文件拖到这里(.xlsx / .xls / .csv)', 'またはここにファイルをドロップ(.xlsx / .xls / .csv)', '또는 파일을 여기로 끌어다 놓기(.xlsx / .xls / .csv)'],
+  hint: ['每一列 = 一個測試案例;「一列一步驟」的表格(編號/名稱空白的列)會自動併入上一個案例。', 'One row = one test case. For one-step-per-row sheets, rows with an empty ID/title are merged into the case above.', '每一列 = 一个测试用例;「一列一步骤」的表格(编号/名称空白的列)会自动并入上一个用例。', '1 行 = 1 テストケースです。「1 行 1 ステップ」形式の表(番号/名前が空の行)は、上のケースに自動で統合されます。', '한 행 = 테스트 케이스 하나입니다. \'한 행 한 단계\' 형식의 표(번호/이름이 빈 행)는 위의 케이스에 자동으로 합쳐집니다.'],
+  template: ['下載範本', 'Download template', '下载范本', 'テンプレートをダウンロード', '템플릿 다운로드'],
+  sheet: ['工作表', 'Sheet', '工作表', 'シート', '시트'],
+  headerRow: ['表頭在第 {n} 列', 'Header on row {n}', '表头在第 {n} 列', 'ヘッダーは {n} 行目', '헤더는 {n}행'],
+  mapping: ['欄位對應', 'Column mapping', '字段对应', '列のマッピング', '열 매핑'],
+  mappingHint: ['已依表頭自動判斷,可自行調整。', 'Detected from the header row; adjust if needed.', '已依表头自动判断,可自行调整。', 'ヘッダー行から自動判定しました。必要に応じて調整してください。', '헤더 행에서 자동으로 판단했습니다. 필요하면 조정하세요.'],
+  unused: ['(不使用)', '(not used)', '(不使用)', '(使用しない)', '(사용 안 함)'],
+  preview: ['預覽', 'Preview', '预览', 'プレビュー', '미리보기'],
+  selectAll: ['全選', 'Select all', '全选', 'すべて選択', '모두 선택'],
+  colRow: ['列', 'Row', '列', '行', '행'],
+  colName: ['案例名稱', 'Case name', '用例名称', 'ケース名', '케이스 이름'],
+  colModule: ['模組', 'Module', '模块', 'モジュール', '모듈'],
+  colSteps: ['步驟', 'Steps', '步骤', 'ステップ', '단계'],
+  colExpected: ['預期結果', 'Expected', '预期结果', '期待結果', '기대 결과'],
+  showYaml: ['看 YAML', 'View YAML', '看 YAML', 'YAML を見る', 'YAML 보기'],
+  create: ['建立 {n} 個案例', 'Create {n} cases', '创建 {n} 个用例', '{n} 件のケースを作成', '케이스 {n}개 만들기'],
+  creating: ['建立中… {done}/{total}', 'Creating… {done}/{total}', '创建中… {done}/{total}', '作成中… {done}/{total}', '만드는 중… {done}/{total}'],
+  needApp: ['請先選擇所屬應用', 'Select an app first', '请先选择所属应用', '先に所属アプリを選択してください', '먼저 소속 앱을 선택하세요'],
+  needName: ['請在「欄位對應」指定「名稱」或「步驟」欄', 'Map a Name or Steps column first', '请在「字段对应」指定「名称」或「步骤」栏', '「列のマッピング」で「名前」または「ステップ」列を指定してください', '\'열 매핑\'에서 \'이름\' 또는 \'단계\' 열을 지정하세요'],
+  noRows: ['找不到可匯入的資料列', 'No rows to import', '找不到可导入的数据列', 'インポートできるデータ行が見つかりません', '가져올 수 있는 데이터 행을 찾을 수 없습니다'],
+  readError: ['無法讀取檔案:{msg}', 'Could not read the file: {msg}', '无法读取文件:{msg}', 'ファイルを読み取れません:{msg}', '파일을 읽을 수 없습니다: {msg}'],
+  done: ['已建立 {ok} 個案例', 'Created {ok} cases', '已创建 {ok} 个用例', '{ok} 件のケースを作成しました', '케이스 {ok}개를 만들었습니다'],
+  failed: ['{n} 個失敗', '{n} failed', '{n} 个失败', '{n} 件失敗', '{n}개 실패'],
+  retry: ['重試失敗的項目', 'Retry failed rows', '重试失败的项目', '失敗した項目を再試行', '실패한 항목 다시 시도'],
+  reset: ['換一個檔案', 'Choose another file', '换一个文件', '別のファイルを選ぶ', '다른 파일 선택'],
+  ai: ['AI 判讀格式', 'Let AI read the layout', 'AI 判读格式', 'AI にレイアウトを判読させる', 'AI로 형식 판독'],
+  aiBusy: ['判讀中…', 'Reading…', '判读中…', '判読中…', '판독 중…'],
+  aiHint: ['表格格式不固定(多層表頭、欄位名不一樣)時按這個,AI 會判斷表頭在哪、每欄是什麼。判錯可以直接改下面的對應或逐列編輯。', 'Use this when the layout varies (multi-row headers, different column names). The AI decides where the header is and what each column means; you can still fix the mapping or edit any row below.', '表格格式不固定(多层表头、字段名不一样)时按这个,AI 会判断表头在哪、每栏是什么。判错可以直接改下面的对应或逐列编辑。', '表のレイアウトが一定でない場合(複数行ヘッダー、列名が異なるなど)はこちらを押すと、AI がヘッダーの位置と各列の意味を判断します。誤りがあれば下のマッピングを直接直すか、行ごとに編集できます。', '표 형식이 일정하지 않은 경우(여러 줄 헤더, 열 이름이 다른 경우 등) 이것을 누르면 AI가 헤더 위치와 각 열의 의미를 판단합니다. 틀렸다면 아래 매핑을 직접 고치거나 행별로 편집할 수 있습니다.'],
+  aiFail: ['AI 判讀失敗:{msg}', 'AI could not read the layout: {msg}', 'AI 判读失败:{msg}', 'AI がレイアウトを判読できませんでした:{msg}', 'AI가 형식을 판독하지 못했습니다: {msg}'],
+  dataStart: ['資料從第 {n} 列開始', 'Data starts on row {n}', '数据从第 {n} 列开始', 'データは {n} 行目から始まります', '데이터는 {n}행부터 시작'],
+  suiteMode: ['整份 = 一個測試任務', 'Whole file = one test task', '整份 = 一个测试任务', 'ファイル全体 = 1 つのテストタスク', '파일 전체 = 테스트 작업 하나'],
+  suiteHint: ['勾選:整份 Excel 變成一個「測試套件」案例,送出一次測試任務,報告涵蓋全部項目。不勾:每一列各建一個獨立案例。', 'Checked: the whole file becomes one test-suite case, submitted as a single task whose report covers every item. Unchecked: one independent case per row.', '勾选:整份 Excel 变成一个「测试套件」用例,送出一次测试任务,报告涵盖全部项目。不勾:每一列各建一个独立用例。', 'チェックあり:Excel 全体が 1 つの「テストスイート」ケースになり、1 回のテストタスクとして送信され、レポートは全項目を網羅します。チェックなし:行ごとに独立したケースを作成します。', '선택 시: Excel 전체가 하나의 \'테스트 스위트\' 케이스가 되어 테스트 작업 한 번으로 제출되며, 보고서가 모든 항목을 다룹니다. 선택 안 함: 행마다 독립된 케이스를 만듭니다.'],
+  suiteName: ['套件名稱', 'Suite name', '套件名称', 'スイート名', '스위트 이름'],
+  createSuite: ['建立 1 個測試套件({n} 個項目)', 'Create 1 test suite ({n} items)', '创建 1 个测试套件({n} 个项目)', 'テストスイートを 1 件作成({n} 項目)', '테스트 스위트 1개 만들기({n}개 항목)'],
+  doneSuite: ['已建立測試套件({n} 個項目)', 'Test suite created ({n} items)', '已创建测试套件({n} 个项目)', 'テストスイートを作成しました({n} 項目)', '테스트 스위트를 만들었습니다({n}개 항목)'],
+  edit: ['編輯', 'Edit', '编辑', '編集', '편집'],
+  editDone: ['完成', 'Done', '完成', '完了', '완료'],
+  colPurpose: ['測試目的', 'Purpose', '测试目的', 'テスト目的', '테스트 목적'],
+  fId: ['編號', 'ID', '编号', '番号', '번호'],
+  fName: ['項目', 'Item', '项目', '項目', '항목'],
+  fPurpose: ['測試目的', 'Purpose', '测试目的', 'テスト目的', '테스트 목적'],
+  fCategory: ['類別', 'Category', '类别', '分類', '분류'],
+  fSteps: ['步驟(一行一個)', 'Steps (one per line)', '步骤(一行一个)', 'ステップ(1 行に 1 つ)', '단계(한 줄에 하나)'],
+  fExpected: ['預期結果(一行一個)', 'Expected results (one per line)', '预期结果(一行一个)', '期待結果(1 行に 1 つ)', '기대 결과(한 줄에 하나)'],
+  edited: ['已修改', 'edited', '已修改', '変更済み', '수정됨'],
 } as const;
-const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+const tx = (k: keyof typeof T, lang: RLang) => pick5(T[k], lang);
 
-const FIELD_LABEL: Record<ImportField, [string, string]> = {
-  id: ['編號', 'ID'],
-  name: ['名稱', 'Name'],
-  purpose: ['測試目的', 'Purpose'],
-  module: ['模組', 'Module'],
-  category: ['分類', 'Category'],
-  priority: ['優先級', 'Priority'],
-  severity: ['嚴重度', 'Severity'],
-  precondition: ['前置條件', 'Precondition'],
-  steps: ['測試步驟', 'Steps'],
-  expected: ['預期結果', 'Expected result'],
-  tags: ['標籤', 'Tags'],
-  url: ['網址', 'URL'],
+const FIELD_LABEL: Record<ImportField, L5> = {
+  id: ['編號', 'ID', '编号', '番号', '번호'],
+  name: ['名稱', 'Name', '名称', '名前', '이름'],
+  purpose: ['測試目的', 'Purpose', '测试目的', 'テスト目的', '테스트 목적'],
+  module: ['模組', 'Module', '模块', 'モジュール', '모듈'],
+  category: ['分類', 'Category', '分类', '分類', '분류'],
+  priority: ['優先級', 'Priority', '优先级', '優先度', '우선순위'],
+  severity: ['嚴重度', 'Severity', '严重度', '重大度', '심각도'],
+  precondition: ['前置條件', 'Precondition', '前置条件', '前提条件', '사전 조건'],
+  steps: ['測試步驟', 'Steps', '测试步骤', 'テストステップ', '테스트 단계'],
+  expected: ['預期結果', 'Expected result', '预期结果', '期待結果', '기대 결과'],
+  tags: ['標籤', 'Tags', '标签', 'タグ', '태그'],
+  url: ['網址', 'URL', '网址', 'URL', 'URL'],
 };
 
 type XLSXModule = typeof import('xlsx');
@@ -202,11 +203,13 @@ export function ExcelImport({
 
   async function downloadTemplate() {
     const XLSX = await loadXlsx();
-    const ws = XLSX.utils.aoa_to_sheet([[...TEMPLATE_HEADERS[lang]], ...TEMPLATE_SAMPLE[lang].map((r) => [...r])]);
+    // 範本表頭要命中匯入的同義詞表,只有繁中與英文兩份;其他語系下載英文版。
+    const tpl = lang === 'zh-Hant' ? 'zh' : 'en';
+    const ws = XLSX.utils.aoa_to_sheet([[...TEMPLATE_HEADERS[tpl]], ...TEMPLATE_SAMPLE[tpl].map((r) => [...r])]);
     ws['!cols'] = [10, 12, 24, 20, 40, 36, 8, 14].map((wch) => ({ wch }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, pr(['測試項目', 'Test cases'], lang));
-    XLSX.writeFile(wb, pr(['測試項目範本.xlsx', 'test-cases-template.xlsx'], lang));
+    XLSX.utils.book_append_sheet(wb, ws, pr(['測試項目', 'Test cases', '测试项目', 'テスト項目', '테스트 항목'], lang));
+    XLSX.writeFile(wb, pr(['測試項目範本.xlsx', 'test-cases-template.xlsx', '测试项目范本.xlsx', 'test-cases-template.xlsx', 'test-cases-template.xlsx'], lang));
   }
 
   /** 逐列修正:把這一列的覆寫值疊上去(空字串代表清掉該欄)。 */
@@ -401,7 +404,7 @@ export function ExcelImport({
         <legend>{tx('mapping', lang)} <small className="xlimport__muted">{tx('mappingHint', lang)}</small></legend>
         {IMPORT_FIELDS.map((f) => (
           <label key={f} className="xlimport__map-item">
-            <span>{FIELD_LABEL[f][lang === 'zh' ? 0 : 1]}</span>
+            <span>{pick5(FIELD_LABEL[f], lang)}</span>
             <select value={map[f]} onChange={(e) => setMap((m) => ({ ...m, [f]: Number(e.target.value) }))}>
               <option value={-1}>{tx('unused', lang)}</option>
               {Array.from({ length: width }, (_, i) => (

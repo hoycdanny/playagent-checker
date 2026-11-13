@@ -8,7 +8,7 @@
  * 同時保留 module / priority / precondition / assertions 等欄位供案例總覽顯示與篩選。
  */
 
-import { pr } from '../report/reportText.ts';
+import { pr, type RLang } from '../report/reportText.ts';
 
 export type ImportField =
   | 'id'
@@ -204,10 +204,10 @@ function list(key: string, items: string[]): string {
 }
 
 /** 組成給 AI 執行的任務描述:前置條件 → 編號步驟 → 預期結果。 */
-export function buildTask(c: ImportedCase, lang: 'zh' | 'en' = 'zh'): string {
-  const L = { pre: pr(['前置條件', 'Precondition'], lang), exp: pr(['預期結果', 'Expected result'], lang) };
+export function buildTask(c: ImportedCase, lang: RLang = 'zh-Hant'): string {
+  const L = { pre: pr(['前置條件', 'Precondition', '前置条件', '前提条件', '사전 조건'], lang), exp: pr(['預期結果', 'Expected result', '预期结果', '期待結果', '기대 결과'], lang) };
   const lines: string[] = [];
-  if (c.purpose && c.purpose !== c.name) lines.push(`${pr(['測試目的', 'Purpose'], lang)}: ${c.purpose}`);
+  if (c.purpose && c.purpose !== c.name) lines.push(`${pr(['測試目的', 'Purpose', '测试目的', 'テスト目的', '테스트 목적'], lang)}: ${c.purpose}`);
   if (c.precondition) lines.push(`${L.pre}: ${c.precondition.replace(/\s*\n\s*/g, '; ')}`);
   const steps = c.steps.length ? c.steps : [c.name];
   steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
@@ -224,16 +224,16 @@ export function buildTask(c: ImportedCase, lang: 'zh' | 'en' = 'zh'): string {
 export function suiteToYaml(
   items: ImportedCase[],
   appId: string,
-  opts: { name: string; lang?: 'zh' | 'en'; source?: string },
+  opts: { name: string; lang?: RLang; source?: string },
 ): string {
-  const lang = opts.lang ?? 'zh';
+  const lang = opts.lang ?? 'zh-Hant';
   const parts: string[] = [
     `name: ${scalar(opts.name)}`,
     `app: ${scalar(appId)}`,
     'kind: suite',
     `itemCount: ${items.length}`,
   ];
-  const head = pr([`依序完成以下 ${items.length} 個測試項目,每一項都要判定是否符合預期結果。`, `Work through the following ${items.length} test items in order and judge each against its expected result.`], lang);
+  const head = pr([`依序完成以下 ${items.length} 個測試項目,每一項都要判定是否符合預期結果。`, `Work through the following ${items.length} test items in order and judge each against its expected result.`, `依序完成以下 ${items.length} 个测试项目,每一项都要判定是否符合预期结果。`, `次の ${items.length} 件のテスト項目を順番に実施し、それぞれが期待結果に合致するかを判定してください。`, `다음 ${items.length}개 테스트 항목을 순서대로 수행하고, 각 항목이 기대 결과와 일치하는지 판정하세요.`], lang);
   const taskLines: string[] = [head];
   items.forEach((it, i) => {
     const ref = it.id ? `[${it.id}] ` : '';
@@ -242,7 +242,7 @@ export function suiteToYaml(
       .join(' / ');
     taskLines.push(`${i + 1}. ${ref}${title}`);
     it.steps.forEach((s) => taskLines.push(`   - ${s}`));
-    if (it.expected.length) taskLines.push(`   ${pr(['預期', 'Expected'], lang)}: ${it.expected.join('; ')}`);
+    if (it.expected.length) taskLines.push(`   ${pr(['預期', 'Expected', '预期', '期待', '기대'], lang)}: ${it.expected.join('; ')}`);
   });
   parts.push(block('task', taskLines.join('\n')));
 
@@ -271,7 +271,7 @@ export function suiteToYaml(
 }
 
 /** 案例 → YAML(controls 由呼叫端用 applyControls 套上)。 */
-export function caseToYaml(c: ImportedCase, appId: string, opts: { lang?: 'zh' | 'en'; source?: string } = {}): string {
+export function caseToYaml(c: ImportedCase, appId: string, opts: { lang?: RLang; source?: string } = {}): string {
   const parts: string[] = [`name: ${scalar(c.name)}`, `app: ${scalar(appId)}`];
   if (c.id) parts.push(`caseRef: ${scalar(c.id)}`);
   if (c.purpose) parts.push(`purpose: ${scalar(c.purpose)}`);
@@ -288,12 +288,14 @@ export function caseToYaml(c: ImportedCase, appId: string, opts: { lang?: 'zh' |
   return `${parts.join('\n')}\n`;
 }
 
-/** 範本表頭(下載範本用)。 */
+/** 範本表頭(下載範本用):只有繁中與英文兩份,表頭必須命中上面的同義詞表;其他語系下載英文版。 */
+// i18n-allow: template headers must match the SYNONYMS recogniser above (zh-Hant and en only)
 export const TEMPLATE_HEADERS = {
   zh: ['編號', '模組', '測試項目', '前置條件', '測試步驟', '預期結果', '優先級', '標籤'],
   en: ['ID', 'Module', 'Title', 'Precondition', 'Steps', 'Expected Result', 'Priority', 'Tags'],
 } as const;
 
+// i18n-allow: sample rows of the downloadable template (zh-Hant and en only)
 export const TEMPLATE_SAMPLE = {
   zh: [
     ['TC-001', '大廳', '進入遊戲大廳', '已安裝遊戲', '1. 啟動遊戲\n2. 關閉公告彈窗', '進入大廳且看得到開始按鈕', 'P1', 'smoke'],

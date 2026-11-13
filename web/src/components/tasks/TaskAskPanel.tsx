@@ -3,6 +3,7 @@ import { apiDelete, apiGet, apiPost, type ListResponse } from '../../api/client.
 import type { RLang } from '../report/reportText.ts';
 import { recommendStyle, sortByRecommend, starLabel } from '../modelRecommend.ts';
 import { InfoIcon } from './InfoIcon.tsx';
+import { pick5 } from '../../i18n/locale5.ts';
 import './TaskAskPanel.css';
 
 /** GET /models?seat=ask 的一筆(管理員在模型管理「AI 問答」欄開放的模型)。 */
@@ -27,28 +28,28 @@ interface AskMessage {
 }
 
 const T = {
-  title: ['AI 問答', 'Ask AI'],
-  hint: ['AI 會根據這次任務的執行步驟、裝置 log、知識庫與報告回答。', 'Answers use this run’s steps, device logs, knowledge base and report.'],
-  placeholder: ['問這次測試的問題,例:根據目前收集到的 log 有什麼需要我注意的?(Enter 送出,Shift+Enter 換行)', 'Ask about this run, e.g. “Anything in the logs I should watch out for?” (Enter to send, Shift+Enter for a new line)'],
-  send: ['送出', 'Send'],
-  thinking: ['AI 分析中…(約 10–20 秒)', 'Analysing… (about 10–20 s)'],
-  clear: ['清空對話', 'Clear'],
-  clearConfirm: ['清空這個任務的 AI 問答紀錄?', 'Clear this task’s Q&A history?'],
-  failed: ['問答失敗:', 'Failed: '],
-  you: ['你', 'You'],
-  ai: ['AI', 'AI'],
-  collapse: ['收合', 'Collapse'],
-  expand: ['展開', 'Expand'],
-  q1: ['根據目前收集到的 log,有什麼需要我注意的?', 'Based on the logs so far, what should I watch out for?'],
-  q2: ['這次測試為什麼失敗 / 卡住?', 'Why did this run fail or get stuck?'],
-  q3: ['AI 有沒有照測試腳本走?哪一步偏離了?', 'Did the AI follow the script? Where did it deviate?'],
-  q4: ['有沒有當機、ANR 或錯誤訊息?', 'Any crashes, ANRs or error messages?'],
-  model: ['問答模型', 'Model'],
-  more: ['你也可以問', 'You can also ask'],
-  gotoStep: ['在時間軸跳到第 {n} 步', 'Jump to step {n} on the timeline'],
-  placeholderShort: ['問這次測試的問題,例如:哪一步最花時間?(Enter 送出)', 'Ask about this run, e.g. which step took longest? (Enter to send)'],
+  title: ['AI 問答', 'Ask AI', 'AI 问答', 'AI に質問', 'AI에게 질문'],
+  hint: ['AI 會根據這次任務的執行步驟、裝置 log、知識庫與報告回答。', 'Answers use this run’s steps, device logs, knowledge base and report.', 'AI 会根据这次任务的运行步骤、设备 log、知识库与报告回答。', 'AI はこのタスクの実行ステップ、デバイスログ、ナレッジベース、レポートに基づいて回答します。', 'AI는 이 작업의 실행 단계, 기기 로그, 지식 베이스, 보고서를 바탕으로 답변합니다.'],
+  placeholder: ['問這次測試的問題,例:根據目前收集到的 log 有什麼需要我注意的?(Enter 送出,Shift+Enter 換行)', 'Ask about this run, e.g. “Anything in the logs I should watch out for?” (Enter to send, Shift+Enter for a new line)', '问这次测试的问题,例:根据目前收集到的 log 有什么需要我注意的?(Enter 送出,Shift+Enter 换行)', 'このテストについて質問してください。例:現在収集されたログで注意すべき点は?(Enter で送信、Shift+Enter で改行)', '이번 테스트에 대해 질문하세요. 예: 지금까지 수집된 로그에서 주의할 점은? (Enter로 전송, Shift+Enter로 줄바꿈)'],
+  send: ['送出', 'Send', '送出', '送信', '전송'],
+  thinking: ['AI 分析中…(約 10–20 秒)', 'Analysing… (about 10–20 s)', 'AI 分析中…(约 10–20 秒)', 'AI が分析中…(約 10〜20 秒)', 'AI 분석 중…(약 10~20초)'],
+  clear: ['清空對話', 'Clear', '清空对话', '会話をクリア', '대화 지우기'],
+  clearConfirm: ['清空這個任務的 AI 問答紀錄?', 'Clear this task’s Q&A history?', '清空这个任务的 AI 问答纪录?', 'このタスクの AI Q&A 履歴をクリアしますか?', '이 작업의 AI 질문·답변 기록을 지우시겠습니까?'],
+  failed: ['問答失敗:', 'Failed: ', '问答失败:', 'Q&A に失敗しました:', '질문·답변 실패:'],
+  you: ['你', 'You', '你', 'あなた', '나'],
+  ai: ['AI', 'AI', 'AI', 'AI', 'AI'],
+  collapse: ['收合', 'Collapse', '收合', '折りたたむ', '접기'],
+  expand: ['展開', 'Expand', '展开', '展開', '펼치기'],
+  q1: ['根據目前收集到的 log,有什麼需要我注意的?', 'Based on the logs so far, what should I watch out for?', '根据目前收集到的 log,有什么需要我注意的?', '現在収集されたログで、注意すべき点は?', '지금까지 수집된 로그에서 주의할 점은 무엇인가요?'],
+  q2: ['這次測試為什麼失敗 / 卡住?', 'Why did this run fail or get stuck?', '这次测试为什么失败 / 卡住?', 'このテストはなぜ失敗した / 止まったのですか?', '이 테스트는 왜 실패했거나 멈췄나요?'],
+  q3: ['AI 有沒有照測試腳本走?哪一步偏離了?', 'Did the AI follow the script? Where did it deviate?', 'AI 有没有照测试脚本走?哪一步偏离了?', 'AI はテストスクリプトどおりに進みましたか?どのステップでずれましたか?', 'AI가 테스트 스크립트대로 진행했나요? 어느 단계에서 벗어났나요?'],
+  q4: ['有沒有當機、ANR 或錯誤訊息?', 'Any crashes, ANRs or error messages?', '有没有当机、ANR 或错误消息?', 'クラッシュ、ANR、エラーメッセージはありましたか?', '크래시, ANR, 오류 메시지가 있었나요?'],
+  model: ['問答模型', 'Model', '问答模型', 'Q&A モデル', '질문·답변 모델'],
+  more: ['你也可以問', 'You can also ask', '你也可以问', 'こんな質問もできます', '이런 질문도 할 수 있습니다'],
+  gotoStep: ['在時間軸跳到第 {n} 步', 'Jump to step {n} on the timeline', '在时间轴跳到第 {n} 步', 'タイムラインでステップ {n} へ移動', '타임라인에서 {n}단계로 이동'],
+  placeholderShort: ['問這次測試的問題,例如:哪一步最花時間?(Enter 送出)', 'Ask about this run, e.g. which step took longest? (Enter to send)', '问这次测试的问题,例如:哪一步最花时间?(Enter 送出)', 'このテストについて質問してください。例:最も時間がかかったステップは?(Enter で送信)', '이번 테스트에 대해 질문하세요. 예: 가장 오래 걸린 단계는? (Enter로 전송)'],
 } as const;
-const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+const tx = (k: keyof typeof T, lang: RLang) => pick5(T[k], lang);
 
 /** 回答裡的「#3」「第 3 步」變成可點的連結(點了時間軸跳到那一步)。 */
 const STEP_REF = /#(\d+)|第\s*(\d+)\s*步/g;

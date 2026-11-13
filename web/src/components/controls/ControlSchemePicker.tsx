@@ -2,7 +2,7 @@ import { apiGet } from '../../api/client.ts';
 import { useQuery } from '../../api/useQuery.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
 import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
-import { reportLang } from '../report/reportText.ts';
+import { reportLang, tr } from '../report/reportText.ts';
 import { ControlGlyph } from './ControlGlyph.tsx';
 import { KeyMapEditor, type KeyOption } from './KeyMapEditor.tsx';
 import type { CaseKey } from './keysYaml.ts';
@@ -183,7 +183,7 @@ export function ControlSchemePicker({
           <div className="ctl__btns">
             {suggested.length > 0 && (
               <button type="button" className="ctl__btn" onClick={() => onChange(order(suggested))}>
-                {t('apply', lc)}({suggested.map((id) => allItems.find((i) => i.id === id)?.label[lang] ?? id).join('、')})
+                {t('apply', lc)}({suggested.map((id) => tr(allItems.find((i) => i.id === id)?.label, lang) || id).join('、')})
               </button>
             )}
             {value !== undefined && (
@@ -210,11 +210,11 @@ export function ControlSchemePicker({
                 />
                 <ControlGlyph ids={[s.id]} size={112} frame={pc ? 'screen' : 'phone'} />
                 <span className="ctl__name">
-                  {s.label[lang]}
+                  {tr(s.label, lang)}
                   {s.fingers === 2 && <span className="ctl__tag">✌</span>}
                   {isSuggested && <span className="ctl__tag ctl__tag--sug">★</span>}
                 </span>
-                <span className="ctl__desc">{s.desc[lang]}</span>
+                <span className="ctl__desc">{tr(s.desc, lang)}</span>
                 <span className="ctl__check" aria-hidden="true">{on ? '✓' : ''}</span>
               </label>
             </li>

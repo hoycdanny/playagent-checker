@@ -14,7 +14,7 @@ describe('live script checklist', () => {
   });
 
   test('renders ticks, the current item and the done count; opens by itself', () => {
-    const { container } = render(<ScriptPanel lang="zh" live progress={progress} script="1. a\n2. b\n3. c" />);
+    const { container } = render(<ScriptPanel lang="zh-Hant" live progress={progress} script="1. a\n2. b\n3. c" />);
     expect(screen.getByText('已完成 1/3')).toBeTruthy();
     const items = [...container.querySelectorAll('.dscript__step')];
     expect(items.map((li) => li.className.replace('dscript__step ', ''))).toEqual(['is-done', 'is-current', 'is-pending']);

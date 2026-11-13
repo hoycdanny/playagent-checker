@@ -23,7 +23,7 @@ const tl = buildTimeline({
   logChunks: [{ text: log }],
   traces: [{ index: 0, seat: 'vlm', at: iso(4000), ms: 3000, ok: true, modelId: 'gpt' }, { index: 1, seat: 'agent', at: iso(12_000), ms: 1000, ok: false }],
 });
-const feed = buildFeed({ tl, steps, sounds: [{ kind: 'game', t: T0 + 6000, title: 'spin.wav' }], lang: 'zh' });
+const feed = buildFeed({ tl, steps, sounds: [{ kind: 'game', t: T0 + 6000, title: 'spin.wav' }], lang: 'zh-Hant' });
 const f = (patch: Partial<FeedFilter>): FeedFilter => ({ ...DEFAULT_FILTER, subs: {}, windowMs: 0, ...patch });
 
 describe('buildFeed', () => {

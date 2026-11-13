@@ -2,33 +2,34 @@ import { useEffect, useState } from 'react';
 import { InfoIcon } from './InfoIcon.tsx';
 import type { RLang } from '../report/reportText.ts';
 import { formatPick, LivePlayer, type LivePlayerState, type PickPoint } from './LivePlayer.tsx';
+import { pick5 } from '../../i18n/locale5.ts';
 import './LiveScreen.css';
 
 const T = {
-  realtime: ['即時', 'Live'],
-  frames: ['截圖', 'Snapshots'],
-  popout: ['在新視窗開啟(雙螢幕)', 'Open in a new window'],
-  noAudio: ['此裝置無法錄製聲音', 'Sound recording unavailable on this device'],
-  recording: ['錄影中(含聲音)· 測試結束後可回放', 'Recording with sound · replay after the test'],
-  recordingHint: ['為了不打斷遊戲,測試中不播放聲音;整場錄影(含聲音)會在結束後出現在這裡。', 'To avoid pausing the game, sound is not played live; the full recording with sound appears here after the test.'],
-  pickMode: ['指定點擊或拖曳', 'Pick a tap or drag'],
-  pickHint: ['點一下 = 指定點擊位置;按住拖曳 = 指定拖曳路徑', 'Click to set a tap · press and drag to set a drag path'],
-  pickTitle: ['指定點擊位置', 'Tap position'],
-  dragTitle: ['指定拖曳路徑', 'Drag path'],
-  tapHere: ['直接點這裡', 'Tap here now'],
-  dragHere: ['直接照這樣拖', 'Drag like this now'],
-  sending: ['送出中…', 'Sending…'],
-  cancel: ['取消', 'Cancel'],
-  pointSent: ['已送出,馬上在裝置上點擊', 'Sent — tapping on the device now'],
-  dragSent: ['已送出,馬上在裝置上拖曳', 'Sent — dragging on the device now'],
-  dragTime: ['拖曳 {s} 秒', '{s}s drag'],
-  takeover: ['接管(自己操作)', 'Take over (drive it yourself)'],
-  takeoverOn: ['接管中 · AI 已暫停', 'You are driving · AI paused'],
-  takeoverHint: ['直接點或拖畫面就會立刻執行,不用再按送出。AI 在接管期間不會動作,也不計費。', 'Click or drag the screen and it runs immediately — no submit needed. The AI is paused and not billed while you drive.'],
-  takeoverBusy: ['執行中…', 'Running…'],
-  takeoverFail: ['送不出去,請再試一次', 'Could not send — try again'],
+  realtime: ['即時', 'Live', '即时', 'ライブ', '실시간'],
+  frames: ['截圖', 'Snapshots', '截图', 'スナップショット', '스냅샷'],
+  popout: ['在新視窗開啟(雙螢幕)', 'Open in a new window', '在新窗口打开(双屏幕)', '新しいウィンドウで開く(デュアルモニター)', '새 창에서 열기(듀얼 모니터)'],
+  noAudio: ['此裝置無法錄製聲音', 'Sound recording unavailable on this device', '此设备无法录制声音', 'このデバイスでは音声を録音できません', '이 기기에서는 소리를 녹음할 수 없습니다'],
+  recording: ['錄影中(含聲音)· 測試結束後可回放', 'Recording with sound · replay after the test', '录像中(含声音)· 测试结束后可回放', '録画中(音声付き)· テスト終了後にリプレイ可能', '녹화 중(소리 포함) · 테스트 종료 후 다시 볼 수 있음'],
+  recordingHint: ['為了不打斷遊戲,測試中不播放聲音;整場錄影(含聲音)會在結束後出現在這裡。', 'To avoid pausing the game, sound is not played live; the full recording with sound appears here after the test.', '为了不打断游戏,测试中不播放声音;整场录像(含声音)会在结束后出现在这里。', 'ゲームの進行を妨げないため、テスト中は音声を再生しません。音声付きの録画全体は、終了後にここへ表示されます。', '게임 진행을 방해하지 않도록 테스트 중에는 소리를 재생하지 않습니다. 소리가 포함된 전체 녹화는 종료 후 여기에 표시됩니다.'],
+  pickMode: ['指定點擊或拖曳', 'Pick a tap or drag', '指定点击或拖曳', 'タップまたはドラッグを指定', '탭 또는 드래그 지정'],
+  pickHint: ['點一下 = 指定點擊位置;按住拖曳 = 指定拖曳路徑', 'Click to set a tap · press and drag to set a drag path', '点一下 = 指定点击位置;按住拖曳 = 指定拖曳路径', 'クリック = タップ位置を指定;ドラッグ = ドラッグ経路を指定', '클릭 = 탭 위치 지정 · 끌기 = 드래그 경로 지정'],
+  pickTitle: ['指定點擊位置', 'Tap position', '指定点击位置', 'タップ位置を指定', '탭 위치 지정'],
+  dragTitle: ['指定拖曳路徑', 'Drag path', '指定拖曳路径', 'ドラッグ経路を指定', '드래그 경로 지정'],
+  tapHere: ['直接點這裡', 'Tap here now', '直接点这里', '今すぐここをタップ', '지금 여기를 탭'],
+  dragHere: ['直接照這樣拖', 'Drag like this now', '直接照这样拖', '今すぐこのとおりにドラッグ', '지금 이대로 드래그'],
+  sending: ['送出中…', 'Sending…', '送出中…', '送信中…', '전송하는 중…'],
+  cancel: ['取消', 'Cancel', '取消', 'キャンセル', '취소'],
+  pointSent: ['已送出,馬上在裝置上點擊', 'Sent — tapping on the device now', '已送出,马上在设备上点击', '送信しました。デバイス上で今すぐタップします', '전송했습니다. 지금 기기에서 탭합니다'],
+  dragSent: ['已送出,馬上在裝置上拖曳', 'Sent — dragging on the device now', '已送出,马上在设备上拖曳', '送信しました。デバイス上で今すぐドラッグします', '전송했습니다. 지금 기기에서 드래그합니다'],
+  dragTime: ['拖曳 {s} 秒', '{s}s drag', '拖曳 {s} 秒', '{s} 秒ドラッグ', '{s}초 드래그'],
+  takeover: ['接管(自己操作)', 'Take over (drive it yourself)', '接管(自己操作)', '引き継ぐ(自分で操作)', '직접 조작(수동 제어)'],
+  takeoverOn: ['接管中 · AI 已暫停', 'You are driving · AI paused', '接管中 · AI 已暂停', '操作中 · AI は一時停止中', '직접 조작 중 · AI 일시정지'],
+  takeoverHint: ['直接點或拖畫面就會立刻執行,不用再按送出。AI 在接管期間不會動作,也不計費。', 'Click or drag the screen and it runs immediately — no submit needed. The AI is paused and not billed while you drive.', '直接点或拖画面就会立刻运行,不用再按送出。AI 在接管期间不会动作,也不计费。', '画面をクリックまたはドラッグすると即座に実行されます。送信は不要です。操作中は AI が動作せず、課金もされません。', '화면을 클릭하거나 드래그하면 즉시 실행되며 전송할 필요가 없습니다. 직접 조작하는 동안 AI는 동작하지 않고 과금되지도 않습니다.'],
+  takeoverBusy: ['執行中…', 'Running…', '运行中…', '実行中…', '실행 중…'],
+  takeoverFail: ['送不出去,請再試一次', 'Could not send — try again', '送不出去,请再试一次', '送信できませんでした。もう一度お試しください', '전송하지 못했습니다. 다시 시도해 주세요'],
 } as const;
-const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+const tx = (k: keyof typeof T, lang: RLang) => pick5(T[k], lang);
 
 /** 接管模式的圖示:一隻手(= 我自己來)。 */
 function HandIcon() {

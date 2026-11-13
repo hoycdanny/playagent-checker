@@ -39,7 +39,7 @@ const evidence: EvidenceStep[] = [
 
 describe('AcceptancePanel', () => {
   test('shows the single verdict, the decisive criterion and its case-text source', () => {
-    render(<AcceptancePanel acceptance={acceptance} evidence={evidence} lang="zh" onOpenImage={() => {}} onOpenFinding={() => {}} />);
+    render(<AcceptancePanel acceptance={acceptance} evidence={evidence} lang="zh-Hant" onOpenImage={() => {}} onOpenFinding={() => {}} />);
     expect(screen.getByText('受阻')).toBeTruthy();
     expect(screen.getByText(/決定結論的項目:AC-S02/)).toBeTruthy();
     expect(screen.getByText('#78:1,320 → 3,300')).toBeTruthy();
@@ -51,7 +51,7 @@ describe('AcceptancePanel', () => {
   test('evidence step chips open the step screenshot; finding chips jump to the finding', () => {
     const onOpenImage = vi.fn();
     const onOpenFinding = vi.fn();
-    render(<AcceptancePanel acceptance={acceptance} evidence={evidence} lang="zh" onOpenImage={onOpenImage} onOpenFinding={onOpenFinding} />);
+    render(<AcceptancePanel acceptance={acceptance} evidence={evidence} lang="zh-Hant" onOpenImage={onOpenImage} onOpenFinding={onOpenFinding} />);
     fireEvent.click(screen.getAllByRole('button', { name: '#78' })[0]!);
     expect(onOpenImage).toHaveBeenCalledWith('https://img/78.png');
     fireEvent.click(screen.getByRole('button', { name: 'DEF-002' }));

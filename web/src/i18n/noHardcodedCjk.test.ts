@@ -6,7 +6,6 @@
  *   1. an element of a 5-string array (an L5 tuple, see locale5.ts),
  *   2. inside an exact-path TABLE_FILES entry (per-locale catalogs / guide texts),
  *   3. under a leading `// i18n-allow: <reason>` comment, pinned in ALLOW_MARKERS,
- *   4. (interim) an element of a 2-string pair in an exact-path PAIR_DEBT file.
  * Comments are not AST nodes, so they are never scanned.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -31,7 +30,8 @@ const TABLE_FILES: readonly string[] = [
 
 /** Recognisers / generated artifacts: file -> number of `i18n-allow` markers. */
 const ALLOW_MARKERS: Readonly<Record<string, number>> = {
-  'components/cases/excelImport.ts': 1,
+  // SYNONYMS recogniser + the zh-Hant / en template headers and sample rows (must match the recogniser)
+  'components/cases/excelImport.ts': 3,
   'components/credentials/CredentialsPanel.tsx': 1,
   'components/cases/acceptanceSpec.ts': 1,
   'components/memory/memoryScript.ts': 1,
@@ -39,42 +39,8 @@ const ALLOW_MARKERS: Readonly<Record<string, number>> = {
   'components/tasks/OperatorChat.tsx': 1,
 };
 
-/** Interim: files that still hold [zh-Hant, en] pairs. FEAT-002 removes this list. */
-const PAIR_DEBT: readonly string[] = [
-  'pages/TaskDetailPage.tsx',
-  'components/memory/ScreenStudio.tsx',
-  'components/memory/MemoryEditor.tsx',
-  'components/tasks/MomentFeed.tsx',
-  'pages/CostPage.tsx',
-  'components/cases/CaseOverviewTable.tsx',
-  'components/cases/ExcelImport.tsx',
-  'components/tasks/TaskTimeline.tsx',
-  'components/tasks/OperatorChat.tsx',
-  'components/cases/AcceptanceEditor.tsx',
-  'components/memory/RoutesPanel.tsx',
-  'components/tasks/LiveScreen.tsx',
-  'components/tasks/memoryUsage.ts',
-  'components/tasks/MemoryUsagePanel.tsx',
-  'components/tasks/TaskAskPanel.tsx',
-  'components/ScreenGraph.tsx',
-  'components/memory/graphView.ts',
-  'components/tasks/ScriptPanel.tsx',
-  'components/tasks/RecordingPlayer.tsx',
-  'components/memory/OpStage.tsx',
-  'components/memory/MemoryPanel.tsx',
-  'components/tasks/BootTimeline.tsx',
-  'components/report/reportText.ts',
-  'components/outcome.ts',
-  'components/report/qaDocsExport.ts',
-  'components/report/StructuredReportView.tsx',
-  'components/tasks/feed.ts',
-  'components/tasks/StepSound.tsx',
-  'components/report/SlotCapturePanel.tsx',
-  'components/cases/acceptanceSpec.ts',
-  'components/cases/excelImport.ts',
-];
 
-type Kind = 'l5' | 'table' | 'marker' | 'pair';
+type Kind = 'l5' | 'table' | 'marker';
 
 interface ScanResult {
   violations: { line: number; text: string }[];
@@ -97,17 +63,6 @@ function arrayParent(node: ts.Node): ts.ArrayLiteralExpression | null {
   return p && ts.isArrayLiteralExpression(p) ? p : null;
 }
 
-/** True when the node sits inside the zh: value of an object literal that also has an en: property. */
-function inZhEnObject(node: ts.Node): boolean {
-  for (let a: ts.Node | undefined = node; a && a.parent; a = a.parent) {
-    const p = a.parent;
-    if (ts.isPropertyAssignment(a) && ts.isObjectLiteralExpression(p) && a.name.getText() === 'zh') {
-      return p.properties.some((q) => ts.isPropertyAssignment(q) && q.name.getText() === 'en');
-    }
-  }
-  return false;
-}
-
 const MARKER = /\/\/\s*i18n-allow:\s*\S/;
 
 export function scan(text: string, fileName: string): ScanResult {
@@ -116,12 +71,11 @@ export function scan(text: string, fileName: string): ScanResult {
   const sf = ts.createSourceFile(norm, text, ts.ScriptTarget.Latest, true, kind);
   const result: ScanResult = {
     violations: [],
-    exempt: { l5: 0, table: 0, marker: 0, pair: 0 },
+    exempt: { l5: 0, table: 0, marker: 0 },
     markersFound: 0,
     markersUsed: 0,
   };
   const inTable = TABLE_FILES.includes(norm);
-  const inPairDebt = PAIR_DEBT.includes(norm);
   const usedMarkers = new Set<number>();
 
   // Count markers that are real comments (not text inside a string).
@@ -157,10 +111,8 @@ export function scan(text: string, fileName: string): ScanResult {
         const arr = arrayParent(node);
         if (arr && arr.elements.every(isStringLike)) {
           if (arr.elements.length === 5) exempt = 'l5';
-          else if (arr.elements.length === 2 && inPairDebt) exempt = 'pair';
         }
       }
-      if (!exempt && inPairDebt && inZhEnObject(node)) exempt = 'pair';
       if (!exempt) {
         for (let a: ts.Node | undefined = node; a; a = a.parent) {
           const pos = markerFor(a);
@@ -223,7 +175,7 @@ describe('scanSource (planted violations)', () => {
     expect(scanSource('const a = ["中","b","c","d"];', 'components/Foo.ts')).toHaveLength(1);
     expect(scanSource('const a = ["中","b","c","d","e","f"];', 'components/Foo.ts')).toHaveLength(1);
   });
-  it('flags a 2-element pair outside PAIR_DEBT', () => {
+  it('flags a 2-element pair anywhere (no pair exemption any more)', () => {
     expect(scanSource('const a = ["中","b"];', 'components/Foo.ts')).toHaveLength(1);
   });
   it('flags Hangul and Kana', () => {
@@ -265,7 +217,7 @@ describe('guard is not vacuous', () => {
   });
   it('sees a large number of exempt literals', () => {
     let n = 0;
-    for (const r of SCANS.values()) n += r.exempt.l5 + r.exempt.table + r.exempt.marker + r.exempt.pair;
+    for (const r of SCANS.values()) n += r.exempt.l5 + r.exempt.table + r.exempt.marker;
     expect(n).toBeGreaterThan(500);
   });
   it('sees L5 tuples in the kb text tables', () => {
@@ -287,7 +239,12 @@ describe('guard is not vacuous', () => {
       expect(SCANS.has(rel), `stale ALLOW_MARKERS entry: ${rel}`).toBe(true);
     }
   });
-  it.each(PAIR_DEBT)('PAIR_DEBT entry %s still contains a pair', (rel) => {
-    expect(SCANS.get(rel)?.exempt.pair ?? 0).toBeGreaterThan(0);
+  it('has no pair exemption list left, and a 2-element or {zh, en} literal is a violation', () => {
+    const self = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+    // The identifier is spelled out in pieces so this file itself does not contain it.
+    expect(self.includes('PAIR' + '_DEBT')).toBe(false);
+    expect(scanSource('const a = ["中文", "x"];', 'components/tasks/feed.ts')).toHaveLength(1);
+    expect(scanSource("const a = { zh: '中文', en: 'x' };", 'components/Foo.ts')).toHaveLength(1);
+    expect(scanSource("const a = { zh: '中文', en: 'x' };", 'components/report/reportText.ts')).toHaveLength(1);
   });
 });

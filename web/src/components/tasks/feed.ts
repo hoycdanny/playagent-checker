@@ -7,6 +7,7 @@ import type { RLang } from '../report/reportText.ts';
 import { memoryChips, type StepMemory } from './memoryUsage.ts';
 import type { SoundEvent } from './soundEvents.ts';
 import type { Timeline } from './timeline.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 
 export type FeedKind = 'step' | 'ai' | 'memory' | 'script' | 'log' | 'sound' | 'operator';
 export const FEED_KINDS: FeedKind[] = ['step', 'ai', 'memory', 'script', 'log', 'sound', 'operator'];
@@ -62,7 +63,7 @@ export function buildFeed({ tl, steps, sounds = [], lang }: {
     });
     // 記憶:照記憶直接做的步驟 + runner 寫的記憶命中標籤。
     if (sub === 'reflex') {
-      out.push({ id: `mem-reflex-${ts.index}`, t: ts.t, kind: 'memory', sub: 'reflex', title: [`照記憶直接操作${reflex?.reason ? `(${reflex.reason})` : ''}`, `Replayed from memory${reflex?.reason ? ` (${reflex.reason})` : ''}`][lang === 'zh' ? 0 : 1]!, step: ts.index, tone: 'good' });
+      out.push({ id: `mem-reflex-${ts.index}`, t: ts.t, kind: 'memory', sub: 'reflex', title: pick5([`照記憶直接操作${reflex?.reason ? `(${reflex.reason})` : ''}`, `Replayed from memory${reflex?.reason ? ` (${reflex.reason})` : ''}`, `照记忆直接操作${reflex?.reason ? `(${reflex.reason})` : ''}`, `メモリからそのまま操作${reflex?.reason ? `(${reflex.reason})` : ''}`, `기억대로 바로 조작${reflex?.reason ? `(${reflex.reason})` : ''}`], lang), step: ts.index, tone: 'good' });
     }
     const m = s.memory as StepMemory | undefined;
     // memoryChips 的順序:畫面 → 預測結果 → 照已驗證路徑 → 教學 → 路線;類型照同樣順序對上。
@@ -81,7 +82,7 @@ export function buildFeed({ tl, steps, sounds = [], lang }: {
       const key = `${plan.scriptStep}/${plan.scriptTotal}`;
       if (key !== lastScript) {
         lastScript = key;
-        out.push({ id: `script-${ts.index}`, t: ts.t, kind: 'script', sub: 'progress', title: `${['腳本', 'Script'][lang === 'zh' ? 0 : 1]} ${key}${str(plan.goal) ? ` · ${str(plan.goal)}` : ''}`, step: ts.index });
+        out.push({ id: `script-${ts.index}`, t: ts.t, kind: 'script', sub: 'progress', title: `${pick5(['腳本', 'Script', '脚本', 'スクリプト', '스크립트'], lang)} ${key}${str(plan.goal) ? ` · ${str(plan.goal)}` : ''}`, step: ts.index });
       }
     } else if (str(plan?.goal)) {
       out.push({ id: `goal-${ts.index}`, t: ts.t, kind: 'script', sub: 'goal', title: `${str(plan!.goal)}`, step: ts.index });

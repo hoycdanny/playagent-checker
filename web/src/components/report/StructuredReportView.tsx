@@ -15,12 +15,14 @@ import {
   DIMENSION_TEXT,
   SCOPE_TEXT,
   STATUS_TEXT,
+  dataLang,
   reportLang,
   tr,
   txt,
   type RLang,
   type TextKey,
 } from './reportText.ts';
+import { pick5 } from '../../i18n/locale5.ts';
 import './StructuredReport.css';
 
 /**
@@ -80,7 +82,9 @@ export function StructuredReportView({
   };
   const [insights, setInsights] = useState(initialInsights);
   const [active, setActive] = useState<string>('cover');
-  const ins = insights?.[lang] ?? insights?.[lang === 'zh' ? 'en' : 'zh'];
+  // 後端洞察只有 zh / en 兩份:zh-Hant 與 zh-Hans 讀 zh,其餘讀 en。
+  const dl = dataLang(lang);
+  const ins = insights?.[dl] ?? insights?.[dl === 'zh' ? 'en' : 'zh'];
   const notes: Record<string, L10n> = ins?.notes ?? {};
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   /** 跳到判定明細並套用篩選(數字點擊 → 讓使用者看到每一筆判定的依據、截圖與修正建議)。 */
@@ -224,7 +228,7 @@ export function StructuredReportView({
         <div className="srep__cover">
           <div className="srep__cover-id">
             <div className="srep__eyebrow">
-              {['遊戲測試報告', 'Game Test Report'][lang === 'zh' ? 0 : 1]} · {r.testCase.name}
+              {pick5(['遊戲測試報告', 'Game Test Report', '游戏测试报告', 'ゲームテストレポート', '게임 테스트 보고서'], lang)} · {r.testCase.name}
               {h.caseVersion && <> · <CaseVersionBadge version={h.caseVersion} title={txt('caseVersion', lang)} /></>}
             </div>
             <div className="srep__cover-game">{h.gameName ?? '—'}</div>
@@ -998,7 +1002,7 @@ function Charts({ list, lang, labelOf, empty }: { list: ChartData[]; lang: RLang
   if (list.length === 0) return empty ? <p className="srep__muted">{empty}</p> : null;
   return (
     <div className="srep__charts">
-      {list.map((c) => <ReportChart key={c.id} chart={c} lang={lang} labelOf={labelOf} />)}
+      {list.map((c) => <ReportChart key={c.id} chart={c} lang={dataLang(lang)} labelOf={labelOf} />)}
     </div>
   );
 }

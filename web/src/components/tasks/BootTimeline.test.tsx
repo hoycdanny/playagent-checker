@@ -17,7 +17,7 @@ describe('BootTimeline', () => {
     render(
       <BootTimeline
         state="pass"
-        lang="zh"
+        lang="zh-Hant"
         backend="devicefarm"
         createdAt={T0}
         updatedAt={at(600)}
