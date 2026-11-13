@@ -224,7 +224,7 @@ export function StructuredReportView({
         <div className="srep__cover">
           <div className="srep__cover-id">
             <div className="srep__eyebrow">
-              {lang === 'zh' ? '遊戲測試報告' : 'Game Test Report'} · {r.testCase.name}
+              {['遊戲測試報告', 'Game Test Report'][lang === 'zh' ? 0 : 1]} · {r.testCase.name}
               {h.caseVersion && <> · <CaseVersionBadge version={h.caseVersion} title={txt('caseVersion', lang)} /></>}
             </div>
             <div className="srep__cover-game">{h.gameName ?? '—'}</div>

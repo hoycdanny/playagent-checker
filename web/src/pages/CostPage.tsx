@@ -154,8 +154,11 @@ const T = {
   unavailable: ['AWS 帳單資料暫時無法取得。', 'AWS billing data is unavailable.'],
   retry: ['重試', 'Retry'],
   loadError: ['載入失敗', 'Failed to load'],
+  unknownModel: ['(未知)', '(unknown)'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
+// i18n-allow: bucket key emitted by the cost API (infra/lambda/api/cost.ts); matched, not displayed
+const UNKNOWN_MODEL_KEY = '(未知)';
 
 const RANGES = [7, 14, 30, 90] as const;
 
@@ -450,7 +453,7 @@ export default function CostPage() {
             {data?.estimated && data.estimated.byModel.length > 0 && (
               <div className="cost__card">
                 <h2 className="cost__section-title">{tx('byModelTitle', lang)}</h2>
-                <BarList items={data.estimated.byModel} labelOf={(k) => (k === '(未知)' ? k : modelLabel(k))} />
+                <BarList items={data.estimated.byModel} labelOf={(k) => (k === UNKNOWN_MODEL_KEY ? tx('unknownModel', lang) : modelLabel(k))} />
               </div>
             )}
 

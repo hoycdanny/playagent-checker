@@ -724,7 +724,21 @@ export type MessageKey =
   | 'memory.tplUse'
   | 'memory.tplCreating'
   | 'memory.tplCreated'
-  | 'memory.tplCreateFailed';
+  | 'memory.tplCreateFailed'
+  | 'error.apiNotConfigured'
+  | 'error.uploadHttp'
+  | 'error.uploadNetwork'
+  | 'error.imageProcess'
+  | 'error.imageConvert'
+  | 'error.newPasswordRequired'
+  | 'error.cognitoNoToken'
+  | 'error.cognitoRefresh'
+  | 'boundary.live'
+  | 'boundary.page'
+  | 'boundary.failedLabeled'
+  | 'boundary.failed'
+  | 'boundary.retry'
+  | 'cases.templateDefaultName';
 
 type Catalog = Record<MessageKey, string>;
 
@@ -1434,6 +1448,20 @@ const zhHant: Catalog = {
   'memory.tplCreating': '建立中…',
   'memory.tplCreated': '已建立測試案例,前往測試案例頁編修。',
   'memory.tplCreateFailed': '建立失敗,請稍後再試。',
+  'error.apiNotConfigured': "API 未配置",
+  'error.uploadHttp': "上傳失敗 HTTP {status}",
+  'error.uploadNetwork': "上傳網路錯誤",
+  'error.imageProcess': "無法處理圖片",
+  'error.imageConvert': "圖片轉換失敗",
+  'error.newPasswordRequired': "需要設定新密碼",
+  'error.cognitoNoToken': "Cognito 登入成功但未回傳 token",
+  'error.cognitoRefresh': "Cognito 換新 token 失敗",
+  'boundary.live': "即時畫面",
+  'boundary.page': "頁面",
+  'boundary.failedLabeled': "{label}載入時發生錯誤",
+  'boundary.failed': "這個畫面載入時發生錯誤",
+  'boundary.retry': "重試",
+  'cases.templateDefaultName': "從範本建立",
 };
 
 const en: Catalog = {
@@ -2142,6 +2170,20 @@ const en: Catalog = {
   'memory.tplCreating': 'Creating…',
   'memory.tplCreated': 'Test case created. Head to the Test Cases page to refine it.',
   'memory.tplCreateFailed': 'Creation failed, please try again.',
+  'error.apiNotConfigured': "API is not configured",
+  'error.uploadHttp': "Upload failed (HTTP {status})",
+  'error.uploadNetwork': "Upload network error",
+  'error.imageProcess': "Cannot process the image",
+  'error.imageConvert': "Image conversion failed",
+  'error.newPasswordRequired': "A new password is required",
+  'error.cognitoNoToken': "Cognito sign-in succeeded but returned no token",
+  'error.cognitoRefresh': "Cognito token refresh failed",
+  'boundary.live': "Live view",
+  'boundary.page': "Page",
+  'boundary.failedLabeled': "{label} failed to load",
+  'boundary.failed': "This screen failed to load",
+  'boundary.retry': "Retry",
+  'cases.templateDefaultName': "Created from template",
 };
 
 /*
@@ -2853,6 +2895,20 @@ const zhHans: Catalog = {
   'memory.tplCreating': '创建中…',
   'memory.tplCreated': '已创建测试用例,前往测试用例页编修。',
   'memory.tplCreateFailed': '创建失败,请稍后再试。',
+  'error.apiNotConfigured': "API 未配置",
+  'error.uploadHttp': "上传失败 HTTP {status}",
+  'error.uploadNetwork': "上传网络错误",
+  'error.imageProcess': "无法处理图片",
+  'error.imageConvert': "图片转换失败",
+  'error.newPasswordRequired': "需要设置新密码",
+  'error.cognitoNoToken': "Cognito 登录成功但未返回 token",
+  'error.cognitoRefresh': "Cognito 刷新 token 失败",
+  'boundary.live': "实时画面",
+  'boundary.page': "页面",
+  'boundary.failedLabeled': "{label}加载时发生错误",
+  'boundary.failed': "这个画面加载时发生错误",
+  'boundary.retry': "重试",
+  'cases.templateDefaultName': "从范本创建",
 };
 
 const ja: Catalog = {
@@ -3561,6 +3617,20 @@ const ja: Catalog = {
   'memory.tplCreating': '作成中…',
   'memory.tplCreated': 'テストケースを作成しました。テストケース画面で調整してください。',
   'memory.tplCreateFailed': '作成に失敗しました。後でもう一度お試しください。',
+  'error.apiNotConfigured': "API が設定されていません",
+  'error.uploadHttp': "アップロードに失敗しました(HTTP {status})",
+  'error.uploadNetwork': "アップロード中のネットワークエラー",
+  'error.imageProcess': "画像を処理できません",
+  'error.imageConvert': "画像の変換に失敗しました",
+  'error.newPasswordRequired': "新しいパスワードの設定が必要です",
+  'error.cognitoNoToken': "Cognito へのサインインは成功しましたがトークンが返されませんでした",
+  'error.cognitoRefresh': "Cognito のトークン更新に失敗しました",
+  'boundary.live': "ライブ画面",
+  'boundary.page': "ページ",
+  'boundary.failedLabeled': "{label}の読み込み中にエラーが発生しました",
+  'boundary.failed': "この画面の読み込み中にエラーが発生しました",
+  'boundary.retry': "再試行",
+  'cases.templateDefaultName': "テンプレートから作成",
 };
 
 const ko: Catalog = {
@@ -4269,6 +4339,20 @@ const ko: Catalog = {
   'memory.tplCreating': '생성 중…',
   'memory.tplCreated': '테스트 케이스를 만들었습니다. 테스트 케이스 페이지에서 다듬으세요.',
   'memory.tplCreateFailed': '생성에 실패했습니다. 나중에 다시 시도하세요.',
+  'error.apiNotConfigured': "API가 구성되지 않았습니다",
+  'error.uploadHttp': "업로드 실패 (HTTP {status})",
+  'error.uploadNetwork': "업로드 네트워크 오류",
+  'error.imageProcess': "이미지를 처리할 수 없습니다",
+  'error.imageConvert': "이미지 변환 실패",
+  'error.newPasswordRequired': "새 비밀번호를 설정해야 합니다",
+  'error.cognitoNoToken': "Cognito 로그인에 성공했지만 토큰이 반환되지 않았습니다",
+  'error.cognitoRefresh': "Cognito 토큰 갱신 실패",
+  'boundary.live': "실시간 화면",
+  'boundary.page': "페이지",
+  'boundary.failedLabeled': "{label}을(를) 불러오는 중 오류가 발생했습니다",
+  'boundary.failed': "이 화면을 불러오는 중 오류가 발생했습니다",
+  'boundary.retry': "다시 시도",
+  'cases.templateDefaultName': "템플릿에서 만들기",
 };
 
 export const CATALOGS: Record<Locale, Catalog> = {

@@ -11,6 +11,10 @@ export function reportLang(locale: string): RLang {
   return locale.startsWith('zh') ? 'zh' : 'en';
 }
 
+/** 兩語固定文字挑選:[繁中, English]。FEAT-002 起改為五語 L5。 */
+export function pr(v: readonly [string, string], lang: RLang): string {
+  return v[lang === 'zh' ? 0 : 1];
+}
 export function tr(v: L10n | undefined, lang: RLang): string {
   return v ? v[lang] || v.en || v.zh : '';
 }

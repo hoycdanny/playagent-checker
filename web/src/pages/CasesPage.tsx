@@ -110,7 +110,7 @@ export default function CasesPage({ appId: lockedApp }: { appId?: string } = {})
     try {
       const decoded = decodeURIComponent(atob(tpl));
       const app = searchParams.get('app') ?? '';
-      const nm = searchParams.get('name') ?? '從範本建立';
+      const nm = searchParams.get('name') ?? t('cases.templateDefaultName');
       resetForm();
       setAppId(app);
       setName(nm);

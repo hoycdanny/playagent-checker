@@ -1,4 +1,5 @@
 import { apiPost, uploadToS3, type UploadTarget } from './client.ts';
+import { tStatic } from '../i18n/tStatic.ts';
 
 /** 圖示最長邊上限(像素);列表與工作區只顯示小圖,不需要原尺寸。 */
 const MAX_EDGE = 512;
@@ -18,10 +19,10 @@ export async function imageToPng(file: File): Promise<File> {
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('無法處理圖片');
+    if (!ctx) throw new Error(tStatic('error.imageProcess'));
     ctx.drawImage(bitmap, 0, 0, w, h);
     const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('圖片轉換失敗');
+    if (!blob) throw new Error(tStatic('error.imageConvert'));
     return new File([blob], 'icon.png', { type: 'image/png' });
   } finally {
     bitmap.close();

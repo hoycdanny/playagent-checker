@@ -44,29 +44,22 @@ export function emptyDraftSpec(): DraftSpec {
 
 /** 範例列(「帶入範例」用):對照使用者熟悉的測試案例表,一看就懂格式。 */
 export function sampleAcceptanceItems(lang: 'zh' | 'en'): AcceptanceItemDraft[] {
-  if (lang === 'en') {
-    return [
-      {
-        category: 'Lobby',
-        module: 'Mystery merchant',
-        purpose: 'Close with the X button',
-        steps: '1. Tap the mystery-merchant icon in the lobby\n2. Tap the X at the top-right of the page',
-        expected: '1. The mystery-merchant page closes\n2. Returns to the lobby',
-      },
-    ];
-  }
+  const p = (v: readonly [string, string]): string => v[lang === 'en' ? 1 : 0];
   return [
     {
-      category: '中央畫面區',
-      module: '神秘商人',
-      purpose: 'X 鈕關閉',
-      steps: '1. 大廳點擊神秘商人 ICON\n2. 點擊神秘商人頁面右上 X 鈕',
-      expected: '1. 關閉神秘商人頁面\n2. 返回大廳',
+      category: p(['中央畫面區', 'Lobby']),
+      module: p(['神秘商人', 'Mystery merchant']),
+      purpose: p(['X 鈕關閉', 'Close with the X button']),
+      steps: p([
+        '1. 大廳點擊神秘商人 ICON\n2. 點擊神秘商人頁面右上 X 鈕',
+        '1. Tap the mystery-merchant icon in the lobby\n2. Tap the X at the top-right of the page',
+      ]),
+      expected: p(['1. 關閉神秘商人頁面\n2. 返回大廳', '1. The mystery-merchant page closes\n2. Returns to the lobby']),
     },
   ];
 }
-
 /** 模糊字眼:預期結果只寫這些而沒有附截圖時,視為不夠精準。 */
+// i18n-allow: keyword recognisers matched against what the user typed, not display text
 const VAGUE_TERMS = [
   '正常', '正確', '正确', '沒問題', '没问题', '良好', '應該', '应该', '大致',
   '合理', '符合預期', '符合预期', '順暢', '顺畅',

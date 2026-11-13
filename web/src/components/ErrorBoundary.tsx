@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { fill } from '../i18n/locale5.ts';
+import { tStatic } from '../i18n/tStatic.ts';
 
 interface Props {
   children: ReactNode;
@@ -40,13 +42,15 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div role="alert" style={{ padding: '2rem', textAlign: 'center' }}>
           <p style={{ fontWeight: 600, marginBottom: '0.5rem' }}>
-            {this.props.label ? `${this.props.label} 載入時發生錯誤` : '這個畫面載入時發生錯誤'}
+            {this.props.label
+              ? fill(tStatic('boundary.failedLabeled'), { label: this.props.label })
+              : tStatic('boundary.failed')}
           </p>
           <p style={{ color: 'var(--text-muted, #888)', marginBottom: '1rem', fontSize: '0.9em' }}>
             {this.state.error.message}
           </p>
           <button type="button" onClick={this.reset}>
-            重試
+            {tStatic('boundary.retry')}
           </button>
         </div>
       );

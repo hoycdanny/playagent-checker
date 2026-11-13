@@ -1,4 +1,4 @@
-import type { RLang } from '../report/reportText.ts';
+import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
 import type { CaseKey } from './keysYaml.ts';
 
 export interface KeyOption {
@@ -7,75 +7,93 @@ export interface KeyOption {
   kind: 'key' | 'mouse';
 }
 
-interface L10n {
-  zh: string;
-  en: string;
-}
-
 const TEXT = {
-  title: { zh: '按鍵用途', en: 'Key bindings' },
-  hint: {
-    zh: '列出這款遊戲用到的鍵與用途。AI 只會送這裡列出的鍵,並依用途挑鍵(例如「確認 / 推進對話」)。沒列任何鍵 = 不限定按鍵。',
-    en: 'List the keys this game uses and what each does. The AI only sends listed keys and picks them by purpose. No keys listed = no restriction.',
-  },
-  key: { zh: '按鍵', en: 'Key' },
-  purpose: { zh: '用途', en: 'Purpose' },
-  purposePh: { zh: '例:移動、確認 / 推進對話、開選單、按住衝刺', en: 'e.g. move, confirm / advance dialog, open menu, hold to dash' },
-  add: { zh: '+ 新增按鍵', en: '+ Add key' },
-  remove: { zh: '移除', en: 'Remove' },
-  presets: { zh: '帶入常用:', en: 'Quick fill:' },
-  groupKeys: { zh: '鍵盤', en: 'Keyboard' },
-  groupMouse: { zh: '滑鼠', en: 'Mouse' },
-  dup: { zh: '重複的鍵只會採用第一個', en: 'Duplicate keys: only the first is used' },
-} satisfies Record<string, L10n>;
+  title: ['按鍵用途', 'Key bindings', '按键用途', 'キーの用途', '키 용도'],
+  hint: [
+    '列出這款遊戲用到的鍵與用途。AI 只會送這裡列出的鍵,並依用途挑鍵(例如「確認 / 推進對話」)。沒列任何鍵 = 不限定按鍵。',
+    'List the keys this game uses and what each does. The AI only sends listed keys and picks them by purpose. No keys listed = no restriction.',
+    '列出这款游戏用到的键与用途。AI 只会发送这里列出的键,并按用途选键(例如“确认 / 推进对话”)。没列任何键 = 不限定按键。',
+    'このゲームで使うキーとその用途を列挙します。AI は列挙されたキーだけを送信し、用途に応じて選びます(例:「決定 / 会話を進める」)。キーを列挙しない場合は制限なしです。',
+    '이 게임에서 사용하는 키와 용도를 나열하세요. AI는 나열된 키만 보내며 용도에 따라 키를 고릅니다(예: "확인 / 대화 진행"). 키를 나열하지 않으면 제한이 없습니다.',
+  ],
+  key: ['按鍵', 'Key', '按键', 'キー', '키'],
+  purpose: ['用途', 'Purpose', '用途', '用途', '용도'],
+  purposePh: [
+    '例:移動、確認 / 推進對話、開選單、按住衝刺',
+    'e.g. move, confirm / advance dialog, open menu, hold to dash',
+    '例:移动、确认 / 推进对话、开菜单、按住冲刺',
+    '例:移動、決定 / 会話を進める、メニューを開く、長押しでダッシュ',
+    '예: 이동, 확인 / 대화 진행, 메뉴 열기, 길게 눌러 달리기',
+  ],
+  add: ['+ 新增按鍵', '+ Add key', '+ 新增按键', '+ キーを追加', '+ 키 추가'],
+  remove: ['移除', 'Remove', '移除', '削除', '제거'],
+  presets: ['帶入常用:', 'Quick fill:', '带入常用:', 'よく使う設定:', '자주 쓰는 설정:'],
+  groupKeys: ['鍵盤', 'Keyboard', '键盘', 'キーボード', '키보드'],
+  groupMouse: ['滑鼠', 'Mouse', '鼠标', 'マウス', '마우스'],
+  dup: [
+    '重複的鍵只會採用第一個',
+    'Duplicate keys: only the first is used',
+    '重复的键只会采用第一个',
+    '重複したキーは最初のものだけが使われます',
+    '중복된 키는 첫 번째만 사용됩니다',
+  ],
+} satisfies Record<string, L5>;
+
+interface PresetKey {
+  key: string;
+  purpose: L5;
+}
 
 interface Preset {
   id: string;
-  label: L10n;
+  label: L5;
   kind: 'key' | 'mouse';
-  keys: CaseKey[];
+  keys: PresetKey[];
 }
+
+const SPRINT: L5 = ['按住衝刺', 'Hold to dash', '按住冲刺', '長押しでダッシュ', '길게 눌러 달리기'];
+const MENU: L5 = ['開選單 / 返回', 'Open menu / back', '开菜单 / 返回', 'メニューを開く / 戻る', '메뉴 열기 / 뒤로'];
 
 const PRESETS: Preset[] = [
   {
     id: 'rpg',
-    label: { zh: '方向鍵 + Z/X(RPG)', en: 'Arrows + Z/X (RPG)' },
+    label: ['方向鍵 + Z/X(RPG)', 'Arrows + Z/X (RPG)', '方向键 + Z/X(RPG)', '矢印キー + Z/X(RPG)', '방향키 + Z/X(RPG)'],
     kind: 'key',
     keys: [
-      { key: 'up', purpose: '往上移動 / 選單上移' },
-      { key: 'down', purpose: '往下移動 / 選單下移' },
-      { key: 'left', purpose: '往左移動' },
-      { key: 'right', purpose: '往右移動' },
-      { key: 'enter', purpose: '確認 / 推進對話' },
-      { key: 'z', purpose: '確認 / 調查互動' },
-      { key: 'x', purpose: '取消 / 開選單' },
-      { key: 'escape', purpose: '開選單 / 返回' },
-      { key: 'shift', purpose: '按住衝刺' },
+      { key: 'up', purpose: ['往上移動 / 選單上移', 'Move up / menu up', '往上移动 / 菜单上移', '上へ移動 / メニューを上へ', '위로 이동 / 메뉴 위로'] },
+      { key: 'down', purpose: ['往下移動 / 選單下移', 'Move down / menu down', '往下移动 / 菜单下移', '下へ移動 / メニューを下へ', '아래로 이동 / 메뉴 아래로'] },
+      { key: 'left', purpose: ['往左移動', 'Move left', '往左移动', '左へ移動', '왼쪽으로 이동'] },
+      { key: 'right', purpose: ['往右移動', 'Move right', '往右移动', '右へ移動', '오른쪽으로 이동'] },
+      { key: 'enter', purpose: ['確認 / 推進對話', 'Confirm / advance dialog', '确认 / 推进对话', '決定 / 会話を進める', '확인 / 대화 진행'] },
+      { key: 'z', purpose: ['確認 / 調查互動', 'Confirm / investigate', '确认 / 调查互动', '決定 / 調べる', '확인 / 조사'] },
+      { key: 'x', purpose: ['取消 / 開選單', 'Cancel / open menu', '取消 / 开菜单', 'キャンセル / メニューを開く', '취소 / 메뉴 열기'] },
+      { key: 'escape', purpose: MENU },
+      { key: 'shift', purpose: SPRINT },
     ],
   },
   {
     id: 'wasd',
-    label: { zh: 'WASD + 空白鍵(動作)', en: 'WASD + Space (action)' },
+    label: ['WASD + 空白鍵(動作)', 'WASD + Space (action)', 'WASD + 空格键(动作)', 'WASD + スペース(アクション)', 'WASD + 스페이스(액션)'],
     kind: 'key',
     keys: [
-      { key: 'w', purpose: '前進 / 往上' },
-      { key: 'a', purpose: '往左' },
-      { key: 's', purpose: '後退 / 往下' },
-      { key: 'd', purpose: '往右' },
-      { key: 'space', purpose: '跳躍' },
-      { key: 'shift', purpose: '按住衝刺' },
-      { key: 'e', purpose: '互動 / 撿取' },
-      { key: 'escape', purpose: '暫停選單' },
+      { key: 'w', purpose: ['前進 / 往上', 'Forward / up', '前进 / 往上', '前進 / 上', '앞으로 / 위'] },
+      { key: 'a', purpose: ['往左', 'Left', '往左', '左', '왼쪽'] },
+      { key: 's', purpose: ['後退 / 往下', 'Back / down', '后退 / 往下', '後退 / 下', '뒤로 / 아래'] },
+      { key: 'd', purpose: ['往右', 'Right', '往右', '右', '오른쪽'] },
+      { key: 'space', purpose: ['跳躍', 'Jump', '跳跃', 'ジャンプ', '점프'] },
+      { key: 'shift', purpose: SPRINT },
+      { key: 'e', purpose: ['互動 / 撿取', 'Interact / pick up', '互动 / 拾取', '操作 / 拾う', '상호작용 / 줍기'] },
+      { key: 'escape', purpose: ['暫停選單', 'Pause menu', '暂停菜单', 'ポーズメニュー', '일시정지 메뉴'] },
     ],
   },
   {
     id: 'mouse',
-    label: { zh: '滑鼠三鍵', en: 'Mouse buttons' },
+    label: ['滑鼠三鍵', 'Mouse buttons', '鼠标三键', 'マウスボタン', '마우스 버튼'],
     kind: 'mouse',
     keys: [
-      { key: 'mouse_left', purpose: '點擊 / 選取 / 移動到該處' },
-      { key: 'mouse_right', purpose: '取消 / 右鍵選單' },
-      { key: 'wheel', purpose: '捲動頁面 / 縮放' },
+      { key: 'mouse_left', purpose: ['點擊 / 選取 / 移動到該處', 'Click / select / move there', '点击 / 选取 / 移动到该处', 'クリック / 選択 / その場所へ移動', '클릭 / 선택 / 해당 위치로 이동'] },
+      { key: 'mouse_right', purpose: ['取消 / 右鍵選單', 'Cancel / context menu', '取消 / 右键菜单', 'キャンセル / コンテキストメニュー', '취소 / 오른쪽 클릭 메뉴'] },
+      { key: 'wheel', purpose: ['捲動頁面 / 縮放', 'Scroll / zoom', '滚动页面 / 缩放', 'スクロール / ズーム', '스크롤 / 확대·축소'] },
     ],
   },
 ];
@@ -90,16 +108,17 @@ export function KeyMapEditor({
   options,
   keyboard,
   mouse,
-  lang,
+  locale,
 }: {
   value: CaseKey[];
   onChange: (keys: CaseKey[]) => void;
   options: KeyOption[];
   keyboard: boolean;
   mouse: boolean;
-  lang: RLang;
+  locale: string;
 }) {
-  const t = (k: keyof typeof TEXT) => TEXT[k][lang];
+  const lc: Loc5 = loc5(locale);
+  const t = (k: keyof typeof TEXT) => pick5(TEXT[k], lc);
   const shown = options.filter((o) => (o.kind === 'key' ? keyboard : mouse));
   const used = new Set(value.map((k) => k.key));
   const firstFree = shown.find((o) => !used.has(o.id))?.id;
@@ -112,7 +131,8 @@ export function KeyMapEditor({
   const add = () => {
     if (firstFree) onChange([...value, { key: firstFree, purpose: '' }]);
   };
-  const applyPreset = (p: Preset) => onChange([...value, ...p.keys.filter((k) => !used.has(k.key))]);
+  const applyPreset = (p: Preset) =>
+    onChange([...value, ...p.keys.filter((k) => !used.has(k.key)).map((k) => ({ key: k.key, purpose: pick5(k.purpose, lc) }))]);
 
   const keyGroup = shown.filter((o) => o.kind === 'key');
   const mouseGroup = shown.filter((o) => o.kind === 'mouse');
@@ -126,7 +146,7 @@ export function KeyMapEditor({
           {t('presets')}
           {PRESETS.filter((p) => (p.kind === 'key' ? keyboard : mouse)).map((p) => (
             <button key={p.id} type="button" className="ctl__btn" onClick={() => applyPreset(p)}>
-              {p.label[lang]}
+              {pick5(p.label, lc)}
             </button>
           ))}
         </span>

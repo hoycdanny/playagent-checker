@@ -1,22 +1,21 @@
-import type { RLang } from '../report/reportText.ts';
+import { pr, type RLang } from '../report/reportText.ts';
 import { SILENT_DB, type WindowSound } from './audioLevels.ts';
 
 /** 執行軌跡每步的音效小波形:有聲 / 突發音效(♪)/ 靜音 / 未錄到(錄音空檔)。 */
 export function StepSound({ s, lang }: { s: WindowSound; lang: RLang }) {
-  const zh = lang === 'zh';
   if (!s.covered) {
-    return <span className="dsound is-none" title={zh ? '這一步落在錄音空檔,沒有錄到聲音' : 'Not recorded (gap between sound clips)'}>—</span>;
+    return <span className="dsound is-none" title={pr(['這一步落在錄音空檔,沒有錄到聲音', 'Not recorded (gap between sound clips)'], lang)}>—</span>;
   }
   const silent = (s.peakDb ?? -120) <= SILENT_DB;
   const label = silent
-    ? zh ? '靜音' : 'Silent'
+    ? pr(['靜音', 'Silent'], lang)
     : s.onsets > 0
-      ? zh ? `${s.onsets} 個音效` : `${s.onsets} sound${s.onsets > 1 ? 's' : ''}`
-      : zh ? '有聲音' : 'Sound';
+      ? pr([`${s.onsets} 個音效`, `${s.onsets} sound${s.onsets > 1 ? 's' : ''}`], lang)
+      : pr(['有聲音', 'Sound'], lang);
   const title = [
-    zh ? `最大音量 ${s.peakDb} dB` : `Peak ${s.peakDb} dB`,
-    s.onsets > 0 ? (zh ? `偵測到 ${s.onsets} 個突發音效(如金幣、按鈕音)` : `${s.onsets} sound effect(s) detected`) : '',
-    s.coverage < 0.95 ? (zh ? `錄到 ${Math.round(s.coverage * 100)}%` : `${Math.round(s.coverage * 100)}% recorded`) : '',
+    pr([`最大音量 ${s.peakDb} dB`, `Peak ${s.peakDb} dB`], lang),
+    s.onsets > 0 ? (pr([`偵測到 ${s.onsets} 個突發音效(如金幣、按鈕音)`, `${s.onsets} sound effect(s) detected`], lang)) : '',
+    s.coverage < 0.95 ? (pr([`錄到 ${Math.round(s.coverage * 100)}%`, `${Math.round(s.coverage * 100)}% recorded`], lang)) : '',
   ].filter(Boolean).join(' · ');
   return (
     <span className={`dsound ${silent ? 'is-silent' : s.onsets > 0 ? 'is-fx' : 'is-on'}`} title={title}>

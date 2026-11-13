@@ -5,6 +5,7 @@ import {
   type AuthenticationResultType,
 } from '@aws-sdk/client-cognito-identity-provider';
 import type { AuthTokens } from './tokenStore.ts';
+import { tStatic } from '../i18n/tStatic.ts';
 
 /**
  * 管理員用臨時密碼(邀請信)第一次登入:Cognito 要求先設定新密碼。
@@ -12,13 +13,13 @@ import type { AuthTokens } from './tokenStore.ts';
  */
 export class NewPasswordRequiredError extends Error {
   constructor(readonly session: string, readonly username: string) {
-    super('需要設定新密碼');
+    super(tStatic('error.newPasswordRequired'));
     this.name = 'NewPasswordRequiredError';
   }
 }
 
 function toTokens(r: AuthenticationResultType | undefined): AuthTokens {
-  if (!r?.IdToken || !r.AccessToken) throw new Error('Cognito 登入成功但未回傳 token');
+  if (!r?.IdToken || !r.AccessToken) throw new Error(tStatic('error.cognitoNoToken'));
   return {
     idToken: r.IdToken,
     accessToken: r.AccessToken,
@@ -87,7 +88,7 @@ export async function refresh(
     }),
   );
   const r = res.AuthenticationResult;
-  if (!r?.IdToken || !r.AccessToken) throw new Error('Cognito 換新 token 失敗');
+  if (!r?.IdToken || !r.AccessToken) throw new Error(tStatic('error.cognitoRefresh'));
   return {
     idToken: r.IdToken,
     accessToken: r.AccessToken,

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { builtinKbDescription, genreFromBuiltinKbId } from './builtinKbText.ts';
+import { CATALOGS } from '../../i18n/messages.ts';
+import { builtinKbDescription, genreFromBuiltinKbId, kbDisplayName } from './builtinKbText.ts';
 import { GENRES } from '../GenreIcon.tsx';
 
 const LOCALES = ['zh-Hant', 'en', 'zh-Hans', 'ja', 'ko'] as const;
@@ -51,5 +52,21 @@ describe('genreFromBuiltinKbId', () => {
     expect(genreFromBuiltinKbId('kb-builtin-tower_defense')).toBe('tower_defense');
     expect(genreFromBuiltinKbId('kb-abc123')).toBeUndefined();
     expect(genreFromBuiltinKbId(undefined)).toBeUndefined();
+  });
+});
+
+describe('kbDisplayName', () => {
+  // 後端內建知識庫的 name 是繁中字串;介面要顯示該語系的類型名稱。
+  test('內建知識庫在每個語系都顯示該語系的 genre 名稱', () => {
+    for (const l of LOCALES) {
+      const t = (k: keyof (typeof CATALOGS)['en']) => CATALOGS[l][k];
+      expect(kbDisplayName({ id: 'kb-builtin-slot', name: '老虎機類型知識庫' }, t)).toBe(CATALOGS[l]['genre.slot']);
+    }
+    expect(CATALOGS.en['genre.slot']).not.toMatch(/[\u3040-\u30ff\u3400-\u9fff]/);
+  });
+  test('自建知識庫與未知 genre 的名稱原樣顯示', () => {
+    const t = (k: keyof (typeof CATALOGS)['en']) => CATALOGS.en[k];
+    expect(kbDisplayName({ id: 'kb-abc123', name: 'My notes' }, t)).toBe('My notes');
+    expect(kbDisplayName({ id: 'kb-builtin-not-a-genre', name: 'Legacy' }, t)).toBe('Legacy');
   });
 });

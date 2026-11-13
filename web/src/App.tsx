@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './auth/AuthProvider.tsx';
+import { useI18n } from './i18n/I18nProvider.tsx';
 import { TopBar } from './components/TopBar.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
@@ -44,10 +45,11 @@ export function App() {
 /** 一般頁面有導覽列;彈出式即時畫面(#/live/:jobId)只顯示畫面本身。 */
 function Shell() {
   const location = useLocation();
+  const { t } = useI18n();
   if (location.pathname.startsWith('/live/')) {
     return (
       <Suspense fallback={null}>
-        <ErrorBoundary label="即時畫面">
+        <ErrorBoundary label={t('boundary.live')}>
           <Routes>
             <Route path="/live/:jobId" element={<LiveViewerPage />} />
           </Routes>
@@ -74,8 +76,9 @@ function Shell() {
  */
 function AppRoutes() {
   const location = useLocation();
+  const { t } = useI18n();
   return (
-    <ErrorBoundary key={location.pathname} label="頁面">
+    <ErrorBoundary key={location.pathname} label={t('boundary.page')}>
       <Routes>
         <Route path="/guide" element={<GuidePage />} />
         <Route path="/apps" element={<AppsPage />} />

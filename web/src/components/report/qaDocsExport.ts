@@ -214,5 +214,5 @@ export function qaDocsFileName(set: QaDocumentSet, reportId: string | undefined,
   const id = (reportId ?? 'report').replace(FORBIDDEN, '-').replace(/\s+/g, '');
   const day = (set.generatedAt || '').split('T')[0] ?? '';
   const stem = [id, set.standard, day].filter(Boolean).join('_');
-  return `${stem}_${lang === 'zh' ? '交付文件' : 'deliverables'}.xlsx`;
+  return `${stem}_${['交付文件', 'deliverables'][lang === 'zh' ? 0 : 1]}.xlsx`;
 }

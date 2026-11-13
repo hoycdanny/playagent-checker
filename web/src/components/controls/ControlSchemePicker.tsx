@@ -1,7 +1,8 @@
 import { apiGet } from '../../api/client.ts';
 import { useQuery } from '../../api/useQuery.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
-import { reportLang, type RLang } from '../report/reportText.ts';
+import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
+import { reportLang } from '../report/reportText.ts';
 import { ControlGlyph } from './ControlGlyph.tsx';
 import { KeyMapEditor, type KeyOption } from './KeyMapEditor.tsx';
 import type { CaseKey } from './keysYaml.ts';
@@ -30,35 +31,52 @@ export interface ControlCatalog {
 }
 
 const TEXT = {
-  title: { zh: '遊戲操作行為', en: 'Game Controls' },
-  hint: {
-    zh: '勾選這款遊戲「怎麼操作」。AI 會依此選手勢(點擊 / 搖桿 / 長按 / 雙指),不在範圍內的手勢會被攔下,避免用錯操作撞牆。',
-    en: 'Tick how this game is played. The AI picks gestures accordingly (tap / joystick / hold / two-finger); gestures outside the selection are blocked.',
-  },
-  hintPc: {
-    zh: '勾選這款遊戲「怎麼操作」:鍵盤、滑鼠或兩者。勾鍵盤 / 滑鼠後可以定義每個鍵的用途,AI 會照用途按鍵,不在範圍內的操作會被攔下。',
-    en: 'Tick how this game is played: keyboard, mouse or both. Then define what each key does; the AI presses keys by purpose and anything outside the selection is blocked.',
-  },
-  preview: { zh: '操作預覽', en: 'Preview' },
-  suggested: { zh: '類型建議', en: 'Suggested for genre' },
-  suggestedPc: { zh: '平台建議', en: 'Suggested for platform' },
-  apply: { zh: '套用建議', en: 'Apply suggestion' },
-  clear: { zh: '清除', en: 'Clear' },
-  none: {
-    zh: '未指定:執行時依 App 類型的建議操作;若類型沒有建議則不限定手勢。',
-    en: 'Not set: the app genre suggestion is used at run time; no restriction if the genre has none.',
-  },
-  noneExplicit: {
-    zh: '已全部取消:不限定手勢(AI 自由選擇動作)。',
-    en: 'All cleared: no gesture restriction (AI chooses freely).',
-  },
-  combo: { zh: '雙指同時操作(左手移動 + 右手按鍵)', en: 'Two-finger combo (left move + right buttons)' },
-  multi: { zh: '多點觸控', en: 'Multi-touch' },
-  allowed: { zh: 'AI 可用動作', en: 'Allowed AI actions' },
-  loadError: { zh: '無法載入操作行為清單', en: 'Failed to load control list' },
-} satisfies Record<string, L10n>;
-
-const t = (k: keyof typeof TEXT, lang: RLang) => TEXT[k][lang];
+  title: ['遊戲操作行為', 'Game Controls', '游戏操作行为', 'ゲームの操作方法', '게임 조작 방식'],
+  hint: [
+    '勾選這款遊戲「怎麼操作」。AI 會依此選手勢(點擊 / 搖桿 / 長按 / 雙指),不在範圍內的手勢會被攔下,避免用錯操作撞牆。',
+    'Tick how this game is played. The AI picks gestures accordingly (tap / joystick / hold / two-finger); gestures outside the selection are blocked.',
+    '勾选这款游戏“怎么操作”。AI 会据此选手势(点击 / 摇杆 / 长按 / 双指),不在范围内的手势会被拦下,避免用错操作碰壁。',
+    'このゲームの操作方法を選択します。AI はそれに沿ってジェスチャー(タップ / ジョイスティック / 長押し / 2 本指)を選び、範囲外のジェスチャーはブロックされます。',
+    '이 게임의 조작 방식을 선택하세요. AI가 그에 맞춰 제스처(탭 / 조이스틱 / 길게 누르기 / 두 손가락)를 고르며, 선택 범위 밖의 제스처는 차단됩니다.',
+  ],
+  hintPc: [
+    '勾選這款遊戲「怎麼操作」:鍵盤、滑鼠或兩者。勾鍵盤 / 滑鼠後可以定義每個鍵的用途,AI 會照用途按鍵,不在範圍內的操作會被攔下。',
+    'Tick how this game is played: keyboard, mouse or both. Then define what each key does; the AI presses keys by purpose and anything outside the selection is blocked.',
+    '勾选这款游戏“怎么操作”:键盘、鼠标或两者。勾选键盘 / 鼠标后可以定义每个键的用途,AI 会按用途按键,不在范围内的操作会被拦下。',
+    'このゲームの操作方法(キーボード、マウス、または両方)を選択します。各キーの用途を定義でき、AI は用途に従ってキーを押し、範囲外の操作はブロックされます。',
+    '이 게임의 조작 방식(키보드, 마우스 또는 둘 다)을 선택하세요. 각 키의 용도를 정의할 수 있고, AI는 용도에 따라 키를 누르며 범위 밖의 조작은 차단됩니다.',
+  ],
+  preview: ['操作預覽', 'Preview', '操作预览', '操作プレビュー', '조작 미리보기'],
+  suggested: ['類型建議', 'Suggested for genre', '类型建议', 'ジャンル別の推奨', '장르별 추천'],
+  suggestedPc: ['平台建議', 'Suggested for platform', '平台建议', 'プラットフォーム別の推奨', '플랫폼별 추천'],
+  apply: ['套用建議', 'Apply suggestion', '应用建议', '推奨を適用', '추천 적용'],
+  clear: ['清除', 'Clear', '清除', 'クリア', '지우기'],
+  none: [
+    '未指定:執行時依 App 類型的建議操作;若類型沒有建議則不限定手勢。',
+    'Not set: the app genre suggestion is used at run time; no restriction if the genre has none.',
+    '未指定:运行时按 App 类型的建议操作;若类型没有建议则不限定手势。',
+    '未指定:実行時にアプリのジャンルの推奨操作を使用します。推奨がなければジェスチャーは制限されません。',
+    '미지정: 실행 시 앱 장르의 추천 조작을 사용하며, 추천이 없으면 제스처를 제한하지 않습니다.',
+  ],
+  noneExplicit: [
+    '已全部取消:不限定手勢(AI 自由選擇動作)。',
+    'All cleared: no gesture restriction (AI chooses freely).',
+    '已全部取消:不限定手势(AI 自由选择动作)。',
+    'すべて解除:ジェスチャーを制限しません(AI が自由に選択)。',
+    '모두 해제됨: 제스처를 제한하지 않습니다(AI가 자유롭게 선택).',
+  ],
+  combo: [
+    '雙指同時操作(左手移動 + 右手按鍵)',
+    'Two-finger combo (left move + right buttons)',
+    '双指同时操作(左手移动 + 右手按键)',
+    '2 本指の同時操作(左手で移動 + 右手でボタン)',
+    '두 손가락 동시 조작(왼손 이동 + 오른손 버튼)',
+  ],
+  multi: ['多點觸控', 'Multi-touch', '多点触控', 'マルチタッチ', '멀티터치'],
+  allowed: ['AI 可用動作', 'Allowed AI actions', 'AI 可用动作', 'AI が使える操作', 'AI 사용 가능 동작'],
+  loadError: ['無法載入操作行為清單', 'Failed to load control list', '无法加载操作行为列表', '操作方法の一覧を読み込めませんでした', '조작 방식 목록을 불러오지 못했습니다'],
+} satisfies Record<string, L5>;
+const t = (k: keyof typeof TEXT, lc: Loc5) => pick5(TEXT[k], lc);
 
 /** App 平台 → 方案平台(與後端 platformKind 一致)。 */
 function platformKind(platform: string | undefined): ControlPlatform | undefined {
@@ -95,6 +113,7 @@ export function ControlSchemePicker({
 }) {
   const { locale } = useI18n();
   const lang = reportLang(locale);
+  const lc = loc5(locale);
   const { data, error } = useQuery<ControlCatalog>('control-schemes', () => apiGet<ControlCatalog>('/control-schemes'));
   const kind = platformKind(platform);
   const pc = kind === 'web' || kind === 'windows';
@@ -129,9 +148,9 @@ export function ControlSchemePicker({
 
   return (
     <fieldset className="ctl">
-      <legend className="ctl__legend">{t('title', lang)}</legend>
-      <p className="ctl__hint">{t(pc ? 'hintPc' : 'hint', lang)}</p>
-      {error && <p className="ctl__error" role="alert">{t('loadError', lang)}</p>}
+      <legend className="ctl__legend">{t('title', lc)}</legend>
+      <p className="ctl__hint">{t(pc ? 'hintPc' : 'hint', lc)}</p>
+      {error && <p className="ctl__error" role="alert">{t('loadError', lc)}</p>}
 
       <div className="ctl__top">
         <div className="ctl__preview">
@@ -139,37 +158,37 @@ export function ControlSchemePicker({
             ids={effective}
             size={200}
             frame={pc ? 'screen' : 'phone'}
-            title={`${t('preview', lang)}: ${effective.join(', ') || '—'}`}
+            title={`${t('preview', lc)}: ${effective.join(', ') || '—'}`}
           />
           <span className="ctl__preview-label">
-            {t('preview', lang)}
-            {value === undefined && suggested.length > 0 && <em> · {t(platformSuggested ? 'suggestedPc' : 'suggested', lang)}</em>}
+            {t('preview', lc)}
+            {value === undefined && suggested.length > 0 && <em> · {t(platformSuggested ? 'suggestedPc' : 'suggested', lc)}</em>}
           </span>
         </div>
         <div className="ctl__summary">
           {effective.length === 0 ? (
-            <p className="ctl__muted">{value === undefined ? t('none', lang) : t('noneExplicit', lang)}</p>
+            <p className="ctl__muted">{value === undefined ? t('none', lc) : t('noneExplicit', lc)}</p>
           ) : (
             <>
               <p className="ctl__allowed">
-                <span>{t('allowed', lang)}:</span>
+                <span>{t('allowed', lc)}:</span>
                 {allowed.map((a) => (
                   <code key={a}>{a}</code>
                 ))}
               </p>
-              {hasCombo(effective) && <p className="ctl__badge">✌ {t('combo', lang)}</p>}
-              {!hasCombo(effective) && multiTouch && <p className="ctl__badge">✌ {t('multi', lang)}</p>}
+              {hasCombo(effective) && <p className="ctl__badge">✌ {t('combo', lc)}</p>}
+              {!hasCombo(effective) && multiTouch && <p className="ctl__badge">✌ {t('multi', lc)}</p>}
             </>
           )}
           <div className="ctl__btns">
             {suggested.length > 0 && (
               <button type="button" className="ctl__btn" onClick={() => onChange(order(suggested))}>
-                {t('apply', lang)}({suggested.map((id) => allItems.find((i) => i.id === id)?.label[lang] ?? id).join('、')})
+                {t('apply', lc)}({suggested.map((id) => allItems.find((i) => i.id === id)?.label[lang] ?? id).join('、')})
               </button>
             )}
             {value !== undefined && (
               <button type="button" className="ctl__btn ctl__btn--ghost" onClick={() => onChange(undefined)}>
-                {t('clear', lang)}
+                {t('clear', lc)}
               </button>
             )}
           </div>
@@ -210,7 +229,7 @@ export function ControlSchemePicker({
           options={keyOptions}
           keyboard={wantKeyboard || keyboardKeys.length > 0}
           mouse={wantMouse}
-          lang={lang}
+          locale={locale}
         />
       )}
     </fieldset>

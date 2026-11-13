@@ -11,6 +11,7 @@ import {
 } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { kbDisplayName } from '../components/kb/builtinKbText.ts';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import IconSelect, { type IconSelectOption } from '../components/IconSelect.tsx';
@@ -608,7 +609,7 @@ export default function AppsPage() {
                         );
                       }}
                     />
-                    <span>{kb.name}</span>
+                    <span>{kbDisplayName(kb, t)}</span>
                   </label>
                 ))}
               </div>

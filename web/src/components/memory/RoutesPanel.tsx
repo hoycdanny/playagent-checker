@@ -57,7 +57,7 @@ export const newStepId = () => `s-${rand()}`;
 export const newBranchId = () => `b-${rand()}`;
 
 export function emptyRoute(n: number, lang: RLang): MemoryRoute {
-  return { id: newRouteId(), name: lang === 'zh' ? `路線 ${n}` : `Route ${n}`, enabled: true, steps: [], branches: [] };
+  return { id: newRouteId(), name: [`路線 ${n}`, `Route ${n}`][lang === 'zh' ? 0 : 1]!, enabled: true, steps: [], branches: [] };
 }
 
 /** 加一步(在圖上點畫面)。 */

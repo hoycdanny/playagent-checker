@@ -76,7 +76,7 @@ const zhHant: GuideContent = {
     '從上傳產物到拿到報告的完整流程如下。核心是先讓 Agent 自主探索、建出記憶地圖,再據此產生測試場景範本。第六步「掛知識庫」是可選的。',
   archTitle: '系統架構說明',
   archLead:
-    '這是實際部署在 AWS us-east-2 的雲端架構。每個方框都標了對應的 AWS 服務;綠框=已端到端驗證,橘色虛線框=已有程式骨架但尚未端到端驗證。連線顏色代表資料流類型(見圖下圖例)。所有執行資源都是「有任務才開、結束就關」,沒有常駐主機。',
+    '這是實際部署在 AWS us-west-2 的雲端架構。每個方框都標了對應的 AWS 服務;綠框=已端到端驗證,橘色虛線框=已有程式骨架但尚未端到端驗證。連線顏色代表資料流類型(見圖下圖例)。所有執行資源都是「有任務才開、結束就關」,沒有常駐主機。',
   flow: [
     { label: '① 產物擷取', desc: '上傳被測 App(APK/IPA/XAPK/ZIP/EXE)或設定 Web 網址,填類型、版本、識別碼。' },
     { label: '② 自主探索', desc: '依應用類型,Agent 自主遊玩、走遍可達畫面,收集畫面與轉移。' },
@@ -301,7 +301,7 @@ const en: GuideContent = {
     'The full flow from uploading an app to getting a report. The core idea: the Agent explores on its own and builds a memory map, which then seeds test scenario templates. Step 6 (knowledge bases) is optional.',
   archTitle: 'System architecture',
   archLead:
-    'The actual cloud architecture deployed on AWS us-east-2. Every box is labeled with its AWS service; green = verified end-to-end, dashed orange = scaffolded but not yet verified. Edge colors show the data-flow type (see legend below the diagram). Every execution resource starts with a task and stops when it ends; there are no always-on hosts.',
+    'The actual cloud architecture deployed on AWS us-west-2. Every box is labeled with its AWS service; green = verified end-to-end, dashed orange = scaffolded but not yet verified. Edge colors show the data-flow type (see legend below the diagram). Every execution resource starts with a task and stops when it ends; there are no always-on hosts.',
   flow: [
     { label: '① App', desc: 'Upload the app under test (APK/IPA/XAPK/ZIP/EXE) or a web URL; fill genre, version, identifier.' },
     { label: '② Explore', desc: 'Based on the genre, the Agent plays on its own and visits reachable screens, collecting screens and transitions.' },

@@ -255,10 +255,10 @@ export function edgeCaption(list: GraphEdge[], lang: RLang): string {
   const miss = list.reduce((a, x) => a + x.missCount, 0);
   const zh = lang === 'zh';
   const counts = [
-    hit ? (zh ? `${hit} 次` : `×${hit}`) : '',
-    miss ? (zh ? `無效 ${miss} 次` : `✗${miss}`) : '',
+    hit ? [`${hit} 次`, `×${hit}`][zh ? 0 : 1] : '',
+    miss ? [`無效 ${miss} 次`, `✗${miss}`][zh ? 0 : 1] : '',
   ].filter(Boolean).join(' · ');
-  const via = list.some((x) => x.synthetic) ? (zh ? '經載入' : 'via loading') : '';
+  const via = list.some((x) => x.synthetic) ? ['經載入', 'via loading'][zh ? 0 : 1] : '';
   return [shown, counts, via].filter(Boolean).join(' · ');
 }
 

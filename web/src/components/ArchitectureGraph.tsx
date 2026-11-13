@@ -13,6 +13,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { loc5, pick5 } from '../i18n/locale5.ts';
 import {
   architectureDiagram,
   type ArchKind,
@@ -134,7 +135,7 @@ function ArchInner() {
       type: 'group',
       // 大框左右各留 ~14px 內距,避免最右欄節點右緣頂到框邊。
       position: { x: px(ly.col) - 14, y: py(ly.row) - 30 },
-      data: { isGroup: true, groupTitle: ly.title[locale === 'en' ? 'en' : 'zh-Hant'] } satisfies ArchNodeData,
+      data: { isGroup: true, groupTitle: pick5(ly.title, loc5(locale)) } satisfies ArchNodeData,
       draggable: false,
       selectable: false,
       style: {
@@ -150,7 +151,7 @@ function ArchInner() {
       position: { x: px(n.col), y: py(n.row) },
       data: {
         title: n.title,
-        sub: n.sub?.[locale === 'en' ? 'en' : 'zh-Hant'],
+        sub: n.sub ? pick5(n.sub, loc5(locale)) : undefined,
         kind: n.kind,
         status: n.status,
       } satisfies ArchNodeData,
@@ -174,7 +175,7 @@ function ArchInner() {
         type: 'smoothstep',
         pathOptions: { borderRadius: 12 },
         animated: true,
-        label: e.label?.[locale === 'en' ? 'en' : 'zh-Hant'],
+        label: e.label ? pick5(e.label, loc5(locale)) : undefined,
         markerEnd: { type: MarkerType.ArrowClosed, color, width: 16, height: 16 },
         style: { stroke: color, strokeWidth: 1.8, ...(dashed ? { strokeDasharray: '6 4' } : {}) },
         labelStyle: { fill: 'var(--text-secondary)', fontSize: 10, fontWeight: 600 },

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { apiGet, apiPut, apiDelete, ApiError, type ListResponse } from '../api/client.ts';
 import { uploadIconImage } from '../api/iconUpload.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { kbDisplayName } from '../components/kb/builtinKbText.ts';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
 import MemoryPanel from '../components/memory/MemoryPanel.tsx';
@@ -452,7 +453,7 @@ export default function AppWorkspacePage() {
                             : defaultKbIds.filter((x) => x !== k.id),
                         )}
                       />
-                      <span>{k.name}</span>
+                      <span>{kbDisplayName(k, t)}</span>
                     </label>
                   </li>
                 ))}

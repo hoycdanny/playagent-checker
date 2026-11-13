@@ -3,13 +3,15 @@ import { InfoIcon } from './InfoIcon.tsx';
 import { Link } from 'react-router-dom';
 import { apiGet, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
+import { loc5, pick5, type L5 } from '../../i18n/locale5.ts';
 import { reportLang, type RLang } from '../report/reportText.ts';
 import { formatPick, gestureBody, type PickPoint } from './LivePlayer.tsx';
 import './OperatorChat.css';
 
 /** 只點 / 只拖、沒打字時後端填的預設文字(infra/lambda/api/operatorCommands.ts)。 */
-const POINT_ONLY_TEXT = '點這個位置';
-const DRAG_ONLY_TEXT = '照這條路徑拖曳';
+// i18n-allow: matches the default texts the backend stores for point-only / drag-only commands
+const POINT_ONLY_TEXT = '點這個位置',
+  DRAG_ONLY_TEXT = '照這條路徑拖曳';
 
 /** 後端 GET /tasks/{id}/commands 的一則(infra/lambda/api/operatorCommands.ts)。 */
 interface CommandView {
@@ -59,10 +61,11 @@ const T = {
   pickTip: ['小技巧:開啟即時畫面的指定模式,點一下可指定位置,按住拖曳可指定拖曳路徑。', 'Tip: turn on pick mode on the live screen — click for an exact spot, press and drag for a drag path.'],
 } as const;
 const tx = (k: keyof typeof T, lang: RLang) => T[k][lang === 'zh' ? 0 : 1];
-const EXAMPLES: Record<RLang, string[]> = {
-  zh: ['點右下方的 SPIN 按鈕開始轉', '先關掉中間的公告彈窗(右上角 X)', '不要點左邊的商店,往右邊走'],
-  en: ['Tap the SPIN button at the bottom right', 'Close the notice popup first (X at top right)', 'Don’t open the shop on the left; go right'],
-};
+const EXAMPLES: readonly L5[] = [
+  ['點右下方的 SPIN 按鈕開始轉', 'Tap the SPIN button at the bottom right', '点右下方的 SPIN 按钮开始转', '右下の SPIN ボタンをタップして回す', '오른쪽 아래의 SPIN 버튼을 눌러 돌리기'],
+  ['先關掉中間的公告彈窗(右上角 X)', 'Close the notice popup first (X at top right)', '先关掉中间的公告弹窗(右上角 X)', '先に中央のお知らせポップアップを閉じる(右上の X)', '먼저 가운데 공지 팝업을 닫기(오른쪽 위 X)'],
+  ['不要點左邊的商店,往右邊走', 'Don’t open the shop on the left; go right', '不要点左边的商店,往右边走', '左のショップは開かず、右へ進む', '왼쪽 상점은 누르지 말고 오른쪽으로 이동'],
+];
 
 /**
  * 測試中的即時指令聊天室。送出 → POST /tasks/{id}/commands;每 2 秒輪詢回執(AI 收到/回應)。
@@ -227,7 +230,7 @@ export function OperatorChat({ jobId, isLive, currentScreen, appId, point, onCle
           {!point && items.length === 0 && <p className="opchat__tip">{tx('pickTip', lang)}</p>}
           {!text && items.length === 0 && (
             <div className="opchat__examples" aria-label={tx('examples', lang)}>
-              {EXAMPLES[lang].map((ex) => (
+              {EXAMPLES.map((v) => pick5(v, loc5(locale))).map((ex) => (
                 <button key={ex} type="button" className="opchat__example" onClick={() => setText(ex)}>{ex}</button>
               ))}
             </div>

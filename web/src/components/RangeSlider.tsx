@@ -1,5 +1,9 @@
 import { useId } from 'react';
+import { useI18n } from '../i18n/I18nProvider.tsx';
+import { loc5, pick5, type L5 } from '../i18n/locale5.ts';
 import './RangeSlider.css';
+const MIN_LABEL: L5 = ['最小', 'Min', '最小', '最小', '최소'];
+const MAX_LABEL: L5 = ['最大', 'Max', '最大', '最大', '최대'];
 
 /**
  * 雙把手範圍滑桿:兩個重疊的 <input type="range"> 組成 [min, max] 區間。
@@ -29,10 +33,13 @@ export default function RangeSlider({
   onChange,
   format = (n) => String(n),
   label,
-  minLabel = '最小',
-  maxLabel = '最大',
+  minLabel: minLabelProp,
+  maxLabel: maxLabelProp,
 }: RangeSliderProps) {
   const id = useId();
+  const { locale } = useI18n();
+  const minLabel = minLabelProp ?? pick5(MIN_LABEL, loc5(locale));
+  const maxLabel = maxLabelProp ?? pick5(MAX_LABEL, loc5(locale));
   const [lo, hi] = value;
   // 上下界相同(清單只有一種值或無資料)時,滑桿無可拖動範圍:停用避免除以零。
   const disabled = max <= min;

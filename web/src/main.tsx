@@ -7,7 +7,7 @@ import { ThemeProvider } from './theme/ThemeProvider.tsx';
 import './styles/tokens.css';
 
 const rootEl = document.getElementById('root');
-if (!rootEl) throw new Error('#root 元素不存在');
+if (!rootEl) throw new Error('#root element is missing');
 
 createRoot(rootEl).render(
   <StrictMode>

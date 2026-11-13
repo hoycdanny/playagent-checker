@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { apiGet, apiPost, apiDelete, type ListResponse, type CloudDevice } from '../api/client.ts';
 import { usePagedList } from '../api/usePagedList.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { kbDisplayName } from '../components/kb/builtinKbText.ts';
+import { loc5, pick5, type L5 } from '../i18n/locale5.ts';
 import { DisplaySelect, HoursSelect, RuntimeDetail, RuntimeSelect, defaultRuntime, displayError, effectiveHours, runtimeById, type Display, type RuntimeId } from '../components/tasks/RuntimeSelect.tsx';
 import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, deviceFilterHint, type FormFactor } from '../components/tasks/DeviceOptionSelect.tsx';
 import type { MessageKey } from '../i18n/messages.ts';
@@ -86,12 +88,16 @@ interface ModelEntry {
 
 /** 模型下拉顯示:名稱 + 每百萬 token 進/出價(估算價標註)。
  *  自建模型(如 UI-TARS,單價 0/0)不按 token 計費,改標「常駐 GPU 計費」。 */
-function modelOptionLabel(m: ModelEntry): string {
+const GPU_BILLING: L5 = ['常駐 GPU 計費', 'always-on GPU billing', '常驻 GPU 计费', '常時稼働 GPU 課金', '상시 GPU 과금'];
+const PER_MILLION: L5 = ['每百萬 token', 'per million tokens', '每百万 token', '100 万トークンあたり', '100만 토큰당'];
+const ESTIMATED: L5 = ['(估算)', ' (estimated)', '(估算)', '(推定)', '(추정)'];
+function modelOptionLabel(m: ModelEntry, locale: string): string {
+  const lc = loc5(locale);
   if (!m.pricing) return m.displayName;
   const { inputPerM, outputPerM, estimated } = m.pricing;
-  if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — 常駐 GPU 計費`;
+  if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — ${pick5(GPU_BILLING, lc)}`;
   const fmt = (n: number) => `$${n.toFixed(2)}`;
-  return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} 每百萬 token${estimated ? '(估算)' : ''}`;
+  return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} ${pick5(PER_MILLION, lc)}${estimated ? pick5(ESTIMATED, lc) : ''}`;
 }
 
 /** 狀態篩選:測試結論(通過 / 有風險 / 失敗 / 受阻)+ 執行狀態(排隊、執行中、錯誤…)。值 = outcomeOf。 */
@@ -803,7 +809,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
                       {agentModels.map((m) => (
                         <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
-                          {starLabel('agent', m, modelOptionLabel(m))}
+                          {starLabel('agent', m, modelOptionLabel(m, locale))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
@@ -819,7 +825,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                       {vlmModels.map((m) => (
                         <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
-                          {starLabel('vlm', m, modelOptionLabel(m))}
+                          {starLabel('vlm', m, modelOptionLabel(m, locale))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
@@ -833,7 +839,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
                       {subagentModels.map((m) => (
                         <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
-                          {starLabel('subagent', m, modelOptionLabel(m))}
+                          {starLabel('subagent', m, modelOptionLabel(m, locale))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
                       ))}
@@ -849,7 +855,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
             const pool = kbs.filter((kb) => !kb.archived || selectedKbIds.includes(kb.id));
             const chosen = pool.filter((kb) => selectedKbIds.includes(kb.id));
             const query = kbQuery.trim().toLowerCase();
-            const rest = pool.filter((kb) => !selectedKbIds.includes(kb.id) && (!query || kb.name.toLowerCase().includes(query)));
+            const rest = pool.filter((kb) => !selectedKbIds.includes(kb.id) && (!query || kbDisplayName(kb, t).toLowerCase().includes(query) || kb.name.toLowerCase().includes(query)));
             const toggle = (id: string, on: boolean) =>
               setSelectedKbIds((prev) => (on ? [...prev, id] : prev.filter((x) => x !== id)));
             return (
@@ -864,7 +870,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   {chosen.length === 0 && <span className="tasks__field-hint">{ft('kbNone')}</span>}
                   {chosen.map((kb) => (
                     <button key={kb.id} type="button" className="tform__chip is-on" aria-pressed="true" title={ft('kbRemove')} onClick={() => toggle(kb.id, false)}>
-                      <span>{kb.name}</span><span aria-hidden="true">✕</span>
+                      <span>{kbDisplayName(kb, t)}</span><span aria-hidden="true">✕</span>
                     </button>
                   ))}
                 </div>
@@ -880,7 +886,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   <div className="tform__chips tform__chips--pool">
                     {(kbShowAll || query ? rest : rest.slice(0, 12)).map((kb) => (
                       <button key={kb.id} type="button" className="tform__chip" aria-pressed="false" onClick={() => toggle(kb.id, true)}>
-                        <span aria-hidden="true">＋</span><span>{kb.name}</span>
+                        <span aria-hidden="true">＋</span><span>{kbDisplayName(kb, t)}</span>
                       </button>
                     ))}
                     {!query && rest.length > 12 && (

@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
 import { apiDelete, apiPost } from '../../api/client.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
+import { fill } from '../../i18n/locale5.ts';
+import { tStatic } from '../../i18n/tStatic.ts';
 import { outcomeOf, type VerdictInfo } from '../outcome.ts';
 
 export interface AppBuild {
@@ -234,8 +236,8 @@ function uploadToS3(url: string, file: File, onPct: (n: number) => void): Promis
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onPct(Math.round((e.loaded / e.total) * 100));
     };
-    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`上傳失敗 ${xhr.status}`)));
-    xhr.onerror = () => reject(new Error('上傳失敗'));
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(fill(tStatic('error.uploadHttp'), { status: xhr.status }))));
+    xhr.onerror = () => reject(new Error(tStatic('apps.uploadFailed')));
     xhr.send(file);
   });
 }

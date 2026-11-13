@@ -228,6 +228,7 @@ function text(locale: string) {
     advanced: ['進階:所有應用共用的機密(多數情況用不到)', 'Advanced: secrets shared by all apps (rarely needed)', '进阶:所有应用共用的机密(多数情况用不到)', '詳細:全アプリ共通の機密(通常は不要)', '고급: 모든 앱이 공유하는 비밀(대부분 필요 없음)'] as L5,
     advancedHelp: ['同一組帳密要給很多個應用用時才需要,在測試案例裡用 ${鍵名} 引用。只給這個應用用的,用上面的表格就好。', 'Only needed when the same account is used by many apps; reference it in a test case as ${KEY}. For this app only, use the table above.', '同一组账密要给很多个应用用时才需要,在测试用例里用 ${键名} 引用。只给这个应用用的,用上面的表格就好。', '同じアカウントを多くのアプリで使う場合のみ必要です。テストケースでは ${キー名} で参照します。このアプリだけなら上の表を使ってください。', '같은 계정을 여러 앱에서 쓸 때만 필요하며, 테스트 케이스에서 ${키} 로 참조합니다. 이 앱 전용이면 위 표를 사용하세요.'] as L5,
   };
+  // i18n-allow: per-locale quick-fill field names indexed by locale position (labels double as stored key names)
   const quickByLocale: Record<number, [string, boolean][]> = {
     0: [['帳號', false], ['密碼', false], ['伺服器名稱', true]],
     1: [['account', false], ['password', false], ['server name', true]],

@@ -296,6 +296,7 @@ export function generateAppiumScript(opts: {
     spin: opts.spin,
   };
   const route = [opts.steps[0]?.from.name, ...opts.steps.map((s) => s.to.name)].filter(Boolean).join(' → ') || opts.target.name;
+  // i18n-allow: generated Node script text for download (an output artifact, not UI)
   return `#!/usr/bin/env node
 /**
  * PlayAgent Checker — 記憶腳本匯出(Appium / WebdriverIO)

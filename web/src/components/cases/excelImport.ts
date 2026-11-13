@@ -8,6 +8,8 @@
  * 同時保留 module / priority / precondition / assertions 等欄位供案例總覽顯示與篩選。
  */
 
+import { pr } from '../report/reportText.ts';
+
 export type ImportField =
   | 'id'
   | 'name'
@@ -25,6 +27,7 @@ export type ImportField =
 export const IMPORT_FIELDS: ImportField[] = ['id', 'name', 'purpose', 'module', 'category', 'priority', 'severity', 'precondition', 'steps', 'expected', 'tags', 'url'];
 
 /** 欄位 → 表頭同義詞(比對前會去空白、轉小寫)。 */
+// i18n-allow: header aliases that recognise the user's own spreadsheet column names (input matching)
 const SYNONYMS: Record<ImportField, string[]> = {
   id: ['編號', '案例編號', '用例編號', '測試編號', '項目編號', '項次', '序號', '用例id', 'id', 'no', 'no.', 'caseid', 'testcaseid', 'tcid', 'tc'],
   name: ['測試項目', '測試名稱', '案例名稱', '用例名稱', '測試案例', '測試情境', '測試場景', '測試標題', '標題', '名稱', '項目', '測試點', 'title', 'name', 'testcase', 'testcasename', 'scenario', 'summary', 'testitem'],
@@ -202,11 +205,9 @@ function list(key: string, items: string[]): string {
 
 /** 組成給 AI 執行的任務描述:前置條件 → 編號步驟 → 預期結果。 */
 export function buildTask(c: ImportedCase, lang: 'zh' | 'en' = 'zh'): string {
-  const L = lang === 'zh'
-    ? { pre: '前置條件', exp: '預期結果' }
-    : { pre: 'Precondition', exp: 'Expected result' };
+  const L = { pre: pr(['前置條件', 'Precondition'], lang), exp: pr(['預期結果', 'Expected result'], lang) };
   const lines: string[] = [];
-  if (c.purpose && c.purpose !== c.name) lines.push(`${lang === 'zh' ? '測試目的' : 'Purpose'}: ${c.purpose}`);
+  if (c.purpose && c.purpose !== c.name) lines.push(`${pr(['測試目的', 'Purpose'], lang)}: ${c.purpose}`);
   if (c.precondition) lines.push(`${L.pre}: ${c.precondition.replace(/\s*\n\s*/g, '; ')}`);
   const steps = c.steps.length ? c.steps : [c.name];
   steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`));
@@ -225,16 +226,14 @@ export function suiteToYaml(
   appId: string,
   opts: { name: string; lang?: 'zh' | 'en'; source?: string },
 ): string {
-  const zh = (opts.lang ?? 'zh') === 'zh';
+  const lang = opts.lang ?? 'zh';
   const parts: string[] = [
     `name: ${scalar(opts.name)}`,
     `app: ${scalar(appId)}`,
     'kind: suite',
     `itemCount: ${items.length}`,
   ];
-  const head = zh
-    ? `依序完成以下 ${items.length} 個測試項目,每一項都要判定是否符合預期結果。`
-    : `Work through the following ${items.length} test items in order and judge each against its expected result.`;
+  const head = pr([`依序完成以下 ${items.length} 個測試項目,每一項都要判定是否符合預期結果。`, `Work through the following ${items.length} test items in order and judge each against its expected result.`], lang);
   const taskLines: string[] = [head];
   items.forEach((it, i) => {
     const ref = it.id ? `[${it.id}] ` : '';
@@ -243,7 +242,7 @@ export function suiteToYaml(
       .join(' / ');
     taskLines.push(`${i + 1}. ${ref}${title}`);
     it.steps.forEach((s) => taskLines.push(`   - ${s}`));
-    if (it.expected.length) taskLines.push(`   ${zh ? '預期' : 'Expected'}: ${it.expected.join('; ')}`);
+    if (it.expected.length) taskLines.push(`   ${pr(['預期', 'Expected'], lang)}: ${it.expected.join('; ')}`);
   });
   parts.push(block('task', taskLines.join('\n')));
 

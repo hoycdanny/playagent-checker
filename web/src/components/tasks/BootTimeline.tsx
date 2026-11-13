@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { BootPhase, BootProgress } from '../../api/useJobStream.ts';
-import type { RLang } from '../report/reportText.ts';
+import { pr, type RLang } from '../report/reportText.ts';
 import { InfoIcon, type InfoIconName } from './InfoIcon.tsx';
 // 時鐘格式與任務列表的「操作時間」欄共用,同一個任務兩邊看到的字串一致。
 export { fmtDur } from '../duration.ts';
@@ -13,13 +13,13 @@ import { fmtDur } from '../duration.ts';
  */
 type Stage = 'queue' | BootPhase;
 
-const STAGES: Array<{ id: Stage; icon: InfoIconName; zh: string; en: string; tipZh: string; tipEn: string }> = [
-  { id: 'queue', icon: 'cloud', zh: '排隊', en: 'Queue', tipZh: '任務已送出,啟動執行容器', tipEn: 'Run submitted, starting the runner container' },
-  { id: 'download', icon: 'package', zh: '準備 APK', en: 'APK', tipZh: '下載並檢查安裝檔(XAPK 會先合併)', tipEn: 'Downloading and checking the app package' },
-  { id: 'upload', icon: 'upload', zh: '上傳', en: 'Upload', tipZh: '上傳安裝檔到 Device Farm(同版本會直接沿用)', tipEn: 'Uploading to Device Farm (reused if unchanged)' },
-  { id: 'device', icon: 'phone', zh: '配置真機', en: 'Device', tipZh: 'Device Farm 分配實體手機、開機並安裝 App', tipEn: 'Device Farm allocates, boots and installs the app' },
-  { id: 'connect', icon: 'plug', zh: '連線', en: 'Connect', tipZh: '真機就緒,建立 Appium 遙控連線', tipEn: 'Device ready, connecting Appium' },
-  { id: 'run', icon: 'play', zh: '測試中', en: 'Testing', tipZh: 'AI 開始操作遊戲', tipEn: 'The AI is playing' },
+const STAGES: Array<{ id: Stage; icon: InfoIconName; name: readonly [string, string]; tip: readonly [string, string] }> = [
+  { id: 'queue', icon: 'cloud', name: ['排隊', 'Queue'], tip: ['任務已送出,啟動執行容器', 'Run submitted, starting the runner container'] },
+  { id: 'download', icon: 'package', name: ['準備 APK', 'APK'], tip: ['下載並檢查安裝檔(XAPK 會先合併)', 'Downloading and checking the app package'] },
+  { id: 'upload', icon: 'upload', name: ['上傳', 'Upload'], tip: ['上傳安裝檔到 Device Farm(同版本會直接沿用)', 'Uploading to Device Farm (reused if unchanged)'] },
+  { id: 'device', icon: 'phone', name: ['配置真機', 'Device'], tip: ['Device Farm 分配實體手機、開機並安裝 App', 'Device Farm allocates, boots and installs the app'] },
+  { id: 'connect', icon: 'plug', name: ['連線', 'Connect'], tip: ['真機就緒,建立 Appium 遙控連線', 'Device ready, connecting Appium'] },
+  { id: 'run', icon: 'play', name: ['測試中', 'Testing'], tip: ['AI 開始操作遊戲', 'The AI is playing'] },
 ];
 
 const DEVICE_STATUS: Record<string, [string, string]> = {
@@ -73,7 +73,6 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
     try { localStorage.setItem(OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
   };
 
-  const zh = lang === 'zh';
   const start = ms(createdAt);
   const endAt = ended ? ms(updatedAt) : now;
   const stamp: Partial<Record<Stage, number>> = {
@@ -108,25 +107,25 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
 
   const bootMs = booted ? runStart! - start : endAt - start;
   const runMs = booted ? endAt - runStart! : undefined;
-  const devLabel = boot?.deviceStatus ? DEVICE_STATUS[boot.deviceStatus]?.[zh ? 0 : 1] ?? boot.deviceStatus : undefined;
+  const devLabel = boot?.deviceStatus ? DEVICE_STATUS[boot.deviceStatus]?.[lang === 'zh' ? 0 : 1] ?? boot.deviceStatus : undefined;
   if (!Number.isFinite(start)) return null;
   const open = pref ?? !booted;
   const stepsId = 'dboot-steps';
 
   return (
-    <div className="dboot" aria-label={zh ? '啟動進度' : 'Startup progress'}>
+    <div className="dboot" aria-label={pr(['啟動進度', 'Startup progress'], lang)}>
       <div className="dboot__summary" aria-live="polite">
         <span className={`dboot__timer ${!booted && !ended ? 'is-active' : ''} ${failedDuringBoot ? 'is-fail' : ''}`}>
           <InfoIcon name={booted ? 'rocket' : failedDuringBoot ? 'x' : 'clock'} size={15} />
           <span className="dboot__timer-label">
-            {booted ? (zh ? '啟動耗時' : 'Startup') : failedDuringBoot ? (zh ? '啟動失敗' : 'Startup failed') : zh ? '啟動中' : 'Starting'}
+            {booted ? (pr(['啟動耗時', 'Startup'], lang)) : failedDuringBoot ? (pr(['啟動失敗', 'Startup failed'], lang)) : pr(['啟動中', 'Starting'], lang)}
           </span>
           <b>{fmtDur(bootMs)}</b>
         </span>
         {runMs !== undefined && (
           <span className={`dboot__timer ${!ended ? 'is-running' : ''}`}>
             <InfoIcon name={ended ? 'check' : 'play'} size={15} />
-            <span className="dboot__timer-label">{ended ? (zh ? '測試耗時' : 'Test time') : zh ? '已執行' : 'Running'}</span>
+            <span className="dboot__timer-label">{ended ? (pr(['測試耗時', 'Test time'], lang)) : pr(['已執行', 'Running'], lang)}</span>
             <b>{fmtDur(runMs)}</b>
           </span>
         )}
@@ -137,16 +136,17 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
           if (!Number.isFinite(wrapAt)) return null;
           const last = ss.maxSegments !== 0 && ss.segment >= ss.maxSegments;
           const hhmm = new Date(wrapAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          const segText = ss.maxSegments === 1 ? '' : zh ? `第 ${ss.segment}${ss.maxSegments ? `/${ss.maxSegments}` : ''} 段 · ` : `Session ${ss.segment}${ss.maxSegments ? `/${ss.maxSegments}` : ''} · `;
-          const what = last ? (zh ? '收尾' : 'wrap-up') : (zh ? '換新連線' : 'new session');
+          const segNo = `${ss.segment}${ss.maxSegments ? `/${ss.maxSegments}` : ''}`;
+          const segText = ss.maxSegments === 1 ? '' : pr([`第 ${segNo} 段 · `, `Session ${segNo} · `], lang);
+          const what = last ? (pr(['收尾', 'wrap-up'], lang)) : (pr(['換新連線', 'new session'], lang));
           return (
-            <span className="dboot__total" title={zh ? 'Device Farm 單次連線最長 150 分鐘' : 'A Device Farm session lasts at most 150 minutes'}>
+            <span className="dboot__total" title={pr(['Device Farm 單次連線最長 150 分鐘', 'A Device Farm session lasts at most 150 minutes'], lang)}>
               {segText}{hhmm} {what}({fmtDur(Math.max(0, wrapAt - now))})
             </span>
           );
         })()}
         {ended && Number.isFinite(endAt) && (
-          <span className="dboot__total">{zh ? '總計' : 'Total'} {fmtDur(endAt - start)}</span>
+          <span className="dboot__total">{pr(['總計', 'Total'], lang)} {fmtDur(endAt - start)}</span>
         )}
         <button
           type="button"
@@ -154,10 +154,10 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
           aria-expanded={open}
           aria-controls={stepsId}
           onClick={() => toggle(!open)}
-          title={open ? (zh ? '收合啟動階段' : 'Hide startup stages') : (zh ? '展開啟動階段' : 'Show startup stages')}
+          title={open ? (pr(['收合啟動階段', 'Hide startup stages'], lang)) : (pr(['展開啟動階段', 'Show startup stages'], lang))}
         >
           <span aria-hidden="true">{open ? '▴' : '▾'}</span>
-          <span className="visually-hidden">{open ? (zh ? '收合啟動階段' : 'Hide startup stages') : (zh ? '展開啟動階段' : 'Show startup stages')}</span>
+          <span className="visually-hidden">{open ? (pr(['收合啟動階段', 'Hide startup stages'], lang)) : (pr(['展開啟動階段', 'Show startup stages'], lang))}</span>
         </button>
       </div>
 
@@ -175,12 +175,12 @@ export function BootTimeline({ boot, createdAt, updatedAt, firstStepAt, state, b
               <span className="dboot__dot" tabIndex={0} aria-describedby={tipId}>
                 <InfoIcon name={done ? 'check' : failed ? 'x' : s.icon} size={14} />
               </span>
-              <span className="dboot__name">{zh ? s.zh : s.en}</span>
+              <span className="dboot__name">{pr(s.name, lang)}</span>
               <span className="dboot__dur">{d !== undefined && (done || active || failed) ? fmtDur(d) : ''}</span>
               {detail && <span className="dboot__detail">{detail}</span>}
               <span role="tooltip" id={tipId} className="dboot__tip">
-                <b>{zh ? s.zh : s.en}</b>
-                <span>{zh ? s.tipZh : s.tipEn}</span>
+                <b>{pr(s.name, lang)}</b>
+                <span>{pr(s.tip, lang)}</span>
                 {s.id === 'device' && boot?.deviceModel && <span>{boot.deviceModel}</span>}
                 {s.id === 'upload' && boot?.sizeMB ? <span>{boot.sizeMB} MB</span> : null}
               </span>

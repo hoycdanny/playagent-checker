@@ -483,7 +483,7 @@ function ScreenGraphInner({ pages, edges, rootPageId = null, positions = NO_POSI
   const shownRoute = draft ?? routes.find((r) => r.id === shownId) ?? null;
   const picking = Boolean(draft && pick);
   const base = useMemo(() => {
-    const b = overlayRoute(laid, shownRoute, picking, lang === 'zh' ? '支' : 'B');
+    const b = overlayRoute(laid, shownRoute, picking, ['支', 'B'][lang === 'zh' ? 0 : 1]!);
     if (!focusedPageId) return b;
     return { ...b, nodes: b.nodes.map((n) => (n.id === focusedPageId ? { ...n, data: { ...n.data, focused: true } } : n)) };
   }, [laid, shownRoute, picking, lang, focusedPageId]);
@@ -765,7 +765,7 @@ function GraphGuide({ lang }: { lang: RLang }) {
           <h4>{gt('cardsTitle', lang)}</h4>
           <ul>
             <li><span className="sg-guide__badge sg-guide__badge--order" aria-hidden="true">1</span>{gt('order', lang)}</li>
-            <li><span className="sg-guide__badge sg-guide__badge--root" aria-hidden="true">{lang === 'zh' ? '起點' : 'Start'}</span>{gt('root', lang)}</li>
+            <li><span className="sg-guide__badge sg-guide__badge--root" aria-hidden="true">{['起點', 'Start'][lang === 'zh' ? 0 : 1]}</span>{gt('root', lang)}</li>
             <li>{line('sg-guide__line--heat')}{gt('heat', lang)}</li>
             <li><span className="sg-guide__box" aria-hidden="true" />{gt('loading', lang)}</li>
             <li>{gt('sub', lang)}</li>

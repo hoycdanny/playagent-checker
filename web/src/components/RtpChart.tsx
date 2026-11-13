@@ -1,4 +1,16 @@
+import { useI18n } from '../i18n/I18nProvider.tsx';
+import { fill, loc5, pick5, type L5 } from '../i18n/locale5.ts';
 import './RtpChart.css';
+const SAMPLES: L5 = ['取樣次數', 'Samples', '取样次数', 'サンプル数', '샘플 수'];
+const TOTAL_BET: L5 = ['總下注', 'Total bet', '总下注', '総ベット額', '총 베팅'];
+const TOTAL_WIN: L5 = ['總派彩', 'Total win', '总派彩', '総配当額', '총 당첨금'];
+const ARIA: L5 = [
+  'RTP 累積趨勢圖,目前 RTP {rtp}%',
+  'Cumulative RTP trend chart, current RTP {rtp}%',
+  'RTP 累积趋势图,当前 RTP {rtp}%',
+  'RTP 累積推移グラフ、現在の RTP {rtp}%',
+  'RTP 누적 추이 차트, 현재 RTP {rtp}%',
+];
 
 export interface RtpSeriesPoint {
   n: number;
@@ -18,6 +30,8 @@ export interface RtpStats {
  * 手刻輕量 SVG(對齊 NavGraph 的做法),不額外引入圖表函式庫。
  */
 export function RtpChart({ stats }: { stats: RtpStats }) {
+  const { locale } = useI18n();
+  const lc = loc5(locale);
   const { series, rtpPercent, totalBet, totalWin, sampleCount } = stats;
   if (series.length === 0) return null;
 
@@ -58,19 +72,19 @@ export function RtpChart({ stats }: { stats: RtpStats }) {
           <span className="rtpchart__summary-value">{rtpPercent.toFixed(2)}%</span>
         </div>
         <div className="rtpchart__summary-item">
-          <span className="rtpchart__summary-label">取樣次數</span>
+          <span className="rtpchart__summary-label">{pick5(SAMPLES, lc)}</span>
           <span className="rtpchart__summary-value">{sampleCount.toLocaleString()}</span>
         </div>
         <div className="rtpchart__summary-item">
-          <span className="rtpchart__summary-label">總下注</span>
+          <span className="rtpchart__summary-label">{pick5(TOTAL_BET, lc)}</span>
           <span className="rtpchart__summary-value">{totalBet.toLocaleString()}</span>
         </div>
         <div className="rtpchart__summary-item">
-          <span className="rtpchart__summary-label">總派彩</span>
+          <span className="rtpchart__summary-label">{pick5(TOTAL_WIN, lc)}</span>
           <span className="rtpchart__summary-value">{totalWin.toLocaleString()}</span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ maxWidth: width }} role="img" aria-label={`RTP 累積趨勢圖,目前 RTP ${rtpPercent.toFixed(2)}%`}>
+      <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ maxWidth: width }} role="img" aria-label={fill(pick5(ARIA, lc), { rtp: rtpPercent.toFixed(2) })}>
         {/* Y 軸格線 + 刻度文字 */}
         {yTicks.map((v) => (
           <g key={v}>
@@ -92,7 +106,7 @@ export function RtpChart({ stats }: { stats: RtpStats }) {
           {xMax}
         </text>
         <text x={(padL + width - padR) / 2} y={height - 6} className="rtpchart__xtick" textAnchor="middle">
-          取樣次數
+          {pick5(SAMPLES, lc)}
         </text>
       </svg>
     </div>

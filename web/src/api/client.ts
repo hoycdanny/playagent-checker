@@ -1,4 +1,6 @@
 import { getConfig } from '../config.ts';
+import { fill } from '../i18n/locale5.ts';
+import { tStatic } from '../i18n/tStatic.ts';
 import { loadTokens, type AuthTokens } from '../auth/tokenStore.ts';
 
 export class ApiError extends Error {
@@ -57,7 +59,7 @@ async function handleErrorResponse(res: Response): Promise<never> {
  */
 export async function apiGet<T>(path: string): Promise<T> {
   const { apiUrl } = getConfig();
-  if (!apiUrl) throw new ApiError(0, 'API 未配置');
+  if (!apiUrl) throw new ApiError(0, tStatic('error.apiNotConfigured'));
   const tokens = await currentTokens();
   const res = await fetch(`${apiUrl}${path}`, {
     headers: tokens ? { authorization: `Bearer ${tokens.idToken}` } : {},
@@ -93,7 +95,7 @@ export interface ListResponse<T = { key: string }> {
 /** 帶 Bearer token 的 POST(JSON)。 */
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const { apiUrl } = getConfig();
-  if (!apiUrl) throw new ApiError(0, 'API 未配置');
+  if (!apiUrl) throw new ApiError(0, tStatic('error.apiNotConfigured'));
   const tokens = await currentTokens();
   const res = await fetch(`${apiUrl}${path}`, {
     method: 'POST',
@@ -123,7 +125,7 @@ async function apiSend<T>(
   body?: unknown,
 ): Promise<T> {
   const { apiUrl } = getConfig();
-  if (!apiUrl) throw new ApiError(0, 'API 未配置');
+  if (!apiUrl) throw new ApiError(0, tStatic('error.apiNotConfigured'));
   const tokens = await currentTokens();
   const res = await fetch(`${apiUrl}${path}`, {
     method,
@@ -164,8 +166,8 @@ export function uploadToS3(
     xhr.onload = () =>
       xhr.status >= 200 && xhr.status < 300
         ? resolve()
-        : reject(new ApiError(xhr.status, `上傳失敗 HTTP ${xhr.status}`));
-    xhr.onerror = () => reject(new ApiError(0, '上傳網路錯誤'));
+        : reject(new ApiError(xhr.status, fill(tStatic('error.uploadHttp'), { status: xhr.status })));
+    xhr.onerror = () => reject(new ApiError(0, tStatic('error.uploadNetwork')));
     xhr.send(file);
   });
 }

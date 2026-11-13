@@ -2,7 +2,7 @@ import { Fragment, useMemo, useRef, useState, type DragEvent } from 'react';
 import { apiPost } from '../../api/client.ts';
 import { applyControls } from '../controls/controlsYaml.ts';
 import { applyKeys, type CaseKey } from '../controls/keysYaml.ts';
-import type { RLang } from '../report/reportText.ts';
+import { pr, type RLang } from '../report/reportText.ts';
 import {
   IMPORT_FIELDS,
   TEMPLATE_HEADERS,
@@ -205,8 +205,8 @@ export function ExcelImport({
     const ws = XLSX.utils.aoa_to_sheet([[...TEMPLATE_HEADERS[lang]], ...TEMPLATE_SAMPLE[lang].map((r) => [...r])]);
     ws['!cols'] = [10, 12, 24, 20, 40, 36, 8, 14].map((wch) => ({ wch }));
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, lang === 'zh' ? '測試項目' : 'Test cases');
-    XLSX.writeFile(wb, lang === 'zh' ? '測試項目範本.xlsx' : 'test-cases-template.xlsx');
+    XLSX.utils.book_append_sheet(wb, ws, pr(['測試項目', 'Test cases'], lang));
+    XLSX.writeFile(wb, pr(['測試項目範本.xlsx', 'test-cases-template.xlsx'], lang));
   }
 
   /** 逐列修正:把這一列的覆寫值疊上去(空字串代表清掉該欄)。 */

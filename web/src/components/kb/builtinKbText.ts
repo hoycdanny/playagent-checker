@@ -12,6 +12,8 @@
  * 直接用 `t(genreLabelKey(genre))` 即可,不要再維護第二份。
  */
 import { loc5, pick5, type L5 } from '../../i18n/locale5.ts';
+import type { MessageKey } from '../../i18n/messages.ts';
+import { GENRES, genreLabelKey, type Genre } from '../GenreIcon.tsx';
 
 const DESC: Record<string, L5> = {
   slot: [
@@ -247,4 +249,14 @@ export function builtinKbDescription(genre: string | undefined, locale: string):
 export function genreFromBuiltinKbId(id: string | undefined): string | undefined {
   const m = /^kb-builtin-(.+)$/.exec(String(id ?? ''));
   return m ? m[1] : undefined;
+}
+
+/**
+ * 知識庫在介面上的顯示名稱。內建知識庫的 name 由後端以單一繁中字串提供,
+ * 這裡改用 genre 的 i18n 標籤(五語系齊全);自建知識庫的名稱原樣顯示。
+ */
+export function kbDisplayName(kb: { id: string; name: string }, t: (key: MessageKey) => string): string {
+  const genre = genreFromBuiltinKbId(kb.id);
+  if (!genre || !(GENRES as readonly string[]).includes(genre)) return kb.name;
+  return t(genreLabelKey(genre as Genre));
 }

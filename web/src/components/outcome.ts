@@ -63,7 +63,7 @@ export function outcomeClass(o: Outcome): string {
  */
 export function shortReason(reason: string, lang: 'zh' | 'en' = 'zh', max = lang === 'en' ? 28 : 16): string {
   const ids = [...new Set(reason.match(/\bAC-[A-Z]+\d+\b/g) ?? [])];
-  if (ids.length) return lang === 'en' ? `${ids.length} criteria unmet` : `${ids.length} 項未達標`;
+  if (ids.length) return [`${ids.length} 項未達標`, `${ids.length} criteria unmet`][lang === 'en' ? 1 : 0]!;
   const head = reason.trim().split(/\s+[—–]{1,2}\s+/)[0] ?? '';
   const first = head.split(/(?<=[。!?;!?;])\s*|\n|(?<=\.)\s+/)[0] ?? '';
   const s = first.replace(/[。;;,,.]+$/, '').trim();
