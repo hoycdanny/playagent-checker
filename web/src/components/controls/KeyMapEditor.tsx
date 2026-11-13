@@ -39,6 +39,18 @@ const TEXT = {
   ],
 } satisfies Record<string, L5>;
 
+/** 後端 KEY_LABELS 裡帶中文的鍵名;其餘鍵名(Enter、Esc、A…)本身就是英文,照後端顯示。 */
+const KEY_TEXT: Record<string, L5> = {
+  up: ['↑ 上', '↑ Up', '↑ 上', '↑ 上', '↑ 위'],
+  down: ['↓ 下', '↓ Down', '↓ 下', '↓ 下', '↓ 아래'],
+  left: ['← 左', '← Left', '← 左', '← 左', '← 왼쪽'],
+  right: ['→ 右', '→ Right', '→ 右', '→ 右', '→ 오른쪽'],
+  space: ['Space 空白鍵', 'Space', 'Space 空格键', 'Space スペースキー', 'Space 스페이스바'],
+  mouse_left: ['滑鼠左鍵', 'Left mouse button', '鼠标左键', 'マウス左ボタン', '마우스 왼쪽 버튼'],
+  mouse_right: ['滑鼠右鍵', 'Right mouse button', '鼠标右键', 'マウス右ボタン', '마우스 오른쪽 버튼'],
+  wheel: ['滑鼠滾輪', 'Mouse wheel', '鼠标滚轮', 'マウスホイール', '마우스 휠'],
+};
+
 interface PresetKey {
   key: string;
   purpose: L5;
@@ -136,7 +148,15 @@ export function KeyMapEditor({
 
   const keyGroup = shown.filter((o) => o.kind === 'key');
   const mouseGroup = shown.filter((o) => o.kind === 'mouse');
-  const labelOf = (id: string) => options.find((o) => o.id === id)?.label ?? id;
+  // 後端的按鍵名稱只有繁中(例如「↑ 上」「滑鼠左鍵」),有中文的鍵在這裡補五語。
+  const keyLabel = (o: KeyOption) => {
+    const own = KEY_TEXT[o.id];
+    return own ? pick5(own, lc) : o.label;
+  };
+  const labelOf = (id: string) => {
+    const o = options.find((x) => x.id === id);
+    return o ? keyLabel(o) : id;
+  };
 
   return (
     <div className="kmap">
@@ -171,7 +191,7 @@ export function KeyMapEditor({
                     <optgroup label={t('groupKeys')}>
                       {keyGroup.map((o) => (
                         <option key={o.id} value={o.id} disabled={taken(o.id)}>
-                          {o.label}
+                          {keyLabel(o)}
                         </option>
                       ))}
                     </optgroup>
@@ -180,7 +200,7 @@ export function KeyMapEditor({
                     <optgroup label={t('groupMouse')}>
                       {mouseGroup.map((o) => (
                         <option key={o.id} value={o.id} disabled={taken(o.id)}>
-                          {o.label}
+                          {keyLabel(o)}
                         </option>
                       ))}
                     </optgroup>

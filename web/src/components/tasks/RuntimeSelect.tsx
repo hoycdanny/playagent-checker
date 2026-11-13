@@ -46,12 +46,12 @@ type L5 = readonly [string, string, string, string, string];
 const LABEL: Record<RuntimeId, L5> = {
   web: ['Web 瀏覽器', 'Web browser', 'Web 浏览器', 'Web ブラウザ', '웹 브라우저'],
   'devicefarm-android': ['Android(Device Farm 真機)', 'Android (Device Farm real device)', 'Android(Device Farm 真机)', 'Android(Device Farm 実機)', 'Android(Device Farm 실기기)'],
-  'devicefarm-android-long': ['Android(Device Farm 真機・長時)', 'Android (Device Farm real device, long run)', 'Android(Device Farm 真机・长时)', 'Android(Device Farm 実機・長時間)', 'Android(Device Farm 실기기・장시간)'],
-  'emulator-android': ['Android(模擬器・Redroid 容器)', 'Android (emulator, Redroid container)', 'Android(模拟器・Redroid 容器)', 'Android(エミュレータ・Redroid コンテナ)', 'Android(에뮬레이터・Redroid 컨테이너)'],
+  'devicefarm-android-long': ['Android(Device Farm 真機·長時)', 'Android (Device Farm real device, long run)', 'Android(Device Farm 真机·长时)', 'Android(Device Farm 実機・長時間)', 'Android(Device Farm 실기기·장시간)'],
+  'emulator-android': ['Android(模擬器·Redroid 容器)', 'Android (emulator, Redroid container)', 'Android(模拟器·Redroid 容器)', 'Android(エミュレータ・Redroid コンテナ)', 'Android(에뮬레이터·Redroid 컨테이너)'],
   'devicefarm-ios': ['iOS(Device Farm 真機)', 'iOS (Device Farm real device)', 'iOS(Device Farm 真机)', 'iOS(Device Farm 実機)', 'iOS(Device Farm 실기기)'],
-  'devicefarm-ios-long': ['iOS(Device Farm 真機・長時)', 'iOS (Device Farm real device, long run)', 'iOS(Device Farm 真机・长时)', 'iOS(Device Farm 実機・長時間)', 'iOS(Device Farm 실기기・장시간)'],
+  'devicefarm-ios-long': ['iOS(Device Farm 真機·長時)', 'iOS (Device Farm real device, long run)', 'iOS(Device Farm 真机·长时)', 'iOS(Device Farm 実機・長時間)', 'iOS(Device Farm 실기기·장시간)'],
   'simulator-ios': ['iOS(模擬器)', 'iOS (simulator)', 'iOS(模拟器)', 'iOS(シミュレータ)', 'iOS(시뮬레이터)'],
-  windows: ['Windows(GPU 主機・GameLift Streams)', 'Windows (GPU host, GameLift Streams)', 'Windows(GPU 主机・GameLift Streams)', 'Windows(GPU ホスト・GameLift Streams)', 'Windows(GPU 호스트・GameLift Streams)'],
+  windows: ['Windows(GPU 主機·GameLift Streams)', 'Windows (GPU host, GameLift Streams)', 'Windows(GPU 主机·GameLift Streams)', 'Windows(GPU ホスト・GameLift Streams)', 'Windows(GPU 호스트·GameLift Streams)'],
   linux: ['Linux(GPU 主機)', 'Linux (GPU host)', 'Linux(GPU 主机)', 'Linux(GPU ホスト)', 'Linux(GPU 호스트)'],
 };
 /**

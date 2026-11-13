@@ -78,6 +78,153 @@ const TEXT = {
 } satisfies Record<string, L5>;
 const t = (k: keyof typeof TEXT, lc: Loc5) => pick5(TEXT[k], lc);
 
+/**
+ * 操作方案的名稱 / 說明:後端只有 {zh,en}(簡中會看到繁中、日韓看到英文),
+ * 這裡依方案 id 補齊五語;後端新增了這裡沒有的方案時退回後端文字。
+ */
+const SCHEME_TEXT: Record<string, { label: L5; desc: L5 }> = {
+  tap: {
+    label: ['單點點擊', 'Single Tap', '单点点击', 'シングルタップ', '단일 탭'],
+    desc: [
+      '主要玩法靠點按鈕(如 SPIN、出牌、選項)',
+      'Gameplay is button taps (SPIN, play card, options)',
+      '主要玩法靠点按钮(如 SPIN、出牌、选项)',
+      '主にボタンをタップして遊ぶ(SPIN、カードを出す、選択肢など)',
+      '주로 버튼을 탭해서 플레이(SPIN, 카드 내기, 선택지 등)',
+    ],
+  },
+  hold: {
+    label: ['長按 / 蓄力', 'Hold / Charge', '长按 / 蓄力', '長押し / チャージ', '길게 누르기 / 차지'],
+    desc: [
+      '按住一段時間再放開(蓄力、加速、持續射擊)',
+      'Press and hold, then release (charge, boost, auto-fire)',
+      '按住一段时间再放开(蓄力、加速、持续射击)',
+      'しばらく押してから離す(チャージ、加速、連射)',
+      '한동안 누른 뒤 떼기(차지, 가속, 연사)',
+    ],
+  },
+  swipe: {
+    label: ['方向滑動', 'Directional Swipe', '方向滑动', '方向スワイプ', '방향 스와이프'],
+    desc: [
+      '快速朝方向滑(消除交換、跑酷閃避、切水果)',
+      'Quick flick (match-3 swap, runner dodge, slicing)',
+      '快速朝方向滑(消除交换、跑酷闪避、切水果)',
+      '方向へ素早くスワイプ(パズルの入れ替え、ランナーの回避、カット)',
+      '방향으로 빠르게 스와이프(퍼즐 교환, 러너 회피, 자르기)',
+    ],
+  },
+  drag: {
+    label: ['拖曳放置', 'Drag & Drop', '拖拽放置', 'ドラッグ&ドロップ', '드래그 앤 드롭'],
+    desc: [
+      '把物件拖到目標位置(放塔、出牌、合成)',
+      'Drag an object onto a target (place tower, play card, merge)',
+      '把物件拖到目标位置(放塔、出牌、合成)',
+      'オブジェクトを目標位置へドラッグ(タワー設置、カードを出す、合成)',
+      '오브젝트를 목표 위치로 드래그(타워 배치, 카드 내기, 합성)',
+    ],
+  },
+  joystick_center: {
+    label: ['下方中央搖桿', 'Bottom-Center Joystick', '下方中央摇杆', '下部中央ジョイスティック', '하단 중앙 조이스틱'],
+    desc: [
+      '按住畫面下方拖曳走位(割草、生存類)',
+      'Hold and drag at bottom-center to move (survivor-like)',
+      '按住画面下方拖拽走位(割草、生存类)',
+      '画面下部を押したままドラッグして移動(サバイバー系)',
+      '화면 하단을 누른 채 드래그해 이동(서바이버류)',
+    ],
+  },
+  joystick_left: {
+    label: ['左側搖桿', 'Left Joystick', '左侧摇杆', '左ジョイスティック', '왼쪽 조이스틱'],
+    desc: [
+      '左手拇指在左下控制方向',
+      'Left thumb controls direction at bottom-left',
+      '左手拇指在左下控制方向',
+      '左手の親指で左下から方向を操作',
+      '왼손 엄지로 왼쪽 아래에서 방향 조작',
+    ],
+  },
+  skill_right: {
+    label: ['右側技能鍵', 'Right Skill Buttons', '右侧技能键', '右側スキルボタン', '오른쪽 스킬 버튼'],
+    desc: [
+      '右手拇指點攻擊 / 技能 / 跳躍',
+      'Right thumb taps attack / skills / jump',
+      '右手拇指点攻击 / 技能 / 跳跃',
+      '右手の親指で攻撃 / スキル / ジャンプをタップ',
+      '오른손 엄지로 공격 / 스킬 / 점프 탭',
+    ],
+  },
+  aim_right: {
+    label: ['右側拖曳瞄準', 'Right-Side Aim', '右侧拖拽瞄准', '右側ドラッグで照準', '오른쪽 드래그 조준'],
+    desc: [
+      '右半邊拖曳轉視角 / 瞄準(射擊類)',
+      'Drag on right half to look / aim (shooters)',
+      '右半边拖拽转视角 / 瞄准(射击类)',
+      '画面右半分をドラッグして視点移動 / 照準(シューター)',
+      '화면 오른쪽 절반을 드래그해 시점 전환 / 조준(슈팅)',
+    ],
+  },
+  steer: {
+    label: ['左右轉向', 'Left / Right Steering', '左右转向', '左右ステアリング', '좌우 조향'],
+    desc: [
+      '按住左右方向鍵或左右半邊轉向(賽車)',
+      'Hold left/right buttons or screen halves to steer (racing)',
+      '按住左右方向键或左右半边转向(赛车)',
+      '左右のボタンか画面の左右半分を押してハンドル操作(レース)',
+      '좌우 버튼이나 화면 좌우 절반을 눌러 조향(레이싱)',
+    ],
+  },
+  pedals: {
+    label: ['油門 / 甩尾 / 氮氣', 'Gas / Drift / Nitro', '油门 / 甩尾 / 氮气', 'アクセル / ドリフト / ニトロ', '가속 / 드리프트 / 니트로'],
+    desc: [
+      '右側按住油門、點擊氮氣或甩尾',
+      'Hold gas, tap nitro/drift on the right',
+      '右侧按住油门、点击氮气或甩尾',
+      '右側でアクセルを押し続け、ニトロやドリフトをタップ',
+      '오른쪽에서 가속을 누른 채 니트로나 드리프트를 탭',
+    ],
+  },
+  pinch: {
+    label: ['雙指縮放', 'Pinch Zoom', '双指缩放', 'ピンチズーム', '핀치 줌'],
+    desc: [
+      '兩指縮放地圖 / 場景(策略、模擬)',
+      'Two-finger zoom on map / scene (strategy, sim)',
+      '两指缩放地图 / 场景(策略、模拟)',
+      '2 本指でマップ / シーンを拡大縮小(ストラテジー、シミュレーション)',
+      '두 손가락으로 지도 / 장면 확대·축소(전략, 시뮬레이션)',
+    ],
+  },
+  rhythm: {
+    label: ['節奏點擊', 'Rhythm Taps', '节奏点击', 'リズムタップ', '리듬 탭'],
+    desc: [
+      '音符到判定線時點擊 / 長按(音樂節奏)',
+      'Tap / hold when notes reach the judge line',
+      '音符到判定线时点击 / 长按(音乐节奏)',
+      'ノーツが判定ラインに来たらタップ / 長押し(音楽リズム)',
+      '노트가 판정선에 닿을 때 탭 / 길게 누르기(음악 리듬)',
+    ],
+  },
+  keyboard: {
+    label: ['鍵盤', 'Keyboard', '键盘', 'キーボード', '키보드'],
+    desc: [
+      '用鍵盤按鍵操作(方向鍵移動、Enter/Z 確認、Esc/X 選單…);可自訂每個鍵的用途',
+      'Played with keys (arrows to move, Enter/Z to confirm, Esc/X for menu…); define what each key does',
+      '用键盘按键操作(方向键移动、Enter/Z 确认、Esc/X 菜单…);可自定义每个键的用途',
+      'キーで操作(矢印キーで移動、Enter/Z で決定、Esc/X でメニュー…)。各キーの用途を定義できます',
+      '키로 조작(방향키로 이동, Enter/Z로 확인, Esc/X로 메뉴…). 각 키의 용도를 정의할 수 있습니다',
+    ],
+  },
+  mouse: {
+    label: ['滑鼠', 'Mouse', '鼠标', 'マウス', '마우스'],
+    desc: [
+      '滑鼠左鍵點擊、按住拖曳、滾輪捲動;右鍵可自訂用途',
+      'Left-click, drag, scroll wheel; right-click can be given a purpose',
+      '鼠标左键点击、按住拖拽、滚轮滚动;右键可自定义用途',
+      '左クリック、ドラッグ、ホイールでスクロール。右クリックには用途を設定できます',
+      '왼쪽 클릭, 드래그, 휠 스크롤. 오른쪽 클릭에는 용도를 지정할 수 있습니다',
+    ],
+  },
+};
+
 /** App 平台 → 方案平台(與後端 platformKind 一致)。 */
 function platformKind(platform: string | undefined): ControlPlatform | undefined {
   if (platform === 'web') return 'web';
@@ -126,6 +273,15 @@ export function ControlSchemePicker({
   const suggested = platformSuggested ?? (genre ? data?.genreDefaults[genre] ?? [] : []);
   const effective = value ?? suggested;
   const order = (ids: string[]) => allItems.map((i) => i.id).filter((id) => ids.includes(id));
+  const schemeLabel = (s: SchemeItem | undefined) => {
+    if (!s) return '';
+    const own = SCHEME_TEXT[s.id];
+    return own ? pick5(own.label, lc) : tr(s.label, lang);
+  };
+  const schemeDesc = (s: SchemeItem) => {
+    const own = SCHEME_TEXT[s.id];
+    return own ? pick5(own.desc, lc) : tr(s.desc, lang);
+  };
 
   function toggle(id: string, on: boolean) {
     const base = new Set(value ?? suggested);
@@ -183,7 +339,7 @@ export function ControlSchemePicker({
           <div className="ctl__btns">
             {suggested.length > 0 && (
               <button type="button" className="ctl__btn" onClick={() => onChange(order(suggested))}>
-                {t('apply', lc)}({suggested.map((id) => tr(allItems.find((i) => i.id === id)?.label, lang) || id).join('、')})
+                {t('apply', lc)}({suggested.map((id) => schemeLabel(allItems.find((i) => i.id === id)) || id).join('、')})
               </button>
             )}
             {value !== undefined && (
@@ -210,11 +366,11 @@ export function ControlSchemePicker({
                 />
                 <ControlGlyph ids={[s.id]} size={112} frame={pc ? 'screen' : 'phone'} />
                 <span className="ctl__name">
-                  {tr(s.label, lang)}
+                  {schemeLabel(s)}
                   {s.fingers === 2 && <span className="ctl__tag">✌</span>}
                   {isSuggested && <span className="ctl__tag ctl__tag--sug">★</span>}
                 </span>
-                <span className="ctl__desc">{tr(s.desc, lang)}</span>
+                <span className="ctl__desc">{schemeDesc(s)}</span>
                 <span className="ctl__check" aria-hidden="true">{on ? '✓' : ''}</span>
               </label>
             </li>

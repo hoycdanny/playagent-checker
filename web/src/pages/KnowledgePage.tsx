@@ -18,8 +18,23 @@ import { KbSpecEditor } from '../components/kb/KbSpecEditor.tsx';
 import { kbLang, kt, tr, type KbLang } from '../components/kb/kbText.ts';
 import { builtinKbDescription, genreFromBuiltinKbId } from '../components/kb/builtinKbText.ts';
 import type { KbKind, KbListResponse, KbUsage, KnowledgeBase, ReportSpecInput } from '../components/kb/kbTypes.ts';
+import type { L5 } from '../i18n/locale5.ts';
 import './ListPage.css';
 import './KnowledgePage.css';
+
+/**
+ * 樣板卡片上的規格欄位名稱:後端報告樣板只有 {zh,en}(簡中會看到繁中),依欄位 key 補齊五語;
+ * 認不得的 key 退回後端文字。
+ */
+const SPEC_VALUE_TEXT: Record<string, L5> = {
+  expectedRtp: ['理論 RTP', 'Expected RTP', '理论 RTP', '理論 RTP', '이론 RTP'],
+  expectedHitFrequency: ['理論 Hit Frequency', 'Expected Hit Frequency', '理论 Hit Frequency', '理論ヒット頻度', '이론 히트 빈도'],
+  minBet: ['最小下注', 'Min Bet', '最小下注', '最小ベット', '최소 베팅'],
+  maxBet: ['最大下注', 'Max Bet', '最大下注', '最大ベット', '최대 베팅'],
+  maxWinMultiplier: ['最大派彩倍率', 'Max Win Multiplier', '最大派彩倍率', '最大配当倍率', '최대 당첨 배수'],
+  rtpStdDev: ['單局報酬標準差 σ', 'Per-spin Std Dev σ', '单局报酬标准差 σ', '1 スピンあたりの標準偏差 σ', '스핀당 표준편차 σ'],
+  nominalReturnPct: ['標稱返還率', 'Nominal Return', '标称返还率', '公称還元率', '공칭 환수율'],
+};
 
 /**
  * 知識庫管理:
@@ -439,7 +454,7 @@ export default function KnowledgePage() {
                     </ul>
                   )}
                   {p && p.specValues.length > 0 && (
-                    <p className="kb__spec-preview">{p.specValues.map((v) => tr(v.label, lang)).join('、')}</p>
+                    <p className="kb__spec-preview">{p.specValues.map((v) => tr(SPEC_VALUE_TEXT[v.key] ?? v.label, lang)).join('、')}</p>
                   )}
                   <div className="kb__card-actions">
                     <button type="button" className="kb__card-btn" onClick={() => openKb(kb)}>{kt('view', lang)}</button>

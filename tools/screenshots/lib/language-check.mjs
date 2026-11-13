@@ -61,6 +61,41 @@ export const DATA_REGIONS = [
   '.memmap__node',
   // 內建知識庫的名稱 / 說明來自後端(繁體中文),顯示名稱另有解析,說明文字是知識內容。
   '.kb__card-desc',
+  // 知識庫是跨租戶共用的,使用者自己複製 / 建立的知識庫名稱是使用者打的字(例如「賓果(我的版本)」),
+  // 屬於資料。內建知識庫的顯示名稱由 kbDisplayName 翻譯,已有單元測試;這幾處清單同時列出兩種,只能整格遮掉。
+  '.apps__kb-option > span',
+  '.ws__kb-list label > span',
+  '.tform__chip > span',
+  '.kb__card:not(.kb__card--template) .kb__card-name',
+  '.kb__form-sub',
+  // AI 代理的輸出:畫面名稱、每一步的推理、目標與覆核備註。代理的輸出語言由部署設定決定
+  // (agent/uitarsClient.mjs 預設繁體中文),不跟介面語系走,所以是資料。
+  '.detail__step-screen',
+  '.detail__step-think',
+  '.detail__step-goal',
+  '.detail__step-title',
+  '.mfeed__now-step',
+  '.mfeed__now-think',
+  '.ttl__step-text',
+  '.ttl__clip',
+  // 記憶地圖的畫面名稱與路徑:由 AI 在測試中命名。
+  '.sg-node__name',
+  '.sg-node__sub',
+  '.studio__title',
+  '.studio__stage-name',
+  '.studio__step-at',
+  '.studio__step-to',
+  '.memedit__edge-to',
+  // 報告裡逐項的觀察畫面與理由:模型輸出。
+  '.vm__clip',
+  '.vm__clamp',
+  '.srep__reason',
+  '.rasst__card-text',
+  '.report__trace-reason',
+  // 系統更新頁的 commit 訊息來自 GitHub(開發者寫的 git log),是資料,不是介面用語。
+  '.sysupd__subject',
+  '.sysupd__commits li',
+  'td .sysupd__muted',
   // 明確標記為資料的節點(擷取腳本自己加的遮罩也用這個屬性)。
   '[data-capture-data]',
 ];
@@ -131,6 +166,16 @@ export function collectDomText(regions) {
     return false;
   };
   const texts = [];
+  // 與 texts 對齊的來源描述(最近兩層有 class 的祖先),檢查失敗時用來指出是哪個區塊。
+  const origins = [];
+  const describe = (el, attr) => {
+    const parts = [];
+    for (let n = el; n && n !== document.body && parts.length < 2; n = n.parentElement) {
+      const cls = typeof n.className === 'string' ? n.className.trim().split(/\s+/).filter(Boolean).slice(0, 2).join('.') : '';
+      if (cls) parts.unshift(`${n.tagName.toLowerCase()}.${cls}`);
+    }
+    return `${parts.join(' > ') || el.tagName.toLowerCase()}${attr ? ` [${attr}]` : ''}`;
+  };
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const el = node.parentElement;
@@ -142,23 +187,43 @@ export function collectDomText(regions) {
     // 被藏起來的節點(例如截圖前刻意隱藏的跨租戶列表)不會出現在圖裡。
     if (typeof el.checkVisibility === 'function' && !el.checkVisibility()) continue;
     if (isMasked(el)) maskedChars += value.trim().length;
-    else texts.push(value);
+    else {
+      texts.push(value);
+      origins.push(describe(el));
+    }
   }
   for (const el of document.body.querySelectorAll('[placeholder],[title],[aria-label]')) {
     for (const attr of ['placeholder', 'title', 'aria-label']) {
       const v = el.getAttribute(attr);
       if (!v) continue;
       if (isMasked(el)) maskedChars += v.length;
-      else texts.push(v);
+      else {
+        texts.push(v);
+        origins.push(describe(el, attr));
+      }
     }
   }
-  return { texts, maskedChars };
+  return { texts, origins, maskedChars };
 }
 
-/** 對 collectDomText 的結果做檢查。回傳 { ok, violations, maskedChars }。 */
+/**
+ * 對 collectDomText 的結果做檢查。回傳 { ok, violations, maskedChars, sources }。
+ * sources:有違規字元的文字來自哪些區塊(去重,附一小段原文),只在帶 origins 時才有內容。
+ */
 export function checkCollected(locale, collected) {
   const res = checkText(locale, collected.texts.join('\n'));
-  return { ...res, maskedChars: collected.maskedChars };
+  const sources = [];
+  if (!res.ok && Array.isArray(collected.origins)) {
+    const seen = new Set();
+    collected.texts.forEach((text, i) => {
+      if (checkText(locale, text).ok) return;
+      const origin = collected.origins[i] ?? '?';
+      if (seen.has(origin)) return;
+      seen.add(origin);
+      sources.push(`${origin}: ${text.trim().slice(0, 40)}`);
+    });
+  }
+  return { ...res, maskedChars: collected.maskedChars, sources };
 }
 
 /** 擷取腳本自測:植入一個違規字串,檢查器必須回報;乾淨字串必須通過。 */

@@ -32,6 +32,7 @@ import { MemoryUsagePanel, StepMemoryChips } from '../components/tasks/MemoryUsa
 import { LiveAnalysisView, analysisHint } from '../components/tasks/LiveAnalysisView.tsx';
 import { UsageView, usageHint } from '../components/tasks/UsageView.tsx';
 import { pick5 } from '../i18n/locale5.ts';
+import { kbDisplayName } from '../components/kb/builtinKbText.ts';
 import './ListPage.css';
 import './TaskDetailPage.css';
 
@@ -178,9 +179,10 @@ export default function TaskDetailPage() {
   const [kbNames, setKbNames] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     apiGet<ListResponse<KbSummary>>('/knowledge-bases')
-      .then((r) => setKbNames(new Map(r.items.map((k) => [k.id, k.name]))))
+      // 內建知識庫的 name 是後端的繁中字串,顯示名稱改走 i18n(與工作區、送出表單一致)。
+      .then((r) => setKbNames(new Map(r.items.map((k) => [k.id, kbDisplayName(k, t)]))))
       .catch(() => {});
-  }, []);
+  }, [t]);
 
   // 即時畫面串流:任務執行中(非終局)輪詢 live-frame,拿短效 presigned URL 換 <img>。
   // runner 持續覆寫同一 live 幀;URL 每次不同以繞過快取。任務終局即停止輪詢。

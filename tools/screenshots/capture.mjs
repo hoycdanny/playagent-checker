@@ -347,6 +347,7 @@ function makeShooter(locale, violations, { dryRun = false } = {}) {
       const chars = res.violations.map((v) => `${v.char}(${v.kind})`).join(' ');
       violations.push({ locale, file, slug, chars });
       console.error(`  ✗ 語言檢查失敗 ${locale}/${file}:${chars}`);
+      for (const s of res.sources ?? []) console.error(`      來源 ${s}`);
     }
     // 整頁截圖前先回到頂端:頂欄是 sticky 的,頁面捲過之後拍整頁會讓它卡在畫面中間。
     if (opts.fullPage && typeof target.evaluate === 'function') {
