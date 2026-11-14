@@ -243,10 +243,11 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ## ユーザーマニュアル
 
-以下では、初回実行でたどる順にウェブコンソールの全ページを説明します。本節全体に共通する前提は 5 点です。
+以下では、初回実行でたどる順にウェブコンソールの全ページを説明します。本節全体に共通する前提は 6 点です。
 
-- スクリーンショットは英語インターフェイスです。インターフェイス言語は上部バーの言語セレクターで 5 言語を切り替えられます。
-- 画面に写るデータはすべて隔離テナント内の合成デモデータです。`Example Slots`、`Example Slots Mobile`、`com.example.slotsgame`、`https://example.com` はいずれもプレースホルダーで、実在のタイトルではありません。
+- スクリーンショットは日本語インターフェイスで、実際のデプロイ環境から撮影しました。インターフェイス言語は上部バーの言語セレクターで 5 言語を切り替えられ、各 README にはその言語のスクリーンショットだけを載せています。
+- テスト対象のゲームは `https://play.slotomania.com/slots/`(アプリ名 `Slotomania (web demo)`)です。もう 1 つのアプリ `Example Slots Mobile`(`com.example.slotsgame`)は合成のプレースホルダーです。すべての実行は隔離された `demo` テナントの一時アカウント `qa-demo@example.com` で行い、撮影後にテナントのデータとアカウントを削除しました。
+- AI エージェントのステップ記述とレポート本文(エージェントがメモリマップに記録する画面名を含む)は、インターフェイス言語にかかわらず繁体字中国語で生成されます。画像 27–35 と 37–48 ではこれらの領域を斜線のマスクで覆い、ページのその他の部分は撮影したままです。生成テキストのローカライズは既知の未対応事項です。
 - *管理者のみ* と記したページおよびコントロールは、管理者ロールのないアカウントには表示されません。
 - ルートはハッシュルートで、インストーラーが出力したサイト URL の後ろに続きます。例:`https://<site-url>/#/apps`。
 - レポート、タスク詳細、コスト分析、画面ワークスペースのタブ名は日本語インターフェイスでも英語で表示されるため、以下では画面どおりに引用します。
@@ -255,7 +256,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/` —— 認証が成功するまでこのページが表示され、それ以前は他のルートに到達できません。
 
-![項目が未入力のサインインページ](docs/screenshots/01-login.png)
+![項目が未入力のサインインページ](docs/screenshots/ja/01-login.png)
 
 サインインカードは、インストーラーが作成した Cognito ユーザープールに対してアカウントを認証します。
 
@@ -267,7 +268,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/guide`
 
-![アプリ内ガイド](docs/screenshots/02-guide.png)
+![アプリ内ガイド](docs/screenshots/ja/02-guide.png)
 
 **使い方**はサインイン後のランディングページで、14 セクションでプラットフォーム全体を説明します。
 
@@ -278,7 +279,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/apps`
 
-![アプリのカード一覧](docs/screenshots/04-apps.png)
+![アプリのカード一覧](docs/screenshots/ja/04-apps.png)
 
 **アプリ管理**はゲームまたはアプリごとにワークスペースを 1 つ保持し、カードを選ぶとそのワークスペースが開きます。
 
@@ -287,7 +288,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### アプリの新規作成
 
-![アプリ作成フォーム](docs/screenshots/03-apps-create-form.png)
+![アプリ作成フォーム](docs/screenshots/ja/03-apps-create-form.png)
 
 作成フォームはテスト対象を登録するもので、他のすべてのページの前提になります。
 
@@ -303,13 +304,13 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### 概要
 
-![ワークスペースの概要タブ](docs/screenshots/09-workspace-overview.png)
+![ワークスペースの概要タブ](docs/screenshots/ja/09-workspace-overview.png)
 
 **概要**はアプリの要約です。ケース、タスク、レポートの件数と直近の実行を示します。
 
 #### テストケース
 
-![ワークスペースのテストケースタブ](docs/screenshots/11-workspace-cases.png)
+![ワークスペースのテストケースタブ](docs/screenshots/ja/11-workspace-cases.png)
 
 **テストケース**はこのアプリに定義されたフローの一覧で、エディターは後述の「テストケース」と同一です。
 
@@ -318,11 +319,11 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### テストタスク
 
-![ワークスペースのテストタスクタブ](docs/screenshots/24-workspace-tasks.png)
+![ワークスペースのテストタスクタブ](docs/screenshots/ja/24-workspace-tasks.png)
 
 **テストタスク**はこのアプリの実行一覧であり、新しい実行を投入する場所です。
 
-![入力済みのタスク投入フォーム](docs/screenshots/25-task-submit-form.png)
+![入力済みのタスク投入フォーム](docs/screenshots/ja/25-task-submit-form.png)
 
 投入フォームは、実行開始前に必要な条件をすべて確定させます。
 
@@ -337,13 +338,13 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### 記憶マップ
 
-![ワークスペースの記憶マップタブ](docs/screenshots/45-workspace-memory.png)
+![ワークスペースの記憶マップタブ](docs/screenshots/ja/45-workspace-memory.png)
 
 **記憶マップ**はこのアプリの実行が学習した画面を、サムネイル付きのノードと遷移のエッジで表示します。
 
 #### テスト認証情報
 
-![ワークスペースのテスト認証情報タブ](docs/screenshots/13-workspace-credentials.png)
+![ワークスペースのテスト認証情報タブ](docs/screenshots/ja/13-workspace-credentials.png)
 
 **テスト認証情報**はアプリのログイン機密を AWS Secrets Manager に保管し、キー名のみを返します。
 
@@ -352,13 +353,13 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### ビルド
 
-![ワークスペースのビルドタブ](docs/screenshots/10-workspace-builds.png)
+![ワークスペースのビルドタブ](docs/screenshots/ja/10-workspace-builds.png)
 
 **ビルド**はアップロード済みのアーティファクト(APK/IPA/XAPK/ZIP/EXE)を保持し、次の実行でインストールするものを示します。
 
 #### ナレッジ
 
-![ワークスペースのナレッジタブ](docs/screenshots/12-workspace-knowledge.png)
+![ワークスペースのナレッジタブ](docs/screenshots/ja/12-workspace-knowledge.png)
 
 **ナレッジ**はナレッジベースをアプリに紐付け、すべてのタスクに継承させます。スクリーンショットには組み込みベースのみが並んでいます。
 
@@ -366,13 +367,13 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/cases`
 
-![全アプリ横断のテストケース](docs/screenshots/14-cases.png)
+![全アプリ横断のテストケース](docs/screenshots/ja/14-cases.png)
 
 **テストケース**はテナント内の全アプリのケースを一覧し、開くエディターはワークスペースタブが埋め込むものと同一です。エディターには 3 つの作成モードがあります。
 
 #### 自然言語
 
-![自然言語モード](docs/screenshots/05-case-form-nl.png)
+![自然言語モード](docs/screenshots/ja/05-case-form-nl.png)
 
 **自然言語**は平易な説明文からケースを下書きします。ドラフト用モデルがそれを YAML に変換し、レビューに回します。
 
@@ -380,7 +381,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### 受け入れ基準
 
-![構造化された受け入れ基準エディター](docs/screenshots/06-case-form-acceptance.png)
+![構造化された受け入れ基準エディター](docs/screenshots/ja/06-case-form-acceptance.png)
 
 受け入れ基準エディターは合格条件を 1 行 1 基準で定義し、その行がレポートの判定表になります。
 
@@ -388,7 +389,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### YAML
 
-![YAML モード](docs/screenshots/07-case-form-yaml.png)
+![YAML モード](docs/screenshots/ja/07-case-form-yaml.png)
 
 **YAML** はケースの保存形式であり、モデル呼び出しを伴わない決定的な経路です。
 
@@ -397,7 +398,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### Excel から取り込み
 
-![Excel 取り込みモード](docs/screenshots/08-case-form-excel.png)
+![Excel 取り込みモード](docs/screenshots/ja/08-case-form-excel.png)
 
 **Excel から取り込み**は既存のテスト手順表をケースに変換し、行ブロック 1 つがケース 1 件になります。
 
@@ -405,7 +406,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/knowledge`
 
-![組み込みナレッジテンプレート](docs/screenshots/15-knowledge-templates.png)
+![組み込みナレッジテンプレート](docs/screenshots/ja/15-knowledge-templates.png)
 
 **ナレッジ管理**はタスクが読み取れる内容を管理します。Markdown は全文を注入し、PDF は必要に応じて検索します。
 
@@ -421,7 +422,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/devices`
 
-![デバイス管理ページ](docs/screenshots/16-devices.png)
+![デバイス管理ページ](docs/screenshots/ja/16-devices.png)
 
 **デバイス管理**は現在利用できる実行リソースと、プラットフォームに接続されたローカルデバイスを報告します。
 
@@ -434,7 +435,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/cost`
 
-![テストコストのタブ](docs/screenshots/17-cost.png)
+![テストコストのタブ](docs/screenshots/ja/17-cost.png)
 
 **コスト分析**は、テストに要した費用と AWS が実際に請求した金額を分けて示します。
 
@@ -450,7 +451,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/members` —— *管理者のみ*
 
-![1 件のアカウントに絞り込んだメンバー一覧](docs/screenshots/18-members.png)
+![1 件のアカウントに絞り込んだメンバー一覧](docs/screenshots/ja/18-members.png)
 
 **メンバー管理**はサインインできる対象と、各アカウントが属するテナントを管理します。
 
@@ -459,7 +460,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### メンバー追加
 
-![メンバー追加フォーム](docs/screenshots/19-members-add.png)
+![メンバー追加フォーム](docs/screenshots/ja/19-members-add.png)
 
 追加フォームはテナントと初期パスワードを指定してアカウントを作成します。同一テナントのアカウントは、そのアプリとテストデータを共有します。
 
@@ -469,7 +470,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/model-admin` —— *管理者のみ*
 
-![モデル管理ページ](docs/screenshots/20-model-admin.png)
+![モデル管理ページ](docs/screenshots/ja/20-model-admin.png)
 
 **モデル管理**は各シートで利用できるモデルと定価を一覧します。実行時の価格スナップショットはここから取得されます。
 
@@ -481,7 +482,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### システム更新
 
-![システム更新セクション](docs/screenshots/21-system-update.png)
+![システム更新セクション](docs/screenshots/ja/21-system-update.png)
 
 **システム更新**は現在のバージョンと GitHub の最新バージョンを比較し、CodeBuild 経由で再デプロイします。
 
@@ -490,7 +491,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### UI-TARS グラウンディングモデル
 
-![オフのままの UI-TARS スイッチ](docs/screenshots/22-system-uitars.png)
+![オフのままの UI-TARS スイッチ](docs/screenshots/ja/22-system-uitars.png)
 
 **UI-TARS グラウンディングモデル**のスイッチは、任意利用の GPU エンドポイントを起動・停止します。オンの間は継続的に課金されます。
 
@@ -498,7 +499,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### 集中ログ
 
-![集中ログの検索条件](docs/screenshots/23-system-logs.png)
+![集中ログの検索条件](docs/screenshots/ja/23-system-logs.png)
 
 **集中ログ**は CloudWatch Logs Insights で全サービスのログを一度に検索します。
 
@@ -508,7 +509,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/tasks`
 
-![実行中タスクを含むタスク一覧](docs/screenshots/26-tasks-running.png)
+![実行中タスクを含むタスク一覧](docs/screenshots/ja/26-tasks-running.png)
 
 **テストタスク**はテナント内の全実行を新しい順に一覧し、実行中のタスクへの入口になります。
 
@@ -523,47 +524,47 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### Live log
 
-![実行中のタスク詳細](docs/screenshots/27-task-detail-live.png)
+![実行中のタスク詳細](docs/screenshots/ja/27-task-detail-live.png)
 
 **Live log** は実行中の進行をステップごとに追い、ライブ画面とステップタイムラインと並んで表示されます。
 
 #### Full logs
 
-![実行中の Full logs ペイン](docs/screenshots/28-task-detail-live-logs.png)
+![実行中の Full logs ペイン](docs/screenshots/ja/28-task-detail-live-logs.png)
 
 **Full logs** はその実行のランナーログとデバイスログを集約します。
 
-![実行終了後の Full logs ペイン](docs/screenshots/31-task-detail-logs.png)
+![実行終了後の Full logs ペイン](docs/screenshots/ja/31-task-detail-logs.png)
 
 終了状態に入ると、同じペインに完了した実行の全ログが残ります。
 
 #### Steps
 
-![Steps ペイン](docs/screenshots/30-task-detail-trace.png)
+![Steps ペイン](docs/screenshots/ja/30-task-detail-trace.png)
 
 **Steps** はトレースです。1 行が 1 アクションで、スクリーンショット、操作対象、結果を伴います。
 
 #### Metrics
 
-![Metrics ペイン](docs/screenshots/32-task-detail-analysis.png)
+![Metrics ペイン](docs/screenshots/ja/32-task-detail-analysis.png)
 
 **Metrics** は実行中に観測した数値をグラフ化し、選択した指標ごとに 1 系列を描きます。
 
 #### Token usage
 
-![Token usage ペイン](docs/screenshots/33-task-detail-usage.png)
+![Token usage ペイン](docs/screenshots/ja/33-task-detail-usage.png)
 
 **Token usage** は費用をシート別・ステップ別に分解し、その実行の総コストを示します。
 
 #### Script & run info
 
-![Script & run info ペイン](docs/screenshots/34-task-detail-script.png)
+![Script & run info ペイン](docs/screenshots/ja/34-task-detail-script.png)
 
 **Script & run info** は、この実行に用いたケースのバージョン、ランタイム、上限設定を記録します。
 
 #### Ask AI
 
-![質問と回答がある Ask AI ペイン](docs/screenshots/35-task-detail-ask.png)
+![質問と回答がある Ask AI ペイン](docs/screenshots/ja/35-task-detail-ask.png)
 
 **Ask AI** はその実行自身のトレース、ログ、指標に基づいて質問に回答します。
 
@@ -575,7 +576,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/live/:jobId`
 
-![ポップアウトのライブ画面](docs/screenshots/29-live-popout.png)
+![ポップアウトのライブ画面](docs/screenshots/ja/29-live-popout.png)
 
 ポップアウトはナビゲーションを含まず、ライブ画面だけを描画します。セカンドモニターや共有表示に向いています。
 
@@ -585,7 +586,7 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 ルート:`#/reports`
 
-![レポート一覧](docs/screenshots/36-reports.png)
+![レポート一覧](docs/screenshots/ja/36-reports.png)
 
 **テストレポート**はテナント内の完成したレポートを一覧します。終了状態に達した実行ごとに 1 件のレポートが生成されます。
 
@@ -597,19 +598,19 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### Cover
 
-![レポート表紙](docs/screenshots/37-report-cover.png)
+![レポート表紙](docs/screenshots/ja/37-report-cover.png)
 
 表紙には全体のテストステータス、アプリ、ケースのバージョン、実行サマリーが載ります。
 
 #### Acceptance Verdict & Criteria
 
-![受け入れ判定表](docs/screenshots/38-report-acceptance.png)
+![受け入れ判定表](docs/screenshots/ja/38-report-acceptance.png)
 
 このセクションはケースの受け入れ基準を 1 条ずつ判定し、判定の根拠となる証跡を示します。
 
 #### Verdict Matrix
 
-![判定マトリクス](docs/screenshots/39-report-verdicts.png)
+![判定マトリクス](docs/screenshots/ja/39-report-verdicts.png)
 
 マトリクスの 1 行が 1 件の合否判定です。マイルストーンは証跡全体に対するルールで判定され、ステップ判定は AI がアクション前に宣言した期待値を次の画面で判定したものです。
 
@@ -617,31 +618,31 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### AI Execution Evidence
 
-![AI 実行証跡](docs/screenshots/40-report-evidence.png)
+![AI 実行証跡](docs/screenshots/ja/40-report-evidence.png)
 
 証跡セクションは実行をステップごとに再現し、各ステップに当時のスクリーンショットと推論記録を添えます。
 
 #### Release Readiness
 
-![リリース準備度](docs/screenshots/41-report-release.png)
+![リリース準備度](docs/screenshots/ja/41-report-release.png)
 
 リリース準備度は設定したしきい値に照らして判定を推奨へ換算します。カバレッジ不足で判断できない場合も含みます。
 
 #### Report guide —— Overview
 
-![レポートアシスタントの Overview タブ](docs/screenshots/42-report-assistant-guide.png)
+![レポートアシスタントの Overview タブ](docs/screenshots/ja/42-report-assistant-guide.png)
 
 レポートアシスタントはレポート端のランチャーから開き、既定で **Overview** を表示します。判定が何に基づくか、主張がどこまで及ぶかを述べるタブです。
 
 #### Report guide —— Q&A
 
-![レポートアシスタントの Q&A タブ](docs/screenshots/43-report-assistant-ask.png)
+![レポートアシスタントの Q&A タブ](docs/screenshots/ja/43-report-assistant-ask.png)
 
 **Q&A** は開いているレポート自身のデータに基づいて質問に回答します。スクリーンショットは質問欄が未使用の状態です。同一コンポーネントで回答済みのやり取りは、前述の **Ask AI** に掲載しています。
 
 #### Report guide —— Review
 
-![レポートアシスタントの Review タブ](docs/screenshots/44-report-assistant-review.png)
+![レポートアシスタントの Review タブ](docs/screenshots/ja/44-report-assistant-review.png)
 
 **Review** は争点のある判定を訂正する場所です。所見は理由付きで上書きでき、その上書きはレポートとともに保存され、アプリの記憶マップにも書き戻されます。スクリーンショットは、この実行に未処理の所見がない空の状態です。
 
@@ -653,19 +654,19 @@ SDK やエンドポイントを選ぶ必要はありません。システムが�
 
 #### 関係図
 
-![記憶マップの関係図ビュー](docs/screenshots/46-memory-graph.png)
+![記憶マップの関係図ビュー](docs/screenshots/ja/46-memory-graph.png)
 
 **関係図**はセレクターで選んだアプリの画面と遷移を描画し、画面数・遷移数・コントロール数を示します。
 
 #### ギャラリー
 
-![記憶マップのギャラリービュー](docs/screenshots/47-memory-grid.png)
+![記憶マップのギャラリービュー](docs/screenshots/ja/47-memory-grid.png)
 
 **ギャラリー**は同じ画面群をサムネイルで表示します。見た目から画面を探す場合はこちらが速いです。
 
 #### 画面ワークスペース
 
-![1 画面を開いた画面ワークスペース](docs/screenshots/48-memory-screen-studio.png)
+![1 画面を開いた画面ワークスペース](docs/screenshots/ja/48-memory-screen-studio.png)
 
 画面を選ぶとそのワークスペースが開き、3 つのタブが並びます。**Script & actions** は記録されたコントロール、**Screen details** は説明、**Appium code** は生成されたスクリプトです。
 

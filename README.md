@@ -243,10 +243,11 @@ The **System admin** page (admins only) has three tools.
 
 ## User manual
 
-The subsections below cover every page of the web console, in the order a first run passes through them. Four points apply throughout:
+The subsections below cover every page of the web console, in the order a first run passes through them. Five points apply throughout:
 
-- The screenshots show the English interface. The language selector in the top bar switches between all five interface languages.
-- Everything visible in them is synthetic demo data from an isolated tenant: `Example Slots`, `Example Slots Mobile`, `com.example.slotsgame` and `https://example.com` are placeholders, not real titles.
+- The screenshots show the English interface, captured from a live deployment. The language selector in the top bar switches between all five interface languages, and each README shows the screenshots of its own language.
+- The game under test is `https://play.slotomania.com/slots/` (the app `Slotomania (web demo)`). The second app, `Example Slots Mobile` (`com.example.slotsgame`), is a synthetic placeholder. Every run used a temporary account, `qa-demo@example.com`, in an isolated `demo` tenant that was deleted after the capture.
+- The AI agent's step notes and the report body, including the screen names the agent records in the memory map, are generated in Traditional Chinese regardless of the interface language. In images 27–35 and 37–48 these regions are covered with a striped mask; the rest of each page is shown as captured. Localizing generated text is a known open item.
 - Pages and controls marked *admins only* are hidden from accounts without the admin role.
 - Routes are hash routes appended to the site URL the installer prints, for example `https://<site-url>/#/apps`.
 
@@ -254,7 +255,7 @@ The subsections below cover every page of the web console, in the order a first 
 
 Route: `#/` — rendered until authentication succeeds, so no other route is reachable before it.
 
-![Sign-in page with empty fields](docs/screenshots/01-login.png)
+![Sign-in page with empty fields](docs/screenshots/en/01-login.png)
 
 The sign-in card authenticates an account against the Cognito user pool the installer created.
 
@@ -266,7 +267,7 @@ The sign-in card authenticates an account against the Cognito user pool the inst
 
 Route: `#/guide`
 
-![In-app guide](docs/screenshots/02-guide.png)
+![In-app guide](docs/screenshots/en/02-guide.png)
 
 **Guide** is the landing page after sign-in and describes the platform in 14 sections.
 
@@ -277,7 +278,7 @@ Route: `#/guide`
 
 Route: `#/apps`
 
-![Apps card wall](docs/screenshots/04-apps.png)
+![Apps card wall](docs/screenshots/en/04-apps.png)
 
 **Apps** holds one workspace per game or application; selecting a card opens that workspace.
 
@@ -286,7 +287,7 @@ Route: `#/apps`
 
 #### Create an app
 
-![Create-app form](docs/screenshots/03-apps-create-form.png)
+![Create-app form](docs/screenshots/en/03-apps-create-form.png)
 
 The create form registers the target under test, which is the precondition for every other page.
 
@@ -302,13 +303,13 @@ The workspace is the per-app view. Its eight tabs keep their state in the `?tab=
 
 #### Overview
 
-![Workspace overview tab](docs/screenshots/09-workspace-overview.png)
+![Workspace overview tab](docs/screenshots/en/09-workspace-overview.png)
 
 **Overview** summarises the app: counts for cases, tasks and reports, plus the most recent run.
 
 #### Test Cases
 
-![Workspace test-cases tab](docs/screenshots/11-workspace-cases.png)
+![Workspace test-cases tab](docs/screenshots/en/11-workspace-cases.png)
 
 **Test Cases** lists the flows defined for this app, in the same editor documented under **Test Cases** below.
 
@@ -317,11 +318,11 @@ The workspace is the per-app view. Its eight tabs keep their state in the `?tab=
 
 #### Test Tasks
 
-![Workspace test-tasks tab](docs/screenshots/24-workspace-tasks.png)
+![Workspace test-tasks tab](docs/screenshots/en/24-workspace-tasks.png)
 
 **Test Tasks** lists this app's runs and is where a new run is submitted.
 
-![Filled task submission form](docs/screenshots/25-task-submit-form.png)
+![Filled task submission form](docs/screenshots/en/25-task-submit-form.png)
 
 The submission form fixes everything a run needs before it starts:
 
@@ -336,13 +337,13 @@ The submission form fixes everything a run needs before it starts:
 
 #### Memory Map
 
-![Workspace memory tab](docs/screenshots/45-workspace-memory.png)
+![Workspace memory tab](docs/screenshots/en/45-workspace-memory.png)
 
 **Memory Map** shows the screens this app's runs have learned, as nodes with their thumbnails and transitions as edges.
 
 #### Test credentials
 
-![Workspace test-credentials tab](docs/screenshots/13-workspace-credentials.png)
+![Workspace test-credentials tab](docs/screenshots/en/13-workspace-credentials.png)
 
 **Test credentials** keeps the login secrets of the app in AWS Secrets Manager and returns only their keys.
 
@@ -351,13 +352,13 @@ The submission form fixes everything a run needs before it starts:
 
 #### Builds
 
-![Workspace builds tab](docs/screenshots/10-workspace-builds.png)
+![Workspace builds tab](docs/screenshots/en/10-workspace-builds.png)
 
 **Builds** holds the uploaded artifacts (APK/IPA/XAPK/ZIP/EXE) and marks which one the next run installs.
 
 #### Knowledge
 
-![Workspace knowledge tab](docs/screenshots/12-workspace-knowledge.png)
+![Workspace knowledge tab](docs/screenshots/en/12-workspace-knowledge.png)
 
 **Knowledge** binds knowledge bases to the app so that every task inherits them. The screenshot lists built-in bases only.
 
@@ -365,13 +366,13 @@ The submission form fixes everything a run needs before it starts:
 
 Route: `#/cases`
 
-![Test cases across all apps](docs/screenshots/14-cases.png)
+![Test cases across all apps](docs/screenshots/en/14-cases.png)
 
 **Test Cases** lists the cases of every app in the tenant and opens the same editor that the workspace tab embeds. The editor has three authoring modes.
 
 #### Natural language
 
-![Natural-language authoring mode](docs/screenshots/05-case-form-nl.png)
+![Natural-language authoring mode](docs/screenshots/en/05-case-form-nl.png)
 
 **Natural language** drafts a case from a plain description: a drafting model turns it into YAML for review.
 
@@ -379,7 +380,7 @@ Route: `#/cases`
 
 #### Acceptance criteria
 
-![Structured acceptance criteria editor](docs/screenshots/06-case-form-acceptance.png)
+![Structured acceptance criteria editor](docs/screenshots/en/06-case-form-acceptance.png)
 
 The acceptance editor states what counts as a pass, one row per criterion, and those rows become the verdict table of the report.
 
@@ -387,7 +388,7 @@ The acceptance editor states what counts as a pass, one row per criterion, and t
 
 #### Raw YAML
 
-![Raw YAML authoring mode](docs/screenshots/07-case-form-yaml.png)
+![Raw YAML authoring mode](docs/screenshots/en/07-case-form-yaml.png)
 
 **Raw YAML** is the stored form of a case and the deterministic path, with no model call involved.
 
@@ -396,7 +397,7 @@ The acceptance editor states what counts as a pass, one row per criterion, and t
 
 #### Import from Excel
 
-![Excel import mode](docs/screenshots/08-case-form-excel.png)
+![Excel import mode](docs/screenshots/en/08-case-form-excel.png)
 
 **Import from Excel** converts an existing spreadsheet of test steps into cases, one case per row block.
 
@@ -404,7 +405,7 @@ The acceptance editor states what counts as a pass, one row per criterion, and t
 
 Route: `#/knowledge`
 
-![Built-in knowledge templates](docs/screenshots/15-knowledge-templates.png)
+![Built-in knowledge templates](docs/screenshots/en/15-knowledge-templates.png)
 
 **Knowledge** manages what a task may read: Markdown injected in full, PDFs retrieved on demand.
 
@@ -420,7 +421,7 @@ The second tab holds the bases uploaded on this platform. It is covered in prose
 
 Route: `#/devices`
 
-![Devices page](docs/screenshots/16-devices.png)
+![Devices page](docs/screenshots/en/16-devices.png)
 
 **Devices** reports the execution capacity currently available and the local devices attached to the platform.
 
@@ -433,7 +434,7 @@ Route: `#/devices`
 
 Route: `#/cost`
 
-![Testing cost tab](docs/screenshots/17-cost.png)
+![Testing cost tab](docs/screenshots/en/17-cost.png)
 
 **Cost Analysis** separates what testing cost from what AWS billed.
 
@@ -449,7 +450,7 @@ The second tab reads the actual bill from Cost Explorer. It is covered in prose 
 
 Route: `#/members` — *admins only*
 
-![Member list filtered to one account](docs/screenshots/18-members.png)
+![Member list filtered to one account](docs/screenshots/en/18-members.png)
 
 **Members** manages who can sign in and which tenant each account belongs to.
 
@@ -458,7 +459,7 @@ Route: `#/members` — *admins only*
 
 #### Add member
 
-![Add-member form](docs/screenshots/19-members-add.png)
+![Add-member form](docs/screenshots/en/19-members-add.png)
 
 The add form creates an account with a tenant and an initial password; accounts in one tenant share its apps and test data.
 
@@ -468,7 +469,7 @@ The add form creates an account with a tenant and an initial password; accounts 
 
 Route: `#/model-admin` — *admins only*
 
-![Model admin page](docs/screenshots/20-model-admin.png)
+![Model admin page](docs/screenshots/en/20-model-admin.png)
 
 **Model admin** lists the models available to each seat together with their list prices, which is where the price snapshot of a run comes from.
 
@@ -480,7 +481,7 @@ Route: `#/system` — *admins only*
 
 #### System update
 
-![System update section](docs/screenshots/21-system-update.png)
+![System update section](docs/screenshots/en/21-system-update.png)
 
 **System update** compares the deployed version with the latest on GitHub and redeploys through CodeBuild.
 
@@ -489,7 +490,7 @@ Route: `#/system` — *admins only*
 
 #### UI-TARS grounding model
 
-![UI-TARS switch, off](docs/screenshots/22-system-uitars.png)
+![UI-TARS switch, off](docs/screenshots/en/22-system-uitars.png)
 
 The **UI-TARS grounding model** switch starts and stops the optional GPU endpoint, which bills continuously while on.
 
@@ -497,7 +498,7 @@ The **UI-TARS grounding model** switch starts and stops the optional GPU endpoin
 
 #### Centralized logs
 
-![Centralized log filters](docs/screenshots/23-system-logs.png)
+![Centralized log filters](docs/screenshots/en/23-system-logs.png)
 
 **Centralized logs** queries CloudWatch Logs Insights across every service at once.
 
@@ -507,7 +508,7 @@ The **UI-TARS grounding model** switch starts and stops the optional GPU endpoin
 
 Route: `#/tasks`
 
-![Task list with a running task](docs/screenshots/26-tasks-running.png)
+![Task list with a running task](docs/screenshots/en/26-tasks-running.png)
 
 **Test Tasks** lists every run in the tenant, newest first, and is the entry point to a run while it is live.
 
@@ -522,47 +523,47 @@ The detail page keeps the live screen on the left and one of eight panes on the 
 
 #### Live log
 
-![Task detail during a run](docs/screenshots/27-task-detail-live.png)
+![Task detail during a run](docs/screenshots/en/27-task-detail-live.png)
 
 **Live log** follows the run step by step while it executes, beside the live screen and the step timeline.
 
 #### Full logs
 
-![Full logs pane during a run](docs/screenshots/28-task-detail-live-logs.png)
+![Full logs pane during a run](docs/screenshots/en/28-task-detail-live-logs.png)
 
 **Full logs** collects the runner and device logs of the run.
 
-![Full logs pane after the run](docs/screenshots/31-task-detail-logs.png)
+![Full logs pane after the run](docs/screenshots/en/31-task-detail-logs.png)
 
 After a terminal state the same pane holds the complete log of the finished run.
 
 #### Steps
 
-![Steps pane](docs/screenshots/30-task-detail-trace.png)
+![Steps pane](docs/screenshots/en/30-task-detail-trace.png)
 
 **Steps** is the trace: one row per action with its screenshot, its target and its result.
 
 #### Metrics
 
-![Metrics pane](docs/screenshots/32-task-detail-analysis.png)
+![Metrics pane](docs/screenshots/en/32-task-detail-analysis.png)
 
 **Metrics** charts the numeric values observed during the run, one series per selected metric.
 
 #### Token usage
 
-![Token usage pane](docs/screenshots/33-task-detail-usage.png)
+![Token usage pane](docs/screenshots/en/33-task-detail-usage.png)
 
 **Token usage** breaks spend down per seat and per step, with the total cost of the run.
 
 #### Script & run info
 
-![Script and run info pane](docs/screenshots/34-task-detail-script.png)
+![Script and run info pane](docs/screenshots/en/34-task-detail-script.png)
 
 **Script & run info** records which case version, runtime and limits produced this run.
 
 #### Ask AI
 
-![Ask AI pane with a question and an answer](docs/screenshots/35-task-detail-ask.png)
+![Ask AI pane with a question and an answer](docs/screenshots/en/35-task-detail-ask.png)
 
 **Ask AI** answers questions about this run from its own trace, logs and metrics.
 
@@ -574,7 +575,7 @@ After a terminal state the same pane holds the complete log of the finished run.
 
 Route: `#/live/:jobId`
 
-![Pop-out live screen](docs/screenshots/29-live-popout.png)
+![Pop-out live screen](docs/screenshots/en/29-live-popout.png)
 
 The pop-out renders the live screen alone, without navigation, for a second monitor or a shared view.
 
@@ -584,7 +585,7 @@ The pop-out renders the live screen alone, without navigation, for a second moni
 
 Route: `#/reports`
 
-![Report list](docs/screenshots/36-reports.png)
+![Report list](docs/screenshots/en/36-reports.png)
 
 **Test Reports** lists the finished reports of the tenant; one report is produced per run that reached a terminal state.
 
@@ -596,19 +597,19 @@ A report is one scrollable document. Its sections appear below in reading order.
 
 #### Cover
 
-![Report cover](docs/screenshots/37-report-cover.png)
+![Report cover](docs/screenshots/en/37-report-cover.png)
 
 The cover carries the overall test status, the app, the case version and the run summary.
 
 #### Acceptance Verdict & Criteria
 
-![Acceptance verdict table](docs/screenshots/38-report-acceptance.png)
+![Acceptance verdict table](docs/screenshots/en/38-report-acceptance.png)
 
 This section judges each acceptance criterion of the case separately and states the evidence behind the verdict.
 
 #### Verdict Matrix
 
-![Verdict matrix](docs/screenshots/39-report-verdicts.png)
+![Verdict matrix](docs/screenshots/en/39-report-verdicts.png)
 
 The matrix holds one row per pass/fail decision: milestones decided by rules over the whole evidence, and step checks declared before an action and judged on the next screen.
 
@@ -616,31 +617,31 @@ The matrix holds one row per pass/fail decision: milestones decided by rules ove
 
 #### AI Execution Evidence
 
-![AI execution evidence](docs/screenshots/40-report-evidence.png)
+![AI execution evidence](docs/screenshots/en/40-report-evidence.png)
 
 The evidence section replays the run step by step, each step with its screenshot and the reasoning recorded at the time.
 
 #### Release Readiness
 
-![Release readiness](docs/screenshots/41-report-release.png)
+![Release readiness](docs/screenshots/en/41-report-release.png)
 
 Release readiness turns the verdicts into a recommendation against the configured thresholds, including the case where coverage is too thin to judge.
 
 #### Report guide — Overview
 
-![Report assistant, overview tab](docs/screenshots/42-report-assistant-guide.png)
+![Report assistant, overview tab](docs/screenshots/en/42-report-assistant-guide.png)
 
 The report assistant opens from the launcher at the edge of the report and starts on **Overview**, which states what the verdict rests on and where the claim stops.
 
 #### Report guide — Q&A
 
-![Report assistant, Q&A tab](docs/screenshots/43-report-assistant-ask.png)
+![Report assistant, Q&A tab](docs/screenshots/en/43-report-assistant-ask.png)
 
 **Q&A** answers questions about the open report from the report's own data. The screenshot shows the empty question box; an answered exchange in the same component appears under [Ask AI](#ask-ai) above.
 
 #### Report guide — Review
 
-![Report assistant, review tab](docs/screenshots/44-report-assistant-review.png)
+![Report assistant, review tab](docs/screenshots/en/44-report-assistant-review.png)
 
 **Review** is where a disputed verdict is corrected: a finding can be overridden with a reason, which is stored with the report and written back to the memory map of the app. The screenshot shows the empty state of a run with no findings awaiting triage.
 
@@ -652,19 +653,19 @@ The memory map accumulates across runs: screens become nodes, transitions become
 
 #### Graph
 
-![Memory map, graph view](docs/screenshots/46-memory-graph.png)
+![Memory map, graph view](docs/screenshots/en/46-memory-graph.png)
 
 **Graph** draws the screens and transitions of the app selected in the picker, with counts for screens, transitions and controls.
 
 #### Gallery
 
-![Memory map, gallery view](docs/screenshots/47-memory-grid.png)
+![Memory map, gallery view](docs/screenshots/en/47-memory-grid.png)
 
 **Gallery** shows the same screens as thumbnails, which is the faster way to find one by appearance.
 
 #### Screen workspace
 
-![Screen workspace open on one screen](docs/screenshots/48-memory-screen-studio.png)
+![Screen workspace open on one screen](docs/screenshots/en/48-memory-screen-studio.png)
 
 Selecting a screen opens its workspace with three tabs: **Script & actions** for the recorded controls, **Screen details** for the description, and **Appium code** for the generated script.
 

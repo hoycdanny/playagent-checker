@@ -243,10 +243,11 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 ## 使用手册
 
-以下按照第一次运行会经过的顺序，逐页说明网页控制台。五项前提通用于整节：
+以下按照第一次运行会经过的顺序，逐页说明网页控制台。六项前提通用于整节：
 
-- 截图为英文界面；界面语言可在顶部工具栏的语言菜单切换，共五种语言。
-- 图中所有数据均为隔离租户内的合成演示数据：`Example Slots`、`Example Slots Mobile`、`com.example.slotsgame` 与 `https://example.com` 都是占位名称，并非真实标题。
+- 截图为简体中文界面，拍摄自实际部署的环境；界面语言可在顶部工具栏的语言菜单切换，共五种语言，每份 README 只放自己语言的截图。
+- 受测游戏为 `https://play.slotomania.com/slots/`（App 名称 `Slotomania (web demo)`）；另一个 App `Example Slots Mobile`（`com.example.slotsgame`）为合成的占位数据。所有运行都使用隔离 `demo` 租户内的临时账号 `qa-demo@example.com`，拍摄结束后该租户数据与账号已删除。
+- AI agent 的步骤说明与报告正文（包括 agent 记在记忆地图里的画面名称）无论界面语言如何，一律以繁体中文生成。第 27–48 张截图中的这些区域以斜纹遮罩覆盖，页面其余部分保持拍摄原样。让生成的文字跟随界面语言是已知的待办事项。
 - 标注 *仅管理员* 的页面与控件，不具管理员角色的账号看不到。
 - 路由均为 hash 路由，接在安装器输出的网站地址之后，例如 `https://<site-url>/#/apps`。
 - 报告、任务详情、费用分析与画面工作区的分页名称在简体界面下沿用繁体字串，下文按界面原样引用。
@@ -255,7 +256,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/`——验证成功前都显示此页，在此之前无法进入其他路由。
 
-![字段尚未填写的登录页](docs/screenshots/01-login.png)
+![字段尚未填写的登录页](docs/screenshots/zh-Hans/01-login.png)
 
 登录卡片会向安装器创建的 Cognito 用户池验证账号。
 
@@ -267,7 +268,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/guide`
 
-![应用内使用指南](docs/screenshots/02-guide.png)
+![应用内使用指南](docs/screenshots/zh-Hans/02-guide.png)
 
 **使用说明**是登录后的首页，以 14 个章节说明整个平台。
 
@@ -278,7 +279,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/apps`
 
-![应用卡片墙](docs/screenshots/04-apps.png)
+![应用卡片墙](docs/screenshots/zh-Hans/04-apps.png)
 
 **应用管理**为每个游戏或应用保留一个工作区，点击卡片即进入该工作区。
 
@@ -287,7 +288,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 新增应用
 
-![新增应用表单](docs/screenshots/03-apps-create-form.png)
+![新增应用表单](docs/screenshots/zh-Hans/03-apps-create-form.png)
 
 新增表单用于登记被测目标，这是其他所有页面的前提。
 
@@ -303,13 +304,13 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 总览
 
-![工作区总览分页](docs/screenshots/09-workspace-overview.png)
+![工作区总览分页](docs/screenshots/zh-Hans/09-workspace-overview.png)
 
 **总览**汇总该应用的概况：用例、任务与报告的数量，以及最近一次运行。
 
 #### 测试用例
 
-![工作区测试用例分页](docs/screenshots/11-workspace-cases.png)
+![工作区测试用例分页](docs/screenshots/zh-Hans/11-workspace-cases.png)
 
 **测试用例**列出为此应用定义的流程，使用与下方“测试用例”相同的编辑器。
 
@@ -318,11 +319,11 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 测试任务
 
-![工作区测试任务分页](docs/screenshots/24-workspace-tasks.png)
+![工作区测试任务分页](docs/screenshots/zh-Hans/24-workspace-tasks.png)
 
 **测试任务**列出此应用的运行记录，也是提交新运行的位置。
 
-![填好的提交任务表单](docs/screenshots/25-task-submit-form.png)
+![填好的提交任务表单](docs/screenshots/zh-Hans/25-task-submit-form.png)
 
 提交表单在运行开始前就确定所有必要条件：
 
@@ -337,13 +338,13 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 记忆地图
 
-![工作区记忆地图分页](docs/screenshots/45-workspace-memory.png)
+![工作区记忆地图分页](docs/screenshots/zh-Hans/45-workspace-memory.png)
 
 **记忆地图**显示此应用历次运行学到的画面，画面为节点并附缩略图，画面跳转为连线。
 
 #### 测试凭证
 
-![工作区测试凭证分页](docs/screenshots/13-workspace-credentials.png)
+![工作区测试凭证分页](docs/screenshots/zh-Hans/13-workspace-credentials.png)
 
 **测试凭证**将应用的登录密钥存放在 AWS Secrets Manager，只返回其键名。
 
@@ -352,13 +353,13 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 版本
 
-![工作区版本分页](docs/screenshots/10-workspace-builds.png)
+![工作区版本分页](docs/screenshots/zh-Hans/10-workspace-builds.png)
 
 **版本**保存已上传的安装包（APK/IPA/XAPK/ZIP/EXE），并标明下一次运行要安装哪一个。
 
 #### 知识
 
-![工作区知识分页](docs/screenshots/12-workspace-knowledge.png)
+![工作区知识分页](docs/screenshots/zh-Hans/12-workspace-knowledge.png)
 
 **知识**把知识库绑定到应用，使每个任务都自动继承。截图中仅列出内建知识库。
 
@@ -366,13 +367,13 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/cases`
 
-![跨所有应用的测试用例](docs/screenshots/14-cases.png)
+![跨所有应用的测试用例](docs/screenshots/zh-Hans/14-cases.png)
 
 **测试用例**列出租户内所有应用的用例，打开的编辑器与工作区分页内嵌的是同一个。编辑器有三种撰写模式。
 
 #### 自然语言
 
-![自然语言撰写模式](docs/screenshots/05-case-form-nl.png)
+![自然语言撰写模式](docs/screenshots/zh-Hans/05-case-form-nl.png)
 
 **自然语言**由一段白话描述草拟用例：草拟模型会把它转成 YAML 供审阅。
 
@@ -380,7 +381,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 验收标准
 
-![结构化验收标准编辑器](docs/screenshots/06-case-form-acceptance.png)
+![结构化验收标准编辑器](docs/screenshots/zh-Hans/06-case-form-acceptance.png)
 
 验收标准编辑器定义什么算通过，一行一条标准，这些行会成为报告中的判定表。
 
@@ -388,7 +389,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 原始 YAML
 
-![原始 YAML 撰写模式](docs/screenshots/07-case-form-yaml.png)
+![原始 YAML 撰写模式](docs/screenshots/zh-Hans/07-case-form-yaml.png)
 
 **原始 YAML** 是用例的保存形式，也是不调用模型的确定性路径。
 
@@ -397,7 +398,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 从 Excel 导入
 
-![Excel 导入模式](docs/screenshots/08-case-form-excel.png)
+![Excel 导入模式](docs/screenshots/zh-Hans/08-case-form-excel.png)
 
 **从 Excel 导入**把既有的测试步骤表格转成用例，每一个行区块对应一个用例。
 
@@ -405,7 +406,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/knowledge`
 
-![内建知识模板](docs/screenshots/15-knowledge-templates.png)
+![内建知识模板](docs/screenshots/zh-Hans/15-knowledge-templates.png)
 
 **知识管理**管理任务可读取的内容：Markdown 全文注入，PDF 则按需检索。
 
@@ -421,7 +422,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/devices`
 
-![设备管理页面](docs/screenshots/16-devices.png)
+![设备管理页面](docs/screenshots/zh-Hans/16-devices.png)
 
 **设备管理**回报当前可用的执行资源，以及接入平台的本地设备。
 
@@ -434,7 +435,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/cost`
 
-![测试费用分页](docs/screenshots/17-cost.png)
+![测试费用分页](docs/screenshots/zh-Hans/17-cost.png)
 
 **费用分析**把测试花费与 AWS 实际账单分开呈现。
 
@@ -450,7 +451,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/members`——*仅管理员*
 
-![过滤为单个账号的成员列表](docs/screenshots/18-members.png)
+![过滤为单个账号的成员列表](docs/screenshots/zh-Hans/18-members.png)
 
 **成员管理**管理谁能登录，以及每个账号属于哪个租户。
 
@@ -459,7 +460,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 新增成员
 
-![新增成员表单](docs/screenshots/19-members-add.png)
+![新增成员表单](docs/screenshots/zh-Hans/19-members-add.png)
 
 新增表单以指定租户与初始密码创建账号；同一租户内的账号共用其应用与测试数据。
 
@@ -469,7 +470,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/model-admin`——*仅管理员*
 
-![模型管理页面](docs/screenshots/20-model-admin.png)
+![模型管理页面](docs/screenshots/zh-Hans/20-model-admin.png)
 
 **模型管理**列出各席位可用的模型及其定价，运行时的价格快照即来自此处。
 
@@ -481,7 +482,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 系统更新
 
-![系统更新区块](docs/screenshots/21-system-update.png)
+![系统更新区块](docs/screenshots/zh-Hans/21-system-update.png)
 
 **系统更新**比对当前部署的版本与 GitHub 上的最新版本，并通过 CodeBuild 重新部署。
 
@@ -490,7 +491,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### UI-TARS 定位模型
 
-![保持关闭的 UI-TARS 开关](docs/screenshots/22-system-uitars.png)
+![保持关闭的 UI-TARS 开关](docs/screenshots/zh-Hans/22-system-uitars.png)
 
 **UI-TARS 定位模型**开关用于启动或停止可选的 GPU 端点，开启期间持续计费。
 
@@ -498,7 +499,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 集中日志
 
-![集中日志查询条件](docs/screenshots/23-system-logs.png)
+![集中日志查询条件](docs/screenshots/zh-Hans/23-system-logs.png)
 
 **集中日志**以 CloudWatch Logs Insights 一次查询所有服务的日志。
 
@@ -508,7 +509,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/tasks`
 
-![含运行中任务的任务列表](docs/screenshots/26-tasks-running.png)
+![含运行中任务的任务列表](docs/screenshots/zh-Hans/26-tasks-running.png)
 
 **测试任务**列出租户内所有运行记录，最新优先，也是进入运行中任务的入口。
 
@@ -523,47 +524,47 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 即時日誌
 
-![运行中的任务详情](docs/screenshots/27-task-detail-live.png)
+![运行中的任务详情](docs/screenshots/zh-Hans/27-task-detail-live.png)
 
 **即時日誌**在运行期间逐步跟随进度，与实时画面及步骤时间轴并列。
 
 #### 完整日誌
 
-![运行中的完整日志面板](docs/screenshots/28-task-detail-live-logs.png)
+![运行中的完整日志面板](docs/screenshots/zh-Hans/28-task-detail-live-logs.png)
 
 **完整日誌**收集该次运行的 runner 与设备日志。
 
-![运行结束后的完整日志面板](docs/screenshots/31-task-detail-logs.png)
+![运行结束后的完整日志面板](docs/screenshots/zh-Hans/31-task-detail-logs.png)
 
 进入终止状态后，同一面板保存已完成运行的完整日志。
 
 #### 執行軌跡
 
-![执行轨迹面板](docs/screenshots/30-task-detail-trace.png)
+![执行轨迹面板](docs/screenshots/zh-Hans/30-task-detail-trace.png)
 
 **執行軌跡**即逐步记录：一行一个动作，附截图、操作对象与结果。
 
 #### 數據分析
 
-![数据分析面板](docs/screenshots/32-task-detail-analysis.png)
+![数据分析面板](docs/screenshots/zh-Hans/32-task-detail-analysis.png)
 
 **數據分析**把运行期间观测到的数值画成图表，每个选中的指标一条序列。
 
 #### Token 用量
 
-![Token 用量面板](docs/screenshots/33-task-detail-usage.png)
+![Token 用量面板](docs/screenshots/zh-Hans/33-task-detail-usage.png)
 
 **Token 用量**按席位与步骤拆解花费，并列出该次运行的总成本。
 
 #### 腳本與執行資訊
 
-![脚本与执行信息面板](docs/screenshots/34-task-detail-script.png)
+![脚本与执行信息面板](docs/screenshots/zh-Hans/34-task-detail-script.png)
 
 **腳本與執行資訊**记录这次运行采用的用例版本、运行环境与上限设置。
 
 #### AI 問答
 
-![有一问一答的 AI 问答面板](docs/screenshots/35-task-detail-ask.png)
+![有一问一答的 AI 问答面板](docs/screenshots/zh-Hans/35-task-detail-ask.png)
 
 **AI 問答**按该次运行自身的轨迹、日志与指标回答问题。
 
@@ -575,7 +576,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/live/:jobId`
 
-![弹出式实时画面](docs/screenshots/29-live-popout.png)
+![弹出式实时画面](docs/screenshots/zh-Hans/29-live-popout.png)
 
 弹出窗口只呈现实时画面本身，不含导航栏，适合第二屏幕或共享视图。
 
@@ -585,7 +586,7 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 路由：`#/reports`
 
-![报告列表](docs/screenshots/36-reports.png)
+![报告列表](docs/screenshots/zh-Hans/36-reports.png)
 
 **测试报告**列出租户内已完成的报告；每一次进入终止状态的运行都会产生一份报告。
 
@@ -597,19 +598,19 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 報告封面
 
-![报告封面](docs/screenshots/37-report-cover.png)
+![报告封面](docs/screenshots/zh-Hans/37-report-cover.png)
 
 封面载明整体测试状态、应用、用例版本与运行摘要。
 
 #### 驗收結論與標準
 
-![验收判定表](docs/screenshots/38-report-acceptance.png)
+![验收判定表](docs/screenshots/zh-Hans/38-report-acceptance.png)
 
 此区块逐条判定用例的验收标准，并列出判定所依据的证据。
 
 #### 判定明細
 
-![判定明细](docs/screenshots/39-report-verdicts.png)
+![判定明细](docs/screenshots/zh-Hans/39-report-verdicts.png)
 
 明细表每一行是一次通过/失败判定：里程碑由程序按整体证据判定；逐步判定由 AI 在动作前宣告预期，并在下一个画面判定是否达成。
 
@@ -617,31 +618,31 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### AI 執行證據
 
-![AI 执行证据](docs/screenshots/40-report-evidence.png)
+![AI 执行证据](docs/screenshots/zh-Hans/40-report-evidence.png)
 
 证据区块逐步重现运行过程，每一步附当时的截图与推理记录。
 
 #### 發布準備度
 
-![发布准备度](docs/screenshots/41-report-release.png)
+![发布准备度](docs/screenshots/zh-Hans/41-report-release.png)
 
 发布准备度按设定的门槛把各项判定换算成建议，包含覆盖不足而无法判定的情况。
 
 #### 報告導讀——導讀
 
-![报告助手：导读分页](docs/screenshots/42-report-assistant-guide.png)
+![报告助手：导读分页](docs/screenshots/zh-Hans/42-report-assistant-guide.png)
 
 报告助手由报告边缘的启动器打开，默认停在**導讀**，说明判定的依据以及结论的适用范围到哪里为止。
 
 #### 報告導讀——問答
 
-![报告助手：问答分页](docs/screenshots/43-report-assistant-ask.png)
+![报告助手：问答分页](docs/screenshots/zh-Hans/43-report-assistant-ask.png)
 
 **問答**按报告自身的数据回答关于这份报告的问题。截图显示提问框尚未使用的状态；同一组件已回答的对话见上方的“AI 問答”。
 
 #### 報告導讀——判定覆核
 
-![报告助手：判定覆核分页](docs/screenshots/44-report-assistant-review.png)
+![报告助手：判定覆核分页](docs/screenshots/zh-Hans/44-report-assistant-review.png)
 
 **判定覆核**用于更正有争议的判定：可附理由覆写某项发现，该覆写会随报告保存，并回写到应用的记忆地图。截图显示本次运行没有待覆核发现时的空状态。
 
@@ -653,19 +654,19 @@ CDK 堆栈（全部位于 `us-west-2`）：
 
 #### 关系图
 
-![记忆地图：关系图](docs/screenshots/46-memory-graph.png)
+![记忆地图：关系图](docs/screenshots/zh-Hans/46-memory-graph.png)
 
 **关系图**绘制菜单中所选应用的画面与跳转，并显示画面、跳转与控件的数量。
 
 #### 样片本
 
-![记忆地图：样片本](docs/screenshots/47-memory-grid.png)
+![记忆地图：样片本](docs/screenshots/zh-Hans/47-memory-grid.png)
 
 **样片本**以缩略图呈现同一批画面，按外观查找画面时更快。
 
 #### 画面工作区
 
-![打开单个画面的画面工作区](docs/screenshots/48-memory-screen-studio.png)
+![打开单个画面的画面工作区](docs/screenshots/zh-Hans/48-memory-screen-studio.png)
 
 点击画面会打开其工作区，内有三个分页：**腳本與操作**显示记录到的控件、**畫面說明**显示描述、**Appium 程式碼**显示生成的脚本。
 

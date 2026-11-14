@@ -243,10 +243,11 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 ## 使用手冊
 
-以下依照第一次執行會經過的順序,逐頁說明網頁主控台。四項前提通用於整節:
+以下依照第一次執行會經過的順序,逐頁說明網頁主控台。五項前提通用於整節:
 
-- 截圖為英文介面;介面語言可在上方工具列的語言選單切換,共五種語言。
-- 圖中所有資料皆為隔離租戶內的合成示範資料:`Example Slots`、`Example Slots Mobile`、`com.example.slotsgame` 與 `https://example.com` 均為佔位名稱,非真實標題。
+- 截圖為繁體中文介面,拍攝自實際部署的環境;介面語言可在上方工具列的語言選單切換,共五種語言,每份 README 只放自己語言的截圖。
+- 受測遊戲為 `https://play.slotomania.com/slots/`(App 名稱 `Slotomania (web demo)`);另一個 App `Example Slots Mobile`(`com.example.slotsgame`)為合成的佔位資料。所有執行都使用隔離 `demo` 租戶內的臨時帳號 `qa-demo@example.com`,拍攝結束後該租戶資料與帳號已刪除。
+- AI agent 的步驟說明與報告內文(包括 agent 記在記憶地圖裡的畫面名稱)不論介面語言為何,一律以繁體中文產生。本份截圖的介面就是繁體中文,所以沒有遮罩;其他語言的截圖以斜紋遮罩覆蓋這些區域(簡體中文為第 27–48 張,英文、日文、韓文為第 27–35 與 37–48 張),頁面其餘部分保持拍攝原樣。讓產生的文字跟著介面語言是已知的待辦項目。
 - 標示 *僅管理員* 的頁面與控制項,不具管理員角色的帳號看不到。
 - 路由皆為 hash 路由,接在安裝器輸出的網站網址之後,例如 `https://<site-url>/#/apps`。
 
@@ -254,7 +255,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/`——驗證成功前都顯示此頁,在此之前無法進入其他路由。
 
-![欄位尚未填寫的登入頁](docs/screenshots/01-login.png)
+![欄位尚未填寫的登入頁](docs/screenshots/zh-Hant/01-login.png)
 
 登入卡片會向安裝器建立的 Cognito 使用者池驗證帳號。
 
@@ -266,7 +267,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/guide`
 
-![App 內使用指南](docs/screenshots/02-guide.png)
+![App 內使用指南](docs/screenshots/zh-Hant/02-guide.png)
 
 **使用說明**是登入後的首頁,以 14 個章節說明整個平台。
 
@@ -277,7 +278,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/apps`
 
-![應用卡片牆](docs/screenshots/04-apps.png)
+![應用卡片牆](docs/screenshots/zh-Hant/04-apps.png)
 
 **應用管理**為每個遊戲或應用保留一個工作區,點選卡片即進入該工作區。
 
@@ -286,7 +287,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 新增應用
 
-![新增應用表單](docs/screenshots/03-apps-create-form.png)
+![新增應用表單](docs/screenshots/zh-Hant/03-apps-create-form.png)
 
 新增表單用來登記受測目標,這是其他所有頁面的前提。
 
@@ -302,13 +303,13 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 總覽
 
-![工作區總覽分頁](docs/screenshots/09-workspace-overview.png)
+![工作區總覽分頁](docs/screenshots/zh-Hant/09-workspace-overview.png)
 
 **總覽**彙整該應用的概況:案例、任務與報告的數量,以及最近一次執行。
 
 #### 測試案例
 
-![工作區測試案例分頁](docs/screenshots/11-workspace-cases.png)
+![工作區測試案例分頁](docs/screenshots/zh-Hant/11-workspace-cases.png)
 
 **測試案例**列出為此應用定義的流程,使用與下方「測試案例」相同的編輯器。
 
@@ -317,11 +318,11 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 測試任務
 
-![工作區測試任務分頁](docs/screenshots/24-workspace-tasks.png)
+![工作區測試任務分頁](docs/screenshots/zh-Hant/24-workspace-tasks.png)
 
 **測試任務**列出此應用的執行紀錄,也是提交新執行的位置。
 
-![填好的提交任務表單](docs/screenshots/25-task-submit-form.png)
+![填好的提交任務表單](docs/screenshots/zh-Hant/25-task-submit-form.png)
 
 提交表單在執行開始前就確定所有必要條件:
 
@@ -336,13 +337,13 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 記憶地圖
 
-![工作區記憶地圖分頁](docs/screenshots/45-workspace-memory.png)
+![工作區記憶地圖分頁](docs/screenshots/zh-Hant/45-workspace-memory.png)
 
 **記憶地圖**顯示此應用歷次執行學到的畫面,畫面為節點並附縮圖,畫面轉換為連線。
 
 #### 測試憑證
 
-![工作區測試憑證分頁](docs/screenshots/13-workspace-credentials.png)
+![工作區測試憑證分頁](docs/screenshots/zh-Hant/13-workspace-credentials.png)
 
 **測試憑證**將應用的登入機密存放在 AWS Secrets Manager,只回傳其鍵名。
 
@@ -351,13 +352,13 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 版本
 
-![工作區版本分頁](docs/screenshots/10-workspace-builds.png)
+![工作區版本分頁](docs/screenshots/zh-Hant/10-workspace-builds.png)
 
 **版本**保存已上傳的安裝檔(APK/IPA/XAPK/ZIP/EXE),並標示下一次執行要安裝哪一個。
 
 #### 知識
 
-![工作區知識分頁](docs/screenshots/12-workspace-knowledge.png)
+![工作區知識分頁](docs/screenshots/zh-Hant/12-workspace-knowledge.png)
 
 **知識**把知識庫綁定到應用,使每個任務都自動繼承。截圖中僅列出內建知識庫。
 
@@ -365,13 +366,13 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/cases`
 
-![跨所有應用的測試案例](docs/screenshots/14-cases.png)
+![跨所有應用的測試案例](docs/screenshots/zh-Hant/14-cases.png)
 
 **測試案例**列出租戶內所有應用的案例,開啟的編輯器與工作區分頁內嵌的同一個。編輯器有三種撰寫模式。
 
 #### 自然語言
 
-![自然語言撰寫模式](docs/screenshots/05-case-form-nl.png)
+![自然語言撰寫模式](docs/screenshots/zh-Hant/05-case-form-nl.png)
 
 **自然語言**由一段白話描述草擬案例:草擬模型會把它轉成 YAML 供審閱。
 
@@ -379,7 +380,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 驗收標準
 
-![結構化驗收標準編輯器](docs/screenshots/06-case-form-acceptance.png)
+![結構化驗收標準編輯器](docs/screenshots/zh-Hant/06-case-form-acceptance.png)
 
 驗收標準編輯器定義什麼算通過,一列一條標準,這些列會成為報告中的判定表。
 
@@ -387,7 +388,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 原始 YAML
 
-![原始 YAML 撰寫模式](docs/screenshots/07-case-form-yaml.png)
+![原始 YAML 撰寫模式](docs/screenshots/zh-Hant/07-case-form-yaml.png)
 
 **原始 YAML** 是案例的儲存形式,也是不呼叫模型的確定性路徑。
 
@@ -396,7 +397,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 從 Excel 匯入
 
-![Excel 匯入模式](docs/screenshots/08-case-form-excel.png)
+![Excel 匯入模式](docs/screenshots/zh-Hant/08-case-form-excel.png)
 
 **從 Excel 匯入**把既有的測試步驟試算表轉成案例,每一個列區塊對應一個案例。
 
@@ -404,7 +405,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/knowledge`
 
-![內建知識範本](docs/screenshots/15-knowledge-templates.png)
+![內建知識範本](docs/screenshots/zh-Hant/15-knowledge-templates.png)
 
 **知識管理**管理任務可讀取的內容:Markdown 全文注入,PDF 則按需檢索。
 
@@ -420,7 +421,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/devices`
 
-![裝置管理頁面](docs/screenshots/16-devices.png)
+![裝置管理頁面](docs/screenshots/zh-Hant/16-devices.png)
 
 **裝置管理**回報目前可用的執行資源,以及接入平台的本地裝置。
 
@@ -433,7 +434,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/cost`
 
-![測試費用分頁](docs/screenshots/17-cost.png)
+![測試費用分頁](docs/screenshots/zh-Hant/17-cost.png)
 
 **費用分析**把測試花費與 AWS 實際帳單分開呈現。
 
@@ -449,7 +450,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/members`——*僅管理員*
 
-![過濾為單一帳號的成員清單](docs/screenshots/18-members.png)
+![過濾為單一帳號的成員清單](docs/screenshots/zh-Hant/18-members.png)
 
 **成員管理**管理誰能登入,以及每個帳號屬於哪個租戶。
 
@@ -458,7 +459,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 新增成員
 
-![新增成員表單](docs/screenshots/19-members-add.png)
+![新增成員表單](docs/screenshots/zh-Hant/19-members-add.png)
 
 新增表單以指定租戶與初始密碼建立帳號;同一租戶內的帳號共用其應用與測試資料。
 
@@ -468,7 +469,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/model-admin`——*僅管理員*
 
-![模型管理頁面](docs/screenshots/20-model-admin.png)
+![模型管理頁面](docs/screenshots/zh-Hant/20-model-admin.png)
 
 **模型管理**列出各席位可用的模型及其定價,執行時的價格快照即來自此處。
 
@@ -480,7 +481,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 系統更新
 
-![系統更新區塊](docs/screenshots/21-system-update.png)
+![系統更新區塊](docs/screenshots/zh-Hant/21-system-update.png)
 
 **系統更新**比對目前部署的版本與 GitHub 上的最新版本,並透過 CodeBuild 重新部署。
 
@@ -489,7 +490,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### UI-TARS 定位模型
 
-![維持關閉的 UI-TARS 開關](docs/screenshots/22-system-uitars.png)
+![維持關閉的 UI-TARS 開關](docs/screenshots/zh-Hant/22-system-uitars.png)
 
 **UI-TARS 定位模型**開關用來啟動或停止選用的 GPU 端點,開啟期間持續計費。
 
@@ -497,7 +498,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 集中日誌
 
-![集中日誌查詢條件](docs/screenshots/23-system-logs.png)
+![集中日誌查詢條件](docs/screenshots/zh-Hant/23-system-logs.png)
 
 **集中日誌**以 CloudWatch Logs Insights 一次查詢所有服務的日誌。
 
@@ -507,7 +508,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/tasks`
 
-![含執行中任務的任務清單](docs/screenshots/26-tasks-running.png)
+![含執行中任務的任務清單](docs/screenshots/zh-Hant/26-tasks-running.png)
 
 **測試任務**列出租戶內所有執行紀錄,最新優先,也是進入執行中任務的入口。
 
@@ -522,47 +523,47 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 即時日誌
 
-![執行中的任務詳情](docs/screenshots/27-task-detail-live.png)
+![執行中的任務詳情](docs/screenshots/zh-Hant/27-task-detail-live.png)
 
 **即時日誌**在執行期間逐步跟隨進度,與即時畫面及步驟時間軸並列。
 
 #### 完整日誌
 
-![執行中的完整日誌面板](docs/screenshots/28-task-detail-live-logs.png)
+![執行中的完整日誌面板](docs/screenshots/zh-Hant/28-task-detail-live-logs.png)
 
 **完整日誌**收集該次執行的 runner 與裝置日誌。
 
-![執行結束後的完整日誌面板](docs/screenshots/31-task-detail-logs.png)
+![執行結束後的完整日誌面板](docs/screenshots/zh-Hant/31-task-detail-logs.png)
 
 進入終止狀態後,同一面板保存已完成執行的完整日誌。
 
 #### 執行軌跡
 
-![執行軌跡面板](docs/screenshots/30-task-detail-trace.png)
+![執行軌跡面板](docs/screenshots/zh-Hant/30-task-detail-trace.png)
 
 **執行軌跡**即逐步紀錄:一列一個動作,附截圖、操作對象與結果。
 
 #### 數據分析
 
-![數據分析面板](docs/screenshots/32-task-detail-analysis.png)
+![數據分析面板](docs/screenshots/zh-Hant/32-task-detail-analysis.png)
 
 **數據分析**把執行期間觀測到的數值畫成圖表,每個選取的指標一條序列。
 
 #### Token 用量
 
-![Token 用量面板](docs/screenshots/33-task-detail-usage.png)
+![Token 用量面板](docs/screenshots/zh-Hant/33-task-detail-usage.png)
 
 **Token 用量**依席位與步驟拆解花費,並列出該次執行的總成本。
 
 #### 腳本與執行資訊
 
-![腳本與執行資訊面板](docs/screenshots/34-task-detail-script.png)
+![腳本與執行資訊面板](docs/screenshots/zh-Hant/34-task-detail-script.png)
 
 **腳本與執行資訊**記錄這次執行採用的案例版本、執行環境與上限設定。
 
 #### AI 問答
 
-![有一問一答的 AI 問答面板](docs/screenshots/35-task-detail-ask.png)
+![有一問一答的 AI 問答面板](docs/screenshots/zh-Hant/35-task-detail-ask.png)
 
 **AI 問答**依該次執行自身的軌跡、日誌與指標回答問題。
 
@@ -574,7 +575,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/live/:jobId`
 
-![彈出式即時畫面](docs/screenshots/29-live-popout.png)
+![彈出式即時畫面](docs/screenshots/zh-Hant/29-live-popout.png)
 
 彈出式視窗只呈現即時畫面本身,不含導覽列,適合第二螢幕或共享檢視。
 
@@ -584,7 +585,7 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 路由:`#/reports`
 
-![報告清單](docs/screenshots/36-reports.png)
+![報告清單](docs/screenshots/zh-Hant/36-reports.png)
 
 **測試報告**列出租戶內已完成的報告;每一次進入終止狀態的執行都會產生一份報告。
 
@@ -596,19 +597,19 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 報告封面
 
-![報告封面](docs/screenshots/37-report-cover.png)
+![報告封面](docs/screenshots/zh-Hant/37-report-cover.png)
 
 封面載明整體測試狀態、應用、案例版本與執行摘要。
 
 #### 驗收結論與標準
 
-![驗收判定表](docs/screenshots/38-report-acceptance.png)
+![驗收判定表](docs/screenshots/zh-Hant/38-report-acceptance.png)
 
 此區塊逐條判定案例的驗收標準,並列出判定所依據的證據。
 
 #### 判定明細
 
-![判定明細](docs/screenshots/39-report-verdicts.png)
+![判定明細](docs/screenshots/zh-Hant/39-report-verdicts.png)
 
 明細表每一列是一次通過/失敗判定:里程碑由程式依整體證據判定;逐步判定由 AI 在動作前宣告預期,並在下一個畫面判定是否達成。
 
@@ -616,31 +617,31 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### AI 執行證據
 
-![AI 執行證據](docs/screenshots/40-report-evidence.png)
+![AI 執行證據](docs/screenshots/zh-Hant/40-report-evidence.png)
 
 證據區塊逐步重現執行過程,每一步附當時的截圖與推理紀錄。
 
 #### 發布準備度
 
-![發布準備度](docs/screenshots/41-report-release.png)
+![發布準備度](docs/screenshots/zh-Hant/41-report-release.png)
 
 發布準備度依設定的門檻把各項判定換算成建議,包含覆蓋不足而無法判定的情況。
 
 #### 報告導讀——導讀
 
-![報告助手:導讀分頁](docs/screenshots/42-report-assistant-guide.png)
+![報告助手:導讀分頁](docs/screenshots/zh-Hant/42-report-assistant-guide.png)
 
 報告助手由報告邊緣的啟動器開啟,預設停在**導讀**,說明判定的依據以及結論的適用範圍到哪裡為止。
 
 #### 報告導讀——問答
 
-![報告助手:問答分頁](docs/screenshots/43-report-assistant-ask.png)
+![報告助手:問答分頁](docs/screenshots/zh-Hant/43-report-assistant-ask.png)
 
 **問答**依報告自身的資料回答關於這份報告的問題。截圖顯示提問框尚未使用的狀態;同一元件已回答的對話可見於上方的「AI 問答」。
 
 #### 報告導讀——判定覆核
 
-![報告助手:判定覆核分頁](docs/screenshots/44-report-assistant-review.png)
+![報告助手:判定覆核分頁](docs/screenshots/zh-Hant/44-report-assistant-review.png)
 
 **判定覆核**用來更正有爭議的判定:可附理由覆寫某項發現,該覆寫會隨報告保存,並回寫到應用的記憶地圖。截圖顯示本次執行沒有待覆核發現時的空狀態。
 
@@ -652,19 +653,19 @@ CDK 堆疊(全部位於 `us-west-2`):
 
 #### 關係圖
 
-![記憶地圖:關係圖](docs/screenshots/46-memory-graph.png)
+![記憶地圖:關係圖](docs/screenshots/zh-Hant/46-memory-graph.png)
 
 **關係圖**繪製選單中所選應用的畫面與轉換,並顯示畫面、轉換與控制項的數量。
 
 #### 樣片本
 
-![記憶地圖:樣片本](docs/screenshots/47-memory-grid.png)
+![記憶地圖:樣片本](docs/screenshots/zh-Hant/47-memory-grid.png)
 
 **樣片本**以縮圖呈現同一批畫面,依外觀尋找畫面時較快。
 
 #### 畫面工作區
 
-![開啟單一畫面的畫面工作區](docs/screenshots/48-memory-screen-studio.png)
+![開啟單一畫面的畫面工作區](docs/screenshots/zh-Hant/48-memory-screen-studio.png)
 
 點選畫面會開啟其工作區,內有三個分頁:**腳本與操作**顯示記錄到的控制項、**畫面說明**顯示描述、**Appium 程式碼**顯示產生的腳本。
 

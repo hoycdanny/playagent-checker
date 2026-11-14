@@ -243,10 +243,11 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 ## 사용 설명서
 
-아래에서는 첫 실행이 거치는 순서대로 웹 콘솔의 모든 페이지를 설명합니다. 이 절 전체에 적용되는 전제는 다섯 가지입니다.
+아래에서는 첫 실행이 거치는 순서대로 웹 콘솔의 모든 페이지를 설명합니다. 이 절 전체에 적용되는 전제는 여섯 가지입니다.
 
-- 스크린샷은 영어 인터페이스입니다. 인터페이스 언어는 상단 바의 언어 선택기에서 5개 언어로 전환할 수 있습니다.
-- 화면에 보이는 데이터는 모두 격리된 테넌트의 합성 데모 데이터입니다. `Example Slots`, `Example Slots Mobile`, `com.example.slotsgame`, `https://example.com`은 자리표시자이며 실제 타이틀이 아닙니다.
+- 스크린샷은 한국어 인터페이스이며 실제 배포 환경에서 촬영했습니다. 인터페이스 언어는 상단 바의 언어 선택기에서 5개 언어로 전환할 수 있고, 각 README에는 해당 언어의 스크린샷만 실려 있습니다.
+- 테스트 대상 게임은 `https://play.slotomania.com/slots/`(앱 이름 `Slotomania (web demo)`)입니다. 다른 앱 `Example Slots Mobile`(`com.example.slotsgame`)은 합성 자리표시자입니다. 모든 실행은 격리된 `demo` 테넌트의 임시 계정 `qa-demo@example.com`으로 했으며, 촬영 후 테넌트 데이터와 계정을 삭제했습니다.
+- AI 에이전트의 단계 설명과 보고서 본문(에이전트가 메모리 맵에 기록하는 화면 이름 포함)은 인터페이스 언어와 관계없이 번체 중국어로 생성됩니다. 이미지 27–35와 37–48에서는 이 영역을 줄무늬 마스크로 가렸고, 페이지의 나머지 부분은 촬영한 그대로입니다. 생성 텍스트의 현지화는 알려진 미해결 항목입니다.
 - *관리자 전용*으로 표시된 페이지와 컨트롤은 관리자 역할이 없는 계정에는 보이지 않습니다.
 - 라우트는 해시 라우트이며 설치 프로그램이 출력한 사이트 URL 뒤에 붙습니다. 예: `https://<site-url>/#/apps`.
 - 보고서, 작업 상세, 비용 분석, 화면 작업 영역의 탭 이름은 한국어 인터페이스에서도 영어로 표시되므로 아래에서는 화면에 보이는 그대로 인용합니다.
@@ -255,7 +256,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/` — 인증이 성공할 때까지 이 페이지가 표시되며, 그 전에는 다른 라우트에 접근할 수 없습니다.
 
-![입력 전 상태의 로그인 페이지](docs/screenshots/01-login.png)
+![입력 전 상태의 로그인 페이지](docs/screenshots/ko/01-login.png)
 
 로그인 카드는 설치 프로그램이 만든 Cognito 사용자 풀을 대상으로 계정을 인증합니다.
 
@@ -267,7 +268,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/guide`
 
-![앱 내 가이드](docs/screenshots/02-guide.png)
+![앱 내 가이드](docs/screenshots/ko/02-guide.png)
 
 **사용 설명**은 로그인 후의 시작 페이지이며 14개 섹션으로 플랫폼 전체를 설명합니다.
 
@@ -278,7 +279,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/apps`
 
-![앱 카드 목록](docs/screenshots/04-apps.png)
+![앱 카드 목록](docs/screenshots/ko/04-apps.png)
 
 **앱 관리**는 게임 또는 애플리케이션마다 작업 영역을 하나씩 두며, 카드를 선택하면 해당 작업 영역이 열립니다.
 
@@ -287,7 +288,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 앱 만들기
 
-![앱 생성 폼](docs/screenshots/03-apps-create-form.png)
+![앱 생성 폼](docs/screenshots/ko/03-apps-create-form.png)
 
 생성 폼은 테스트 대상을 등록하며, 이는 다른 모든 페이지의 전제 조건입니다.
 
@@ -303,13 +304,13 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 개요
 
-![작업 영역 개요 탭](docs/screenshots/09-workspace-overview.png)
+![작업 영역 개요 탭](docs/screenshots/ko/09-workspace-overview.png)
 
 **개요**는 앱 요약입니다. 케이스, 작업, 보고서 건수와 가장 최근 실행을 보여줍니다.
 
 #### 테스트 케이스
 
-![작업 영역 테스트 케이스 탭](docs/screenshots/11-workspace-cases.png)
+![작업 영역 테스트 케이스 탭](docs/screenshots/ko/11-workspace-cases.png)
 
 **테스트 케이스**는 이 앱에 정의된 흐름 목록이며, 편집기는 아래 "테스트 케이스"와 동일합니다.
 
@@ -318,11 +319,11 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 테스트 작업
 
-![작업 영역 테스트 작업 탭](docs/screenshots/24-workspace-tasks.png)
+![작업 영역 테스트 작업 탭](docs/screenshots/ko/24-workspace-tasks.png)
 
 **테스트 작업**은 이 앱의 실행 목록이며 새 실행을 제출하는 곳입니다.
 
-![입력을 마친 작업 제출 폼](docs/screenshots/25-task-submit-form.png)
+![입력을 마친 작업 제출 폼](docs/screenshots/ko/25-task-submit-form.png)
 
 제출 폼은 실행이 시작되기 전에 필요한 조건을 모두 확정합니다.
 
@@ -337,13 +338,13 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 메모리 맵
 
-![작업 영역 메모리 맵 탭](docs/screenshots/45-workspace-memory.png)
+![작업 영역 메모리 맵 탭](docs/screenshots/ko/45-workspace-memory.png)
 
 **메모리 맵**은 이 앱의 실행이 학습한 화면을 썸네일이 붙은 노드와 전환 간선으로 보여줍니다.
 
 #### 테스트 자격 증명
 
-![작업 영역 테스트 자격 증명 탭](docs/screenshots/13-workspace-credentials.png)
+![작업 영역 테스트 자격 증명 탭](docs/screenshots/ko/13-workspace-credentials.png)
 
 **테스트 자격 증명**은 앱의 로그인 비밀을 AWS Secrets Manager에 보관하고 키 이름만 반환합니다.
 
@@ -352,13 +353,13 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 빌드
 
-![작업 영역 빌드 탭](docs/screenshots/10-workspace-builds.png)
+![작업 영역 빌드 탭](docs/screenshots/ko/10-workspace-builds.png)
 
 **빌드**는 업로드된 아티팩트(APK/IPA/XAPK/ZIP/EXE)를 보관하고 다음 실행에서 설치할 항목을 표시합니다.
 
 #### 지식
 
-![작업 영역 지식 탭](docs/screenshots/12-workspace-knowledge.png)
+![작업 영역 지식 탭](docs/screenshots/ko/12-workspace-knowledge.png)
 
 **지식**은 지식 베이스를 앱에 연결해 모든 작업이 이를 상속하게 합니다. 스크린샷에는 내장 베이스만 나열되어 있습니다.
 
@@ -366,13 +367,13 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/cases`
 
-![모든 앱의 테스트 케이스](docs/screenshots/14-cases.png)
+![모든 앱의 테스트 케이스](docs/screenshots/ko/14-cases.png)
 
 **테스트 케이스**는 테넌트 내 모든 앱의 케이스를 나열하며, 열리는 편집기는 작업 영역 탭에 내장된 것과 동일합니다. 편집기에는 세 가지 작성 모드가 있습니다.
 
 #### 자연어
 
-![자연어 작성 모드](docs/screenshots/05-case-form-nl.png)
+![자연어 작성 모드](docs/screenshots/ko/05-case-form-nl.png)
 
 **자연어**는 평이한 설명으로 케이스 초안을 만듭니다. 초안 작성 모델이 이를 YAML로 변환해 검토에 올립니다.
 
@@ -380,7 +381,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 수락 기준
 
-![구조화된 수락 기준 편집기](docs/screenshots/06-case-form-acceptance.png)
+![구조화된 수락 기준 편집기](docs/screenshots/ko/06-case-form-acceptance.png)
 
 수락 기준 편집기는 무엇을 합격으로 볼지 한 행에 한 기준씩 정의하며, 그 행들이 보고서의 판정 표가 됩니다.
 
@@ -388,7 +389,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 원본 YAML
 
-![원본 YAML 작성 모드](docs/screenshots/07-case-form-yaml.png)
+![원본 YAML 작성 모드](docs/screenshots/ko/07-case-form-yaml.png)
 
 **원본 YAML**은 케이스의 저장 형식이자 모델 호출이 없는 결정적 경로입니다.
 
@@ -397,7 +398,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### Excel에서 가져오기
 
-![Excel 가져오기 모드](docs/screenshots/08-case-form-excel.png)
+![Excel 가져오기 모드](docs/screenshots/ko/08-case-form-excel.png)
 
 **Excel에서 가져오기**는 기존 테스트 절차 표를 케이스로 변환하며, 행 블록 하나가 케이스 하나가 됩니다.
 
@@ -405,7 +406,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/knowledge`
 
-![내장 지식 템플릿](docs/screenshots/15-knowledge-templates.png)
+![내장 지식 템플릿](docs/screenshots/ko/15-knowledge-templates.png)
 
 **지식 관리**는 작업이 읽을 수 있는 내용을 관리합니다. Markdown은 전문을 주입하고 PDF는 필요할 때 검색합니다.
 
@@ -421,7 +422,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/devices`
 
-![장치 관리 페이지](docs/screenshots/16-devices.png)
+![장치 관리 페이지](docs/screenshots/ko/16-devices.png)
 
 **장치 관리**는 현재 사용 가능한 실행 자원과 플랫폼에 연결된 로컬 기기를 보고합니다.
 
@@ -434,7 +435,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/cost`
 
-![테스트 비용 탭](docs/screenshots/17-cost.png)
+![테스트 비용 탭](docs/screenshots/ko/17-cost.png)
 
 **비용 분석**은 테스트에 든 비용과 AWS가 실제로 청구한 금액을 분리해 보여줍니다.
 
@@ -450,7 +451,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/members` — *관리자 전용*
 
-![한 계정으로 필터링한 멤버 목록](docs/screenshots/18-members.png)
+![한 계정으로 필터링한 멤버 목록](docs/screenshots/ko/18-members.png)
 
 **멤버 관리**는 로그인할 수 있는 대상과 각 계정이 속한 테넌트를 관리합니다.
 
@@ -459,7 +460,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 멤버 추가
 
-![멤버 추가 폼](docs/screenshots/19-members-add.png)
+![멤버 추가 폼](docs/screenshots/ko/19-members-add.png)
 
 추가 폼은 테넌트와 초기 비밀번호를 지정해 계정을 만듭니다. 같은 테넌트의 계정은 그 테넌트의 앱과 테스트 데이터를 공유합니다.
 
@@ -469,7 +470,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/model-admin` — *관리자 전용*
 
-![모델 관리 페이지](docs/screenshots/20-model-admin.png)
+![모델 관리 페이지](docs/screenshots/ko/20-model-admin.png)
 
 **모델 관리**는 각 seat에서 사용할 수 있는 모델과 정가를 나열합니다. 실행 시의 가격 스냅숏은 여기에서 나옵니다.
 
@@ -481,7 +482,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 시스템 업데이트
 
-![시스템 업데이트 섹션](docs/screenshots/21-system-update.png)
+![시스템 업데이트 섹션](docs/screenshots/ko/21-system-update.png)
 
 **시스템 업데이트**는 현재 배포된 버전과 GitHub의 최신 버전을 비교하고 CodeBuild로 재배포합니다.
 
@@ -490,7 +491,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### UI-TARS 그라운딩 모델
 
-![꺼진 상태의 UI-TARS 스위치](docs/screenshots/22-system-uitars.png)
+![꺼진 상태의 UI-TARS 스위치](docs/screenshots/ko/22-system-uitars.png)
 
 **UI-TARS 그라운딩 모델** 스위치는 선택 사항인 GPU 엔드포인트를 켜고 끕니다. 켜져 있는 동안 계속 과금됩니다.
 
@@ -498,7 +499,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 통합 로그
 
-![통합 로그 조회 조건](docs/screenshots/23-system-logs.png)
+![통합 로그 조회 조건](docs/screenshots/ko/23-system-logs.png)
 
 **통합 로그**는 CloudWatch Logs Insights로 모든 서비스의 로그를 한 번에 조회합니다.
 
@@ -508,7 +509,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/tasks`
 
-![실행 중인 작업이 있는 작업 목록](docs/screenshots/26-tasks-running.png)
+![실행 중인 작업이 있는 작업 목록](docs/screenshots/ko/26-tasks-running.png)
 
 **테스트 작업**은 테넌트 내 모든 실행을 최신순으로 나열하며 실행 중인 작업으로 들어가는 입구입니다.
 
@@ -523,47 +524,47 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### Live log
 
-![실행 중 작업 상세](docs/screenshots/27-task-detail-live.png)
+![실행 중 작업 상세](docs/screenshots/ko/27-task-detail-live.png)
 
 **Live log**는 실행 중 진행을 단계별로 따라가며 실시간 화면과 단계 타임라인과 나란히 표시됩니다.
 
 #### Full logs
 
-![실행 중 Full logs 패널](docs/screenshots/28-task-detail-live-logs.png)
+![실행 중 Full logs 패널](docs/screenshots/ko/28-task-detail-live-logs.png)
 
 **Full logs**는 해당 실행의 러너 로그와 장치 로그를 모읍니다.
 
-![실행 종료 후 Full logs 패널](docs/screenshots/31-task-detail-logs.png)
+![실행 종료 후 Full logs 패널](docs/screenshots/ko/31-task-detail-logs.png)
 
 종료 상태가 되면 같은 패널에 완료된 실행의 전체 로그가 남습니다.
 
 #### Steps
 
-![Steps 패널](docs/screenshots/30-task-detail-trace.png)
+![Steps 패널](docs/screenshots/ko/30-task-detail-trace.png)
 
 **Steps**는 트레이스입니다. 한 행이 한 동작이며 스크린샷, 대상, 결과가 함께 표시됩니다.
 
 #### Metrics
 
-![Metrics 패널](docs/screenshots/32-task-detail-analysis.png)
+![Metrics 패널](docs/screenshots/ko/32-task-detail-analysis.png)
 
 **Metrics**는 실행 중 관측한 수치를 그래프로 그리며 선택한 지표마다 하나의 계열을 표시합니다.
 
 #### Token usage
 
-![Token usage 패널](docs/screenshots/33-task-detail-usage.png)
+![Token usage 패널](docs/screenshots/ko/33-task-detail-usage.png)
 
 **Token usage**는 비용을 seat별·단계별로 나누고 해당 실행의 총비용을 보여줍니다.
 
 #### Script & run info
 
-![Script & run info 패널](docs/screenshots/34-task-detail-script.png)
+![Script & run info 패널](docs/screenshots/ko/34-task-detail-script.png)
 
 **Script & run info**는 이 실행에 사용된 케이스 버전, 런타임, 상한 설정을 기록합니다.
 
 #### Ask AI
 
-![질문과 답변이 있는 Ask AI 패널](docs/screenshots/35-task-detail-ask.png)
+![질문과 답변이 있는 Ask AI 패널](docs/screenshots/ko/35-task-detail-ask.png)
 
 **Ask AI**는 해당 실행 자체의 트레이스, 로그, 지표를 근거로 질문에 답합니다.
 
@@ -575,7 +576,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/live/:jobId`
 
-![팝아웃 실시간 화면](docs/screenshots/29-live-popout.png)
+![팝아웃 실시간 화면](docs/screenshots/ko/29-live-popout.png)
 
 팝아웃은 내비게이션 없이 실시간 화면만 렌더링하며 보조 모니터나 공유 화면에 적합합니다.
 
@@ -585,7 +586,7 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 라우트: `#/reports`
 
-![보고서 목록](docs/screenshots/36-reports.png)
+![보고서 목록](docs/screenshots/ko/36-reports.png)
 
 **테스트 보고서**는 테넌트 내 완료된 보고서를 나열합니다. 종료 상태에 도달한 실행마다 보고서 한 건이 생성됩니다.
 
@@ -597,19 +598,19 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### Cover
 
-![보고서 표지](docs/screenshots/37-report-cover.png)
+![보고서 표지](docs/screenshots/ko/37-report-cover.png)
 
 표지에는 전체 테스트 상태, 앱, 케이스 버전, 실행 요약이 담깁니다.
 
 #### Acceptance Verdict & Criteria
 
-![수락 판정 표](docs/screenshots/38-report-acceptance.png)
+![수락 판정 표](docs/screenshots/ko/38-report-acceptance.png)
 
 이 섹션은 케이스의 수락 기준을 한 조씩 판정하고 판정의 근거가 된 증거를 제시합니다.
 
 #### Verdict Matrix
 
-![판정 매트릭스](docs/screenshots/39-report-verdicts.png)
+![판정 매트릭스](docs/screenshots/ko/39-report-verdicts.png)
 
 매트릭스의 한 행이 한 번의 합격/불합격 판정입니다. 마일스톤은 전체 증거에 대한 규칙으로 판정되고, 단계 판정은 AI가 동작 전에 선언한 기대를 다음 화면에서 판정한 것입니다.
 
@@ -617,31 +618,31 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### AI Execution Evidence
 
-![AI 실행 증거](docs/screenshots/40-report-evidence.png)
+![AI 실행 증거](docs/screenshots/ko/40-report-evidence.png)
 
 증거 섹션은 실행을 단계별로 재현하며 각 단계에 당시의 스크린샷과 추론 기록을 함께 담습니다.
 
 #### Release Readiness
 
-![릴리스 준비도](docs/screenshots/41-report-release.png)
+![릴리스 준비도](docs/screenshots/ko/41-report-release.png)
 
 릴리스 준비도는 설정된 임계값에 비추어 판정을 권고로 환산하며, 커버리지가 부족해 판단할 수 없는 경우도 포함합니다.
 
 #### Report guide — Overview
 
-![보고서 어시스턴트 Overview 탭](docs/screenshots/42-report-assistant-guide.png)
+![보고서 어시스턴트 Overview 탭](docs/screenshots/ko/42-report-assistant-guide.png)
 
 보고서 어시스턴트는 보고서 가장자리의 런처에서 열리고 기본으로 **Overview**를 표시합니다. 판정의 근거와 주장이 어디까지 미치는지를 설명하는 탭입니다.
 
 #### Report guide — Q&A
 
-![보고서 어시스턴트 Q&A 탭](docs/screenshots/43-report-assistant-ask.png)
+![보고서 어시스턴트 Q&A 탭](docs/screenshots/ko/43-report-assistant-ask.png)
 
 **Q&A**는 열려 있는 보고서 자체의 데이터로 질문에 답합니다. 스크린샷은 질문 상자를 아직 사용하지 않은 상태입니다. 같은 구성 요소에서 답변이 끝난 대화는 위의 **Ask AI**에 있습니다.
 
 #### Report guide — Review
 
-![보고서 어시스턴트 Review 탭](docs/screenshots/44-report-assistant-review.png)
+![보고서 어시스턴트 Review 탭](docs/screenshots/ko/44-report-assistant-review.png)
 
 **Review**는 이견이 있는 판정을 바로잡는 곳입니다. 발견 항목은 이유와 함께 덮어쓸 수 있고, 그 덮어쓰기는 보고서와 함께 저장되어 앱의 기억 지도에도 반영됩니다. 스크린샷은 이번 실행에 처리 대기 중인 발견 항목이 없는 빈 상태입니다.
 
@@ -653,19 +654,19 @@ SDK나 엔드포인트를 직접 선택할 필요가 없으며, 시스템이 모
 
 #### 관계도
 
-![기억 지도 관계도 보기](docs/screenshots/46-memory-graph.png)
+![기억 지도 관계도 보기](docs/screenshots/ko/46-memory-graph.png)
 
 **관계도**는 선택기에서 고른 앱의 화면과 전환을 그리고 화면 수, 전환 수, 컨트롤 수를 표시합니다.
 
 #### 갤러리
 
-![기억 지도 갤러리 보기](docs/screenshots/47-memory-grid.png)
+![기억 지도 갤러리 보기](docs/screenshots/ko/47-memory-grid.png)
 
 **갤러리**는 같은 화면들을 썸네일로 보여주며, 겉모습으로 화면을 찾을 때 더 빠릅니다.
 
 #### 화면 작업 영역
 
-![한 화면을 연 화면 작업 영역](docs/screenshots/48-memory-screen-studio.png)
+![한 화면을 연 화면 작업 영역](docs/screenshots/ko/48-memory-screen-studio.png)
 
 화면을 선택하면 해당 작업 영역이 열리고 탭 세 개가 나옵니다. **Script & actions**는 기록된 컨트롤, **Screen details**는 설명, **Appium code**는 생성된 스크립트입니다.
 
