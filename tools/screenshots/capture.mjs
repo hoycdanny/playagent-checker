@@ -36,7 +36,17 @@ import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { DATA_REGIONS, LOCALES, checkCollected, collectDomText, selftest } from './lib/language-check.mjs';
+import {
+  DATA_REGIONS,
+  GENERATED_REGIONS,
+  LOCALES,
+  checkText,
+  clearMasks,
+  collectDomItems,
+  paintMasks,
+  planMasks,
+  selftest,
+} from './lib/language-check.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const OUT_ROOT = join(repoRoot, 'docs', 'screenshots');
@@ -332,34 +342,93 @@ function makeShooter(locale, violations, { dryRun = false } = {}) {
   const dir = join(OUT_ROOT, locale);
   if (!dryRun) mkdirSync(dir, { recursive: true });
   const manifest = [];
+  /** 每張圖的遮罩稽核紀錄,最後寫成 docs/screenshots/<locale>/masks.json。 */
+  const audit = {};
+  /** 看得見就算失敗的字串(使用者自建的知識庫名稱),由 phasePreRun 用 setForbidden 設定。 */
+  let forbid = [];
   let n = 0;
+  const regions = { data: DATA_REGIONS, generated: GENERATED_REGIONS.map((g) => g.sel) };
+  const signature = (plan) => JSON.stringify([plan.masks.map((m) => [m.node, m.start, m.end, m.text]), plan.residual.length]);
   /**
    * 寫一張圖。target 可以是 page(整個視窗)或 locator(只截那一塊)。
    * 編號只在成功後才前進,所以檔名永遠連號。
+   *
+   * 流程:在沒遮罩的 DOM 上跑語言檢查 → 不在產生文字區塊裡的違規記為失敗 →
+   * 產生文字區塊裡違規的那幾段蓋上斜紋遮罩 → 截圖 → 再收集一次,畫面在截圖期間變了就重拍
+   * (最多三次)→ 拿掉遮罩。每一塊遮罩都寫進稽核紀錄。
    */
   const shot = async (target, slug, label, route, opts = {}) => {
     const file = `${String(n + 1).padStart(2, '0')}-${slug}.png`;
     const page = typeof target.page === 'function' ? target.page() : target;
-    const collected = await page.evaluate(collectDomText, DATA_REGIONS);
-    const res = checkCollected(locale, collected);
-    log(`  [${locale}/${file}] ${label}  (遮掉資料字元 ${res.maskedChars})`);
-    if (!res.ok) {
-      const chars = res.violations.map((v) => `${v.char}(${v.kind})`).join(' ');
-      violations.push({ locale, file, slug, chars });
-      console.error(`  ✗ 語言檢查失敗 ${locale}/${file}:${chars}`);
-      for (const s of res.sources ?? []) console.error(`      來源 ${s}`);
-    }
     // 整頁截圖前先回到頂端:頂欄是 sticky 的,頁面捲過之後拍整頁會讓它卡在畫面中間。
+    // 要在算遮罩位置之前捲,遮罩才會對準。
     if (opts.fullPage && typeof target.evaluate === 'function') {
       await target.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
       await sleep(250);
     }
-    await target.screenshot({ path: join(dir, file), ...opts });
+    let plan = null;
+    let painted = [];
+    let stable = false;
+    for (let attempt = 0; attempt < 3 && !stable; attempt += 1) {
+      if (attempt > 0) await page.evaluate(clearMasks);
+      const items = await page.evaluate(collectDomItems, regions);
+      // 跨租戶 / 使用者自建的知識庫名稱絕不能出現在圖裡(只檢查看得見的文字)。
+      if (attempt === 0 && forbid.length) {
+        const leaks = items.filter((it) => it.visible && it.kind === 'text' && forbid.some((f) => it.text.includes(f)));
+        if (leaks.length) {
+          violations.push({ locale, file, slug, chars: `(看得見使用者自建的知識庫名稱:${[...new Set(leaks.map((l) => l.origin))].join(', ')})` });
+          console.error(`  ✗ ${locale}/${file}:看得見使用者自建的知識庫名稱(${leaks.length} 處)`);
+        }
+      }
+      plan = planMasks(locale, items);
+      painted = plan.masks.length ? await page.evaluate(paintMasks, plan.masks) : [];
+      if (!dryRun) await target.screenshot({ path: join(dir, file), ...opts });
+      // 截圖之後再看一次:即時頁面在截圖期間換了文字,遮罩就可能沒對準,要重拍。
+      const after = planMasks(locale, await page.evaluate(collectDomItems, regions));
+      stable = signature(after) === signature(plan);
+    }
+    await page.evaluate(clearMasks);
+    if (!stable) {
+      violations.push({ locale, file, slug, chars: '(畫面在截圖期間持續變動,遮罩無法對準)' });
+      console.error(`  ✗ ${locale}/${file}:畫面持續變動,三次都沒拍到穩定的畫面`);
+    }
+    // 沒畫出任何方塊的遮罩(被裁切或隱藏)= 圖裡看不到,改記為隱藏的產生文字。
+    const masks = [];
+    const hidden = plan.hidden.map((h) => ({ region: GENERATED_REGIONS[h.gen].sel, why: GENERATED_REGIONS[h.gen].why, origin: h.origin, text: h.text.trim().slice(0, 80) }));
+    const misaligned = [];
+    plan.masks.forEach((m, i) => {
+      const entry = { region: GENERATED_REGIONS[m.gen].sel, why: GENERATED_REGIONS[m.gen].why, origin: m.origin, text: m.text };
+      const p = painted[i];
+      if (p && p.misaligned) misaligned.push(entry);
+      if (p && p.boxes.length) masks.push({ ...entry, boxes: p.boxes });
+      else hidden.push(entry);
+    });
+    if (misaligned.length) {
+      violations.push({ locale, file, slug, chars: `(${misaligned.length} 塊遮罩沒對準文字:${[...new Set(misaligned.map((x) => x.origin))].join(', ')})` });
+      console.error(`  ✗ ${locale}/${file}:${misaligned.length} 塊遮罩沒蓋住文字`);
+    }
+    audit[file] = { preMaskViolations: plan.preMaskViolations, residualViolations: plan.residual.length, masks, hidden };
+    log(`  [${locale}/${file}] ${label}  (資料字元 ${plan.dataChars} · 遮罩前違規 ${plan.preMaskViolations} · 遮罩 ${masks.length} · 看不見的產生文字 ${hidden.length})`);
+    if (plan.residual.length) {
+      const res = checkText(locale, plan.residual.map((r) => r.text).join('\n'));
+      const chars = res.violations.map((v) => `${v.char}(${v.kind})`).join(' ');
+      violations.push({ locale, file, slug, chars });
+      console.error(`  ✗ 語言檢查失敗 ${locale}/${file}:${chars}`);
+      const seen = new Set();
+      for (const r of plan.residual) {
+        if (seen.has(r.origin)) continue;
+        seen.add(r.origin);
+        console.error(`      來源 ${r.origin}: ${r.text.trim().slice(0, 40)}`);
+      }
+    }
     n += 1;
-    manifest.push({ file, slug, route, label, maskedChars: res.maskedChars });
+    manifest.push({ file, slug, route, label, maskedRegions: masks.length });
     return file;
   };
-  return { shot, manifest };
+  const setForbidden = (names) => {
+    forbid = [...names];
+  };
+  return { shot, manifest, audit, setForbidden };
 }
 
 /** 等畫面安定:先等網路閒置(輪詢頁面等不到就算了),再給 CSS 轉場一點時間。 */
@@ -400,15 +469,19 @@ async function openPane(page, index) {
 async function ask(page, scope, question) {
   const box = page.locator(`${scope}__form textarea`).first();
   if (!(await box.count())) throw new Error(`找不到問答輸入框 ${scope}__form textarea`);
+  // 報告助手和任務詳情的 AI 問答共用同一串對話:先記下已完成的回答數,等「新的」回答完成,
+  // 不然舊的回答會讓這裡在新回答還在「分析中」時就返回。
+  const doneBefore = await page.locator(`${scope}__msg--assistant:not(.taskask__msg--busy)`).count();
   await box.fill(question);
   await box.press('Enter');
   await page.waitForSelector(`${scope}__msg--user`, { timeout: 30_000 });
   await page.waitForFunction(
-    (sel) => {
+    ({ sel, before }) => {
       const msgs = [...document.querySelectorAll(`${sel}__msg--assistant`)];
-      return msgs.some((el) => !el.classList.contains('taskask__msg--busy'));
+      const busy = msgs.some((el) => el.classList.contains('taskask__msg--busy'));
+      return !busy && msgs.length > before;
     },
-    scope,
+    { sel: scope, before: doneBefore },
     { timeout: 180_000 },
   );
   await settle(page, 1500);
@@ -436,9 +509,10 @@ async function scrollToId(page, id) {
  * 用 API 建出來的資料配上手動擺出來的空表單,等於圖和流程對不起來。
  * 應用已存在時(後面幾個語系、或重跑)只填表單、拍圖、取消。
  */
-async function createApp(page, { name, platform, identifier, shooter, formSlug }) {
+async function createApp(page, api, { name, platform, identifier, shooter, formSlug, beforeShot }) {
   await nav(page, '/apps');
-  const exists = (await page.locator('.apps__card-name', { hasText: name }).count()) > 0;
+  // 用 API 判斷「已經建過」:卡片牆還沒載完就看 DOM,後面幾個語系會各自再建一個重複的應用。
+  const exists = ((await api.get('/apps')).items ?? []).some((a) => a.name === name);
 
   await page.click('.apps__create-btn');
   await page.waitForSelector('.apps__form');
@@ -454,6 +528,7 @@ async function createApp(page, { name, platform, identifier, shooter, formSlug }
   await grid.locator('.apps__field:has(input)').last().locator('input').fill(identifier);
   await settle(page, 400);
   if (formSlug) {
+    if (beforeShot) await beforeShot();
     await shooter.shot(page, formSlug, `新增應用表單(${name})`, '#/apps');
   }
   if (exists) {
@@ -495,6 +570,10 @@ acceptance:
 /** 在應用工作區裡用 YAML 模式建案例(YAML 模式不呼叫 Bedrock,結果可重現)。 */
 async function createCase(page, appId, caseName, shooter) {
   await nav(page, `/apps/${encodeURIComponent(appId)}?tab=cases`);
+  // 等案例清單載完再判斷「已經建過」:清單還沒回來就判斷,第二個語系會再建一筆重複的案例。
+  await page.waitForSelector('.cases__create-btn', { timeout: 30_000 });
+  await page.waitForSelector('.listpage__skeleton', { state: 'detached', timeout: 30_000 }).catch(() => {});
+  await settle(page, 1500);
   const exists = (await page.locator('table', { hasText: caseName }).count()) > 0;
   await page.click('.cases__create-btn');
   await page.waitForSelector('.cases__form');
@@ -652,14 +731,26 @@ async function phasePreRun(browser, api, locale, shooter, ctx) {
   await settle(page, 1200);
   await shooter.shot(page, 'guide', '使用指南(14 個章節)', '#/guide', { fullPage: true });
 
-  await createApp(page, {
+  // 知識庫是跨租戶共用資源(listKnowledgeBases 讀 shared/):別的租戶 / 帳號自建的那幾座
+  // 會用真實的遊戲名字命名,不能出現在公開截圖裡。先問 API 哪幾座不是內建的,
+  // 之後每次要截到知識庫清單前(包括新增應用表單的「預設知識庫」)先把那幾列藏掉。
+  const customKbNames = ((await api.get('/knowledge-bases')).items ?? [])
+    .filter((kb) => !kb.builtin)
+    .map((kb) => String(kb.name ?? '').trim())
+    .filter(Boolean);
+  const hideCustomKbs = makeHideCustomKbs(page, customKbNames);
+  ctx.customKbNames = customKbNames;
+  shooter.setForbidden(customKbNames);
+
+  await createApp(page, api, {
     name: GAME_NAME,
     platform: 'web',
     identifier: GAME_URL,
     shooter,
     formSlug: 'apps-create-form',
+    beforeShot: hideCustomKbs,
   });
-  await createApp(page, {
+  await createApp(page, api, {
     name: MOBILE_NAME,
     platform: 'android',
     identifier: 'com.example.slotsgame',
@@ -667,6 +758,10 @@ async function phasePreRun(browser, api, locale, shooter, ctx) {
   });
 
   const apps = (await api.get('/apps')).items ?? [];
+  for (const nm of [GAME_NAME, MOBILE_NAME]) {
+    const c = apps.filter((a) => a.name === nm).length;
+    if (c !== 1) throw new Error(`租戶 ${TENANT} 裡「${nm}」有 ${c} 個(應該剛好 1 個):種資料重複了`);
+  }
   const webApp = apps.find((a) => a.name === GAME_NAME);
   const mobileApp = apps.find((a) => a.name === MOBILE_NAME);
   if (!webApp) throw new Error(`建立後找不到 ${GAME_NAME}`);
@@ -678,16 +773,6 @@ async function phasePreRun(browser, api, locale, shooter, ctx) {
   await shooter.shot(page, 'apps', '應用管理(卡片牆)', '#/apps', { fullPage: true });
 
   await createCase(page, webApp.id, ctx.caseName, shooter);
-
-  // 知識庫是跨租戶共用資源(listKnowledgeBases 讀 shared/):別的租戶自建的那幾座
-  // 會用真實的遊戲名字命名,不能出現在公開截圖裡。先問 API 哪幾座不是內建的,
-  // 之後每次要截到知識庫清單前先把那幾列藏掉。
-  const customKbNames = ((await api.get('/knowledge-bases')).items ?? [])
-    .filter((kb) => !kb.builtin)
-    .map((kb) => String(kb.name ?? '').trim())
-    .filter(Boolean);
-  const hideCustomKbs = makeHideCustomKbs(page, customKbNames);
-  ctx.customKbNames = customKbNames;
 
   await seedDefaultKnowledge(page, api, webApp.id);
 
@@ -925,6 +1010,13 @@ async function phasePostRun(browser, api, locale, shooter, ctx) {
   // (弱點 d)用元素截圖拍整個助手面板;面板仍被裁掉的話把視窗高度拉到 1000 再拍。
   const panel = page.locator('.rasst').first();
   await panel.scrollIntoViewIfNeeded();
+  // 對話是共用的,最新的一問一答在最下面:把面板內容捲到底,圖裡才是這次的問答。
+  await page.evaluate(() => {
+    const body = document.querySelector('.rasst__body');
+    const users = document.querySelectorAll('.rasst .taskask__msg--user');
+    const last = users[users.length - 1];
+    if (body && last) body.scrollTop += last.getBoundingClientRect().top - body.getBoundingClientRect().top - 8;
+  });
   const box = await panel.boundingBox();
   if (box && box.y + box.height > VIEWPORT.height) await page.setViewportSize({ width: VIEWPORT.width, height: 1000 });
   await sleep(300);
@@ -1043,6 +1135,42 @@ async function capture() {
   log(`任務:${ctx.jobId} · 最終狀態 ${ctx.finalState} · 步數 ${ctx.stepCount}`);
   for (const l of LOCALES) log(`圖片 ${l}:${manifest[l].length} 張,寫在 docs/screenshots/${l}/`);
 
+  // 遮罩稽核檔:每個語系一份,跟圖片放在一起(會 commit)。
+  log('\n遮罩(產生文字的語系和介面不一致的區段):');
+  for (const l of LOCALES) {
+    const images = shooters.get(l).audit;
+    const files = Object.keys(images).sort();
+    const withMasks = files.filter((f) => images[f].masks.length > 0);
+    const withPre = files.filter((f) => images[f].preMaskViolations > 0);
+    const summary = {
+      images: files.length,
+      imagesWithPreMaskViolations: withPre.length,
+      imagesWithMasks: withMasks.length,
+      maskedRegions: files.reduce((a, f) => a + images[f].masks.length, 0),
+      maskedChars: files.reduce((a, f) => a + images[f].masks.reduce((b, m) => b + m.text.length, 0), 0),
+      hiddenGeneratedTexts: files.reduce((a, f) => a + images[f].hidden.length, 0),
+      residualViolations: files.reduce((a, f) => a + images[f].residualViolations, 0),
+      maskedImages: withMasks,
+    };
+    const doc = {
+      locale: l,
+      note:
+        'Regions of AI-agent and report-engine output that are not in this locale are covered with a striped mask. ' +
+        'The language check runs on the unmasked DOM first; preMaskViolations counts what it found, residualViolations ' +
+        'what remained outside generated regions (must be 0). hidden lists generated text that is not visible in the image ' +
+        '(attributes, visually hidden or clipped nodes), so nothing was painted for it. Boxes are [x, y, width, height] in viewport pixels.',
+      run: { game: GAME_URL, finalState: ctx.finalState, steps: ctx.stepCount },
+      generatedRegions: GENERATED_REGIONS,
+      summary,
+      images,
+    };
+    writeFileSync(join(OUT_ROOT, l, 'masks.json'), `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
+    log(
+      `  ${l}:遮罩前違規的圖 ${summary.imagesWithPreMaskViolations} 張 · 有遮罩的圖 ${summary.imagesWithMasks} 張 · ` +
+        `遮罩 ${summary.maskedRegions} 塊(${summary.maskedChars} 字)· 看不見的產生文字 ${summary.hiddenGeneratedTexts} · 殘留違規 ${summary.residualViolations}`,
+    );
+  }
+
   const problems = [];
   const refSlugs = manifest[LOCALES[0]].map((e) => `${e.file}`).join(',');
   for (const l of LOCALES) {
@@ -1054,7 +1182,7 @@ async function capture() {
     for (const p of problems) console.error(`  - ${p}`);
     throw new Error(`${problems.length} 個問題(見上)`);
   }
-  log('語言檢查:全部通過');
+  log('語言檢查:遮罩之外沒有違規(遮罩明細見 docs/screenshots/<locale>/masks.json)');
 }
 
 // ────────────────────────── 收尾 ──────────────────────────
@@ -1111,16 +1239,27 @@ async function teardown() {
 function runSelftest() {
   const planted = selftest();
   log(`selftest: 植入的違規字元 ${planted.plantedViolations} 被偵測到`);
-  const flat = { evaluate: async () => ({ texts: ['Settings 設定'], maskedChars: 0 }) };
+  // 假 page:一段介面文字違規(不在產生文字區塊)+ 一段產生文字(要遮)。
+  const items = [
+    { kind: 'text', node: 0, text: 'Settings 設定', origin: 'span.ui', visible: true, data: false, gen: -1 },
+    { kind: 'text', node: 1, text: '#0 登入頁', origin: 'span.detail__step-screen', visible: true, data: false, gen: 0 },
+  ];
+  const fakePage = {
+    evaluate: async (fn, arg) => (fn === collectDomItems ? items : fn === paintMasks ? arg.map(() => ({ boxes: [[0, 0, 10, 10]], misaligned: false })) : undefined),
+    screenshot: async () => {},
+  };
   const violations = [];
   const shooter = makeShooter('en', violations, { dryRun: true });
-  // 假 page:只實作 evaluate 與 screenshot,證明 shot() 會把違規記下來。
-  const fakePage = { ...flat, screenshot: async () => {} };
   return shooter
     .shot(fakePage, 'selftest', 'selftest', '#/')
     .then(() => {
       if (violations.length !== 1) throw new Error('selftest failed: shooter did not record the planted violation');
-      log(`selftest: shooter 記錄了違規(${violations[0].chars})`);
+      const audit = shooter.audit['01-selftest.png'];
+      if (!audit || audit.masks.length !== 1 || audit.masks[0].text !== '登入頁') {
+        throw new Error('selftest failed: the generated text was not masked and recorded');
+      }
+      if (audit.preMaskViolations !== 2) throw new Error('selftest failed: pre-mask violations were not counted');
+      log(`selftest: shooter 記錄了違規(${violations[0].chars}),並遮了產生文字「${audit.masks[0].text}」`);
       log('selftest 通過');
     });
 }

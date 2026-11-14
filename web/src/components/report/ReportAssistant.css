@@ -129,6 +129,13 @@
 
 /* 問答面板內嵌時由助手控制高度,不要再自己撐開 */
 .rasst__body > .ask { margin: 0; }
+/*
+ * 問答分頁:TaskAskPanel 的 embedded 版是 flex: 1 1 0(在任務詳情裡由固定高度的分頁撐開)。
+ * 助手面板高度是 auto(只有 max-height),basis 0 會把訊息列表壓成 0 高,只剩輸入框;
+ * 這裡改成依內容長高,超過 max-height 時由 .rasst__body 捲動。
+ */
+.rasst__body > .taskask--embedded { flex: 0 0 auto; }
+.rasst__body > .taskask--embedded .taskask__list { flex: 0 0 auto; overflow-y: visible; }
 
 .rasst__body {
   overflow-y: auto;

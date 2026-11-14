@@ -1,6 +1,9 @@
 # Shell scripts run on Linux/macOS hosts; CRLF breaks shebang execution.
 *.sh text eol=lf
 *.command text eol=lf
+# Node scripts start with a #! line; vitest's module runner fails to strip a CRLF-terminated
+# hashbang ("SyntaxError: Invalid or unexpected token" in infra/test/upgrade-updater-script.test.ts).
+*.mjs text eol=lf
 # Native Windows launchers keep Windows line endings.
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
