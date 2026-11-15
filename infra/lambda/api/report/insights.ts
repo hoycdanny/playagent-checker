@@ -61,6 +61,19 @@ const SYSTEM = `你是資深遊戲 QA 測試顧問,負責撰寫給客戶的正�
 
 export type InsightsLang = GenLocale;
 
+/**
+ * 洞察的 system prompt。zh-Hant(含沒帶 lang 的請求)與原本逐字相同。
+ * 其他語系把語言寫進 system:只在 user 訊息開頭放「輸出語言」時,模型會被
+ * 大量繁中輸入帶走,實測 ja 仍回繁中(問答在 system 指定語言就沒有這問題)。
+ */
+export function insightsSystem(lang: InsightsLang): string {
+  if (lang === 'zh-Hant') return SYSTEM;
+  const name = LANG_NAME[lang];
+  return `${SYSTEM}
+- 輸出語言(最優先):JSON 裡所有文字欄位(summary、rootCause、watchouts、requirements 的 text/reason/suggestion、recommendations 的 text、notes)一律用${name}撰寫。
+  輸入資料大多是繁體中文,那不代表輸出語言;引用的畫面名稱、指標 id 可保留原文,其餘句子都要寫成${name}。`;
+}
+
 const cut = (s: unknown, n: number): string | undefined => (typeof s === 'string' && s ? s.slice(0, n) : undefined);
 
 /** 指標上限:類型專屬的先進,通用的補到這個數為止(控制 token)。 */
@@ -332,7 +345,7 @@ export async function generateInsights(
     // 多了 watchouts 一段(最多 6 條),輸出上限跟著放寬;截斷時 repairTruncatedJson 會接手。
     max_tokens: 4200,
     temperature: 0,
-    system: SYSTEM,
+    system: insightsSystem(lang),
     messages: [
       { role: 'user', content: `輸出語言:${LANG_NAME[lang]}\n結構化報告:\n${JSON.stringify(insightsInput(r))}` },
       // 預填 "{" 讓模型直接輸出 JSON 本體。

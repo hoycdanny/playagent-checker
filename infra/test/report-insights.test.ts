@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { insightsInput, sanitizeInsights } from '../lambda/api/report/insights.js';
+import { generateInsights, insightsInput, insightsSystem, sanitizeInsights } from '../lambda/api/report/insights.js';
 import type { StructuredReport } from '../lambda/api/report/types.js';
 import { cacheSuffix, type GenLocale } from '../lambda/api/genLocale.js';
 
@@ -159,6 +159,42 @@ describe('insights locale keys', () => {
     expect(['zh-Hant', 'en', 'zh-Hans', 'ja', 'ko'].map((l) => `insights-${cacheSuffix(l as GenLocale)}.json`)).toEqual([
       'insights-zh.json', 'insights-en.json', 'insights-zh-Hans.json', 'insights-ja.json', 'insights-ko.json',
     ]);
+  });
+});
+
+describe('generateInsights — output language reaches the system prompt', () => {
+  /** Fake Bedrock: records the request body and answers with an empty insights object. */
+  function fakeBedrock() {
+    const bodies: Array<{ system: string; messages: Array<{ content: string }> }> = [];
+    const send = async (cmd: { input: { body: string } }) => {
+      bodies.push(JSON.parse(cmd.input.body));
+      return { body: new TextEncoder().encode(JSON.stringify({ content: [{ type: 'text', text: '"summary":"x"}' }] })) };
+    };
+    return { bodies, bedrock: { send } as never };
+  }
+
+  // Live check (job-mwhyd8i0-om2ij3): POST /reports/{id}/insights {lang:'ja'} came back in Traditional
+  // Chinese because the language was only named in the user message, ahead of a large zh-Hant payload.
+  test.each([
+    ['ja', '日本語'],
+    ['ko', '한국어'],
+    ['zh-Hans', '简体中文'],
+    ['en', 'English'],
+  ] as const)('%s: the system prompt names %s as the output language', async (lang, name) => {
+    const f = fakeBedrock();
+    const ins = await generateInsights(fixture(), lang, { bedrock: f.bedrock });
+    expect(ins.lang).toBe(lang);
+    expect(f.bodies[0]!.system).toContain(`一律用${name}撰寫`);
+  });
+
+  test('zh-Hant (and requests without lang) keep the system prompt unchanged', async () => {
+    const f = fakeBedrock();
+    await generateInsights(fixture(), 'zh-Hant', { bedrock: f.bedrock });
+    await generateInsights(fixture(), undefined, { bedrock: f.bedrock });
+    expect(f.bodies[0]!.system).toBe(insightsSystem('zh-Hant'));
+    expect(f.bodies[0]!.system).not.toContain('輸出語言(最優先)');
+    expect(f.bodies[1]!.system).toBe(f.bodies[0]!.system);
+    expect(f.bodies[0]!.messages[0]!.content.startsWith('輸出語言:繁體中文\n')).toBe(true);
   });
 });
 
