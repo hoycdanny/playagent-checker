@@ -128,6 +128,8 @@ export interface EvidenceStep {
   at?: string;
   /** Observed State(AI 標的畫面名)。 */
   screen: string;
+  /** AI 回報的畫面種類 id(GAME_STATES 之一);與畫面名稱的語言無關。 */
+  phase?: string;
   /** Reason。 */
   thinking?: string;
   action: string;

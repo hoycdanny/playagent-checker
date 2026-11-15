@@ -64,6 +64,7 @@ import { gridMoved, gridMovedAt, frameIsBlank } from './frameSignal.mjs';
 import { uitarsEnabled, decideUitars } from './uitarsClient.mjs';
 import { loadAppCredentials, substituteText } from './secretsResolver.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
+import { languageDirective, runnerText } from './localeText.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure, identifyPage, forgetHash } from './memoryGraph.mjs';
 import { REFLEX_MAX_CHAIN, chooseReflex, chooseSpinOp, cmdFromOp, coolSpinOp, createReflexState, isPaidSpinTarget, opFromCmd, parseSpinCount, rtpSummary, spinCooledDown } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
@@ -129,6 +130,8 @@ const PKG = process.env.PA_PKG || '';
 // 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。憑證的真值「只在 type 到裝置那一刻」替換,
 // 不改寫 TASK,避免明文進入 prompt / trace / 報告 / log。
 const TASK = process.env.PA_TASK || '啟動遊戲,通過開場動畫與任何彈窗,進入主畫面,並嘗試開始一場遊戲';
+// 提交任務時的 UI 語系(engine 寫進 context.json);未設 = zh-Hant(prompt 與舊版逐位元相同)。
+let LOCALE = '';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 卡死偵測 / 取消 / 連續失敗才停)。
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
@@ -413,10 +416,10 @@ function buildSystemPrompt(w, h, knowledge, _hasGrid, evidence, controls, coordM
     `在那之前,即使遊戲載入很久、或你覺得流程走完了,都不可 done —— 繼續 wait 或 move 走位推進關卡。誤把載入畫面當完成而 done 是嚴重錯誤。` +
     `screen 用精確畫面名(如「主選單」「大廳」「轉軸畫面」「載入中」)描述當前畫面,不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
-  const withEvidence = base + evidencePromptSection(evidence);
-  if (!k) return withEvidence;
+  const withEvidence = base + evidencePromptSection(evidence, { locale: LOCALE });
+  if (!k) return withEvidence + languageDirective(LOCALE);
   // 知識上限 9000 字:導覽圖摘要排在知識庫之前,4000 字時遊戲專屬知識庫常被截掉。
-  return withEvidence + `\n\n這款遊戲「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 9000)}`;
+  return withEvidence + `\n\n這款遊戲「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 9000)}` + languageDirective(LOCALE);
 }
 
 function makeUserTurn(images, text, fmt = 'png') {
@@ -514,8 +517,8 @@ function channelFor(modelId) {
  */
 function parseCmd(out) {
   const m = /\{[\s\S]*\}/.exec(out || '');
-  try { return m ? JSON.parse(m[0]) : { action: 'wait', duration: 3, thinking: '無法解析回應,等待後重試', parseFailed: true }; }
-  catch { return { action: 'wait', duration: 3, thinking: '無法解析回應 JSON,等待後重試', parseFailed: true }; }
+  try { return m ? JSON.parse(m[0]) : { action: 'wait', duration: 3, thinking: runnerText(LOCALE, 'parseFail'), parseFailed: true }; }
+  catch { return { action: 'wait', duration: 3, thinking: runnerText(LOCALE, 'parseFailJson'), parseFailed: true }; }
 }
 
 /** 把內部 Anthropic 形態的 messages 轉成 Converse API 形態(image bytes + text)。 */
@@ -657,7 +660,7 @@ async function decide(system, messages, modelId = VLM) {
     const name = err && err.name ? String(err.name) : 'Error';
     const message = err && err.message ? String(err.message) : String(err);
     return {
-      cmd: { action: 'done', thinking: `模型呼叫失敗:${message}` },
+      cmd: { action: 'done', thinking: runnerText(LOCALE, 'modelFail', { message }) },
       usage: null,
       rawText: '',
       trace: { ...baseTrace, ok: false, error: { name, message } },
@@ -930,6 +933,7 @@ async function main() {
     if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
     if (ctx && ctx.scripted === true) scripted = true;
     if (ctx && ctx.vlmCoordSystem === 'norm1000') vlmCoordSystem = 'norm1000';
+    if (ctx && typeof ctx.locale === 'string') LOCALE = ctx.locale;
   } catch { /* 無則略過 */ }
   // UI-TARS 走自己的像素 grounding;norm1000 契約只套用在一般 Bedrock VLM。
   const normCoord = vlmCoordSystem === 'norm1000' && !USE_UITARS;
@@ -1344,7 +1348,7 @@ async function main() {
     ? createAgentTeam({
       bedrock, ConverseCommand, agentModel: AGENT_MODEL, subagentModel: SUBAGENT_MODEL, task: TASK,
       controlsPrompt: controls?.prompt ?? '', knowledge, scripted, put: s3put, prefix: PREFIX, log: (m) => console.log(m),
-      externalProgress: Boolean(scriptTracker),
+      externalProgress: Boolean(scriptTracker), locale: LOCALE,
     })
     : null;
   console.log('Agent 協作', team ? `決策=${AGENT_MODEL || '停用'} 輔助=${SUBAGENT_MODEL || '停用'}` : '停用(只用視覺 Agent)');
@@ -1682,7 +1686,7 @@ async function main() {
       index: idx,
       action: deviceCmd?.action ?? 'wait',
       screen: screenName,
-      thinking: `測試人員接管:${act.kind}`,
+      thinking: runnerText(LOCALE, 'takeover', { kind: act.kind }),
       by: 'operator',
       takeover: true,
       ...(deviceCmd?.x != null ? { x: deviceCmd.x, y: deviceCmd.y, deviceX: deviceCmd.x, deviceY: deviceCmd.y } : {}),
@@ -1992,11 +1996,11 @@ async function main() {
         } else if (here?.transient && p.waits < 6) {
           p.waits++;
           reflexCmd = { action: 'wait', duration: 1, screen: nameOf(here.pageId), reflex: { kind: 'wait', to: p.to },
-            thinking: `[記憶腳本] 等「${nameOf(p.to)}」載入(${p.waits}/6)。` };
+            thinking: runnerText(LOCALE, 'memWait', { name: nameOf(p.to), n: p.waits }) };
         } else if (here?.pageId === p.from && !screenChanged && p.waits < 1) {
           p.waits++;
           reflexCmd = { action: 'wait', duration: 1, screen: nameOf(here.pageId), reflex: { kind: 'wait', to: p.to },
-            thinking: `[記憶腳本] 畫面還沒反應,再等一下。` };
+            thinking: runnerText(LOCALE, 'memStill') };
         } else {
           if (here?.pageId === p.from) {
             // 照記憶點了卻沒反應:這條本次不再用;跨版本的操作失敗 → 本次不再用任何跨版本操作(遊戲可能改版)。
@@ -2017,7 +2021,7 @@ async function main() {
         if (c) {
           reflexCmd = { ...c, target: spin.target, screen: nameOf(here.pageId),
             reflex: { kind: 'spin', key: spin.key, round: rtpLoop.paid + 1, of: rtpLoop.target },
-            thinking: `[SPIN 迴圈] 第 ${rtpLoop.paid + 1}/${rtpLoop.target} 局:照記憶點「${spin.target}」。` };
+            thinking: runnerText(LOCALE, 'spinLoop', { round: rtpLoop.paid + 1, of: rtpLoop.target, target: spin.target }) };
         }
       }
       // 3) 導航:這個畫面有可信、通往目標的出路 → 直接走。
@@ -2039,14 +2043,14 @@ async function main() {
           } else if (asSpin) {
             reflexCmd = { ...c, target: d.target, screen: nameOf(here.pageId),
               reflex: { kind: 'spin', key: d.key, round: rtpLoop.paid + 1, of: rtpLoop.target },
-              thinking: `[SPIN 迴圈] 第 ${rtpLoop.paid + 1}/${rtpLoop.target} 局:照記憶點「${d.target}」(導航腳本挑到的同一顆 SPIN)。` };
+              thinking: runnerText(LOCALE, 'spinLoopNav', { round: rtpLoop.paid + 1, of: rtpLoop.target, target: d.target }) };
             reflexNotes.push(`在「${nameOf(here.pageId)}」${c.action}「${d.target}」`);
           } else {
           const how = { route: '照路線', named: '目標點名', popup: '關彈窗', verified: '人工確認', dominant: '主要出口' }[d.reason] ?? d.reason;
           const trustTxt = d.trust === 'verified' ? '人工確認' : `成功 ${d.hits} / 失敗 ${d.misses}`;
           reflexCmd = { ...c, target: d.target, screen: nameOf(here.pageId),
             reflex: { kind: 'nav', key: d.key, from: here.pageId, to: d.toPageId, reason: d.reason, trust: d.trust },
-            thinking: `[記憶腳本] 認出「${nameOf(here.pageId)}」→ ${c.action}「${d.target}」前往「${nameOf(d.toPageId) || '?'}」(${how};${trustTxt})。` };
+            thinking: runnerText(LOCALE, 'memNav', { name: nameOf(here.pageId), action: c.action, target: d.target, to: nameOf(d.toPageId) || '?', how, trust: trustTxt }) };
           reflexPending = { key: d.key, from: here.pageId, to: d.toPageId, cross: d.cross, waits: 0 };
           reflexState.chain++;
           reflexNotes.push(`在「${nameOf(here.pageId)}」${c.action}「${d.target}」`);
@@ -2336,7 +2340,7 @@ async function main() {
 
     let escapeOverride = false;
     // 安裝/載入偵測:VLM 的 thinking 或畫面名提到 install/loading/安裝/載入 → 視為載入中。
-    const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中|config\s*ready|進場|进场|logo|品牌動畫|品牌动画|開場|开场/i;
+    const loadingHint = /install|loading|安裝|安装|載入|载入|請稍候|请稍候|connecting|連線中|连接中|config\s*ready|進場|进场|logo|品牌動畫|品牌动画|開場|开场|加载|加載|読み込み|ロード|ローディング|接続中|お待ちください|オープニング|ロゴ|로딩|불러오는|접속 중|연결 중|잠시만|오프닝|로고/i;
     // 注意:此處在 screenName 宣告之前,只能用 cmd.screen(別引用 screenName,否則 TDZ ReferenceError)。
     // 2026-10-03 修正(實測 job-mus2tskm-mlstop):AI 把有 PLAY 鈕的標題頁命名為「開場畫面」,
     // thinking 寫「開場畫面已載入…點 PLAY」—— 舊規則對 thinking/畫面名做寬鬆關鍵字比對,
@@ -2443,7 +2447,7 @@ async function main() {
     // 改成只看「畫面名」(模型對畫面的簡短分類標籤,比自由敘述穩定),且用更明確的複合詞,
     // 避免「spin」這種在成就/任務文案裡常見的單字誤觸。
     // 拉霸機的自動進行畫面(Free Spins / Bonus / 大獎動畫 / AutoSpin)也會長時間停在同一個畫面名,屬於正常玩法。
-    const slotHint = /slot machine|slot game|轮盘|輪盤|spin\s*wheel|轉軸|转轴|老虎機|老虎机|jackpot|賭場|赌场|casino|free\s*spins?|免費遊戲|免费游戏|免費旋轉|免费旋转|autospin|auto\s*spin|big\s*win|mega\s*win|super\s*win/i;
+    const slotHint = /slot machine|slot game|轮盘|輪盤|spin\s*wheel|轉軸|转轴|老虎機|老虎机|jackpot|賭場|赌场|casino|free\s*spins?|免費遊戲|免费游戏|免費旋轉|免费旋转|autospin|auto\s*spin|big\s*win|mega\s*win|super\s*win|スロット|リール|ジャックポット|カジノ|フリースピン|フリーゲーム|ビッグウィン|슬롯|릴 ?화면|잭팟|카지노|프리 ?스핀|빅 ?윈/i;
     const looksSlotSpin = (cmd.action === 'tap' || cmd.action === 'swipe') &&
       slotHint.test(String(cmd.screen || ''));
 
@@ -2517,15 +2521,15 @@ async function main() {
         cmd.override = 'stuck_escape';
         if (mode < yBand.length) {
           cmd.action = 'tap'; cmd.x = Math.round(cw * 0.5); cmd.y = Math.round(ch * yBand[mode]);
-          cmd.thinking = `連續 ${stuckCount} 步畫面沒變,掃描中下段主按鈕帶 y=${(yBand[mode] * 100).toFixed(0)}% 脫困`;
+          cmd.thinking = runnerText(LOCALE, 'stuckBand', { n: stuckCount, pct: (yBand[mode] * 100).toFixed(0) });
           escapeOverride = true;
         } else if (mode === yBand.length) {
           cmd.action = 'back'; cmd.x = undefined; cmd.y = undefined;
-          cmd.thinking = `連續 ${stuckCount} 步畫面沒變,用 back 脫困`;
+          cmd.thinking = runnerText(LOCALE, 'stuckBack', { n: stuckCount });
           escapeOverride = true;
         } else {
           cmd.action = 'tap'; cmd.x = Math.round(cw * 0.93); cmd.y = Math.round(ch * 0.06);
-          cmd.thinking = `連續 ${stuckCount} 步畫面沒變,點右上角(關閉鈕常在此)脫困`;
+          cmd.thinking = runnerText(LOCALE, 'stuckCorner', { n: stuckCount });
           escapeOverride = true;
         }
       }
@@ -2734,7 +2738,7 @@ async function main() {
       const freeMode = cmd.obs?.bonus === true || /Free\s*Spin\s*進行中|免費遊戲(?:畫面|進行中)|免费游戏(?:画面|进行中)/i.test(slotStateText);
       const spinningMode = hasAutoCounter || freeMode || /AutoSpin\s*進行中|Auto\s*Spin\s*(?:running|active)/i.test(slotStateText);
       const stopMode = /AutoSpin.{0,12}(?:已停|停止|結束|结束)|SPIN.{0,12}HOLD\s*FOR\s*AUTOSPIN/i.test(slotStateText);
-      const outsideMachine = /PAYTABLE|GAME\s*INFO|RULES|大廳|大厅|登入|登录|載入|载入|首儲|首储/i.test(screenName);
+      const outsideMachine = /PAYTABLE|GAME\s*INFO|RULES|大廳|大厅|登入|登录|載入|载入|首儲|首储|ロビー|ログイン|読み込み|ロード|初回チャージ|로비|로그인|로딩|첫 ?충전/i.test(screenName);
       if (spinningMode) slotCapture.setActive(true, `#${i} ${screenName}`, t0, freeMode ? 'free' : 'paid');
       else if (stopMode || outsideMachine || cmd.action === 'done') slotCapture.setActive(false, `#${i} ${screenName}`, t0);
     }
@@ -2831,7 +2835,7 @@ async function main() {
     //     8 次沒反應而重啟 App。
     // 兩者都不是卡死,是「在同一個畫面上正常做事」。
     const screenNameLower = String(screenName || '').toLowerCase();
-    const loopLoadingHint = /loading|載入|载入|請稍候|请稍候|connecting|連線中|连接中|進場|进场/i;
+    const loopLoadingHint = /loading|載入|载入|請稍候|请稍候|connecting|連線中|连接中|進場|进场|加载|加載|読み込み|ロード|ローディング|接続中|로딩|불러오는|연결 중/i;
     // 2026-10-02 修正:老虎機類遊戲每輪 SPIN 後畫面名稱常常一樣(都是同一台機台的「轉輪
     // 結果」畫面),這是正常重複玩法(連續多輪 SPIN 本就該停在同畫面名),不是卡死 —— 不該
     // 計入死循環次數,否則玩滿 8 輪 SPIN 就會被誤判成「App 死循環」提早中止整個任務。
@@ -3080,7 +3084,7 @@ async function main() {
       battleMoveTick++;
       cmd.action = 'move'; cmd.dir = forcedDir; cmd.holdMs = 2200;
       cmd.x = undefined; cmd.y = undefined; cmd.x2 = undefined; cmd.y2 = undefined;
-      cmd.thinking = `[戰鬥強制走位] 偵測到戰鬥畫面,角色必須持續移動躲怪。原動作(${cmd.action})改為 move dir=${forcedDir} 走位。` + String(cmd.thinking || '');
+      cmd.thinking = runnerText(LOCALE, 'battleMove', { action: cmd.action, dir: forcedDir }) + String(cmd.thinking || '');
       cmd.override = 'battle_move';
       step.action = 'move'; step.dir = forcedDir; step.holdMs = 2200; step.override = 'battle_move'; step.thinking = cmd.thinking; delete step.expect;
       // 戰鬥中畫面背景持續變動,stuck-detection 不應介入;重置 stuckCount 避免誤判。
@@ -3092,7 +3096,7 @@ async function main() {
     if (blockedDir && !operatorDirected && cmd.action === 'move' && normDir(cmd.dir ?? cmd.direction) === blockedDir && !Number.isFinite(cmd.x2)) {
       const alt = turnDir(blockedDir, blockedStreak);
       cmd.dir = alt; delete cmd.direction;
-      cmd.thinking = `[走位被擋改向] 上一步往 ${blockedDir} 背景沒有移動(被障礙物擋住),改往 ${alt}。` + String(cmd.thinking || '');
+      cmd.thinking = runnerText(LOCALE, 'blockedMove', { from: blockedDir, to: alt }) + String(cmd.thinking || '');
       cmd.override = 'blocked_move';
       step.dir = alt; step.blockedFrom = blockedDir; step.override = 'blocked_move'; step.thinking = cmd.thinking; delete step.expect;
     } else if (blockedDir) {

@@ -436,7 +436,7 @@ function harvestMemory(frames) {
  * 讓 agent 依這款遊戲類型的關鍵畫面/術語/測試重點做更懂行的決策。
  * 純函式,供單元測試。
  */
-function buildSystemPrompt(ss, knowledge) {
+function buildSystemPrompt(ss, knowledge, locale = '') {
   const base =
     `你是專業遊戲測試工程師,正在測試一個 Android 遊戲。每一步你會看到一張最新截圖(尺寸 ${ss.w}x${ss.h} 像素)。` +
     `圖上疊了青色座標網格:垂直線與水平線每隔 ${Math.round(ss.w / 8)}/${Math.round(ss.h / 8)} 像素一條,線上標了 X/Y 像素刻度。` +
@@ -455,14 +455,68 @@ function buildSystemPrompt(ss, knowledge) {
   // 附上領域知識(內建類型知識庫等):放在末尾當「這款遊戲類型的背景知識」,幫助 agent
   // 認得關鍵畫面與術語、聚焦該類型的測試重點。控長度上限避免 token 爆量。
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
-  if (!k) return base;
+  const directive = languageDirective(locale);
+  if (!k) return base + directive;
   const clipped = k.length > 4000 ? k.slice(0, 4000) : k;
   return (
     base +
     `\n\n以下是這款遊戲「類型」的背景知識(參考用,協助你認得關鍵畫面、術語與測試重點;` +
-    `畫面實際內容仍以截圖為準):\n${clipped}`
+    `畫面實際內容仍以截圖為準):\n${clipped}` +
+    directive
   );
 }
+
+// 語言指示與脫困句子:此檔以單檔方式交付(不 import agent/localeText.mjs),所以內嵌一份精簡版。
+// zh-Hant / 未設 / 未知語系:directive 為空字串、脫困句子與舊版相同。
+const LOCALE_LANGUAGE = {
+  en: 'English',
+  'zh-Hans': '简体中文 (Simplified Chinese)',
+  ja: '日本語 (Japanese)',
+  ko: '한국어 (Korean)',
+};
+function languageDirective(locale) {
+  const name = typeof locale === 'string' && Object.hasOwn(LOCALE_LANGUAGE, locale) ? LOCALE_LANGUAGE[locale] : '';
+  if (!name) return '';
+  return (
+    `\n\n[Output language] Write every free-text value you produce (thinking, screen) in ${name}. ` +
+    `Keep JSON keys, action names and any text quoted from the screen unchanged.`
+  );
+}
+const STUCK_TEXT = {
+  back: {
+    'zh-Hant': (n) => `連續 ${n} 步畫面沒變,用 back 脫困`,
+    en: (n) => `The screen has not changed for ${n} steps; pressing back to get unstuck`,
+    'zh-Hans': (n) => `连续 ${n} 步画面没变,用 back 脱困`,
+    ja: (n) => `${n} ステップ連続で画面が変わりません。back で抜け出します`,
+    ko: (n) => `${n}단계 연속으로 화면이 바뀌지 않았습니다. back 으로 빠져나옵니다`,
+  },
+  center: {
+    'zh-Hant': (n) => `連續 ${n} 步畫面沒變,點畫面中央偏下(主按鈕 PLAY/START/開始 常在此)脫困`,
+    en: (n) => `The screen has not changed for ${n} steps; tapping lower-center (where PLAY/START usually is) to get unstuck`,
+    'zh-Hans': (n) => `连续 ${n} 步画面没变,点画面中央偏下(主按钮 PLAY/START/开始 常在此)脱困`,
+    ja: (n) => `${n} ステップ連続で画面が変わりません。中央やや下(PLAY/START がよくある位置)をタップして抜け出します`,
+    ko: (n) => `${n}단계 연속으로 화면이 바뀌지 않았습니다. 중앙 하단(PLAY/START 가 흔한 위치)을 눌러 빠져나옵니다`,
+  },
+  corner: {
+    'zh-Hant': (n) => `連續 ${n} 步畫面沒變,點右上角(關閉鈕常在此)脫困`,
+    en: (n) => `The screen has not changed for ${n} steps; tapping the top-right corner (where close buttons usually are) to get unstuck`,
+    'zh-Hans': (n) => `连续 ${n} 步画面没变,点右上角(关闭按钮常在此)脱困`,
+    ja: (n) => `${n} ステップ連続で画面が変わりません。右上(閉じるボタンがよくある位置)をタップして抜け出します`,
+    ko: (n) => `${n}단계 연속으로 화면이 바뀌지 않았습니다. 오른쪽 위(닫기 버튼이 흔한 위치)를 눌러 빠져나옵니다`,
+  },
+};
+function stuckText(locale, key, n) {
+  const t = STUCK_TEXT[key];
+  return (typeof locale === 'string' && Object.hasOwn(t, locale) ? t[locale] : t['zh-Hant'])(n);
+}
+const PARSE_FAIL_TEXT = {
+  en: '無法解析回應 | Could not parse the response',
+  'zh-Hans': '無法解析回應 | 无法解析响应',
+  ja: '無法解析回應 | 応答を解析できません',
+  ko: '無法解析回應 | 응답을 해석할 수 없습니다',
+};
+// 測試與 runner 輸出用的語系(main 讀 context.json 後設定)。
+let LOCALE = '';
 
 /** 建一個 user turn(可帶多張圖 + 文字)。純函式。 */
 function makeUserTurn(images, text) {
@@ -521,7 +575,7 @@ function decide(system, messages) {
   const out = parsed.content?.find((c) => c.type === 'text')?.text ?? '{}';
   const usage = parsed.usage ? { input: parsed.usage.input_tokens, output: parsed.usage.output_tokens } : null;
   const m = /\{[\s\S]*\}/.exec(out);
-  const cmd = m ? JSON.parse(m[0]) : { action: 'done', thinking: '無法解析回應' };
+  const cmd = m ? JSON.parse(m[0]) : { action: 'done', thinking: Object.hasOwn(PARSE_FAIL_TEXT, LOCALE) ? PARSE_FAIL_TEXT[LOCALE] : '無法解析回應' };
   return { cmd, usage, rawText: out };
 }
 
@@ -557,6 +611,7 @@ function main() {
   try {
     const ctx = JSON.parse(execFileSync('aws', ['s3', 'cp', `s3://${BUCKET}/${PREFIX}/context.json`, '-', '--region', REGION], { maxBuffer: 8 * 1024 * 1024 }).toString());
     if (ctx && typeof ctx.context === 'string') knowledge = ctx.context;
+    if (ctx && typeof ctx.locale === 'string') LOCALE = ctx.locale;
   } catch {}
 
   // 注意:adb `input tap` 與 `screencap` 共用「當前旋轉」的同一座標空間;
@@ -622,7 +677,7 @@ function main() {
     const gridB64 = readFileSync(gridPng).toString('base64');
 
     // system 只組一次(首張截圖尺寸為準)。附上注入的領域知識(內建類型知識庫等)。
-    if (system === null) system = buildSystemPrompt(ss, knowledge);
+    if (system === null) system = buildSystemPrompt(ss, knowledge, LOCALE);
 
     // 組本步的 user turn 並加入對話:
     //  - 第 0 步:任務目標 + 當前(疊格線)截圖。
@@ -673,15 +728,15 @@ function main() {
     if (stuckCount >= 3) {
       const mode = (stuckCount - 3) % 4;
       if (mode === 0) {
-        cmd = { action: 'back', thinking: `連續 ${stuckCount} 步畫面沒變,用 back 脫困`, screen: cmd.screen };
+        cmd = { action: 'back', thinking: stuckText(LOCALE, 'back', stuckCount), screen: cmd.screen };
         escapeOverride = true;
       } else if (mode === 1) {
-        cmd = { action: 'tap', x: Math.round(ss.w * 0.50), y: Math.round(ss.h * 0.64), thinking: `連續 ${stuckCount} 步畫面沒變,點畫面中央偏下(主按鈕 PLAY/START/開始 常在此)脫困`, screen: cmd.screen };
+        cmd = { action: 'tap', x: Math.round(ss.w * 0.50), y: Math.round(ss.h * 0.64), thinking: stuckText(LOCALE, 'center', stuckCount), screen: cmd.screen };
         escapeOverride = true;
       } else if (mode === 2) {
         // 交還 VLM 自己的選擇(不覆寫 cmd),但仍允許下方亮鈕吸附修正微偏。
       } else {
-        cmd = { action: 'tap', x: Math.round(ss.w * 0.93), y: Math.round(ss.h * 0.08), thinking: `連續 ${stuckCount} 步畫面沒變,點右上角(關閉鈕常在此)脫困`, screen: cmd.screen };
+        cmd = { action: 'tap', x: Math.round(ss.w * 0.93), y: Math.round(ss.h * 0.08), thinking: stuckText(LOCALE, 'corner', stuckCount), screen: cmd.screen };
         escapeOverride = true;
       }
     }

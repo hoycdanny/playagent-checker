@@ -407,6 +407,8 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
         backend,
         appId,
         caseId,
+        // agent 輸出文字的語言:提交當下的 UI 語系快照。
+        locale,
         // 指定案例版本(空 = 使用中的版本)。
         ...(caseVersion ? { caseVersion } : {}),
         // 多版本 App:指定要測的版本(空 = 使用中的版本)。

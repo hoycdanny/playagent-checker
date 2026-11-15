@@ -22,6 +22,7 @@
  */
 
 import { accumulate, createUsageLedger, usageFromConverse } from './tokenUsage.mjs';
+import { languageDirective, runnerText } from './localeText.mjs';
 
 const DECIDE_MAX_TOKENS = 500;
 const REVIEW_MAX_TOKENS = 500;
@@ -357,7 +358,10 @@ export function createAgentTeam({
   scripted = false, put, prefix, log = () => {}, timeoutMs = CALL_TIMEOUT_MS,
   // true = 腳本進度由 runner 依「看得到畫面的視覺 Agent」回報設定(setScriptStep),決策 Agent 只讀不改。
   externalProgress = false,
+  // 提交任務時的 UI 語系;空/zh-Hant = 與舊版逐位元相同的 prompt。
+  locale = '',
 }) {
+  const directive = languageDirective(locale);
   const steps = scriptSteps(task);
   const tokens = { agent: { input: 0, output: 0 }, subagent: { input: 0, output: 0 } };
   const ledger = createUsageLedger();
@@ -538,7 +542,7 @@ export function createAgentTeam({
         operator.length ? `【測試人員即時指令(最優先)】\n${operator.map((t) => `- ${t}`).join('\n')}` : '',
         runnerNote ? `【系統狀態】${runnerNote}` : '',
       ].filter(Boolean).join('\n\n');
-      const r = await call('agent', DECIDE_SYSTEM, { staticText, dynamicText }, DECIDE_MAX_TOKENS, index, 'agent');
+      const r = await call('agent', DECIDE_SYSTEM + directive, { staticText, dynamicText }, DECIDE_MAX_TOKENS, index, 'agent');
       if (!r || !str(r.action, 12)) return null;
       let cmd = decisionToCommand(r, elements, dims);
       if (cmd && allowedActions?.length && !allowedActions.includes(cmd.action)) cmd = null;
@@ -579,7 +583,7 @@ export function createAgentTeam({
         observation?.obs ? `【視覺 Agent 回報的數值】${clip(observation.obs, 400)}` : '',
         `【上一次的數值】${factsText()}`,
       ].filter(Boolean).join('\n');
-      const r = await call('subagent', REVIEW_SYSTEM, user, REVIEW_MAX_TOKENS, index, 'subagent');
+      const r = await call('subagent', REVIEW_SYSTEM + directive, user, REVIEW_MAX_TOKENS, index, 'subagent');
       if (!r) return null;
       let effect = EFFECTS.has(r.effect) ? r.effect : 'unknown';
       const newFacts = normalizeFacts(r.facts);
@@ -590,7 +594,7 @@ export function createAgentTeam({
       let note = str(r.note, 160);
       if (effect === 'no_effect' && changed.length) {
         effect = 'ok';
-        note = `數值有變化(${changed.slice(0, 3).join('、')})`;
+        note = runnerText(locale, 'factsChanged', { keys: changed.slice(0, 3).join('、') });
       }
       facts = { ...facts, ...current };
       const issues = Array.isArray(r.issues) ? r.issues.map((x) => str(x, 160)).filter(Boolean).slice(0, 5) : [];
@@ -610,7 +614,7 @@ export function createAgentTeam({
       const recent = history.slice(-SUMMARY_EVERY * 2)
         .map((h) => `#${h.i} [${h.screen}] ${h.action}${h.goal ? ` 目標:${h.goal}` : ''}${h.effect ? ` 效果:${h.effect}` : ''}`).join('\n');
       const user = `【測試腳本】\n${scriptText()}\n\n【先前摘要】\n${summary || '(無)'}\n\n【最近步驟】\n${recent}\n\n【畫面數值】${factsText()}`;
-      const r = await call('subagent', SUMMARY_SYSTEM, user, 400, index, 'summary');
+      const r = await call('subagent', SUMMARY_SYSTEM + directive, user, 400, index, 'summary');
       const text = str(r?.text ?? r?.summary, 800);
       if (text) summary = text;
     },
@@ -632,7 +636,7 @@ export function createAgentTeam({
         `【畫面數值】${factsText()}`,
         `【視覺 Agent 宣告完成時的畫面】${str(observation?.screen, 60) || '?'}:${clip(observation?.thinking, 500)}`,
       ].filter(Boolean).join('\n\n');
-      const r = await call('subagent', DONE_SYSTEM, user, DONE_MAX_TOKENS, index, 'subagent-done');
+      const r = await call('subagent', DONE_SYSTEM + directive, user, DONE_MAX_TOKENS, index, 'subagent-done');
       if (!r || typeof r.ok !== 'boolean') return null;
       return { ok: r.ok, missing: str(r.missing, 160) };
     },

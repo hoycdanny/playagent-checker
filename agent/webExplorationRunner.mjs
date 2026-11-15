@@ -33,6 +33,7 @@ import { createAgentTeam, normalizeElements, VISION_ELEMENTS_NOTE } from './agen
 import { createBrowserLogs } from './browserLogs.mjs';
 import { createTakeover } from './takeover.mjs';
 import { evidencePromptSection, evidenceFields } from './evidenceProtocol.mjs';
+import { languageDirective, runnerText } from './localeText.mjs';
 import { upsertPage, recordTransition, recordMiss, recordSelfOp, compactStructure } from './memoryGraph.mjs';
 import { opFromCmd } from './reflex.mjs';
 import { createMemoryTrace } from './memoryTrace.mjs';
@@ -56,6 +57,8 @@ const AGENT_MODEL = (process.env.PA_AGENT_MODEL || '').trim();
 const SUBAGENT_MODEL = (process.env.PA_SUBAGENT_MODEL || '').trim();
 // 任務目標:保持原樣送 AI(含任何 ${key} 佔位符)。真值只在 type 到頁面那一刻替換,不改寫 TASK。
 const TASK = process.env.PA_TASK || '探索這個網頁應用:穿透開場彈窗/公告,進入主要功能並操作,盡量走遍不同畫面。';
+// 提交任務時的 UI 語系(engine 寫進 context.json);未設 = zh-Hant(prompt 與舊版逐位元相同)。
+let LOCALE = '';
 // 步數上限:PA_MAXSTEPS 未設或 <=0 代表「無上限」(跑到 done / 死循環 / 取消 / 連續失敗才停)。
 const _maxStepsRaw = Number(process.env.PA_MAXSTEPS || 0);
 const MAX_STEPS = Number.isFinite(_maxStepsRaw) && _maxStepsRaw > 0 ? _maxStepsRaw : Infinity;
@@ -138,8 +141,8 @@ function buildSystemPrompt(knowledge, evidence, controls = null) {
     `done 只在真正完成目標或完全無法進行時用。` +
     `screen 用精確畫面名描述當前畫面(如「首頁」「登入」「遊戲主畫面」「結算」),不同畫面用不同名稱。`;
   const k = typeof knowledge === 'string' ? knowledge.trim() : '';
-  const withEvidence = base + evidencePromptSection(evidence, { subject: '網頁/遊戲' });
-  return k ? withEvidence + `\n\n這款應用「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 4000)}` : withEvidence;
+  const withEvidence = base + evidencePromptSection(evidence, { subject: '網頁/遊戲', locale: LOCALE });
+  return (k ? withEvidence + `\n\n這款應用「類型」的背景知識(參考,畫面以截圖為準):\n${k.slice(0, 4000)}` : withEvidence) + languageDirective(LOCALE);
 }
 function makeUserTurn(images, text, fmt = 'png') {
   const mediaType = fmt === 'jpeg' ? 'image/jpeg' : 'image/png';
@@ -168,8 +171,8 @@ function channelFor(modelId) {
 function parseCmd(out) {
   const m = /\{[\s\S]*\}/.exec(out || '');
   // 解析失敗 ≠ 模型宣告完成:回 wait 重試(對齊真機 runner;舊版回 done 會被誤判為 pass)。
-  try { return m ? JSON.parse(m[0]) : { action: 'wait', duration: 3, thinking: '無法解析回應,等待後重試', parseFailed: true }; }
-  catch { return { action: 'wait', duration: 3, thinking: '無法解析回應 JSON,等待後重試', parseFailed: true }; }
+  try { return m ? JSON.parse(m[0]) : { action: 'wait', duration: 3, thinking: runnerText(LOCALE, 'parseFail'), parseFailed: true }; }
+  catch { return { action: 'wait', duration: 3, thinking: runnerText(LOCALE, 'parseFailJson'), parseFailed: true }; }
 }
 function toConverseMessages(messages) {
   return messages.map((m) => ({
@@ -244,7 +247,7 @@ async function decide(system, messages, modelId = VLM) {
   } catch (err) {
     const name = err?.name ? String(err.name) : 'Error';
     const message = err?.message ? String(err.message) : String(err);
-    return { cmd: { action: 'done', thinking: `模型呼叫失敗:${message}` }, usage: null, rawText: '', trace: { ...baseTrace, ok: false, error: { name, message } } };
+    return { cmd: { action: 'done', thinking: runnerText(LOCALE, 'modelFail', { message }) }, usage: null, rawText: '', trace: { ...baseTrace, ok: false, error: { name, message } } };
   }
 }
 
@@ -319,6 +322,7 @@ async function main() {
     if (ctx && ctx.evidence && typeof ctx.evidence === 'object') evidence = ctx.evidence;
     if (ctx && ctx.controls && Array.isArray(ctx.controls.allowedActions)) controls = ctx.controls;
     if (ctx && ctx.scripted === true) scripted = true;
+    if (ctx && typeof ctx.locale === 'string') LOCALE = ctx.locale;
   } catch { /* 無則略過 */ }
   // 舊案例只勾了手機觸控方案(搖桿、技能鍵…,多半是依類型自動預選)→ 在網頁上沒有意義,
   // 維持舊行為(不限定動作、不注入手機操作說明),避免把原本能用的鍵盤擋掉。
@@ -353,6 +357,7 @@ async function main() {
       bedrock, ConverseCommand, agentModel: AGENT_MODEL, subagentModel: SUBAGENT_MODEL, task: TASK,
       controlsPrompt: controls?.prompt ?? '', knowledge, scripted, put: s3put, prefix: PREFIX,
       log: (m) => console.log(m),
+      locale: LOCALE,
     })
     : null;
   if (team) console.log(`[team] 決策 Agent=${AGENT_MODEL || '(未啟用)'} 輔助 Agent=${SUBAGENT_MODEL || '(未啟用)'}`);
@@ -441,7 +446,7 @@ async function main() {
       index: idx,
       action: deviceCmd?.action ?? 'wait',
       screen: screenName,
-      thinking: `測試人員接管:${act.kind}`,
+      thinking: runnerText(LOCALE, 'takeover', { kind: act.kind }),
       // 報告引擎據此把這步排除在 AI 指標之外(成功率、步數都不該算在 AI 身上)。
       by: 'operator',
       takeover: true,

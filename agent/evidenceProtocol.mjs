@@ -11,7 +11,10 @@
  */
 
 /** 依證據協議產生 prompt 段落。 */
-export function evidencePromptSection(ev, { subject = '遊戲' } = {}) {
+/** 報告引擎 GAME_STATES 的 id;AI 回報的 phase 只收這些(與畫面名稱的語言無關)。 */
+export const PHASE_IDS = ['main_menu', 'gameplay', 'pause', 'loading', 'game_over', 'victory', 'disconnected', 'reconnect'];
+
+export function evidencePromptSection(ev, { subject = '遊戲', locale = '' } = {}) {
   const modules = Array.isArray(ev?.modules) ? ev.modules : [];
   const mechanics = Array.isArray(ev?.mechanics) ? ev.mechanics : [];
   const observe = Array.isArray(ev?.observe) ? ev.observe : [];
@@ -28,6 +31,10 @@ export function evidencePromptSection(ev, { subject = '遊戲' } = {}) {
       ? `"obs":{只填畫面上「清楚看得到」的值,看不到就省略該 key,絕對不要猜:${observe
           .map((o) => `${o.key}(${o.hint}${o.type === 'boolean' ? ',true/false' : o.type === 'number' ? ',純數字' : ''})`)
           .join('、')}};`
+      : '') +
+    // phase:畫面種類 id(與畫面名稱的語言無關)。只在非 zh-Hant 任務附上,zh-Hant 的 prompt 與舊版相同。
+    (locale && locale !== 'zh-Hant'
+      ? `"phase":"${PHASE_IDS.join('|')}"(the kind of screen you see now, always in English ids even if "screen" is in another language; omit if unsure);`
       : '') +
     `"issue":{"cat":"crash|functional|gameplay|graphics|animation|audio|ui|ux|performance|network|localization|compatibility|physics|save_data|economy","sev":"critical|high|medium|low","title":"30 字內","box":[x1,y1,x2,y2]}` +
     `——只有在畫面上明確看到「${subject}本身」的缺陷時才填(如文字溢出/截斷、UI 重疊或被裁切、貼圖缺失/破圖、黑畫面、錯誤訊息、數值明顯算錯、按了正確按鈕卻沒反應);` +
@@ -56,6 +63,8 @@ export function evidenceFields(cmd, aiAction) {
   if (target && !cmd.override) out.target = target;
   const mechanic = str(cmd.mechanic, 40);
   if (mechanic) out.mechanic = mechanic;
+  const phase = typeof cmd.phase === 'string' ? cmd.phase.trim().toLowerCase() : '';
+  if (PHASE_IDS.includes(phase)) out.phase = phase;
   if (cmd.obs && typeof cmd.obs === 'object' && !Array.isArray(cmd.obs)) {
     const obs = {};
     for (const [k, v] of Object.entries(cmd.obs)) {

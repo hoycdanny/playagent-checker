@@ -20,6 +20,8 @@ import { applyExclude, mergeProfiles } from '../api/report/profiles.js';
 import { mergeSpecs, specFromKb } from '../api/report/reportSpec.js';
 import { buildControlsProtocol, sanitizeControls, sanitizeKeys, type CaseKey } from '../api/controlSchemes.js';
 import { stripTestFocus } from '../api/scriptedCase.js';
+import { GEN_LOCALES } from '../api/genLocale.js';
+import { buildContextPayload, contextLocale } from './contextPayload.js';
 import { findEntry, defaultCoordSystem } from '../api/modelCatalog.js';
 import {
   defaultSeatSelection,
@@ -150,6 +152,8 @@ async function readJobMeta(
   display?: { width: number; height: number };
   scripted?: boolean;
   vlmModel?: string;
+  /** 提交時的 UI 語系(五選一;未設 = zh-Hant 行為)。 */
+  locale?: string;
 } | null> {
   try {
     const res = await s3.send(
@@ -177,6 +181,7 @@ async function readJobMeta(
       display?: { width?: unknown; height?: unknown };
       scripted?: boolean;
       vlmModel?: string;
+      locale?: string;
     };
     return {
       appId: job.appId ?? '',
@@ -208,6 +213,9 @@ async function readJobMeta(
         : {}),
       ...(job.scripted === true ? { scripted: true } : {}),
       ...(typeof job.vlmModel === 'string' && job.vlmModel ? { vlmModel: job.vlmModel } : {}),
+      ...(typeof job.locale === 'string' && (GEN_LOCALES as readonly string[]).includes(job.locale)
+        ? { locale: job.locale }
+        : {}),
     };
   } catch {
     return null;
@@ -232,6 +240,7 @@ async function assembleAgentContext(
   controlsSnap?: { ids: string[]; source: 'case' | 'genre'; keys?: CaseKey[] },
   scripted = false,
   vlmModel?: string,
+  locale?: string,
 ): Promise<void> {
   if (!appId) return;
   // VLM 的座標系(pixel vs norm1000):讓 runner 依模型母語下座標契約並換算,
@@ -296,29 +305,33 @@ async function assembleAgentContext(
     ? buildControlsProtocol(sanitizeControls(controlsSnap.ids), controlsSnap.source, sanitizeKeys(controlsSnap.keys ?? []))
     : null;
   // scripted 或非像素座標系也要能傳到 runner,即使沒有任何知識/證據/操作段落也要寫出 context.json。
-  if (!context.trim() && !evidence && !controls && !scripted && vlmCoordSystem === 'pixel') return;
+  const outLocale = contextLocale(locale);
+  if (!context.trim() && !evidence && !controls && !scripted && vlmCoordSystem === 'pixel' && !outLocale) return;
   await s3.send(
     new PutObjectCommand({
       Bucket: bucket,
       Key: `${jobPrefix(tenantId, jobId)}context.json`,
-      Body: JSON.stringify({
-        appId,
-        locality,
-        hasKnowledge: knowledge.trim().length > 0,
-        hasMemory: memory.trim().length > 0,
-        hasKnowledgeBases: kbMarkdown.trim().length > 0,
-        hasKbReferences: kbReference.trim().length > 0,
-        // 只記 key 名(不含遮蔽值),供審計「本次告訴 AI 有哪些可用憑證」。
-        // 可見憑證只記 key 名(值雖進了 context 供點對,但審計檔不另存值)。
-        credentialKeys: [...credInfo.maskedKeys, ...credInfo.visible.map((c) => c.key)].sort(),
-        knowledgeBaseIds,
-        context,
-        ...(evidence ? { evidence } : {}),
-        ...(controls ? { controls } : {}),
-        ...(scripted ? { scripted: true } : {}),
-        vlmCoordSystem,
-        assembledAt: new Date().toISOString(),
-      }),
+      Body: JSON.stringify(
+        buildContextPayload({
+          appId,
+          locality,
+          hasKnowledge: knowledge.trim().length > 0,
+          hasMemory: memory.trim().length > 0,
+          hasKnowledgeBases: kbMarkdown.trim().length > 0,
+          hasKbReferences: kbReference.trim().length > 0,
+          // 只記 key 名(不含遮蔽值),供審計「本次告訴 AI 有哪些可用憑證」。
+          // 可見憑證只記 key 名(值雖進了 context 供點對,但審計檔不另存值)。
+          credentialKeys: [...credInfo.maskedKeys, ...credInfo.visible.map((c) => c.key)].sort(),
+          knowledgeBaseIds,
+          context,
+          evidence,
+          controls,
+          scripted,
+          vlmCoordSystem,
+          locale,
+          assembledAt: new Date().toISOString(),
+        }),
+      ),
       ContentType: 'application/json',
     }),
   );
@@ -441,6 +454,7 @@ export async function handler(event: EngineEvent): Promise<void> {
         meta.controls,
         meta.scripted === true,
         meta.vlmModel,
+        meta.locale,
       );
     }
   } catch (ctxErr) {

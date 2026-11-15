@@ -79,6 +79,8 @@ export interface EngineJob {
   genres?: string[];
   /** 案例帶結構化測項(items:)—— 以測項為主:知識庫衍生的建議項目/風險僅供參考,不下修結論。 */
   scripted?: boolean;
+  /** 提交任務時的 UI 語系;非 zh-Hant 時終態描述的 en 欄位用靜態英文,不複製中文 runner 訊息。 */
+  locale?: string;
 }
 export interface EngineApp {
   name?: string;
@@ -263,6 +265,8 @@ export function normalizeSteps(rawSteps: unknown, opts: { legacySlot: boolean })
     if (module) step.module = module;
     const mechanic = text(s['mechanic'], 40);
     if (mechanic) step.mechanic = mechanic;
+    const phase = text(s['phase'], 20)?.toLowerCase();
+    if (phase && GAME_STATES.some((g) => g.id === phase)) step.phase = phase;
     // runner 的 SPIN 迴圈會記下這一局有沒有真的等到「盤面 + 數字列都靜止」才讀數字。
     const settle = (s['rtpRound'] as Record<string, unknown> | undefined)?.['settle'];
     if (typeof settle === 'string') step.settled = settle === 'still';
@@ -390,21 +394,28 @@ function attributeModule(step: EvidenceStep, modules: ModuleDef[]): { id: string
 }
 
 const GAME_STATES: Array<{ id: string; label: L10n; keywords: string[] }> = [
-  { id: 'main_menu', label: L('主選單/大廳', 'Main Menu'), keywords: ['menu', '選單', '大廳', 'lobby', 'home', '主畫面', '主城'] },
-  { id: 'gameplay', label: L('遊戲進行', 'Gameplay'), keywords: ['battle', '戰鬥', 'stage', 'wave', 'reel', '轉軸', 'play', 'game', '關卡', 'match', '對戰'] },
-  { id: 'pause', label: L('暫停', 'Pause'), keywords: ['pause', '暫停'] },
-  { id: 'loading', label: L('載入', 'Loading'), keywords: ['loading', '載入', '载入', 'logo', 'splash', '開場'] },
-  { id: 'game_over', label: L('失敗/Game Over', 'Game Over'), keywords: ['game over', 'fail', 'defeat', '失敗', '死亡'] },
-  { id: 'victory', label: L('勝利/過關', 'Victory'), keywords: ['victory', 'win', 'clear', '勝利', '過關'] },
-  { id: 'disconnected', label: L('斷線', 'Disconnected'), keywords: ['disconnect', '斷線', 'network error', '網路', 'connection'] },
-  { id: 'reconnect', label: L('重連', 'Reconnect'), keywords: ['reconnect', '重連', 'retry', '重試'] },
+  { id: 'main_menu', label: L('主選單/大廳', 'Main Menu'), keywords: ['menu', '選單', '大廳', 'lobby', 'home', '主畫面', '主城', '主菜单', '大厅', '主界面', 'メニュー', 'ロビー', 'ホーム', '메뉴', '로비'] },
+  { id: 'gameplay', label: L('遊戲進行', 'Gameplay'), keywords: ['battle', '戰鬥', 'stage', 'wave', 'reel', '轉軸', 'play', 'game', '關卡', 'match', '對戰', '战斗', '关卡', '转轴', '对战', 'バトル', '戦闘', 'ステージ', 'リール', 'プレイ', '対戦', '전투', '스테이지', '릴', '플레이', '대전'] },
+  { id: 'pause', label: L('暫停', 'Pause'), keywords: ['pause', '暫停', '暂停', '一時停止', 'ポーズ', '일시정지', '일시 정지'] },
+  { id: 'loading', label: L('載入', 'Loading'), keywords: ['loading', '載入', '载入', 'logo', 'splash', '開場', '加载', '加載', '读取', '読み込み', 'ロード', 'ローディング', 'ロゴ', 'オープニング', '로딩', '불러오는', '로고', '오프닝'] },
+  { id: 'game_over', label: L('失敗/Game Over', 'Game Over'), keywords: ['game over', 'fail', 'defeat', '失敗', '死亡', '失败', 'ゲームオーバー', '敗北', '게임 오버', '패배', '실패'] },
+  { id: 'victory', label: L('勝利/過關', 'Victory'), keywords: ['victory', 'win', 'clear', '勝利', '過關', '胜利', '过关', 'クリア', '승리', '클리어'] },
+  { id: 'disconnected', label: L('斷線', 'Disconnected'), keywords: ['disconnect', '斷線', 'network error', '網路', 'connection', '断线', '网络', '切断', '接続エラー', 'ネットワーク', '연결 끊', '네트워크'] },
+  { id: 'reconnect', label: L('重連', 'Reconnect'), keywords: ['reconnect', '重連', 'retry', '重試', '重连', '重试', '再接続', 'リトライ', '再試行', '재연결', '재시도'] },
 ];
 
-function gameStateOf(screen: string): string | null {
-  const s = screen.toLowerCase();
+/** AI 回報的 phase 優先(與畫面名稱的語言無關);沒有才用關鍵字比對畫面名。 */
+function gameStateOf(step: Pick<EvidenceStep, 'screen' | 'phase'>): string | null {
+  if (step.phase && GAME_STATES.some((g) => g.id === step.phase)) return step.phase;
+  const s = step.screen.toLowerCase();
   for (const g of GAME_STATES) if (g.keywords.some((k) => s.includes(k))) return g.id;
   return null;
 }
+
+/** 非 zh-Hant 任務:終態描述的 en 欄位用靜態英文,不複製中文 runner 訊息。 */
+const isLocalized = (locale?: string) => Boolean(locale) && locale !== 'zh-Hant';
+const descL = (msg: string, zh: string, locale: string | undefined, en: string): L10n =>
+  L(zh, isLocalized(locale) ? en : msg);
 
 // ───────── Findings ─────────
 
@@ -415,7 +426,7 @@ interface TerminalVerdict {
   reason: L10n;
 }
 
-function classifyTerminal(state: string, message: string | undefined, steps: EvidenceStep[]): TerminalVerdict {
+function classifyTerminal(state: string, message: string | undefined, steps: EvidenceStep[], locale?: string): TerminalVerdict {
   const msg = message ?? '';
   const last = steps[steps.length - 1];
   const base = { firstStep: last?.index, lastStep: last?.index, gameState: last?.screen, screenshotKey: last?.screenshotKey, annotatedKey: last?.annotatedKey };
@@ -428,12 +439,14 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
   if (/測項卡住\(Blocked\)/.test(msg)) {
     const item = /第 (\d+)\/(\d+) 項「([^」]*)」/.exec(msg);
     const where = item ? `第 ${item[1]}/${item[2]} 項「${item[3]}」` : '某個測項';
-    const whereEn = item ? `item ${item[1]}/${item[2]} "${item[3]}"` : 'a test item';
+    const whereEn = item
+      ? isLocalized(locale) ? `item ${item[1]}/${item[2]}` : `item ${item[1]}/${item[2]} "${item[3]}"`
+      : 'a test item';
     return {
       blocked: true,
       classification: 'NEEDS_TRIAGE',
       reason: L(`${where}在操作上限內沒有完成,測試已停止(Blocked),需人工判讀是遊戲問題還是 AI 找不到做法`, `${whereEn} was not completed within its step budget; stopped as Blocked — needs triage (game issue or AI could not find a way)`),
-      finding: { ...base, title: L(`測項卡住:${where}`, `Blocked: ${whereEn}`), description: L(msg, msg), severity: 'medium', category: 'functional', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
+      finding: { ...base, title: L(`測項卡住:${where}`, `Blocked: ${whereEn}`), description: descL(msg, msg, locale, `The run stopped as Blocked: ${whereEn} was not completed within its step budget.`), severity: 'medium', category: 'functional', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
     };
   }
   if (/VLM 連續 \d+ 次回應無法解析/.test(msg) || last?.modelError) {
@@ -441,7 +454,7 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
       blocked: true,
       classification: 'AI_TEST_FAILURE',
       reason: L('AI 測試代理本身失敗(模型輸出/呼叫異常),不是遊戲缺陷', 'The AI test agent failed (model output/call error); not a game defect'),
-      finding: { ...base, title: L('AI 模型輸出/呼叫異常', 'AI model output / call failure'), description: L(msg || '模型呼叫失敗', msg || 'Model call failed'), severity: 'high', category: 'ai', classification: 'AI_TEST_FAILURE', certainty: 'deterministic' },
+      finding: { ...base, title: L('AI 模型輸出/呼叫異常', 'AI model output / call failure'), description: isLocalized(locale) ? L(msg || '模型呼叫失敗', 'The AI model returned unparseable output or the model call failed.') : L(msg || '模型呼叫失敗', msg || 'Model call failed'), severity: 'high', category: 'ai', classification: 'AI_TEST_FAILURE', certainty: 'deterministic' },
     };
   }
   if (/連續截圖失敗|連續動作失敗|Appium|Device Farm|session|ECONN|timeout/i.test(msg) || (state === 'error' && !/畫面|wait|死循環/.test(msg))) {
@@ -449,7 +462,7 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
       blocked: true,
       classification: 'ENVIRONMENT',
       reason: L('測試環境(裝置/連線)異常中止,不是遊戲缺陷', 'Test environment (device/connection) failure; not a game defect'),
-      finding: { ...base, title: L('測試環境異常', 'Test environment failure'), description: L(msg, msg), severity: 'high', category: 'compatibility', classification: 'ENVIRONMENT', certainty: 'deterministic' },
+      finding: { ...base, title: L('測試環境異常', 'Test environment failure'), description: descL(msg, msg, locale, 'The test environment (device, session or connection) failed and the run stopped.'), severity: 'high', category: 'compatibility', classification: 'ENVIRONMENT', certainty: 'deterministic' },
     };
   }
   if (/死循環/.test(msg)) {
@@ -464,7 +477,7 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
       reason: login
         ? L('卡在登入流程(可能為裝置環境不支援第三方登入),需人工判讀', 'Stuck in login (likely unsupported third-party login on device); needs triage')
         : L('同一畫面反覆無法前進,可能是遊戲死路或 AI 找不到出口,需人工判讀', 'Repeated screen without progress: game dead end or AI could not find a way; needs triage'),
-      finding: { ...base, title: login ? L('登入流程無法完成', 'Login flow cannot complete') : L('流程死循環/Dead End', 'Flow loop / dead end'), description: L(dmsg, msg), severity: 'high', category: login ? 'functional' : 'ux', classification: 'NEEDS_TRIAGE', certainty: 'deterministic', suspectedCause: login ? L('裝置缺 Google/Facebook 登入環境', 'Device lacks third-party login environment') : L('遊戲無出口或 AI 定位錯誤', 'No exit in game or AI mislocated controls') },
+      finding: { ...base, title: login ? L('登入流程無法完成', 'Login flow cannot complete') : L('流程死循環/Dead End', 'Flow loop / dead end'), description: isLocalized(locale) ? L(dmsg, login ? 'The run stayed on the login screen without progress.' : 'The same screen repeated without progress; the game may be stuck, or the AI could not find the next step.') : L(dmsg, msg), severity: 'high', category: login ? 'functional' : 'ux', classification: 'NEEDS_TRIAGE', certainty: 'deterministic', suspectedCause: login ? L('裝置缺 Google/Facebook 登入環境', 'Device lacks third-party login environment') : L('遊戲無出口或 AI 定位錯誤', 'No exit in game or AI mislocated controls') },
     };
   }
   if (/無變化|wait \d+ 次/.test(msg)) {
@@ -475,14 +488,14 @@ function classifyTerminal(state: string, message: string | undefined, steps: Evi
       reason: loading
         ? L('長時間停在安裝/載入畫面,可能是遊戲啟動或資源下載失敗,需人工判讀', 'Stuck on install/loading; possible launch or asset download failure; needs triage')
         : L('畫面長時間無變化,可能凍結或 AI 無法操作,需人工判讀', 'Screen unchanged for long; possible freeze or AI could not operate; needs triage'),
-      finding: { ...base, title: loading ? L('啟動/載入逾時', 'Launch / loading timeout') : L('畫面凍結/無回應', 'Screen frozen / unresponsive'), description: L(msg, msg), severity: 'critical', category: 'performance', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
+      finding: { ...base, title: loading ? L('啟動/載入逾時', 'Launch / loading timeout') : L('畫面凍結/無回應', 'Screen frozen / unresponsive'), description: descL(msg, msg, locale, loading ? 'The run stayed on the install or loading screen for a long time.' : 'The screen did not change for a long time.'), severity: 'critical', category: 'performance', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
     };
   }
   return {
     blocked: true,
     classification: 'NEEDS_TRIAGE',
     reason: L('測試未通過,原因需人工判讀', 'Test did not pass; cause needs triage'),
-    finding: { ...base, title: L('測試未通過', 'Test did not pass'), description: L(msg || state, msg || state), severity: 'medium', category: 'functional', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
+    finding: { ...base, title: L('測試未通過', 'Test did not pass'), description: descL(msg || state, msg || state, locale, 'The test did not pass; the cause needs triage.'), severity: 'medium', category: 'functional', classification: 'NEEDS_TRIAGE', certainty: 'deterministic' },
   };
 }
 
@@ -853,7 +866,7 @@ function buildChecks(
   });
 
   const termFinding = terminal.finding ? all.find((f) => f.title.en === terminal.finding!.title.en && f.lastStep === terminal.finding!.lastStep) : undefined;
-  const playStep = steps.find((s) => gameStateOf(s.screen) === 'gameplay');
+  const playStep = steps.find((s) => gameStateOf(s) === 'gameplay');
   out.push({
     id: msId(), kind: 'milestone', basis: 'ai_evaluation',
     title: L('進入遊戲主要玩法', 'Reached core gameplay'),
@@ -1280,7 +1293,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   }
   const moduleOf = (s: EvidenceStep) => moduleAttr.get(s.index)?.id;
 
-  const terminal = classifyTerminal(state, message, steps);
+  const terminal = classifyTerminal(state, message, steps, job?.locale);
   const built = buildFindings(steps, terminal, moduleOf, job?.caseId, quality);
   // 人工覆寫在這裡套用,之後所有消費 findings 的地方(驗收條件、儀表板、模組、
   // 指標、放行規則)都會看到調整後的值 —— 單一套用點是刻意的,分散處理一定會漏。
@@ -1404,7 +1417,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const mechanicCov: CoverageItem[] = mechanics.map((m) => ({ id: m.id, label: m.label, covered: m.tested, steps: m.steps }));
   const stateCounts = new Map<string, number>();
   for (const s of steps) {
-    const g = gameStateOf(s.screen);
+    const g = gameStateOf(s);
     if (g) stateCounts.set(g, (stateCounts.get(g) ?? 0) + 1);
   }
   const gameStateCov: CoverageItem[] = GAME_STATES.map((g) => ({ id: g.id, label: g.label, covered: (stateCounts.get(g.id) ?? 0) > 0, steps: stateCounts.get(g.id) ?? 0, basis: 'inferred' }));

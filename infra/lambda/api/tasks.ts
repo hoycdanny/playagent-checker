@@ -6,6 +6,7 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { tenantPrefix } from './tenantCredentials.js';
+import { GEN_LOCALES, type GenLocale } from './genLocale.js';
 import { DeviceOptionError, parseAndroidVersion, parseFormFactor, redroidImage } from './deviceOptions.js';
 import { effectiveState, isTerminal, type TaskState } from './status.js';
 import { computeUsageSpend, PricingError, resolvePrice, type TokenUsage } from './pricing.js';
@@ -79,6 +80,8 @@ export interface JobRecord {
   androidImage?: string;
   /** Device Farm:挑機時限定手機或平板(ANY = 不限)。 */
   formFactor?: string;
+  /** 提交時的 UI 語系快照;agent 依此語言輸出文字。未帶 = zh-Hant 行為。 */
+  locale?: GenLocale;
   /** 提交時選的共用知識庫 id 快照(執行時據此讀取並注入 Markdown)。 */
   knowledgeBaseIds?: string[];
   /** 提交時 App 的遊戲類型快照(主類型在前);報告引擎據此合併 GenreProfile。 */
@@ -288,6 +291,8 @@ interface SubmitInput {
   androidVersion?: string;
   /** Device Farm:要挑手機還是平板(ANY = 不限)。 */
   formFactor?: string;
+  /** 提交時的 UI 語系(五選一);其他值丟棄。 */
+  locale?: GenLocale;
 }
 
 /** 提交前校驗請求形狀(存在性校驗於 core 內另做,需 S3)。 */
@@ -380,6 +385,10 @@ export function validateSubmit(body: unknown): SubmitInput {
     }
   }
   const caseVersion = typeof rawCaseVersion === 'string' && rawCaseVersion !== '' ? rawCaseVersion : undefined;
+  const locale =
+    typeof b['locale'] === 'string' && (GEN_LOCALES as readonly string[]).includes(b['locale'])
+      ? (b['locale'] as GenLocale)
+      : undefined;
   return {
     ...(caseVersion ? { caseVersion } : {}),
     backend: backend as Backend,
@@ -402,6 +411,7 @@ export function validateSubmit(body: unknown): SubmitInput {
     ...(osVersion ? { osVersion } : {}),
     ...(androidVersion ? { androidVersion } : {}),
     ...(formFactor ? { formFactor } : {}),
+    ...(locale ? { locale } : {}),
   };
 }
 
@@ -452,6 +462,7 @@ export async function createJob(
       ? { androidImage: redroidImage(input.androidVersion)! }
       : {}),
     ...(input.formFactor ? { formFactor: input.formFactor } : {}),
+    ...(input.locale ? { locale: input.locale } : {}),
     ...(input.osVersion ? { osVersion: input.osVersion } : {}),
     ...(extra?.artifactKey ? { artifactKey: extra.artifactKey } : {}),
     ...(extra?.artifactLabel ? { artifactLabel: extra.artifactLabel } : {}),
