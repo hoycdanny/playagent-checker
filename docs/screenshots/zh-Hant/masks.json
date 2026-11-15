@@ -1,10 +1,10 @@
 {
   "locale": "zh-Hant",
-  "note": "Regions of AI-agent and report-engine output that are not in this locale are covered with a striped mask. The language check runs on the unmasked DOM first; preMaskViolations counts what it found, residualViolations what remained outside generated regions (must be 0). hidden lists generated text that is not visible in the image (attributes, visually hidden or clipped nodes), so nothing was painted for it. Boxes are [x, y, width, height] in viewport pixels.",
+  "note": "AI-agent and report-engine output that is not in this locale is shown as-is (disclosed, not masked) and listed per image under disclosed; masks lists any region that was painted over. The language check runs on the unmasked DOM first; preMaskViolations counts what it found, residualViolations what remained outside generated regions (must be 0). hidden lists generated text that is not visible in the image (attributes, visually hidden or clipped nodes), so nothing was painted for it. Boxes are [x, y, width, height] in viewport pixels.",
   "run": {
     "game": "https://play.slotomania.com/slots/",
     "finalState": "pass",
-    "steps": 11
+    "steps": 21
   },
   "generatedRegions": [
     {
@@ -212,295 +212,346 @@
     "maskedChars": 0,
     "hiddenGeneratedTexts": 0,
     "residualViolations": 0,
-    "maskedImages": []
+    "maskedImages": [],
+    "imagesWithDisclosed": 0,
+    "disclosedRegions": 0,
+    "disclosedImages": []
   },
   "images": {
     "01-login.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "02-guide.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "03-apps-create-form.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "04-apps.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "05-case-form-nl.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "06-case-form-acceptance.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "07-case-form-yaml.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "08-case-form-excel.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "09-workspace-overview.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "10-workspace-builds.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "11-workspace-cases.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "12-workspace-knowledge.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "13-workspace-credentials.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "14-cases.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "15-knowledge-templates.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "16-devices.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "17-cost.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "18-members.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "19-members-add.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "20-model-admin.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "21-system-update.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "22-system-uitars.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "23-system-logs.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "24-workspace-tasks.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "25-task-submit-form.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "26-tasks-running.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "27-task-detail-live.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "28-task-detail-live-logs.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "29-live-popout.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "30-task-detail-trace.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "31-task-detail-logs.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "32-task-detail-analysis.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "33-task-detail-usage.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "34-task-detail-script.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "35-task-detail-ask.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "36-reports.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "37-report-cover.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "38-report-acceptance.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "39-report-verdicts.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "40-report-evidence.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "41-report-release.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "42-report-assistant-guide.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "43-report-assistant-ask.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "44-report-assistant-review.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "45-workspace-memory.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "46-memory-graph.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "47-memory-grid.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     },
     "48-memory-screen-studio.png": {
       "preMaskViolations": 0,
       "residualViolations": 0,
       "masks": [],
+      "disclosed": [],
       "hidden": []
     }
   }

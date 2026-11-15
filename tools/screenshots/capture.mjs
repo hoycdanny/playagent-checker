@@ -82,6 +82,17 @@ const BROWSER_LOCALE = { 'zh-Hant': 'zh-TW', en: 'en-US', 'zh-Hans': 'zh-CN', ja
  */
 const PANE = { moment: 0, logs: 1, trace: 2, analysis: 3, usage: 4, ask: 5, script: 6 };
 
+/**
+ * AI 問答的問題:用該語系的語言寫(使用者本來就會用自己的語言問),模型通常用同一種語言回答。
+ * 這是真的送出去的問題,答案是模型的原始輸出,不改動。
+ */
+const QUESTIONS = {
+  'zh-Hant': { step: '哪一個步驟花的時間最長?原因是什麼?', evidence: '哪一條驗收標準的證據最薄弱?' },
+  en: { step: 'Which step took the longest, and why?', evidence: 'Which acceptance item has the weakest evidence behind it?' },
+  'zh-Hans': { step: '哪一个步骤花的时间最长?原因是什么?', evidence: '哪一条验收标准的证据最薄弱?' },
+  ja: { step: 'どのステップが最も時間がかかりましたか?その理由は何ですか?', evidence: 'どの受け入れ基準の根拠が最も弱いですか?' },
+  ko: { step: '어느 단계가 가장 오래 걸렸나요? 이유는 무엇인가요?', evidence: '어떤 인수 기준의 근거가 가장 약한가요?' },
+};
 const VIEWPORT = { width: 1280, height: 800 };
 /** 等任務結束的上限。 */
 const RUN_TIMEOUT_MS = 20 * 60_000;
@@ -338,7 +349,7 @@ function makeApi(sdk, cognito, clientId, apiUrl, tokens) {
  * 每個語系一個 shooter:輸出到 docs/screenshots/<locale>/NN-slug.png。
  * 每張圖拍之前先對 DOM 文字跑語言檢查;違規只記錄,最後一起以非零狀態結束。
  */
-function makeShooter(locale, violations, { dryRun = false } = {}) {
+function makeShooter(locale, violations, { dryRun = false, paint = true } = {}) {
   const dir = join(OUT_ROOT, locale);
   if (!dryRun) mkdirSync(dir, { recursive: true });
   const manifest = [];
@@ -348,7 +359,9 @@ function makeShooter(locale, violations, { dryRun = false } = {}) {
   let forbid = [];
   let n = 0;
   const regions = { data: DATA_REGIONS, generated: GENERATED_REGIONS.map((g) => g.sel) };
-  const signature = (plan) => JSON.stringify([plan.masks.map((m) => [m.node, m.start, m.end, m.text]), plan.residual.length]);
+  // paint=false(揭露模式):不畫遮罩,畫面對齊不是問題,只需要「殘留違規」穩定。
+  const signature = (plan) =>
+    JSON.stringify([paint ? plan.masks.map((m) => [m.node, m.start, m.end, m.text]) : [], plan.residual.length]);
   /**
    * 寫一張圖。target 可以是 page(整個視窗)或 locator(只截那一塊)。
    * 編號只在成功後才前進,所以檔名永遠連號。
@@ -381,7 +394,22 @@ function makeShooter(locale, violations, { dryRun = false } = {}) {
         }
       }
       plan = planMasks(locale, items);
-      painted = plan.masks.length ? await page.evaluate(paintMasks, plan.masks) : [];
+      painted = paint && plan.masks.length ? await page.evaluate(paintMasks, plan.masks) : [];
+      // 版面檢查:桌面導覽的最後一項不能伸進右側的語言下拉 / 使用者區(日文等長標籤曾經重疊)。
+      if (attempt === 0 && page === target) {
+        const overlap = await page.evaluate(() => {
+          const nav = document.querySelector('.topbar__nav');
+          const act = document.querySelector('.topbar__actions');
+          if (!nav || !act || getComputedStyle(nav).display === 'none') return false;
+          const links = [...nav.querySelectorAll('.topbar__nav-link')];
+          const last = links[links.length - 1];
+          return !!last && last.getBoundingClientRect().right > act.getBoundingClientRect().left + 0.5;
+        });
+        if (overlap) {
+          violations.push({ locale, file, slug, chars: '(頂欄導覽和右側語言下拉重疊)' });
+          console.error(`  ✗ ${locale}/${file}:頂欄導覽和右側語言下拉重疊`);
+        }
+      }
       if (!dryRun) await target.screenshot({ path: join(dir, file), ...opts });
       // 截圖之後再看一次:即時頁面在截圖期間換了文字,遮罩就可能沒對準,要重拍。
       const after = planMasks(locale, await page.evaluate(collectDomItems, regions));
@@ -396,8 +424,14 @@ function makeShooter(locale, violations, { dryRun = false } = {}) {
     const masks = [];
     const hidden = plan.hidden.map((h) => ({ region: GENERATED_REGIONS[h.gen].sel, why: GENERATED_REGIONS[h.gen].why, origin: h.origin, text: h.text.trim().slice(0, 80) }));
     const misaligned = [];
+    /** 揭露模式:圖上照原樣顯示、但語言和介面不一致的產生文字(不遮罩,逐筆記錄)。 */
+    const disclosed = [];
     plan.masks.forEach((m, i) => {
       const entry = { region: GENERATED_REGIONS[m.gen].sel, why: GENERATED_REGIONS[m.gen].why, origin: m.origin, text: m.text };
+      if (!paint) {
+        disclosed.push(entry);
+        return;
+      }
       const p = painted[i];
       if (p && p.misaligned) misaligned.push(entry);
       if (p && p.boxes.length) masks.push({ ...entry, boxes: p.boxes });
@@ -407,8 +441,8 @@ function makeShooter(locale, violations, { dryRun = false } = {}) {
       violations.push({ locale, file, slug, chars: `(${misaligned.length} 塊遮罩沒對準文字:${[...new Set(misaligned.map((x) => x.origin))].join(', ')})` });
       console.error(`  ✗ ${locale}/${file}:${misaligned.length} 塊遮罩沒蓋住文字`);
     }
-    audit[file] = { preMaskViolations: plan.preMaskViolations, residualViolations: plan.residual.length, masks, hidden };
-    log(`  [${locale}/${file}] ${label}  (資料字元 ${plan.dataChars} · 遮罩前違規 ${plan.preMaskViolations} · 遮罩 ${masks.length} · 看不見的產生文字 ${hidden.length})`);
+    audit[file] = { preMaskViolations: plan.preMaskViolations, residualViolations: plan.residual.length, masks, disclosed, hidden };
+    log(`  [${locale}/${file}] ${label}  (資料字元 ${plan.dataChars} · 遮罩前違規 ${plan.preMaskViolations} · 遮罩 ${masks.length} · 揭露 ${disclosed.length} · 看不見的產生文字 ${hidden.length})`);
     if (plan.residual.length) {
       const res = checkText(locale, plan.residual.map((r) => r.text).join('\n'));
       const chars = res.violations.map((v) => `${v.char}(${v.kind})`).join(' ');
@@ -977,7 +1011,7 @@ async function phasePostRun(browser, api, locale, shooter, ctx) {
   await shooter.shot(page, 'task-detail-script', '任務詳情:腳本與執行資訊', '#/tasks/:jobId');
   // AI 問答:先問一句中性的問題,圖裡才有真的內容而不是空面板。
   await openPane(page, PANE.ask);
-  await ask(page, '.taskask', 'Which step took the longest, and why?');
+  await ask(page, '.taskask', QUESTIONS[locale].step);
   await shooter.shot(page, 'task-detail-ask', '任務詳情:AI 問答', '#/tasks/:jobId');
 
   await nav(page, '/reports', 1500);
@@ -1006,7 +1040,7 @@ async function phasePostRun(browser, api, locale, shooter, ctx) {
   if ((await atabs.count()) < 3) throw new Error(`報告助手分頁少於 3 個(${await atabs.count()})`);
   await atabs.nth(1).click();
   await settle(page, 800);
-  await ask(page, '.rasst .taskask', 'Which acceptance item has the weakest evidence behind it?');
+  await ask(page, '.rasst .taskask', QUESTIONS[locale].evidence);
   // (弱點 d)用元素截圖拍整個助手面板;面板仍被裁掉的話把視窗高度拉到 1000 再拍。
   const panel = page.locator('.rasst').first();
   await panel.scrollIntoViewIfNeeded();
@@ -1075,7 +1109,7 @@ async function capture() {
 
   const api = makeApi(sdk, cognito, cfg.clientId, cfg.apiUrl, tokens);
   const violations = [];
-  const shooters = new Map(LOCALES.map((l) => [l, makeShooter(l, violations)]));
+  const shooters = new Map(LOCALES.map((l) => [l, makeShooter(l, violations, { paint: false })]));
   const ctx = { caseName: `${GAME_NAME} · lobby smoke`, webAppId: null, appIds: [], customKbNames: [], jobId: null };
 
   const browser = await chromium.launch({ headless: true });
@@ -1151,11 +1185,14 @@ async function capture() {
       hiddenGeneratedTexts: files.reduce((a, f) => a + images[f].hidden.length, 0),
       residualViolations: files.reduce((a, f) => a + images[f].residualViolations, 0),
       maskedImages: withMasks,
+      imagesWithDisclosed: files.filter((f) => images[f].disclosed.length > 0).length,
+      disclosedRegions: files.reduce((a, f) => a + images[f].disclosed.length, 0),
+      disclosedImages: files.filter((f) => images[f].disclosed.length > 0),
     };
     const doc = {
       locale: l,
       note:
-        'Regions of AI-agent and report-engine output that are not in this locale are covered with a striped mask. ' +
+        'AI-agent and report-engine output that is not in this locale is shown as-is (disclosed, not masked) and listed per image under disclosed; masks lists any region that was painted over. ' +
         'The language check runs on the unmasked DOM first; preMaskViolations counts what it found, residualViolations ' +
         'what remained outside generated regions (must be 0). hidden lists generated text that is not visible in the image ' +
         '(attributes, visually hidden or clipped nodes), so nothing was painted for it. Boxes are [x, y, width, height] in viewport pixels.',
@@ -1166,7 +1203,7 @@ async function capture() {
     };
     writeFileSync(join(OUT_ROOT, l, 'masks.json'), `${JSON.stringify(doc, null, 2)}\n`, 'utf8');
     log(
-      `  ${l}:遮罩前違規的圖 ${summary.imagesWithPreMaskViolations} 張 · 有遮罩的圖 ${summary.imagesWithMasks} 張 · ` +
+      `  ${l}:遮罩前違規的圖 ${summary.imagesWithPreMaskViolations} 張 · 有遮罩的圖 ${summary.imagesWithMasks} 張 · 揭露(未遮)的圖 ${summary.imagesWithDisclosed} 張 ${summary.disclosedRegions} 段 · ` +
         `遮罩 ${summary.maskedRegions} 塊(${summary.maskedChars} 字)· 看不見的產生文字 ${summary.hiddenGeneratedTexts} · 殘留違規 ${summary.residualViolations}`,
     );
   }

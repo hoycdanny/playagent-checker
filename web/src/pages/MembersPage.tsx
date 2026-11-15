@@ -291,7 +291,7 @@ export default function MembersPage() {
                   {t('members.generate')}
                 </button>
                 <button type="button" className="members__link" onClick={copyPassword}>
-                  {copied ? t('members.copied') : 'Copy'}
+                  {copied ? t('members.copied') : t('members.copy')}
                 </button>
               </span>
             </label>

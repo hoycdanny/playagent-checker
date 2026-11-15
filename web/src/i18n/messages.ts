@@ -92,6 +92,7 @@ export type MessageKey =
   | 'members.actionFailed'
   | 'members.generate'
   | 'members.copied'
+  | 'members.copy'
   | 'members.addTitle'
   | 'members.cancel'
   | 'members.tenantHint'
@@ -808,6 +809,7 @@ const zhHant: Catalog = {
   'members.actionFailed': "操作失敗:{msg}",
   'members.generate': "產生密碼",
   'members.copied': "已複製",
+  'members.copy': "複製",
   'members.addTitle': "新增成員",
   'members.cancel': "取消",
   'members.tenantHint': "同一個租戶的人看到同一份應用與測試資料。",
@@ -1530,6 +1532,7 @@ const en: Catalog = {
   'members.actionFailed': "Action failed: {msg}",
   'members.generate': "Generate",
   'members.copied': "Copied",
+  'members.copy': "Copy",
   'members.addTitle': "Add member",
   'members.cancel': "Cancel",
   'members.tenantHint': "People in the same tenant see the same apps and test data.",
@@ -2256,6 +2259,7 @@ const zhHans: Catalog = {
   'members.actionFailed': "操作失败:{msg}",
   'members.generate': "生成密码",
   'members.copied': "已复制",
+  'members.copy': "复制",
   'members.addTitle': "新增成员",
   'members.cancel': "取消",
   'members.tenantHint': "同一个租户的人看到同一份应用与测试数据。",
@@ -2977,6 +2981,7 @@ const ja: Catalog = {
   'members.actionFailed': "操作に失敗しました:{msg}",
   'members.generate': "パスワード生成",
   'members.copied': "コピーしました",
+  'members.copy': "コピー",
   'members.addTitle': "メンバー追加",
   'members.cancel': "キャンセル",
   'members.tenantHint': "同じテナントのメンバーは同じアプリとテストデータを見ます。",
@@ -3699,6 +3704,7 @@ const ko: Catalog = {
   'members.actionFailed': "작업 실패: {msg}",
   'members.generate': "비밀번호 생성",
   'members.copied': "복사했습니다",
+  'members.copy': "복사",
   'members.addTitle': "멤버 추가",
   'members.cancel': "취소",
   'members.tenantHint': "같은 테넌트의 사용자는 동일한 앱과 테스트 데이터를 봅니다.",
@@ -4179,7 +4185,7 @@ const ko: Catalog = {
   'auth.continueGoogle': 'Google로 계속하기',
   'auth.continueFacebook': 'Facebook으로 계속하기',
   'auth.comingSoon': '출시 예정',
-  'devices.title': '기기 관리',
+  'devices.title': '장치 관리',
   'devices.subtitle': '클라우드 상주 호스트와 로컬 기기, 그리고 테스트 대상 로그인 비밀 참조.',
   'devices.cloudSection': '클라우드 기기',
   'devices.cloudDesc': '클라우드 실기기(AWS Device Farm)는 작업 실행 시 자동 생성되고 종료 시 회수됩니다. 아래는 현재 사용 가능한 Android 실기기입니다.',
