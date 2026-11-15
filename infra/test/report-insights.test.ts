@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { insightsInput, sanitizeInsights } from '../lambda/api/report/insights.js';
 import type { StructuredReport } from '../lambda/api/report/types.js';
+import { cacheSuffix, type GenLocale } from '../lambda/api/genLocale.js';
 
 const L = (s: string) => ({ zh: s, en: s });
 
@@ -146,13 +147,28 @@ describe('insightsInput — 類型參考區間(政策③:只給 AI 寫注意事�
   });
 });
 
+describe('insights locale keys', () => {
+  const r = fixture();
+
+  test('ko is stored as lang ko; zh-Hant is the default', () => {
+    expect(sanitizeInsights({}, r, 'm', new Date(), 'ko').lang).toBe('ko');
+    expect(sanitizeInsights({}, r, 'm').lang).toBe('zh-Hant');
+  });
+
+  test('cache file names: zh and en keep their names, new locales get their own', () => {
+    expect(['zh-Hant', 'en', 'zh-Hans', 'ja', 'ko'].map((l) => `insights-${cacheSuffix(l as GenLocale)}.json`)).toEqual([
+      'insights-zh.json', 'insights-en.json', 'insights-zh-Hans.json', 'insights-ja.json', 'insights-ko.json',
+    ]);
+  });
+});
+
 describe('sanitizeInsights — watchouts(需要注意的點)', () => {
   const r = fixture();
 
   test('字串與 { zh, en } 兩種形式都收', () => {
     const out = sanitizeInsights(
       { watchouts: ['observed_rtp 579.85% 遠高於標稱 96%', { zh: 'spin_count 僅 50 局,樣本不足', en: 'only 50 spins' }] },
-      r, 'm', new Date(), 'zh',
+      r, 'm', new Date(), 'zh-Hant',
     );
     expect(out.watchouts).toHaveLength(2);
     expect(out.watchouts[0]!.zh).toContain('579.85');
@@ -162,7 +178,7 @@ describe('sanitizeInsights — watchouts(需要注意的點)', () => {
   test('去重、丟空值、最多 6 條', () => {
     const out = sanitizeInsights(
       { watchouts: ['A', 'A', '', '   ', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] },
-      r, 'm', new Date(), 'zh',
+      r, 'm', new Date(), 'zh-Hant',
     );
     expect(out.watchouts.map((w) => w.zh)).toEqual(['A', 'B', 'C', 'D', 'E', 'F']);
   });

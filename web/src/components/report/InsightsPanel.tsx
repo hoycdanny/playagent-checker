@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { apiGet, apiPost } from '../../api/client.ts';
-import type { EvidenceStep, ReportInsights } from './reportTypes.ts';
-import { dataLang, tr, txt, type RLang } from './reportText.ts';
+import type { EvidenceStep, InsightsMap, ReportInsights } from './reportTypes.ts';
+import { insightsSuffix, pickInsights, tr, txt, type RLang } from './reportText.ts';
 import { ResultPill } from './VerdictMatrix.tsx';
-
-type InsightsMap = { zh?: ReportInsights; en?: ReportInsights };
 
 /**
  * AI 分析:根因、修正建議、需求驗證矩陣。由使用者按鈕觸發(有成本),結果快取在後端。
@@ -32,9 +30,10 @@ export function InsightsPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
-  // 後端洞察只有 zh / en 兩份:zh-Hant 與 zh-Hans 讀 zh,其餘讀 en。
-  const dl = dataLang(lang);
-  const ins = insights?.[dl] ?? insights?.[dl === 'zh' ? 'en' : 'zh'];
+  // 洞察依介面語系各存一份(zh / en / zh-Hans / ja / ko);精確那份還沒有時先顯示 zh / en 的退路。
+  const sfx = insightsSuffix(lang);
+  const exact = insights?.[sfx];
+  const ins = pickInsights(insights, lang);
 
   const shotOf = (step: number) => {
     const s = evidence.find((e) => e.index === step);
@@ -46,21 +45,21 @@ export function InsightsPanel({
     setBusy(true);
     setError(false);
     try {
-      const res = await apiPost<ReportInsights>(`/reports/${jobId}/insights`, { lang: dl, force });
-      onChange({ ...insights, [dl]: res });
+      const res = await apiPost<ReportInsights>(`/reports/${jobId}/insights`, { lang: sfx, force });
+      onChange({ ...insights, [sfx]: res });
     } catch {
       // 逾時:輪詢報告直到快取出現(最多約 60 秒)。
-      const since = ins?.generatedAt;
+      const since = exact?.generatedAt;
       let got: ReportInsights | undefined;
       for (let i = 0; i < 12 && !got; i++) {
         await new Promise((r) => setTimeout(r, 5000));
         try {
           const doc = await apiGet<{ insights?: InsightsMap }>(`/reports/${jobId}`);
-          const cand = doc.insights?.[dl];
+          const cand = doc.insights?.[sfx];
           if (cand && cand.generatedAt !== since) got = cand;
         } catch { /* 繼續等 */ }
       }
-      if (got) onChange({ ...insights, [dl]: got });
+      if (got) onChange({ ...insights, [sfx]: got });
       else setError(true);
     } finally {
       setBusy(false);
@@ -74,11 +73,11 @@ export function InsightsPanel({
   // 沒人看的報告不會付費;結果快取在 insights-{lang}.json,同一份報告只會產生一次。
   const autoRan = useRef(false);
   useEffect(() => {
-    if (!autoGenerate || !jobId || ins || autoRan.current) return;
+    if (!autoGenerate || !jobId || exact || autoRan.current) return;
     autoRan.current = true;
     void generate(false);
-    // generate 會自己擋重入;只在「從沒有分析」變成可產生時觸發一次。
-  }, [autoGenerate, jobId, ins]); // eslint-disable-line react-hooks/exhaustive-deps
+    // generate 會自己擋重入;只在「目前語系還沒有分析」變成可產生時觸發一次。
+  }, [autoGenerate, jobId, exact]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ownerText = (o: string) => txt(o === 'qa' ? 'ownerQa' : o === 'env' ? 'ownerEnv' : 'ownerDev', lang);
 
@@ -87,7 +86,7 @@ export function InsightsPanel({
       <div className="ins__head">
         <p className="srep__muted">{ins ? `${txt('generatedBy', lang)}: ${ins.model.replace(/^us\.anthropic\./, '')} · ${new Date(ins.generatedAt).toLocaleString()}` : txt('insightsEmpty', lang)}</p>
         {jobId && (
-          <button type="button" className={`ins__btn ${ins ? '' : 'ins__btn--primary'}`} onClick={() => void generate(Boolean(ins))} disabled={busy} aria-busy={busy}>
+          <button type="button" className={`ins__btn ${ins ? '' : 'ins__btn--primary'}`} onClick={() => void generate(Boolean(exact))} disabled={busy} aria-busy={busy}>
             {busy ? txt('generating', lang) : ins ? txt('regenerate', lang) : txt('generateInsights', lang)}
           </button>
         )}

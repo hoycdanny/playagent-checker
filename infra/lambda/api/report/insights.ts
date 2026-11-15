@@ -6,6 +6,7 @@
  * tenants/<t>/jobs/<id>/insights.json,之後 GET /reports/{id} 直接附上。
  */
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { LANG_NAME, type GenLocale } from '../genLocale.js';
 import { getGenreProfile } from './profiles.js';
 import type {
   L10n,
@@ -58,8 +59,7 @@ const SYSTEM = `你是資深遊戲 QA 測試顧問,負責撰寫給客戶的正�
 - 只輸出一個 JSON 物件,不要 markdown 圍欄或其他文字。格式:
 {"summary":"","rootCause":"","watchouts":[""],"requirements":[{"text":"","result":"pass","evidenceSteps":[1],"reason":"","suggestion":""}],"recommendations":[{"priority":"P0","owner":"dev","text":"","relatedFindings":["DEF-001"]}],"notes":{"DEF-001":""}}`;
 
-export type InsightsLang = 'zh' | 'en';
-const LANG_NAME: Record<InsightsLang, string> = { zh: '繁體中文', en: 'English' };
+export type InsightsLang = GenLocale;
 
 const cut = (s: unknown, n: number): string | undefined => (typeof s === 'string' && s ? s.slice(0, n) : undefined);
 
@@ -218,7 +218,7 @@ const PRIORITIES = new Set<Recommendation['priority']>(['P0', 'P1', 'P2']);
 const OWNERS = new Set<Recommendation['owner']>(['dev', 'qa', 'env']);
 
 /** 清洗 LLM 輸出:型別不符的欄位丟棄,步驟編號只保留證據中真的存在者。 */
-export function sanitizeInsights(raw: unknown, r: StructuredReport, model: string, now = new Date(), lang: InsightsLang = 'zh'): ReportInsights {
+export function sanitizeInsights(raw: unknown, r: StructuredReport, model: string, now = new Date(), lang: InsightsLang = 'zh-Hant'): ReportInsights {
   const o = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>;
   const validSteps = new Set(r.evidence.map((s) => s.index));
   const validIds = new Set([...r.findings, ...r.aiFailures].map((f) => f.id).concat(r.checks.map((c) => c.id)));
@@ -323,7 +323,7 @@ export function repairTruncatedJson(s: string): unknown {
 
 export async function generateInsights(
   r: StructuredReport,
-  lang: InsightsLang = 'zh',
+  lang: InsightsLang = 'zh-Hant',
   deps?: { bedrock?: Pick<BedrockRuntimeClient, 'send'> },
 ): Promise<ReportInsights> {
   const br = deps?.bedrock ?? bedrock();

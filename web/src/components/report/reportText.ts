@@ -4,7 +4,7 @@
  * 日文 / 韓文對到 en;固定標題與欄位則依介面語系取對應的五語值。
  */
 import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
-import type { L10n } from './reportTypes.ts';
+import type { InsightsMap, InsightsSuffix, L10n, ReportInsights } from './reportTypes.ts';
 export type RLang = Loc5;
 export function reportLang(locale: string): RLang {
   return loc5(locale);
@@ -16,6 +16,16 @@ export function pr(v: L5, lang: RLang): string {
 /** 後端雙語資料只有 zh / en:zh-Hant 與 zh-Hans 讀 zh,其餘(en / ja / ko)讀 en。 */
 export function dataLang(lang: RLang): 'zh' | 'en' {
   return lang === 'zh-Hant' || lang === 'zh-Hans' ? 'zh' : 'en';
+}
+/** AI 洞察的快取後綴(與後端 cacheSuffix 一致):zh-Hant -> zh,其餘用語系碼。 */
+export function insightsSuffix(lang: RLang): InsightsSuffix {
+  return lang === 'zh-Hant' ? 'zh' : lang;
+}
+/** 顯示用的洞察:先取當前語系精確的那份,沒有再退回 dataLang 對應的(舊的 zh / en)。 */
+export function pickInsights(map: InsightsMap | undefined, lang: RLang): ReportInsights | undefined {
+  if (!map) return undefined;
+  const dl = dataLang(lang);
+  return map[insightsSuffix(lang)] ?? map[dl] ?? map[dl === 'zh' ? 'en' : 'zh'];
 }
 /** 後端 { zh, en } 資料或前端 L5 固定值 → 當前語系的文字。 */
 export function tr(v: L10n | L5 | undefined, lang: RLang): string {

@@ -883,7 +883,7 @@ export interface ReportInsights {
   generatedAt: string;
   model: string;
   /** 產生時使用的語言(文字欄位 zh/en 內容相同,為單一語言)。 */
-  lang: 'zh' | 'en';
+  lang: 'zh' | 'en' | 'zh-Hant' | 'zh-Hans' | 'ja' | 'ko';
   summary: L10n;
   rootCause: L10n;
   /**

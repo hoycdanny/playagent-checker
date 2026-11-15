@@ -9,13 +9,14 @@ import { SlotCapturePanel } from './SlotCapturePanel.tsx';
 import { InsightsPanel } from './InsightsPanel.tsx';
 import { ReportChart } from './ReportChart.tsx';
 import { ResultPill, VerdictMatrix, type CheckFilter } from './VerdictMatrix.tsx';
-import type { ChartData, CoverageItem, EvidenceStep, Finding, L10n, MetricValue, ReportInsights, StructuredReport } from './reportTypes.ts';
+import type { ChartData, CoverageItem, EvidenceStep, Finding, InsightsMap, L10n, MetricValue, StructuredReport } from './reportTypes.ts';
 import {
   CATEGORY_TEXT,
   DIMENSION_TEXT,
   SCOPE_TEXT,
   STATUS_TEXT,
   dataLang,
+  pickInsights,
   reportLang,
   tr,
   txt,
@@ -63,7 +64,7 @@ export function StructuredReportView({
   appendix?: ReactNode;
   /** 有值才顯示「產生 AI 分析」按鈕。 */
   jobId?: string;
-  insights?: { zh?: ReportInsights; en?: ReportInsights };
+  insights?: InsightsMap;
   /** 人工覆核送出後重新取整份報告(判定會重算)。 */
   onReload?: () => void;
 }) {
@@ -82,9 +83,7 @@ export function StructuredReportView({
   };
   const [insights, setInsights] = useState(initialInsights);
   const [active, setActive] = useState<string>('cover');
-  // 後端洞察只有 zh / en 兩份:zh-Hant 與 zh-Hans 讀 zh,其餘讀 en。
-  const dl = dataLang(lang);
-  const ins = insights?.[dl] ?? insights?.[dl === 'zh' ? 'en' : 'zh'];
+  const ins = pickInsights(insights, lang);
   const notes: Record<string, L10n> = ins?.notes ?? {};
   const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   /** 跳到判定明細並套用篩選(數字點擊 → 讓使用者看到每一筆判定的依據、截圖與修正建議)。 */

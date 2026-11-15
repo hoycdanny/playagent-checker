@@ -104,11 +104,15 @@ export interface CheckItem {
 
 export type RequirementResult = 'pass' | 'fail' | 'unclear' | 'not_tested';
 
+/** 洞察快取後綴:zh = 繁中(舊檔名)、en,其餘用語系碼。 */
+export type InsightsSuffix = 'zh' | 'en' | 'zh-Hans' | 'ja' | 'ko';
+export type InsightsMap = Partial<Record<InsightsSuffix, ReportInsights>>;
+
 export interface ReportInsights {
   schemaVersion: 1;
   generatedAt: string;
   model: string;
-  lang: 'zh' | 'en';
+  lang: 'zh' | 'en' | 'zh-Hant' | 'zh-Hans' | 'ja' | 'ko';
   summary: L10n;
   rootCause: L10n;
   /** 需要注意的點:逐條針對算出來的數字(舊報告沒有這個欄位)。 */

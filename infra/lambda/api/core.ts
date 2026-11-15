@@ -82,6 +82,7 @@ import {
   writeTakeoverState,
 } from './takeover.js';
 import { generateInsights } from './report/insights.js';
+import { GEN_LOCALES, cacheSuffix, parseGenLocale, type GenLocale } from './genLocale.js';
 import { CATALOG, modelsForSeat, type Seat, type Channel, type CoordSystem } from './modelCatalog.js';
 import { isPriceable, resolvePrice } from './pricing.js';
 import type { ScannedModel } from './modelScan.js';
@@ -1852,7 +1853,7 @@ export async function handleRequest(
             console.warn('[ask] structured report unavailable, falling back to raw', err);
           }
           try {
-            return json(200, await askTask(s3, deps.bucket, tenant.tenantId, jobId, question, body.lang === 'en' ? 'en' : 'zh', {
+            return json(200, await askTask(s3, deps.bucket, tenant.tenantId, jobId, question, parseGenLocale(body.lang, 'zh-Hant'), {
               ...(deps.askBedrock ? { bedrock: deps.askBedrock } : {}),
               ...(askModel ? { modelId: askModel } : {}),
               structuredReport: structuredForAsk,
@@ -2004,10 +2005,9 @@ export async function handleRequest(
           // 舊報告也適用新版 profile。失敗不擋原始報告(前端回退舊版呈現)。
           if (typeof enriched === 'object' && enriched !== null) {
             try {
-              const [structured, insZh, insEn] = await Promise.all([
+              const [structured, ...insAll] = await Promise.all([
                 buildReportForJob(deps, s3, tenant.tenantId, jobId, enriched as Record<string, unknown>),
-                readJsonObject<ReportInsights>(s3, deps.bucket, insightsKey(tenant.tenantId, jobId, 'zh')).catch(() => null),
-                readJsonObject<ReportInsights>(s3, deps.bucket, insightsKey(tenant.tenantId, jobId, 'en')).catch(() => null),
+                ...GEN_LOCALES.map((l) => readJsonObject<ReportInsights>(s3, deps.bucket, insightsKey(tenant.tenantId, jobId, l)).catch(() => null)),
               ]);
               (enriched as Record<string, unknown>)['structured'] = structured;
               // 結論寫回 verdict.json:任務列表 / 報告列表顯示的通過與否,和這份報告封面是同一個值。
@@ -2016,9 +2016,9 @@ export async function handleRequest(
                 await writeVerdict(s3, deps.bucket, tenant.tenantId, jobId, verdictRecordOf(structured, report as Record<string, unknown>))
                   .catch((err) => console.warn('[verdict] write failed', jobId, err));
               }
-              if (insZh || insEn) {
-                (enriched as Record<string, unknown>)['insights'] = { ...(insZh ? { zh: insZh } : {}), ...(insEn ? { en: insEn } : {}) };
-              }
+              const insights: Record<string, ReportInsights> = {};
+              GEN_LOCALES.forEach((l, i) => { const v = insAll[i]; if (v) insights[cacheSuffix(l)] = v; });
+              if (Object.keys(insights).length) (enriched as Record<string, unknown>)['insights'] = insights;
             } catch (err) {
               console.warn('[report] structured build failed', err);
             }
@@ -2033,7 +2033,7 @@ export async function handleRequest(
           const s3 = await deps.getTenantS3(tenant.tenantId);
           const body = (req.body ?? {}) as { force?: unknown; lang?: unknown };
           const force = body.force === true;
-          const lang: 'zh' | 'en' = body.lang === 'en' ? 'en' : 'zh';
+          const lang = parseGenLocale(body.lang, 'zh-Hant');
           const key = insightsKey(tenant.tenantId, jobId, lang);
           if (!force) {
             const cached = await readJsonObject<ReportInsights>(s3, deps.bucket, key).catch(() => null);
@@ -2357,8 +2357,8 @@ function verdictOpts(deps: ApiDeps, s3: S3Client, tenantId: string) {
 }
 
 /** AI 洞察快取位置(與 report.json 同一 job 前綴)。 */
-function insightsKey(tenantId: string, jobId: string, lang: 'zh' | 'en'): string {
-  return `${tenantPrefix(tenantId)}jobs/${jobId}/insights-${lang}.json`;
+function insightsKey(tenantId: string, jobId: string, lang: GenLocale): string {
+  return `${tenantPrefix(tenantId)}jobs/${jobId}/insights-${cacheSuffix(lang)}.json`;
 }
 
 /** 讀 S3 JSON 物件(不存在回 null)。 */

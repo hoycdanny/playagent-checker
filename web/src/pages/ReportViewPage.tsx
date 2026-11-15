@@ -7,7 +7,7 @@ import type { MessageKey } from '../i18n/messages.ts';
 import { NavGraph } from '../components/NavGraph.tsx';
 import { RtpChart, type RtpStats } from '../components/RtpChart.tsx';
 import { StructuredReportView } from '../components/report/StructuredReportView.tsx';
-import type { ReportInsights, StructuredReport } from '../components/report/reportTypes.ts';
+import type { InsightsMap, StructuredReport } from '../components/report/reportTypes.ts';
 import { outcomeKey, outcomeOfVerdict } from '../components/outcome.ts';
 import './ListPage.css';
 import './ReportViewPage.css';
@@ -60,7 +60,7 @@ interface ReportDoc {
   // 結構化報告(後端報告引擎讀取時計算:GenreProfile + Metric + Evidence + Finding + 規則引擎)。
   structured?: StructuredReport;
   // AI 分析快取(使用者觸發產生;依語言分開存)。
-  insights?: { zh?: ReportInsights; en?: ReportInsights };
+  insights?: InsightsMap;
 }
 
 /** 把任意值安全轉成可渲染字串,避免把物件/陣列當 React child 渲染而丟出未捕捉例外

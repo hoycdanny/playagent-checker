@@ -8,6 +8,7 @@
  */
 import { BedrockRuntimeClient, ConverseCommand, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { LANG_NAME, parseGenLocale, type GenLocale } from './genLocale.js';
 import { tenantPrefix } from './tenantCredentials.js';
 import type { L10n, StructuredReport } from './report/types.js';
 
@@ -284,7 +285,7 @@ export async function buildTaskContext(
   ].join('\n\n');
 }
 
-const SYSTEM = (lang: 'zh' | 'en') => `你是資深遊戲 QA 測試顧問,正在協助測試人員分析「一次自動化測試任務」。
+const SYSTEM = (lang: GenLocale) => `你是資深遊戲 QA 測試顧問,正在協助測試人員分析「一次自動化測試任務」。
 你會收到這次任務的參考資料:任務概要、測試腳本、執行步驟(AI 測試代理每一步看到的畫面、動作與想法)、裝置 log、測試人員指令、報告結果、判定與適用邊界、注入給 AI 的知識。
 規則:
 - 只根據參考資料回答;資料裡沒有的就直說「資料中看不到」,不要猜測或捏造步驟、數字、log 內容。
@@ -301,7 +302,7 @@ const SYSTEM = (lang: 'zh' | 'en') => `你是資深遊戲 QA 測試顧問,正在
 - 測試人員問「要注意什麼」時:依嚴重程度列出重點(當機/ANR/錯誤、卡住或重複失敗、數值異常、與腳本不符之處),每點附證據與建議的下一步。
 - 簡潔:最多 6 個重點、整體約 400 字內;測試人員想看細節會再追問。
 - 純文字排版:用「1.」「-」條列即可,不要用 Markdown 符號(#、**、\`\`\`、表格)。不要輸出參考資料原文。
-- 用${lang === 'en' ? 'English' : '繁體中文'}回答。`;
+- 用${LANG_NAME[lang]}回答。`;
 
 /** 模型偶爾仍會用 Markdown:去掉標題井號、粗體星號、程式碼圍欄,面板以純文字顯示。 */
 export function plainText(s: string): string {
@@ -329,6 +330,13 @@ export interface AskDeps {
 }
 
 const ASK_MAX_TOKENS = 1100;
+const CUT_NOTE: Record<GenLocale, string> = {
+  'zh-Hant': '\n…(回答過長已截斷,可以追問細節)',
+  en: '\n…(answer cut off — ask a follow-up for details)',
+  'zh-Hans': '\n…(回答过长已截断,可以追问细节)',
+  ja: '\n…(回答が長いため途中で切れました。詳細は追加で質問してください)',
+  ko: '\n…(답변이 길어 잘렸습니다. 자세한 내용은 추가로 질문해 주세요)',
+};
 const isAnthropic = (modelId: string) => /^(?:(?:us|eu|apac|jp|au|global)\.)?anthropic\./.test(modelId);
 
 /**
@@ -386,9 +394,10 @@ export async function askTask(
   tenantId: string,
   jobId: string,
   question: string,
-  lang: 'zh' | 'en' = 'zh',
+  langIn: GenLocale | 'zh' = 'zh-Hant',
   deps: AskDeps = {},
 ): Promise<{ answer: AskMessage; items: AskMessage[] }> {
+  const lang = parseGenLocale(langIn, 'zh-Hant'); // legacy 'zh' = zh-Hant
   const [context, history] = await Promise.all([
     buildTaskContext(s3, bucket, tenantId, jobId, deps.structuredReport ?? null),
     readAskHistory(s3, bucket, tenantId, jobId),
@@ -409,7 +418,7 @@ export async function askTask(
     messages,
   });
   const br = deps.bedrock ?? bedrock();
-  const cutNote = lang === 'en' ? '\n…(answer cut off — ask a follow-up for details)' : '\n…(回答過長已截斷,可以追問細節)';
+  const cutNote = CUT_NOTE[lang];
   let lastErr: unknown;
   let text = '';
   let usedModel = '';
