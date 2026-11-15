@@ -243,13 +243,24 @@ The **System admin** page (admins only) has three tools.
 
 ## User manual
 
-The subsections below cover every page of the web console, in the order a first run passes through them. Five points apply throughout:
+The subsections below cover every page of the web console, in the order a first run passes through them. Six points apply throughout:
 
-- The screenshots show the English interface, captured from a live deployment. The language selector in the top bar switches between all five interface languages, and each README shows the screenshots of its own language.
+- The screenshots are real captures of the web app running locally against the deployed backend, taken in the English interface. The language selector in the top bar switches between all five interface languages, and each README shows the screenshots of its own language.
 - The game under test is `https://play.slotomania.com/slots/` (the app `Slotomania (web demo)`). The second app, `Example Slots Mobile` (`com.example.slotsgame`), is a synthetic placeholder. Every run used a temporary account, `qa-demo@example.com`, in an isolated `demo` tenant that was deleted after the capture.
 - The AI agent's step notes and the report body, including the screen names the agent records in the memory map, are generated in Traditional Chinese regardless of the interface language. In images 27–35 and 37–48 these regions are covered with a striped mask; the rest of each page is shown as captured. Localizing generated text is a known open item.
 - Pages and controls marked *admins only* are hidden from accounts without the admin role.
 - Routes are hash routes appended to the site URL the installer prints, for example `https://<site-url>/#/apps`.
+- Remaining limits: the report body text in Japanese and Korean comes from the backend in English; the AI agent's step reasoning and the screen names in the memory map are model and game data; the game's own on-screen text is in the game's language.
+
+To regenerate the screenshots, run these commands from the repository root:
+
+```bash
+npm ci --prefix tools/screenshots
+npx --prefix tools/screenshots playwright install chromium
+node tools/screenshots/capture.mjs
+```
+
+Capturing does not deploy or change any stack; it needs only the backend that is already deployed in `us-west-2`.
 
 ### Sign-in
 
@@ -329,7 +340,7 @@ The submission form fixes everything a run needs before it starts:
 - Case and runtime: the runtime defaults to the app platform (`Web browser` for a web title).
 - Model seats: Agent, VLM and Subagent, each with a locked price snapshot; an unknown price refuses the run.
 - Limits: a step ceiling and a budget in US dollars; execution stops as soon as either is reached.
-- Knowledge bases: the genre built-ins are pre-selected and further bases can be attached.
+- Knowledge bases: the bases saved as the app's defaults on the Knowledge tab are pre-selected, and further bases can be attached.
 
 #### Test Reports
 
@@ -637,7 +648,7 @@ The report assistant opens from the launcher at the edge of the report and start
 
 ![Report assistant, Q&A tab](docs/screenshots/en/43-report-assistant-ask.png)
 
-**Q&A** answers questions about the open report from the report's own data. The screenshot shows the empty question box; an answered exchange in the same component appears under [Ask AI](#ask-ai) above.
+**Q&A** answers questions about the open report from the report's own data. The screenshot shows a question that has been asked together with its answer (masked where the answer's language differs from the interface); an answered exchange in the same component also appears under [Ask AI](#ask-ai) above.
 
 #### Report guide — Review
 

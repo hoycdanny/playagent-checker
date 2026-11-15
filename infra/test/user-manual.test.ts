@@ -29,11 +29,6 @@ const localeImagesIn = (text: string) =>
   );
 const pngsIn = (dir: string) => readdirSync(dir).filter((f) => f.endsWith('.png')).sort();
 
-// 新的「每語系一個資料夾」版面要等 FEAT-004 拍出圖之後才會存在;在那之前 README 與舊的平面
-// PNG 維持原樣,新版斷言以 docs/screenshots/en 是否存在為閘門。FEAT-005 把 README 改完後,
-// 這個閘門與下面的 legacy 區塊一起刪掉。
-const localeDirsExist = existsSync(join(shots, 'en'));
-
 describe('illustrated user manual in all five READMEs', () => {
   test('every non-wildcard route in App.tsx is documented in all five languages', () => {
     expect(routes).toContain('/live/:jobId');
@@ -46,7 +41,7 @@ describe('illustrated user manual in all five READMEs', () => {
   });
 });
 
-describe.skipIf(!localeDirsExist)('per-locale screenshot directories', () => {
+describe('per-locale screenshot directories', () => {
   test('each README references only its own locale directory', () => {
     for (const { file, text } of readmes) {
       const refs = localeImagesIn(text);
@@ -88,31 +83,5 @@ describe.skipIf(!localeDirsExist)('per-locale screenshot directories', () => {
 
   test('no flat screenshot is left behind next to the locale directories', () => {
     expect(readdirSync(shots).filter((f) => f.endsWith('.png'))).toEqual([]);
-  });
-});
-
-// legacy:舊的平面版面(docs/screenshots/NN-slug.png),只在還沒有語系資料夾時驗證。
-describe.skipIf(localeDirsExist)('legacy flat screenshots (until FEAT-004/005)', () => {
-  const flatImagesIn = (text: string) =>
-    [...text.matchAll(/docs\/screenshots\/([\w.-]+\.png)/g)].map((m) => m[1]!).sort();
-
-  test('every referenced screenshot exists on disk', () => {
-    for (const { file, text } of readmes) {
-      const images = unique(flatImagesIn(text));
-      expect(images.length, file).toBeGreaterThan(0);
-      for (const img of images) expect(existsSync(join(shots, img)), `${file} ${img}`).toBe(true);
-    }
-  });
-
-  test('all five READMEs reference the identical image set', () => {
-    const expected = unique(flatImagesIn(readmes[0]!.text));
-    for (const { file, text } of readmes) expect(unique(flatImagesIn(text)), file).toEqual(expected);
-  });
-
-  test('no unreferenced screenshot sits in the public repository', () => {
-    const referenced = new Set(unique(flatImagesIn(readmes[0]!.text)));
-    const onDisk = pngsIn(shots);
-    expect(onDisk.length).toBeGreaterThan(0);
-    for (const img of onDisk) expect(referenced.has(img), img).toBe(true);
   });
 });
