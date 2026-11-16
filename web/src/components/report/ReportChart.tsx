@@ -1,4 +1,5 @@
 import type { ChartData } from './reportTypes.ts';
+import { hansText } from './reportText.ts';
 
 /**
  * 通用報告圖表(line / bar / donut)—— 圖表定義與資料由後端 ChartDefinition 決定,
@@ -30,8 +31,9 @@ function fmt(n: number): string {
   return Number.isInteger(n) ? String(n) : n.toFixed(1);
 }
 
-export function ReportChart({ chart, lang, labelOf }: { chart: ChartData; lang: 'zh' | 'en'; labelOf?: (x: string) => string }) {
-  const title = chart.title[lang];
+export function ReportChart({ chart, lang, labelOf, hans = false }: { chart: ChartData; lang: 'zh' | 'en'; labelOf?: (x: string) => string; hans?: boolean }) {
+  const hx = (s: string) => (hans ? hansText(s) : s);
+  const title = hx(chart.title[lang]);
   const lbl = (x: number | string) => (typeof x === 'string' && labelOf ? labelOf(x) : String(x));
   return (
     <figure className="rchart">
@@ -40,7 +42,7 @@ export function ReportChart({ chart, lang, labelOf }: { chart: ChartData; lang: 
       {chart.type === 'line' && chart.series.length > 1 && (
         <ul className="rchart__legend rchart__legend--row">
           {chart.series.map((s, i) => (
-            <li key={i}><span className="rchart__swatch" style={{ background: colorOf('', i) }} />{s.name[lang]}</li>
+            <li key={i}><span className="rchart__swatch" style={{ background: colorOf('', i) }} />{hx(s.name[lang])}</li>
           ))}
         </ul>
       )}
@@ -51,7 +53,7 @@ export function ReportChart({ chart, lang, labelOf }: { chart: ChartData; lang: 
         <tbody>
           {(chart.series.length > 1 ? chart.series : chart.series.slice(0, 1)).flatMap((s, si) =>
             s.points.map((p, i) => (
-              <tr key={`${si}-${i}`}><th scope="row">{chart.series.length > 1 ? `${s.name[lang]} ` : ''}{lbl(p.x)}</th><td>{p.y}</td></tr>
+              <tr key={`${si}-${i}`}><th scope="row">{chart.series.length > 1 ? `${hx(s.name[lang])} ` : ''}{lbl(p.x)}</th><td>{p.y}</td></tr>
             )),
           )}
         </tbody>

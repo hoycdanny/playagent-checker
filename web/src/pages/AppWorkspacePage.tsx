@@ -11,6 +11,7 @@ import BuildsPanel, { type AppBuild } from '../components/apps/BuildsPanel.tsx';
 import SnapshotsPanel from '../components/apps/SnapshotsPanel.tsx';
 import { CredentialsPanel } from '../components/credentials/CredentialsPanel.tsx';
 import { outcomeClass, outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
+import { reportLang, tr } from '../components/report/reportText.ts';
 // 案例/任務/報告分頁直接用獨立頁面的元件(傳 appId 進入嵌入模式),
 // 這樣工作區與主頁面的排版是「同一份」,不會各自長歪。
 import CasesPage from './CasesPage.tsx';
@@ -84,7 +85,7 @@ const TAB_KEYS = new Set<string>(TABS.map((x) => x.key));
 
 
 export default function AppWorkspacePage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { appId = '' } = useParams<{ appId: string }>();
   const navigate = useNavigate();
 
@@ -367,7 +368,7 @@ export default function AppWorkspacePage() {
               {tasks.slice(0, 5).map((x) => (
                 <li key={x.jobId} className="listpage__item">
                   <Link to={`/tasks/${x.jobId}`} className="tasks__state-link">
-                    <span className={`task-state ${outcomeClass(outcomeOf(x))}`} title={x.verdict ? (x.verdict.reason.zh) : undefined}>
+                    <span className={`task-state ${outcomeClass(outcomeOf(x))}`} title={x.verdict ? tr(x.verdict.reason, reportLang(locale)) : undefined}>
                       {t(outcomeKey(outcomeOf(x)))}
                     </span>
                   </Link>

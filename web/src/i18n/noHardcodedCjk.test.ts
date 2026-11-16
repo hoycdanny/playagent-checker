@@ -26,6 +26,7 @@ const TABLE_FILES: readonly string[] = [
   'pages/guide/zhHans.ts',
   'pages/guide/ja.ts',
   'pages/guide/ko.ts',
+  'components/report/zhHansReport.ts',
 ];
 
 /** Recognisers / generated artifacts: file -> number of `i18n-allow` markers. */

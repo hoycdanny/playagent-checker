@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { apiGet } from '../../api/client.ts';
+import { hansText } from '../report/reportText.ts';
 
 /** 對齊後端 report/types.ts MetricValue。 */
 export interface LiveMetric {
@@ -50,7 +51,7 @@ const GROUP: Record<string, L5> = {
 };
 const GROUP_ORDER = ['summary', 'genre', 'economy', 'progression', 'performance', 'stability', 'coverage', 'ux', 'ai_reliability'];
 
-const labelOf = (m: LiveMetric, loc: string) => (loc.startsWith('zh') ? m.label.zh : m.label.en);
+const labelOf = (m: LiveMetric, loc: string) => (loc === 'zh-Hans' ? hansText(m.label.zh) : loc.startsWith('zh') ? m.label.zh : m.label.en);
 const storageKey = (appId: string | undefined) => `pa.trackedMetrics.${appId || '_'}`;
 
 export function fmtMetric(v: number, unit: string): string {

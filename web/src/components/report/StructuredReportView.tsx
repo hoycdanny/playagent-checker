@@ -1001,7 +1001,7 @@ function Charts({ list, lang, labelOf, empty }: { list: ChartData[]; lang: RLang
   if (list.length === 0) return empty ? <p className="srep__muted">{empty}</p> : null;
   return (
     <div className="srep__charts">
-      {list.map((c) => <ReportChart key={c.id} chart={c} lang={dataLang(lang)} labelOf={labelOf} />)}
+      {list.map((c) => <ReportChart key={c.id} chart={c} lang={dataLang(lang)} hans={lang === 'zh-Hans'} labelOf={labelOf} />)}
     </div>
   );
 }

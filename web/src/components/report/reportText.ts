@@ -5,6 +5,7 @@
  */
 import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
 import type { InsightsMap, InsightsSuffix, L10n, ReportInsights } from './reportTypes.ts';
+import { ZH_HANS_REPORT } from './zhHansReport.ts';
 export type RLang = Loc5;
 export function reportLang(locale: string): RLang {
   return loc5(locale);
@@ -27,11 +28,40 @@ export function pickInsights(map: InsightsMap | undefined, lang: RLang): ReportI
   const dl = dataLang(lang);
   return map[insightsSuffix(lang)] ?? map[dl] ?? map[dl === 'zh' ? 'en' : 'zh'];
 }
+const HANS_STATIC = new Map<string, string>();
+const HANS_TEMPLATES: Array<{ re: RegExp; to: string; weight: number }> = [];
+for (const [k, v] of ZH_HANS_REPORT) {
+  if (!k.includes('{0}')) { HANS_STATIC.set(k, v); continue; }
+  const parts = k.split(/\{\d+\}/);
+  const re = new RegExp('^' + parts.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('([\\s\\S]*?)') + '$');
+  HANS_TEMPLATES.push({ re, to: v, weight: parts.join('').length });
+}
+HANS_TEMPLATES.sort((a, b) => b.weight - a.weight);
+const HANS_CACHE = new Map<string, string>();
+/**
+ * zh-Hans text for backend report text that only exists as zh-Hant. Looks the sentence up in ZH_HANS_REPORT (exact rows,
+ * then rows with interpolated parts, whose captured parts are converted the same way). Text with no row is returned as is.
+ */
+export function hansText(zh: string): string {
+  const hit = HANS_CACHE.get(zh);
+  if (hit !== undefined) return hit;
+  let out = HANS_STATIC.get(zh);
+  if (out === undefined) {
+    for (const t of HANS_TEMPLATES) {
+      const m = t.re.exec(zh);
+      if (m) { out = t.to.replace(/\{(\d+)\}/g, (_, i: string) => hansText(m[Number(i) + 1] ?? '')); break; }
+    }
+  }
+  const res = out ?? zh;
+  HANS_CACHE.set(zh, res);
+  return res;
+}
 /** 後端 { zh, en } 資料或前端 L5 固定值 → 當前語系的文字。 */
 export function tr(v: L10n | L5 | undefined, lang: RLang): string {
   if (!v) return '';
   if (Array.isArray(v)) return pick5(v as L5, lang);
   const d = v as L10n;
+  if (lang === 'zh-Hans') return d.zh ? hansText(d.zh) : d.en || '';
   return d[dataLang(lang)] || d.en || d.zh;
 }
 
