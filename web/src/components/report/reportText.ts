@@ -3,7 +3,7 @@
  * 報告內容本身(指標名、缺陷、摘要)由後端以 { zh, en } 雙語產出,tr() 把 zh-Hant / zh-Hans 對到 zh,
  * 日文 / 韓文對到 en;固定標題與欄位則依介面語系取對應的五語值。
  */
-import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
+import { listSep, loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
 import type { InsightsMap, InsightsSuffix, L10n, ReportInsights } from './reportTypes.ts';
 import { ZH_HANS_REPORT } from './zhHansReport.ts';
 export type RLang = Loc5;
@@ -50,6 +50,21 @@ export function hansText(zh: string): string {
     for (const t of HANS_TEMPLATES) {
       const m = t.re.exec(zh);
       if (m) { out = t.to.replace(/\{(\d+)\}/g, (_, i: string) => hansText(m[Number(i) + 1] ?? '')); break; }
+    }
+  }
+  if (out === undefined) {
+    // Text composed from other report text: an id prefix ("AC-G05 " + criterion title) or a list joined with 、.
+    const sep = listSep('zh-Hans');
+    if (zh.includes(sep)) {
+      const parts = zh.split(sep);
+      const conv = parts.map((p) => hansText(p));
+      if (conv.some((p, i) => p !== parts[i])) out = conv.join(sep);
+    } else {
+      const lead = /^([A-Za-z0-9_.-]+ )([\s\S]+)$/.exec(zh);
+      if (lead) {
+        const rest = hansText(lead[2] ?? '');
+        if (rest !== lead[2]) out = `${lead[1] ?? ''}${rest}`;
+      }
     }
   }
   const res = out ?? zh;

@@ -34,6 +34,15 @@ function backendZh(): string[] {
   };
   const visit = (n: ts.Node) => {
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'L' && n.arguments.length === 2) take(n.arguments[0]!);
+    // helper calls such as mod('id', 'zh', 'en', ...): a Han literal followed by an English literal
+    if (ts.isCallExpression(n) && !(ts.isIdentifier(n.expression) && n.expression.text === 'L')) {
+      const a = n.arguments;
+      for (let i = 0; i + 1 < a.length; i++) {
+        const x = a[i]!;
+        const y = a[i + 1]!;
+        if (ts.isStringLiteralLike(x) && ts.isStringLiteralLike(y) && HAN.test(x.text) && !HAN.test(y.text) && /[A-Za-z]/.test(y.text)) take(x);
+      }
+    }
     if (ts.isObjectLiteralExpression(n)) {
       const prop = (name: string) => n.properties.find((p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && p.name.text === name);
       const zh = prop('zh');
@@ -72,6 +81,11 @@ describe('zh-Hans report text table', () => {
     const filled = tpl![0].replace(/\{(\d+)\}/g, (_, i: string) => `X${i}`);
     const expected = tpl![1].replace(/\{(\d+)\}/g, (_, i: string) => `X${i}`);
     expect(hansText(filled)).toBe(expected);
+  });
+
+  it('converts text composed from other report text (id prefix, 、 lists)', () => {
+    expect(hansText('AC-G05 AI 測試代理行為可靠')).toBe('AC-G05 AI 测试代理行为可靠');
+    expect(hansText('AI 測試代理行為可靠、AC-G05 AI 測試代理行為可靠')).toBe('AI 测试代理行为可靠、AC-G05 AI 测试代理行为可靠');
   });
 
   it('returns unknown text unchanged', () => {
