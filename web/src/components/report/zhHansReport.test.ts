@@ -24,6 +24,35 @@ const REPORT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..
 function backendZh(): string[] {
   const out = new Set<string>();
   const take = (n: ts.Expression): void => {
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      // `a` + `b${x}` + ...: one key with the literal parts joined and every non-literal operand as a hole
+      const ops: ts.Expression[] = [];
+      const flat = (e: ts.Expression): void => {
+        if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.PlusToken) { flat(e.left); flat(e.right); } else ops.push(e);
+      };
+      flat(n);
+      let key = '';
+      let i = 0;
+      let han = false;
+      for (let op of ops) {
+        while (ts.isParenthesizedExpression(op)) op = op.expression;
+        if (ts.isStringLiteralLike(op)) { key += op.text; han = han || HAN.test(op.text); }
+        else if (ts.isTemplateExpression(op)) {
+          key += op.head.text; han = han || HAN.test(op.head.text);
+          for (const span of op.templateSpans) { key += `{${i++}}${span.literal.text}`; han = han || HAN.test(span.literal.text); }
+        } else key += `{${i++}}`;
+      }
+      if (han) out.add(key);
+      const nestAll = (m: ts.Node, top: boolean): void => {
+        if (!top && (ts.isStringLiteralLike(m) || ts.isTemplateExpression(m))) { take(m as ts.Expression); return; }
+        ts.forEachChild(m, (c) => nestAll(c, false));
+      };
+      for (const op of ops) {
+        if (ts.isTemplateExpression(op)) op.templateSpans.forEach((sp) => nestAll(sp.expression, false));
+        else if (!ts.isStringLiteralLike(op)) nestAll(op, true);
+      }
+      return;
+    }
     if (ts.isParenthesizedExpression(n)) return take(n.expression);
     if (ts.isConditionalExpression(n)) { take(n.whenTrue); take(n.whenFalse); return; }
     if (ts.isStringLiteralLike(n)) { if (HAN.test(n.text)) out.add(n.text); return; }
