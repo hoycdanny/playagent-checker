@@ -29,6 +29,11 @@ function backendZh(): string[] {
       let key = n.head.text;
       const lits = [n.head.text];
       n.templateSpans.forEach((s, i) => { key += `{${i}}${s.literal.text}`; lits.push(s.literal.text); });
+      const nest = (m: ts.Node) => {
+        if (m !== n && (ts.isStringLiteralLike(m) || ts.isTemplateExpression(m))) take(m as ts.Expression);
+        ts.forEachChild(m, nest);
+      };
+      n.templateSpans.forEach((s) => nest(s.expression));
       if (HAN.test(lits.join(''))) out.add(key);
     }
   };
@@ -86,6 +91,12 @@ describe('zh-Hans report text table', () => {
   it('converts text composed from other report text (id prefix, 、 lists)', () => {
     expect(hansText('AC-G05 AI 測試代理行為可靠')).toBe('AC-G05 AI 测试代理行为可靠');
     expect(hansText('AI 測試代理行為可靠、AC-G05 AI 測試代理行為可靠')).toBe('AI 测试代理行为可靠、AC-G05 AI 测试代理行为可靠');
+  });
+
+  it('converts a composed verdict sentence end to end', () => {
+    const out = hansText('必要項目全部通過;建議項目未通過:AC-G04 沒有待人工判讀的異常、AC-G05 AI 測試代理行為可靠');
+    expect(hasTrad(out)).toBe(false);
+    expect(out).toContain('AC-G05 AI 测试代理行为可靠');
   });
 
   it('returns unknown text unchanged', () => {
