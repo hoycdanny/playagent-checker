@@ -52,16 +52,28 @@ export function hansText(zh: string): string {
       if (m) { out = t.to.replace(/\{(\d+)\}/g, (_, i: string) => hansText(m[Number(i) + 1] ?? '')); break; }
     }
   }
-  if (out === undefined) {
-    // Text composed from other report text: pieces joined with ; 、 or sentence ends, or an id prefix ("AC-G05 " + title).
-    const SPLITS: RegExp[] = [0xff1b, 0x3001, 0x3002].map((c) => new RegExp(`(${String.fromCharCode(c)})`));
+  // Text composed from other report text: pieces joined with ; 、 or sentence ends, or an id prefix ("AC-G05 " + title). A row
+  // whose holes swallowed several pieces can come back unchanged, so the split is tried then too. A delimiter stays attached to
+  // a piece (before it for ; and 、, after it for sentence ends); a piece with no row of its own is retried without its delimiter.
+  if (out === undefined || out === zh) {
+    const D = [0x3b, 0xff1b, 0x3001, 0x2c, 0xff0c, 0x3002].map((c) => String.fromCharCode(c));
+    const SPLITS: RegExp[] = [...D.slice(0, 5).map((d) => new RegExp(`(?=${d})`)), new RegExp(`(?<=${D[5]})`)];
+    const piece = (p: string): string => {
+      const r = hansText(p);
+      if (r !== p || p.length < 2) return r;
+      if (D.includes(p[0] ?? '')) return p[0] + hansText(p.slice(1));
+      if (D.includes(p[p.length - 1] ?? '')) return hansText(p.slice(0, -1)) + p[p.length - 1];
+      return p;
+    };
+    let split: string | undefined;
     for (const re of SPLITS) {
       const parts = zh.split(re);
       if (parts.length < 2) continue;
-      const conv = parts.map((p, i) => (i % 2 === 0 && p ? hansText(p) : p));
-      if (conv.some((p, i) => p !== parts[i])) { out = conv.join(''); break; }
+      const conv = parts.map(piece);
+      if (conv.some((c, i) => c !== parts[i])) { split = conv.join(''); break; }
     }
-    if (out === undefined) {
+    if (split !== undefined) out = split;
+    else if (out === undefined) {
       const lead = /^([A-Za-z0-9_.-]+ )([\s\S]+)$/.exec(zh);
       if (lead) {
         const rest = hansText(lead[2] ?? '');

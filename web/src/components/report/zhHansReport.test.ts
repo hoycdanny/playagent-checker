@@ -23,7 +23,9 @@ const REPORT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..
 /** Static or template zh text of L('zh','en') calls and { zh, en } literals, with holes as {0}, {1}. */
 function backendZh(): string[] {
   const out = new Set<string>();
-  const take = (n: ts.Expression) => {
+  const take = (n: ts.Expression): void => {
+    if (ts.isParenthesizedExpression(n)) return take(n.expression);
+    if (ts.isConditionalExpression(n)) { take(n.whenTrue); take(n.whenFalse); return; }
     if (ts.isStringLiteralLike(n)) { if (HAN.test(n.text)) out.add(n.text); return; }
     if (ts.isTemplateExpression(n)) {
       let key = n.head.text;
@@ -38,6 +40,10 @@ function backendZh(): string[] {
     }
   };
   const visit = (n: ts.Node) => {
+    // lookup tables named *Zh whose values are spliced into report sentences
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && /Zh$/.test(n.name.text) && n.initializer && ts.isObjectLiteralExpression(n.initializer)) {
+      for (const p of n.initializer.properties) if (ts.isPropertyAssignment(p)) take(p.initializer);
+    }
     if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'L' && n.arguments.length === 2) take(n.arguments[0]!);
     // helper calls such as mod('id', 'zh', 'en', ...): a Han literal followed by an English literal
     if (ts.isCallExpression(n) && !(ts.isIdentifier(n.expression) && n.expression.text === 'L')) {
@@ -97,6 +103,15 @@ describe('zh-Hans report text table', () => {
     const out = hansText('必要項目全部通過;建議項目未通過:AC-G04 沒有待人工判讀的異常、AC-G05 AI 測試代理行為可靠');
     expect(hasTrad(out)).toBe(false);
     expect(out).toContain('AC-G05 AI 测试代理行为可靠');
+  });
+
+  it('converts sentences built from a lookup table, a conditional branch or nested templates', () => {
+    for (const s of [
+      '平台限制:沒有逐幀動畫比對器;動畫是否正確目前只能由 AI 在截圖上觀察,不產生此範疇的確定性證據',
+      'AI 共 3 次操作,成功率 80%;模組覆蓋率 26.67%。',
+      '發布建議(規則引擎):測試不足,觸發 1 條規則。',
+      '0 項(低嚴重度 0 項)',
+    ]) expect(hasTrad(hansText(s)), s).toBe(false);
   });
 
   it('returns unknown text unchanged', () => {
