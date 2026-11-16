@@ -132,18 +132,27 @@ export function pickLogLines(chunks: Array<{ name: string; text: string }>, budg
 }
 
 /** 步驟摘要:全部步驟取樣出流程輪廓 + 最近 30 步詳細 + 所有異常步驟(覆寫、警告、沒反應、解析失敗)。 */
-export function summarizeSteps(steps: Json[], budget: number): string {
+const STEP_FLAGS: Record<GenLocale, { override: string; parse: string; model: string; fg: string; same: string; noEffect: string; warn: string; op: string }> = {
+  'zh-Hant': { override: 'runner改寫', parse: '模型回應無法解析', model: '模型呼叫失敗', fg: '遊戲離開前景', same: '畫面沒變', noEffect: '動作沒反應', warn: '數值警告', op: '測試人員指令' },
+  en: { override: 'runner override', parse: 'model response unparseable', model: 'model call failed', fg: 'game left the foreground', same: 'screen unchanged', noEffect: 'action had no effect', warn: 'value warning', op: 'tester command' },
+  'zh-Hans': { override: 'runner改写', parse: '模型回应无法解析', model: '模型调用失败', fg: '游戏离开前台', same: '画面没变', noEffect: '操作没反应', warn: '数值警告', op: '测试人员指令' },
+  ja: { override: 'runner による書き換え', parse: 'モデルの応答を解析できません', model: 'モデル呼び出し失敗', fg: 'ゲームが前面から外れた', same: '画面変化なし', noEffect: '操作の効果なし', warn: '数値の警告', op: 'テスターの指示' },
+  ko: { override: 'runner 덮어쓰기', parse: '모델 응답을 해석할 수 없음', model: '모델 호출 실패', fg: '게임이 전면에서 벗어남', same: '화면 변화 없음', noEffect: '조작 효과 없음', warn: '수치 경고', op: '테스터 지시' },
+};
+
+export function summarizeSteps(steps: Json[], budget: number, lang: GenLocale = 'zh-Hant'): string {
+  const F = STEP_FLAGS[lang];
   if (!steps.length) return '(還沒有任何步驟)';
   const line = (s: Json, detail: boolean) => {
     const flags = [
-      s['override'] ? `runner改寫=${String(s['override'])}` : '',
-      s['parseFailed'] ? '模型回應無法解析' : '',
-      s['modelError'] ? '模型呼叫失敗' : '',
-      s['foregroundLost'] ? '遊戲離開前景' : '',
-      s['screenChanged'] === false ? '畫面沒變' : '',
-      (s['review'] as Json | undefined)?.['effect'] === 'no_effect' ? '動作沒反應' : '',
-      Array.isArray(s['warnings']) && (s['warnings'] as unknown[]).length ? `數值警告=${cut(s['warnings'], 160)}` : '',
-      Array.isArray(s['operatorCommands']) && (s['operatorCommands'] as unknown[]).length ? `測試人員指令=${cut((s['operatorCommands'] as Json[]).map((c) => c['text']), 160)}` : '',
+      s['override'] ? `${F.override}=${String(s['override'])}` : '',
+      s['parseFailed'] ? F.parse : '',
+      s['modelError'] ? F.model : '',
+      s['foregroundLost'] ? F.fg : '',
+      s['screenChanged'] === false ? F.same : '',
+      (s['review'] as Json | undefined)?.['effect'] === 'no_effect' ? F.noEffect : '',
+      Array.isArray(s['warnings']) && (s['warnings'] as unknown[]).length ? `${F.warn}=${cut(s['warnings'], 160)}` : '',
+      Array.isArray(s['operatorCommands']) && (s['operatorCommands'] as unknown[]).length ? `${F.op}=${cut((s['operatorCommands'] as Json[]).map((c) => c['text']), 160)}` : '',
     ].filter(Boolean).join(';');
     const at = typeof s['at'] === 'string' ? (s['at'] as string).slice(11, 19) : '';
     const base = `#${String(s['index'])} ${at} [${cut(s['screen'], 40)}] ${cut(s['action'], 12)}${flags ? ` {${flags}}` : ''}`;
@@ -232,6 +241,7 @@ export async function buildTaskContext(
   tenantId: string,
   jobId: string,
   structured?: StructuredReport | null,
+  lang: GenLocale = 'zh-Hant',
 ): Promise<string> {
   const p = jobPrefix(tenantId, jobId);
   const [job, status, report, ctx, cmdList, logList] = await Promise.all([
@@ -276,7 +286,7 @@ export async function buildTaskContext(
   return [
     `## 任務概要\n${meta}`,
     `## 測試腳本\n${cut(job['caseTask'], BUDGET.script) || '(無)'}`,
-    `## 執行步驟(AI 每一步看到的畫面、動作與想法)\n${summarizeSteps(steps, BUDGET.steps)}`,
+    `## 執行步驟(AI 每一步看到的畫面、動作與想法)\n${summarizeSteps(steps, BUDGET.steps, lang)}`,
     `## 裝置 log(只列錯誤 / 當機 / ANR / 例外等重要訊息,由舊到新)\n${logs || '(沒有裝置 log 或沒有錯誤等級的訊息)'}`,
     `## 測試人員下過的即時指令\n${cmds.join('\n') || '(無)'}`,
     `## 報告結果\n${rep}`,
@@ -399,7 +409,7 @@ export async function askTask(
 ): Promise<{ answer: AskMessage; items: AskMessage[] }> {
   const lang = parseGenLocale(langIn, 'zh-Hant'); // legacy 'zh' = zh-Hant
   const [context, history] = await Promise.all([
-    buildTaskContext(s3, bucket, tenantId, jobId, deps.structuredReport ?? null),
+    buildTaskContext(s3, bucket, tenantId, jobId, deps.structuredReport ?? null, lang),
     readAskHistory(s3, bucket, tenantId, jobId),
   ]);
   const prior = history.slice(-HISTORY_TO_MODEL).map((m) => ({ role: m.role, content: m.text }));

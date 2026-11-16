@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { askTask } from '../lambda/api/taskAsk.js';
+import { askTask, summarizeSteps } from '../lambda/api/taskAsk.js';
 import { LANG_NAME } from '../lambda/api/genLocale.js';
 
 /** S3 stub: job.json exists, everything else is empty; PutObject is swallowed. */
@@ -58,5 +58,21 @@ describe('askTask answer language', () => {
   test('en cut note keeps the current English text', async () => {
     const { text } = await run('en', 'max_tokens');
     expect(text).toContain('answer cut off');
+  });
+});
+
+describe('summarizeSteps flag labels follow the language', () => {
+  const steps = [{ index: 1, screen: 'Lobby', action: 'tap', screenChanged: false, review: { effect: 'no_effect' }, parseFailed: true }];
+  test('zh-Hant keeps the original labels', () => {
+    const t = summarizeSteps(steps, 4000);
+    expect(t).toContain('畫面沒變');
+    expect(t).toContain('動作沒反應');
+    expect(summarizeSteps(steps, 4000, 'zh-Hant')).toBe(t);
+  });
+  test.each(['en', 'ja', 'ko', 'zh-Hans'] as const)('%s labels are not the Traditional-Chinese ones', (l) => {
+    const t = summarizeSteps(steps, 4000, l);
+    expect(t).not.toContain('畫面沒變');
+    expect(t).not.toContain('動作沒反應');
+    expect(t).not.toContain('模型回應無法解析');
   });
 });

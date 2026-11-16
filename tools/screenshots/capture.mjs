@@ -64,7 +64,7 @@ const GAME_NAME = 'Slotomania (web demo)';
 const GAME_URL = 'https://play.slotomania.com/slots/';
 const MOBILE_NAME = 'Example Slots Mobile';
 const GAME_GENRE = 'slot';
-const STEP_CAP = '25';
+const STEP_CAP = '40';
 const BUDGET_CAP = '1';
 
 /** 只有這些名字的應用可以被 --teardown 刪掉(絕不碰不是這支腳本建的東西)。 */
@@ -395,6 +395,7 @@ function makeApi(sdk, cognito, clientId, apiUrl, tokens) {
   return {
     get: (p) => call('GET', p),
     del: (p) => call('DELETE', p),
+    post: (p, body) => call('POST', p, body),
     // 每次新開 context 前呼叫,拿到最新的 token(必要時先換新)。
     freshTokens: fresh,
   };
@@ -531,7 +532,14 @@ function makeShooter(locale, violations, { dryRun = false, paint = true } = {}) 
   const setForbidden = (names) => {
     forbid = [...names];
   };
-  return { shot, manifest, audit, setForbidden };
+  /** 任務失敗要重跑時,把這個語系從 mark() 之後拍的圖從清單與稽核紀錄拿掉(檔案之後會被同名覆寫)。 */
+  const mark = () => ({ n, m: manifest.length, files: Object.keys(audit) });
+  const rollback = (mk) => {
+    n = mk.n;
+    manifest.length = mk.m;
+    for (const f of Object.keys(audit)) if (!mk.files.includes(f)) delete audit[f];
+  };
+  return { shot, manifest, audit, setForbidden, mark, rollback };
 }
 
 /** 等畫面安定:先等網路閒置(輪詢頁面等不到就算了),再給 CSS 轉場一點時間。 */
@@ -1192,45 +1200,66 @@ async function capture() {
     log('4) 送出前的畫面(五個語系,同一批資料)');
     for (const locale of LOCALES) await phasePreRun(browser, api, locale, shooters.get(locale), ctx);
 
-    log('\n5) 送出一次真的 web 測試');
-    ctx.jobId = await submitRealTask(browser, api, LOCALES[0], ctx);
-    log(`   jobId=${ctx.jobId}`);
+    // 每個語系自己送一個任務(用該語系的畫面、預設模型),一次只跑一個;
+    // 該語系任務相關的畫面(執行中、任務詳情、報告、助手、記憶地圖)都從它自己的任務拍。
+    ctx.runs = {};
+    for (const locale of LOCALES) {
+      const mk = shooters.get(locale).mark();
+      for (let attempt = 1; ; attempt += 1) {
+      try {
+      // App 記憶是跨任務共用的:不清掉的話,後一個語系會看到前一個語系的任務學到的畫面名稱(「照已驗證路徑 → …」)。
+      // 清掉之後,每個語系的記憶地圖都只由它自己的任務建立。
+      await api.post('/memory/clear', { app: ctx.webAppId, locality: 'cloud' });
+      log(`\n5) 送出一次真的 web 測試(${locale};一次只跑一個任務)`);
+      ctx.jobId = await submitRealTask(browser, api, locale, ctx);
+      log(`   jobId=${ctx.jobId}`);
 
-    log('6) 等任務真的跑起來(至少一步)');
-    const startedAt = Date.now();
-    let task = null;
-    for (;;) {
-      task = await api.get(`/tasks/${encodeURIComponent(ctx.jobId)}`);
-      if (TERMINAL.has(task.state)) break;
-      if (task.state === 'running' && stepsOf(task) >= 1) break;
-      if (Date.now() - startedAt > RUN_TIMEOUT_MS) break;
-      await sleep(5000);
-    }
-    log(`   狀態 ${task.state} · 步數 ${stepsOf(task)}`);
-    if (task.state !== 'running') {
-      throw new Error(`任務沒有進入執行中的狀態就走到 ${task.state}:拍不到只在執行中存在的畫面,請重跑`);
-    }
-
-    log('7) 執行中才有的畫面(五個語系都在這個時窗內拍)');
-    for (const locale of LOCALES) await phaseLive(browser, api, locale, shooters.get(locale), ctx);
-
-    log('\n8) 等任務結束');
-    for (;;) {
-      task = await api.get(`/tasks/${encodeURIComponent(ctx.jobId)}`);
-      if (TERMINAL.has(task.state)) break;
-      if (Date.now() - startedAt > RUN_TIMEOUT_MS) {
-        throw new Error(`任務超過 ${RUN_TIMEOUT_MS / 60_000} 分鐘還沒結束(狀態 ${task.state})`);
+      log('6) 等任務真的跑起來(至少一步)');
+      const startedAt = Date.now();
+      let task = null;
+      for (;;) {
+        task = await api.get(`/tasks/${encodeURIComponent(ctx.jobId)}`);
+        if (TERMINAL.has(task.state)) break;
+        if (task.state === 'running' && stepsOf(task) >= 1) break;
+        if (Date.now() - startedAt > RUN_TIMEOUT_MS) break;
+        await sleep(5000);
       }
-      await sleep(10_000);
-    }
-    ctx.finalState = task.state;
-    ctx.stepCount = stepsOf(task);
-    log(`   最終狀態 ${task.state} · 步數 ${stepsOf(task)}`);
-    // 報告引擎在任務結束後才寫報告文件,給它一點時間。
-    await sleep(20_000);
+      log(`   狀態 ${task.state} · 步數 ${stepsOf(task)}`);
+      if (task.state !== 'running') {
+        throw new Error(`${locale} 的任務沒有進入執行中的狀態就走到 ${task.state}:拍不到只在執行中存在的畫面,請重跑`);
+      }
 
-    log('9) 結束後的畫面');
-    for (const locale of LOCALES) await phasePostRun(browser, api, locale, shooters.get(locale), ctx);
+      log('7) 執行中才有的畫面');
+      await phaseLive(browser, api, locale, shooters.get(locale), ctx);
+
+      log('\n8) 等任務結束');
+      for (;;) {
+        task = await api.get(`/tasks/${encodeURIComponent(ctx.jobId)}`);
+        if (TERMINAL.has(task.state)) break;
+        if (Date.now() - startedAt > RUN_TIMEOUT_MS) {
+          throw new Error(`任務超過 ${RUN_TIMEOUT_MS / 60_000} 分鐘還沒結束(狀態 ${task.state})`);
+        }
+        await sleep(10_000);
+      }
+      log(`   最終狀態 ${task.state} · 步數 ${stepsOf(task)}`);
+      // 失敗的任務絕不當成功拍進說明書。
+      if (task.state !== 'pass') {
+        throw Object.assign(new Error(`${locale} 的任務(${ctx.jobId})結束狀態是 ${task.state},不是 pass:不拍失敗的任務`), { retryable: true });
+      }
+      ctx.runs[locale] = { jobId: ctx.jobId, finalState: task.state, stepCount: stepsOf(task) };
+      // 報告引擎在任務結束後才寫報告文件,給它一點時間。
+      await sleep(20_000);
+
+      log('9) 結束後的畫面');
+      await phasePostRun(browser, api, locale, shooters.get(locale), ctx);
+      break;
+      } catch (err) {
+        if (!(err && err.retryable) || attempt >= 3) throw err;
+        console.error(`  ✗ ${locale} 第 ${attempt} 次的任務沒有通過(${err.message}),捨棄這一輪的圖,重跑一個新任務`);
+        shooters.get(locale).rollback(mk);
+      }
+      }
+    }
   } finally {
     await browser.close();
   }
@@ -1241,7 +1270,7 @@ async function capture() {
 
   log('\n── 擷取完成 ──');
   log(`應用:${ctx.appIds.join(' · ')}`);
-  log(`任務:${ctx.jobId} · 最終狀態 ${ctx.finalState} · 步數 ${ctx.stepCount}`);
+  for (const l of LOCALES) log(`任務 ${l}:${ctx.runs[l].jobId} · 最終狀態 ${ctx.runs[l].finalState} · 步數 ${ctx.runs[l].stepCount}`);
   for (const l of LOCALES) log(`圖片 ${l}:${manifest[l].length} 張,寫在 docs/screenshots/${l}/`);
 
   // 遮罩稽核檔:每個語系一份,跟圖片放在一起(會 commit)。
@@ -1271,7 +1300,7 @@ async function capture() {
         'The language check runs on the unmasked DOM first; preMaskViolations counts what it found, residualViolations ' +
         'what remained outside generated regions (must be 0). hidden lists generated text that is not visible in the image ' +
         '(attributes, visually hidden or clipped nodes), so nothing was painted for it. Boxes are [x, y, width, height] in viewport pixels.',
-      run: { game: GAME_URL, finalState: ctx.finalState, steps: ctx.stepCount },
+      run: { game: GAME_URL, jobId: ctx.runs[l].jobId, finalState: ctx.runs[l].finalState, steps: ctx.runs[l].stepCount, taskLocale: l },
       generatedRegions: GENERATED_REGIONS,
       summary,
       images,

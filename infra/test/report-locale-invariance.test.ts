@@ -184,3 +184,21 @@ describe('plain-string report fields follow the job locale', () => {
     }
   });
 });
+
+describe('built-in knowledge base label in the report header', () => {
+  const kbs = [{ id: 'kb-builtin-slot', name: '拉霸/Slot 遊戲', builtin: true, genre: 'slot', version: '1.3' }];
+  const header = (l: Loc | undefined) =>
+    buildStructuredReport({
+      raw: { state: 'pass', task: 'play a slot', steps: recordedRun('en') },
+      job: { jobId: 'job-x', ...(l ? { locale: l } : {}) },
+      app: { genre: 'slot' },
+      kbs,
+    } as never).header.knowledgeBaseVersions;
+  test('zh-Hant and absent locale keep the Chinese name; every other locale gets the neutral id', () => {
+    expect(header(undefined)[0]).toContain('拉霸');
+    expect(header('zh-Hant')[0]).toContain('拉霸');
+    for (const l of ['en', 'zh-Hans', 'ja', 'ko'] as Loc[]) {
+      expect(header(l)[0]).toBe('kb-builtin-slot v1.3');
+    }
+  });
+});

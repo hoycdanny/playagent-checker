@@ -1671,7 +1671,9 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
 
   const kbVersions = (input.kbs ?? []).map((k) => {
     const v = k.version ?? (k.builtin && k.genre ? profile.sources.find((s) => s.id === k.genre)?.version : undefined);
-    return `${k.name}${v ? ` v${v}` : ''}${typeof k.revision === 'number' ? ` r${k.revision}` : ''}`;
+    // Built-in KB names are single Chinese strings; other locales show the locale-neutral id instead.
+    const label = k.builtin && k.genre && job?.locale && job.locale !== 'zh-Hant' ? `kb-builtin-${k.genre}` : k.name;
+    return `${label}${v ? ` v${v}` : ''}${typeof k.revision === 'number' ? ` r${k.revision}` : ''}`;
   });
 
   const yaml = input.testCase?.yaml ?? '';
