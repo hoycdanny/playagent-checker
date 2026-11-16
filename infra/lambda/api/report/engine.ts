@@ -58,6 +58,56 @@ import type {
 } from './types.js';
 
 const L = (zh: string, en: string): L10n => ({ zh, en });
+/**
+ * Plain-string report fields (not {zh,en} pairs) are written per UI locale. Tuple order matches the web's L5:
+ * [zh-Hant, en, zh-Hans, ja, ko]. zh-Hant / an absent locale give the original Chinese text byte for byte.
+ * Wording follows web/src/i18n/messages.ts and web/src/components/report/reportText.ts.
+ */
+type V5 = readonly [string, string, string, string, string];
+const LOC_IDX: Record<string, number> = { 'zh-Hant': 0, en: 1, 'zh-Hans': 2, ja: 3, ko: 4 };
+const T5 = (locale: string | undefined, v: V5): string => v[(locale && LOC_IDX[locale]) || 0] ?? v[0];
+/** 、 for zh / ja, ", " for en / ko. */
+const listJoin = (locale: string | undefined, xs: string[]): string => xs.join(locale === 'en' || locale === 'ko' ? ', ' : '、');
+/** Quotation marks per locale: 「」 for zh-Hant / ja, “” for zh-Hans, "" for en / ko. */
+const qt = (locale: string | undefined, x: string): string =>
+  locale === 'en' || locale === 'ko' ? `"${x}"` : locale === 'zh-Hans' ? `“${x}”` : `「${x}」`;
+/** {zh,en} pair data has no ja / ko / zh-Hans text: every locale except zh-Hant / absent reads the English side. */
+const pairS = (locale: string | undefined, v: L10n): string => (!locale || locale === 'zh-Hant' ? v.zh : v.en);
+/** Terminal-finding descriptions of localized jobs hold the runner's own text in the job locale in .zh. */
+const descS = (locale: string | undefined, v: L10n): string => (locale === 'en' ? v.en : v.zh);
+
+const TERMINAL_TEXT: Record<string, V5> = {
+  'AI completed the test goal': ['AI 完成測試目標', 'AI completed the test goal', 'AI 完成测试目标', 'AI がテスト目標を完了しました', 'AI가 테스트 목표를 완료했습니다'],
+  'Cancelled by user; test incomplete': ['使用者取消,測試未完成', 'Cancelled by user; test incomplete', '用户取消,测试未完成', 'ユーザーがキャンセルしたため、テストは未完了です', '사용자가 취소하여 테스트가 완료되지 않았습니다'],
+  'Budget limit reached; test incomplete': ['達預算上限,測試未完成', 'Budget limit reached; test incomplete', '达到预算上限,测试未完成', '予算上限に達したため、テストは未完了です', '예산 상한에 도달하여 테스트가 완료되지 않았습니다'],
+  'Run-time limit reached (Device Farm sessions last at most 150 minutes); wrapped up early, test incomplete': ['達執行時間上限(Device Farm 單次連線最長 150 分鐘),已提前收尾,測試未完成', 'Run-time limit reached (Device Farm sessions last at most 150 minutes); wrapped up early, test incomplete', '达到运行时间上限(Device Farm 单次连接最长 150 分钟),已提前收尾,测试未完成', '実行時間の上限に達しました(Device Farm の 1 セッションは最長 150 分)。早めに終了したため、テストは未完了です', '실행 시간 상한에 도달했습니다(Device Farm 세션은 최대 150분). 일찍 마무리하여 테스트가 완료되지 않았습니다'],
+  'Step limit reached before goal; inconclusive': ['達步數上限仍未完成目標,無法判定遊戲是否有問題', 'Step limit reached before goal; inconclusive', '达到步数上限仍未完成目标,无法判定游戏是否有问题', 'ステップ上限に達しても目標を達成できず、ゲームに問題があるか判定できません', '단계 상한에 도달했지만 목표를 달성하지 못해 게임에 문제가 있는지 판정할 수 없습니다'],
+  'The AI test agent failed (model output/call error); not a game defect': ['AI 測試代理本身失敗(模型輸出/呼叫異常),不是遊戲缺陷', 'The AI test agent failed (model output/call error); not a game defect', 'AI 测试代理本身失败(模型输出/调用异常),不是游戏缺陷', 'AI テストエージェント自体が失敗しました(モデル出力/呼び出しの異常)。ゲームの不具合ではありません', 'AI 테스트 에이전트 자체가 실패했습니다(모델 출력/호출 이상). 게임 결함이 아닙니다'],
+  'Test environment (device/connection) failure; not a game defect': ['測試環境(裝置/連線)異常中止,不是遊戲缺陷', 'Test environment (device/connection) failure; not a game defect', '测试环境(设备/连接)异常中止,不是游戏缺陷', 'テスト環境(デバイス/接続)の異常で中断しました。ゲームの不具合ではありません', '테스트 환경(기기/연결) 이상으로 중단되었습니다. 게임 결함이 아닙니다'],
+  'Stuck in login (likely unsupported third-party login on device); needs triage': ['卡在登入流程(可能為裝置環境不支援第三方登入),需人工判讀', 'Stuck in login (likely unsupported third-party login on device); needs triage', '卡在登录流程(可能是设备环境不支持第三方登录),需人工判读', 'ログインフローで停止しました(デバイス環境がサードパーティログインに非対応の可能性)。人による判定が必要です', '로그인 흐름에서 멈췄습니다(기기 환경이 서드파티 로그인을 지원하지 않을 수 있음). 사람의 판독이 필요합니다'],
+  'Repeated screen without progress: game dead end or AI could not find a way; needs triage': ['同一畫面反覆無法前進,可能是遊戲死路或 AI 找不到出口,需人工判讀', 'Repeated screen without progress: game dead end or AI could not find a way; needs triage', '同一画面反复无法前进,可能是游戏死路或 AI 找不到出口,需人工判读', '同じ画面で進めなくなりました。ゲームの行き止まりか AI が出口を見つけられない可能性があり、人による判定が必要です', '같은 화면에서 계속 진행하지 못했습니다. 게임이 막다른 길이거나 AI가 출구를 찾지 못했을 수 있어 사람의 판독이 필요합니다'],
+  'Stuck on install/loading; possible launch or asset download failure; needs triage': ['長時間停在安裝/載入畫面,可能是遊戲啟動或資源下載失敗,需人工判讀', 'Stuck on install/loading; possible launch or asset download failure; needs triage', '长时间停在安装/加载画面,可能是游戏启动或资源下载失败,需人工判读', '長時間インストール/読み込み画面で止まりました。ゲームの起動またはリソースのダウンロードに失敗した可能性があり、人による判定が必要です', '오랫동안 설치/로딩 화면에 머물렀습니다. 게임 실행 또는 리소스 다운로드 실패일 수 있어 사람의 판독이 필요합니다'],
+  'Screen unchanged for long; possible freeze or AI could not operate; needs triage': ['畫面長時間無變化,可能凍結或 AI 無法操作,需人工判讀', 'Screen unchanged for long; possible freeze or AI could not operate; needs triage', '画面长时间无变化,可能冻结或 AI 无法操作,需人工判读', '画面が長時間変化しません。フリーズか AI が操作できない可能性があり、人による判定が必要です', '화면이 오랫동안 변하지 않았습니다. 멈춤이거나 AI가 조작하지 못했을 수 있어 사람의 판독이 필요합니다'],
+  'Test did not pass; cause needs triage': ['測試未通過,原因需人工判讀', 'Test did not pass; cause needs triage', '测试未通过,原因需人工判读', 'テストは合格しませんでした。原因は人による判定が必要です', '테스트가 통과하지 못했습니다. 원인은 사람의 판독이 필요합니다'],
+};
+/** The terminal verdict's reason text for the job locale. Unknown strings fall back to the pair (zh-Hant) or English. */
+function terminalText(locale: string | undefined, reason: L10n): string {
+  if (!locale || locale === 'zh-Hant') return reason.zh;
+  const hit = TERMINAL_TEXT[reason.en];
+  if (hit) return T5(locale, hit);
+  const item = /^item (\d+)\/(\d+) was not completed within its step budget|^a test item was not completed within its step budget/.exec(reason.en);
+  if (item) {
+    const n = item[1] && item[2] ? `${item[1]}/${item[2]}` : '';
+    return T5(locale, [
+      reason.zh,
+      reason.en,
+      `${n ? `第 ${n} 项` : '某个测项'}在操作上限内没有完成,测试已停止(受阻),需人工判读是游戏问题还是 AI 找不到做法`,
+      `${n ? `項目 ${n}` : 'あるテスト項目'} は操作上限内に完了せず、テストを停止しました(ブロック)。ゲームの問題か AI が方法を見つけられなかったのか、人による判定が必要です`,
+      `${n ? `항목 ${n}` : '어떤 테스트 항목'}이(가) 조작 상한 내에 완료되지 않아 테스트를 중단했습니다(차단됨). 게임 문제인지 AI가 방법을 찾지 못한 것인지 사람의 판독이 필요합니다`,
+    ]);
+  }
+  return reason.en;
+}
 
 // ───────── 輸入 ─────────
 
@@ -521,7 +571,7 @@ function stepsBefore(steps: EvidenceStep[], index: number, n = 5): string[] {
   return slice.map((s) => `#${s.index} ${s.screen} → ${s.action}${s.x !== undefined ? ` (${s.x},${s.y})` : ''}`);
 }
 
-function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleOf: (s: EvidenceStep) => string | undefined, testCaseId?: string, quality?: DataQuality) {
+function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleOf: (s: EvidenceStep) => string | undefined, testCaseId?: string, quality?: DataQuality, locale?: string) {
   const findings: Finding[] = [];
   const aiFailures: Finding[] = [];
   let seq = 0;
@@ -679,7 +729,7 @@ function buildFindings(steps: EvidenceStep[], terminal: TerminalVerdict, moduleO
       reproducibility: reproLabel(bc.plausible.length, bc.checked),
       firstStep: first.step,
       lastStep: (bc.plausible[bc.plausible.length - 1] ?? bc.mismatches[bc.mismatches.length - 1])!.step,
-      expected: L('前餘額 − 下注 + 派彩', 'prev − bet + win').zh,
+      expected: T5(locale, ['前餘額 − 下注 + 派彩', 'prev − bet + win', '前余额 − 下注 + 派彩', '前残高 − ベット + 配当', '이전 잔액 − 베팅 + 당첨']),
       actual: `balance=${first.balance}, bet=${first.bet}, win=${first.win}`,
       stepsToReproduce: stepsBefore(steps, first.step),
       ...(st?.screenshotKey ? { screenshotKey: st.screenshotKey } : {}),
@@ -843,6 +893,7 @@ function buildChecks(
   aiFailures: Finding[],
   moduleOf: (s: EvidenceStep) => string | undefined,
   coreCovered: boolean,
+  locale?: string,
 ): CheckItem[] {
   const out: CheckItem[] = [];
   const all = [...findings, ...aiFailures];
@@ -858,10 +909,10 @@ function buildChecks(
     id: msId(), kind: 'milestone', basis: 'deterministic',
     title: L('App 啟動並顯示畫面', 'App launched and rendered a screen'),
     step: first?.index ?? 0, screen: first?.screen ?? '—', action: first?.action ?? '—',
-    expected: L('App 啟動後可擷取到畫面', 'A screen is captured after launch').zh,
+    expected: T5(locale, ['App 啟動後可擷取到畫面', 'A screen is captured after launch', 'App 启动后可捕获到画面', 'アプリ起動後に画面を取得できる', '앱 실행 후 화면을 캡처할 수 있음']),
     ...(first ? { actual: first.screen } : {}),
     result: first ? 'pass' : 'fail',
-    reason: first ? `第 ${first.index} 步已擷取畫面「${first.screen}」` : '沒有任何步驟證據',
+    reason: first ? T5(locale, [`第 ${first.index} 步已擷取畫面「${first.screen}」`, `Step ${first.index} captured the screen "${first.screen}"`, `第 ${first.index} 步已捕获画面${qt('zh-Hans', first.screen)}`, `ステップ ${first.index} で画面${qt('ja', first.screen)}を取得しました`, `${first.index}단계에서 화면 ${qt('ko', first.screen)}을(를) 캡처했습니다`]) : T5(locale, ['沒有任何步驟證據', 'No step evidence', '没有任何步骤证据', 'ステップの証跡がありません', '단계 증거가 없습니다']),
     ...(first ? {} : { suggestion: L('確認 APK 可在測試裝置安裝並啟動;檢查安裝紀錄與啟動 Activity。', 'Confirm the APK installs and launches on the test device; check install logs and the launch activity.') }),
   });
 
@@ -871,12 +922,12 @@ function buildChecks(
     id: msId(), kind: 'milestone', basis: 'ai_evaluation',
     title: L('進入遊戲主要玩法', 'Reached core gameplay'),
     step: (playStep ?? last)?.index ?? 0, screen: (playStep ?? last)?.screen ?? '—', action: (playStep ?? last)?.action ?? '—',
-    expected: L('流程可推進到遊戲主要玩法畫面', 'The flow reaches a core gameplay screen').zh,
+    expected: T5(locale, ['流程可推進到遊戲主要玩法畫面', 'The flow reaches a core gameplay screen', '流程可推进到游戏主要玩法画面', 'フローがゲームの主要プレイ画面まで進める', '흐름이 게임의 핵심 플레이 화면까지 진행됨']),
     ...((playStep ?? last) ? { actual: (playStep ?? last)!.screen } : {}),
     result: playStep || coreCovered ? 'pass' : terminal.blocked ? 'fail' : 'unclear',
     reason: playStep
-      ? `第 ${playStep.index} 步 AI 標示畫面為「${playStep.screen}」(遊戲進行中)`
-      : coreCovered ? '核心模組有操作紀錄' : `整段 ${steps.length} 步沒有出現遊戲進行畫面${last ? `,最後停在「${last.screen}」` : ''}`,
+      ? T5(locale, [`第 ${playStep.index} 步 AI 標示畫面為「${playStep.screen}」(遊戲進行中)`, `Step ${playStep.index}: the AI labelled the screen "${playStep.screen}" (gameplay in progress)`, `第 ${playStep.index} 步 AI 将画面标记为${qt('zh-Hans', playStep.screen)}(游戏进行中)`, `ステップ ${playStep.index} で AI が画面を${qt('ja', playStep.screen)}と判定(ゲームプレイ中)`, `${playStep.index}단계에서 AI가 화면을 ${qt('ko', playStep.screen)}(으)로 표시(게임 진행 중)`])
+      : coreCovered ? T5(locale, ['核心模組有操作紀錄', 'The core modules have recorded actions', '核心模块有操作记录', 'コアモジュールに操作記録があります', '핵심 모듈에 조작 기록이 있습니다']) : T5(locale, [`整段 ${steps.length} 步沒有出現遊戲進行畫面${last ? `,最後停在「${last.screen}」` : ''}`, `No gameplay screen appeared in all ${steps.length} steps${last ? `; the run ended on "${last.screen}"` : ''}`, `整段 ${steps.length} 步没有出现游戏进行画面${last ? `,最后停在${qt('zh-Hans', last.screen)}` : ''}`, `全 ${steps.length} ステップでゲームプレイ画面は現れず${last ? `、最後は${qt('ja', last.screen)}で停止しました` : ''}`, `전체 ${steps.length}단계에서 게임 플레이 화면이 나타나지 않았${last ? `고 마지막에 ${qt('ko', last.screen)}에서 멈췄습니다` : '습니다'}`]),
     ...(!playStep && !coreCovered && termFinding ? { relatedFinding: termFinding.id } : {}),
     ...(!playStep && !coreCovered ? { suggestion: termFinding ? termFinding.suggestion ?? suggestFor(termFinding) : L('檢查進入玩法前的流程(登入/教學/下載)是否有阻擋。', 'Check whether login/tutorial/download blocks the flow before gameplay.') } : {}),
   });
@@ -887,10 +938,10 @@ function buildChecks(
     // 這是「AI 有沒有走完流程」的里程碑;案例要求是否真的達成,由驗收標準(acceptance)逐項判定。
     title: L('AI 宣告完成測試流程', 'AI declared the procedure complete'),
     step: last?.index ?? 0, screen: last?.screen ?? '—', action: last?.action ?? '—',
-    expected: L('AI 依案例走完流程並宣告完成(是否達成案例要求見驗收標準)', 'AI walks the case to its end and declares completion (whether the case requirements are met: see acceptance criteria)').zh,
-    actual: terminal.reason.zh,
+    expected: T5(locale, ['AI 依案例走完流程並宣告完成(是否達成案例要求見驗收標準)', 'AI walks the case to its end and declares completion (whether the case requirements are met: see acceptance criteria)', 'AI 按案例走完流程并宣告完成(是否达成案例要求见验收标准)', 'AI がケースに沿って最後まで進め、完了を宣言する(ケース要件の達成可否は受入基準を参照)', 'AI가 케이스대로 끝까지 진행하고 완료를 선언함(케이스 요건 충족 여부는 인수 기준 참조)']),
+    actual: terminalText(locale, terminal.reason),
     result: goalResult,
-    reason: [terminal.reason.zh, termFinding?.description.zh].filter(Boolean).join(' — '),
+    reason: [terminalText(locale, terminal.reason), termFinding ? descS(locale, termFinding.description) : undefined].filter(Boolean).join(' — '),
     ...(termFinding ? { relatedFinding: termFinding.id, suggestion: termFinding.suggestion ?? suggestFor(termFinding) } : {}),
   });
 
@@ -899,9 +950,9 @@ function buildChecks(
     id: msId(), kind: 'milestone', basis: 'deterministic',
     title: L('執行期間無閃退', 'No crash during the run'),
     step: crash?.firstStep ?? last?.index ?? 0, screen: crash?.gameState ?? last?.screen ?? '—', action: '—',
-    expected: L('App 全程維持執行', 'The app stays running throughout').zh,
+    expected: T5(locale, ['App 全程維持執行', 'The app stays running throughout', 'App 全程保持运行', 'アプリが最後まで動作し続ける', '앱이 끝까지 계속 실행됨']),
     result: crash ? 'fail' : steps.length ? 'pass' : 'skipped',
-    reason: crash ? crash.description.zh : `${steps.length} 步中未偵測到 App 程序中止`,
+    reason: crash ? pairS(locale, crash.description) : T5(locale, [`${steps.length} 步中未偵測到 App 程序中止`, `No app process termination detected in ${steps.length} steps`, `${steps.length} 步中未检测到 App 进程中止`, `${steps.length} ステップ中、アプリのプロセス終了は検出されませんでした`, `${steps.length}단계 동안 앱 프로세스 종료가 감지되지 않았습니다`]),
     ...(crash ? { relatedFinding: crash.id, suggestion: crash.suggestion ?? suggestFor(crash) } : {}),
   });
 
@@ -910,9 +961,9 @@ function buildChecks(
     id: msId(), kind: 'milestone', basis: severe.some((f) => f.certainty === 'ai_evaluation') ? 'ai_evaluation' : 'deterministic',
     title: L('未發現確認的遊戲缺陷', 'No confirmed game defects'),
     step: severe[0]?.firstStep ?? last?.index ?? 0, screen: severe[0]?.gameState ?? last?.screen ?? '—', action: '—',
-    expected: L('沒有確認的遊戲缺陷', 'No confirmed game defects').zh,
+    expected: T5(locale, ['沒有確認的遊戲缺陷', 'No confirmed game defects', '没有确认的游戏缺陷', '確認されたゲーム不具合なし', '확인된 게임 결함 없음']),
     result: severe.length ? 'fail' : steps.length ? 'pass' : 'skipped',
-    reason: severe.length ? `確認缺陷 ${severe.length} 個:${severe.slice(0, 3).map((f) => f.title.zh).join('、')}` : '沒有 AI 重複觀察或程式規則確認的遊戲缺陷',
+    reason: severe.length ? (() => { const names = severe.slice(0, 3).map((f) => pairS(locale, f.title)); return T5(locale, [`確認缺陷 ${severe.length} 個:${listJoin(locale, names)}`, `${severe.length} confirmed defect(s): ${listJoin(locale, names)}`, `确认缺陷 ${severe.length} 个:${listJoin(locale, names)}`, `確認済みの不具合 ${severe.length} 件:${listJoin(locale, names)}`, `확인된 결함 ${severe.length}개: ${listJoin(locale, names)}`]); })() : T5(locale, ['沒有 AI 重複觀察或程式規則確認的遊戲缺陷', 'No game defect was confirmed by repeated AI observation or a rule', '没有 AI 重复观察或程序规则确认的游戏缺陷', 'AI の繰り返し観察またはルールで確認されたゲーム不具合はありません', 'AI의 반복 관찰이나 규칙으로 확인된 게임 결함이 없습니다']),
     ...(severe[0] ? { relatedFinding: severe[0].id, suggestion: severe[0].suggestion ?? suggestFor(severe[0]) } : {}),
   });
 
@@ -1025,6 +1076,7 @@ function buildThresholdSources(
  * 所以受測組合逐項列出(未觀測的標明未觀測),未變動的維度也明文說「不得主張」。
  */
 function buildClaimScope(args: {
+  locale?: string;
   header: ReportHeader;
   steps: EvidenceStep[];
   scope: ScopeStatus[];
@@ -1033,12 +1085,11 @@ function buildClaimScope(args: {
   network?: NetworkConditionRecord | null;
   audio?: AudioEvidence;
 }): ClaimScope {
-  const { header, steps, scope, thresholdSources, cutoff, network, audio } = args;
-  const unknown = L('未觀測', 'Not observed');
+  const { header, steps, scope, thresholdSources, cutoff, network, audio, locale } = args;
   const env = (id: string, label: L10n, value: string | undefined) => ({
     id,
     label,
-    value: value && value.trim() ? value : unknown.zh,
+    value: value && value.trim() ? value : T5(locale, ['未觀測', 'Not observed', '未观测', '未観測', '관측되지 않음']),
     observed: Boolean(value && value.trim()),
   });
 
@@ -1061,7 +1112,7 @@ function buildClaimScope(args: {
     env('environment', L('測試環境', 'Test environment'), header.testEnvironment),
     env('region', L('伺服器區域', 'Server region'), header.serverRegion),
     // 讀不到語系時留白會被當成「預設語系已驗」,所以明確標為未觀測。
-    env('locale', L('語系', 'Locale'), locales.join('、') || undefined),
+    env('locale', L('語系', 'Locale'), listJoin(locale, locales) || undefined),
   ];
 
   const notVaried: ClaimScope['notVaried'] = [
@@ -1294,7 +1345,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const moduleOf = (s: EvidenceStep) => moduleAttr.get(s.index)?.id;
 
   const terminal = classifyTerminal(state, message, steps, job?.locale);
-  const built = buildFindings(steps, terminal, moduleOf, job?.caseId, quality);
+  const built = buildFindings(steps, terminal, moduleOf, job?.caseId, quality, job?.locale);
   // 人工覆寫在這裡套用,之後所有消費 findings 的地方(驗收條件、儀表板、模組、
   // 指標、放行規則)都會看到調整後的值 —— 單一套用點是刻意的,分散處理一定會漏。
   // 原判定保留在 f.override.original,報告並列顯示。
@@ -1599,6 +1650,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     scripted: job?.scripted === true,
     ...(slotCapture ? { slotCapture } : {}),
   });
+  if (job?.locale && job.locale !== 'zh-Hant') acceptance.references = acceptance.references.map((r) => ({ ...r, title: r.title.replace('(採用 GLI-11 並將 75% 改為 80%)', T5(job.locale, ['', '(adopts GLI-11 with the 75% floor raised to 80%)', '(采用 GLI-11 并将 75% 改为 80%)', '(GLI-11 を採用し、75% を 80% に引き上げ)', '(GLI-11을 채택하고 75%를 80%로 상향)'])) }));
   const overallStatus: OverallStatus = acceptance.verdict;
   const statusReason: L10n = acceptance.verdictReason;
   // 發布建議不能比測試結論樂觀:結論失敗 → 不可發布;結論受阻 → 受阻(已觸發 NOT_READY 規則時維持不可發布)。
@@ -1608,7 +1660,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
   const thresholdSources = buildThresholdSources(profile.thresholds, spec, thresholds);
 
   // 判定明細:KPI 的通過/失敗/不確定數字 = 這張表的列數,點擊可一一對應。
-  const checks = buildChecks(steps, state, terminal, findings, aiFailures, moduleOf, executedEvidence.gameplay);
+  const checks = buildChecks(steps, state, terminal, findings, aiFailures, moduleOf, executedEvidence.gameplay, job?.locale);
   const countOf = (r: CheckResult) => checks.filter((c) => c.result === r).length;
   const assertPass = countOf('pass');
   const assertFail = countOf('fail');
@@ -1657,6 +1709,7 @@ export function buildStructuredReport(input: EngineInput): StructuredReport {
     ? (raw['networkConditions'] as NetworkConditionRecord)
     : undefined);
   const claimScope = buildClaimScope({
+    ...(job?.locale ? { locale: job.locale } : {}),
     header,
     steps,
     scope,

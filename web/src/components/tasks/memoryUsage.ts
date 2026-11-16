@@ -3,7 +3,7 @@
  * 純函式:每步標籤文字 + 整場統計 + 白話結論(證明記憶有沒有在運作)。
  */
 import type { RLang } from '../report/reportText.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { listSep, pick5 } from '../../i18n/locale5.ts';
 
 export interface MemoryBaseline {
   pages: number;
@@ -103,7 +103,7 @@ export function memoryChips(m: StepMemory | undefined, lang: RLang): MemoryChip[
     });
   }
   if (m.route?.length) {
-    const r = m.route.map((x) => (x.branch ? `${x.name} ${tx('branch', lang)}` : `${x.name} ${x.step}/${x.total}`)).join('、');
+    const r = m.route.map((x) => (x.branch ? `${x.name} ${tx('branch', lang)}` : `${x.name} ${x.step}/${x.total}`)).join(listSep(lang));
     out.push({ text: tx('route', lang).replace('{r}', r), tip: r, tone: 'hit', icon: 'route' });
   }
   return out;

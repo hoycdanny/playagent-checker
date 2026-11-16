@@ -1,5 +1,6 @@
 import type { Acceptance, AcceptanceCriterion, EvidenceStep, NonSlotCredit } from './reportTypes.ts';
 import { STATUS_TEXT, tr, txt, type RLang, type TextKey } from './reportText.ts';
+import { quote } from '../../i18n/locale5.ts';
 
 /**
  * 驗收結論與標準:一次測試只有一個結論(與任務列表、報告封面同一個值)。
@@ -105,7 +106,7 @@ export function AcceptancePanel({
                   <div className="srep__muted">{tr(c.requirement, lang)}</div>
                   {c.sources.filter((s) => s.quote || s.kind === 'standard').map((s, i) => (
                     <div key={i} className="srep__ac-src">
-                      {s.kind === 'case' ? `${txt('acCaseQuote', lang)}:「${s.quote}」` : `${txt('acSource', lang)}:${refTitle.get(s.ref) ?? s.ref}`}
+                      {s.kind === 'case' ? `${txt('acCaseQuote', lang)}:${quote(s.quote ?? '', lang)}` : `${txt('acSource', lang)}:${refTitle.get(s.ref) ?? s.ref}`}
                     </div>
                   ))}
                   {c.note && <div className="srep__ac-note">{tr(c.note, lang)}</div>}
@@ -214,7 +215,7 @@ export function AcceptancePanel({
                       <td>{c.amount === null ? '—' : fmt(c.amount)}</td>
                       <td>
                         {txt(BASIS_KEY[c.basis], lang)}
-                        <div className="srep__muted">{tr(c.note, lang)}{c.quote ? `(「${c.quote}」)` : ''}</div>
+                        <div className="srep__muted">{tr(c.note, lang)}{c.quote ? `(${quote(c.quote, lang)})` : ''}</div>
                       </td>
                       <td>{c.windowId ?? '—'}</td>
                       <td><Steps list={c.steps} /></td>

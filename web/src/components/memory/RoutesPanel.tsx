@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { RLang } from '../report/reportText.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { pick5, quote } from '../../i18n/locale5.ts';
 
 /**
  * 操作路線:測試人員在關係圖上依序點畫面畫出的流程(整個應用共用,每次測試 AI 都會照著走)。
@@ -160,7 +160,7 @@ export function RoutesPanel({
               {draft.branches.filter((b) => b.fromStepId === s.id).map((b) => (
                 <div key={b.id} className="routes__branch">
                   <span className="routes__branch-mark" aria-hidden="true">↳</span>
-                  <span>{rt('branchIf', lang)}「{nm(b.pageId)}」</span>
+                  <span>{rt('branchIf', lang)}{quote(nm(b.pageId), lang)}</span>
                   <input
                     className="routes__action"
                     value={b.action}

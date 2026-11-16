@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url';
 import {
   DATA_REGIONS,
   GENERATED_REGIONS,
-  LOCALES,
+  LOCALES as ALL_LOCALES,
   checkText,
   clearMasks,
   collectDomItems,
@@ -102,6 +102,63 @@ const log = (...a) => console.log(...a);
 // ───────────────────────────── 工具 ─────────────────────────────
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * 身分資料檢查:拍之前掃畫面文字。第三方遊戲頁的 console 會印出玩家 id、使用者 id、
+ * Braze 的 "Changed user to <id>"、SDK 金鑰等;這些不能進圖。
+ *   - ANY:整頁文字都不能出現(10 位以上的連續數字、已知的身分欄位名、憑證格式)。
+ *   - LOG_ONLY:日誌檢視器內不能出現的字(token / key 在介面文字裡是正常詞,所以只查日誌區)。
+ */
+const IDENTITY_ANY = [
+  ['long digit run (10+)', /\d{10,}/],
+  ['Changed user to', /Changed user to/i],
+  ['playerId', /playerId/i],
+  ['userId', /userId/i],
+  ['sessionId', /sessionId|session_id/i],
+  ['Bearer', /Bearer\s/],
+  ['AKIA', /AKIA[0-9A-Z]{8,}/],
+  ['eyJ', /eyJ[A-Za-z0-9_-]{6,}/],
+];
+const IDENTITY_LOG_ONLY = [
+  ['token', /token/i],
+  ['key', /\bkey\b/i],
+];
+export function identityHits(text, { logOnly = false } = {}) {
+  const list = logOnly ? [...IDENTITY_ANY, ...IDENTITY_LOG_ONLY] : IDENTITY_ANY;
+  return list.filter(([, re]) => re.test(text)).map(([name]) => name);
+}
+
+/** 日誌檢視器的搜尋詞(不分語系的英文 token):只留下和身分無關的播放器初始化行。 */
+const LOG_FILTER_TERMS = ['WebGPU', 'Canvas2D', 'WASMVideo', 'GL Driver'];
+
+/**
+ * 在 Console 日誌上設搜尋詞,讓畫面只顯示不含身分資料的行,並把設定留在畫面上(搜尋框可見)。
+ * 不改像素、不造假日誌:篩選是真的 UI 操作。篩完仍有任何身分字樣就失敗。
+ * @returns {Promise<{term: string, lines: number}>}
+ */
+async function filterConsole(page) {
+  const box = page.locator('.devlogs__search:visible').first();
+  await box.waitFor({ timeout: 30_000 });
+  // 執行中的任務,播放器初始化的 console 行可能晚幾秒才出現:每個搜尋詞最多等 60 秒。
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    for (const term of LOG_FILTER_TERMS) {
+      await box.fill(term);
+      await settle(page, 600);
+      const log = page.locator('.devlogs__log:visible').first();
+      const lines = await log.locator('.devlogs__line').count();
+      const text = lines ? await log.innerText() : '';
+      const hits = identityHits(text, { logOnly: true });
+      if (hits.length) {
+        log(`   日誌篩選 "${term}" 仍有身分字樣(${hits.join(', ')}),換下一個搜尋詞`);
+        continue;
+      }
+      if (lines > 0) return { term, lines };
+    }
+    await sleep(5000);
+  }
+  throw new Error('日誌篩選後沒有任何不含身分資料的行可拍(搜尋詞都沒有命中,或命中的行含身分字樣)');
+}
+
 
 /** 依賴(playwright / Cognito SDK)延遲載入,讓 --selftest 在沒裝依賴時也能跑。 */
 async function loadDeps() {
@@ -380,6 +437,7 @@ function makeShooter(locale, violations, { dryRun = false, paint = true } = {}) 
       await sleep(250);
     }
     let plan = null;
+    let identity = { checked: false, hits: [] };
     let painted = [];
     let stable = false;
     for (let attempt = 0; attempt < 3 && !stable; attempt += 1) {
@@ -391,6 +449,17 @@ function makeShooter(locale, violations, { dryRun = false, paint = true } = {}) 
         if (leaks.length) {
           violations.push({ locale, file, slug, chars: `(看得見使用者自建的知識庫名稱:${[...new Set(leaks.map((l) => l.origin))].join(', ')})` });
           console.error(`  ✗ ${locale}/${file}:看得見使用者自建的知識庫名稱(${leaks.length} 處)`);
+        }
+      }
+      // 身分資料檢查(整頁文字 + 日誌區),結果寫進稽核檔。
+      if (attempt === 0) {
+        const pageText = await (typeof target.innerText === 'function' && target !== page ? target.innerText() : page.evaluate(() => document.body.innerText)).catch(() => '');
+        const logText = await page.evaluate(() => [...document.querySelectorAll('.devlogs__log')].map((e) => e.innerText).join('\n')).catch(() => '');
+        const hits = [...new Set([...identityHits(pageText), ...identityHits(logText, { logOnly: true })])];
+        identity = { checked: true, hits };
+        if (hits.length) {
+          violations.push({ locale, file, slug, chars: `(畫面文字含身分資料樣式:${hits.join(', ')})` });
+          console.error(`  ✗ ${locale}/${file}:畫面文字含身分資料樣式(${hits.join(', ')})`);
         }
       }
       plan = planMasks(locale, items);
@@ -441,7 +510,7 @@ function makeShooter(locale, violations, { dryRun = false, paint = true } = {}) 
       violations.push({ locale, file, slug, chars: `(${misaligned.length} 塊遮罩沒對準文字:${[...new Set(misaligned.map((x) => x.origin))].join(', ')})` });
       console.error(`  ✗ ${locale}/${file}:${misaligned.length} 塊遮罩沒蓋住文字`);
     }
-    audit[file] = { preMaskViolations: plan.preMaskViolations, residualViolations: plan.residual.length, masks, disclosed, hidden };
+    audit[file] = { identity, preMaskViolations: plan.preMaskViolations, residualViolations: plan.residual.length, masks, disclosed, hidden };
     log(`  [${locale}/${file}] ${label}  (資料字元 ${plan.dataChars} · 遮罩前違規 ${plan.preMaskViolations} · 遮罩 ${masks.length} · 揭露 ${disclosed.length} · 看不見的產生文字 ${hidden.length})`);
     if (plan.residual.length) {
       const res = checkText(locale, plan.residual.map((r) => r.text).join('\n'));
@@ -953,6 +1022,7 @@ async function phaseLive(browser, api, locale, shooter, ctx) {
   await nav(page, `/tasks/${encodeURIComponent(ctx.jobId)}`, 2500);
   await shooter.shot(page, 'task-detail-live', '任務詳情:執行中的即時畫面與「這一刻」', '#/tasks/:jobId');
   await openPane(page, PANE.logs);
+  await filterConsole(page);
   await shooter.shot(page, 'task-detail-live-logs', '任務詳情:執行中的完整日誌', '#/tasks/:jobId');
 
   const popout = await context.newPage();
@@ -1001,6 +1071,7 @@ async function phasePostRun(browser, api, locale, shooter, ctx) {
   await openPane(page, PANE.trace);
   await shooter.shot(page, 'task-detail-trace', '任務詳情:執行軌跡', '#/tasks/:jobId');
   await openPane(page, PANE.logs);
+  await filterConsole(page);
   await shooter.shot(page, 'task-detail-logs', '任務詳情:完整日誌', '#/tasks/:jobId');
   await openPane(page, PANE.analysis);
   await trackMetrics(page);
@@ -1086,6 +1157,10 @@ async function phasePostRun(browser, api, locale, shooter, ctx) {
 // ────────────────────────── 主流程 ──────────────────────────
 
 async function capture() {
+  // PA_LOCALES=en(逗號分隔)只重拍指定語系;未設定就是全部。
+  const only = (process.env.PA_LOCALES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const LOCALES = only.length ? ALL_LOCALES.filter((l) => only.includes(l)) : ALL_LOCALES;
+  if (!LOCALES.length) throw new Error(`PA_LOCALES 沒有符合的語系:${only.join(',')}`);
   const { sdk, chromium } = await loadDeps();
   log('1) 讀取部署設定(唯讀)');
   const cfg = discoverConfig();

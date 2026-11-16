@@ -34,7 +34,7 @@ import {
   moduleLabel,
   screenLabels,
 } from './memory/graphView.ts';
-import { pick5, type L5 } from '../i18n/locale5.ts';
+import { pick5, quote, type L5 } from '../i18n/locale5.ts';
 import './ScreenGraph.css';
 
 const ACCENT = '#ff2d95';
@@ -122,7 +122,7 @@ function ScreenFlowNode({ data }: NodeProps) {
   // 載入/過場畫面也是獨立節點(各自載入不同東西),一樣顯示截圖,只用虛線框 + 「載入」標籤區分。
   const transientCls = d.transient ? ' sg-node--loading' : '';
   const fullName = d.subtitle ? `${d.name} · ${d.subtitle}` : d.name;
-  const title = [fullName, ...(d.aliases.length ? [`${d.aliasesLabel}: ${d.aliases.join('、')}`] : []), d.module ? `${d.moduleLabel} (${d.module})` : '']
+  const title = [fullName, ...(d.aliases.length ? [`${d.aliasesLabel}: ${d.aliases.join(', ')}`] : []), d.module ? `${d.moduleLabel} (${d.module})` : '']
     .filter(Boolean)
     .join('\n');
   return (
@@ -828,7 +828,7 @@ function AddEdgeDialog({
         onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onCancel(); } }}
       >
         <h3 id="sg-dialog-title">{mt('addEdgeTitle', lang)}</h3>
-        <p className="sg-dialog__route">「{fromName}」 → 「{toName}」</p>
+        <p className="sg-dialog__route">{quote(fromName, lang)} → {quote(toName, lang)}</p>
         <label className="sg-dialog__field">
           <span>{mt('addEdgeKind', lang)}</span>
           <select ref={firstRef} value={kind} onChange={(e) => setKind(e.target.value)}>

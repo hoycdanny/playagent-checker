@@ -11,6 +11,7 @@ import {
 } from '../api/client.ts';
 import { useQuery } from '../api/useQuery.ts';
 import { useI18n } from '../i18n/I18nProvider.tsx';
+import { listSep } from '../i18n/locale5.ts';
 import { kbDisplayName } from '../components/kb/builtinKbText.ts';
 import type { MessageKey } from '../i18n/messages.ts';
 import GenreIcon, { GENRES, genreLabelKey, type Genre } from '../components/GenreIcon.tsx';
@@ -715,7 +716,7 @@ interface AppCardProps {
 }
 
 function AppCard({ app, stats }: AppCardProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const hasArtifact = Boolean(app.artifactId) || app.platform === 'web';
   const secondary = (app.secondaryGenres ?? []).filter((g) => g !== app.genre);
   const buildCount = app.builds?.length ?? (app.artifactId ? 1 : 0);
@@ -750,8 +751,8 @@ function AppCard({ app, stats }: AppCardProps) {
             {secondary.length > 0 && (
               <span
                 className="apps__genre apps__genre--secondary apps__genre--more"
-                title={secondary.map((g) => t(genreLabelKey(g))).join('、')}
-                aria-label={`${t('apps.secondaryGenres')}:${secondary.map((g) => t(genreLabelKey(g))).join('、')}`}
+                title={secondary.map((g) => t(genreLabelKey(g))).join(listSep(locale))}
+                aria-label={`${t('apps.secondaryGenres')}:${secondary.map((g) => t(genreLabelKey(g))).join(listSep(locale))}`}
               >
                 +{secondary.length}
               </span>

@@ -1,6 +1,6 @@
 import type { QaDocument, QaDocumentSet, QaDocCoverage, QaDocGroup } from './reportTypes.ts';
 import { tr, txt, type RLang, type TextKey } from './reportText.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { listSep, pick5 } from '../../i18n/locale5.ts';
 
 /**
  * 交付文件規範投影 → 試算表。
@@ -98,7 +98,7 @@ function docSheet(doc: QaDocument, lang: RLang, used: Set<string>): ExportSheet 
   }
 
   if (doc.unfilled.length) {
-    rows.push([txt('qaDocUnfilled', lang), doc.unfilled.map((u) => tr(u, lang)).join('、')]);
+    rows.push([txt('qaDocUnfilled', lang), doc.unfilled.map((u) => tr(u, lang)).join(listSep(lang))]);
   }
 
   const widest = Math.max(...doc.tables.map((t) => t.columns.length), 2);
@@ -180,7 +180,7 @@ export function qaDocsToSheets(set: QaDocumentSet, lang: RLang): ExportSheet[] {
         txt(GROUP_KEY[d.group], lang),
         txt(COVERAGE_KEY[d.coverage], lang),
         d.reason ? tr(d.reason, lang) : DASH,
-        d.unfilled.length ? d.unfilled.map((u) => tr(u, lang)).join('、') : DASH,
+        d.unfilled.length ? d.unfilled.map((u) => tr(u, lang)).join(listSep(lang)) : DASH,
       ]),
     ],
     cols: [8, 28, 16, 22, 60, 40],

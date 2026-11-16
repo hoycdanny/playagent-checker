@@ -15,7 +15,7 @@ import {
 } from './MemoryEditor.tsx';
 import { ScreenStudio } from './ScreenStudio.tsx';
 import type { MemOp, OpEdit, SelfOp } from './memoryScript.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { listSep, pick5 } from '../../i18n/locale5.ts';
 import './ScreenStudio.css';
 
 const ScreenGraph = lazy(() =>
@@ -316,8 +316,8 @@ export default function MemoryPanel({
                           <span className="memory__card-name">{p.name}</span>
                           <span className="memory__card-meta">{p.visitCount} {t('memory.visits')}</span>
                           {aliasNames.length > 0 && (
-                            <span className="memory__card-meta" title={Object.keys(p.aliases ?? {}).join('、')}>
-                              {t('memory.graphAliases')}: {aliasNames.slice(0, 3).join('、')}
+                            <span className="memory__card-meta" title={Object.keys(p.aliases ?? {}).join(listSep(lang))}>
+                              {t('memory.graphAliases')}: {aliasNames.slice(0, 3).join(listSep(lang))}
                             </span>
                           )}
                           {nHints > 0 && <span className="memory__card-tag">💡 {nHints} · {mt('pageNotes', lang)}</span>}

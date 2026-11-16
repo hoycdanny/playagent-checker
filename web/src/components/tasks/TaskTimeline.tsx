@@ -290,7 +290,7 @@ export function TaskTimeline({
         {onLive && <button type="button" className="ttl__live" onClick={onLive}><InfoIcon name="live" size={13} /> {liveLabel}</button>}
         <div className="ttl__zoom" role="group" aria-label={tx('zoomIn', lang)}>
           <button type="button" className="ttl__btn" title={tx('zoomOut', lang)} aria-label={tx('zoomOut', lang)} onClick={() => zoomAround(at, 2)} disabled={!view}>−</button>
-          <button type="button" className="ttl__btn" title={tx('zoomIn', lang)} aria-label={tx('zoomIn', lang)} onClick={() => zoomAround(at, 0.5)} disabled={span <= MIN_SPAN}>＋</button>
+          <button type="button" className="ttl__btn" title={tx('zoomIn', lang)} aria-label={tx('zoomIn', lang)} onClick={() => zoomAround(at, 0.5)} disabled={span <= MIN_SPAN}>+</button>
           <button type="button" className="ttl__btn ttl__btn--text" onClick={() => setView(null)} disabled={!view}>{tx('fit', lang)}</button>
         </div>
       </div>

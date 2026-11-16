@@ -23,7 +23,7 @@ import {
   type ScriptPage,
   type ScriptStep,
 } from './memoryScript.ts';
-import { pick5, type L5 } from '../../i18n/locale5.ts';
+import { pick5, quote, type L5 } from '../../i18n/locale5.ts';
 import './ScreenStudio.css';
 
 /**
@@ -140,7 +140,7 @@ const actName = (a: string, lang: RLang) => {
 const pct = (v: number | undefined) => Math.round((v ?? 0) * 1000) / 10;
 const unit = (s: string) => Math.max(0, Math.min(1, (Number(s) || 0) / 100));
 const errText = (err: unknown) => (err instanceof Error ? err.message : String(err));
-const opLabel = (kind: string, target: string, lang: RLang) => `${actName(kind, lang)}${target ? `「${target}」` : ''}`;
+const opLabel = (kind: string, target: string, lang: RLang) => `${actName(kind, lang)}${target ? quote(target, lang) : ''}`;
 const omit = <V,>(d: Record<string, V>, key: string): Record<string, V> => {
   const next = { ...d };
   delete next[key];

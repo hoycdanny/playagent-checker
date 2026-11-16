@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { QaDocument, QaDocCoverage, QaDocGroup, QaDocumentSet } from './reportTypes.ts';
 import { tr, txt, type RLang, type TextKey } from './reportText.ts';
+import { listSep } from '../../i18n/locale5.ts';
 import { qaDocsFileName, qaDocsToSheets } from './qaDocsExport.ts';
 
 /**
@@ -127,7 +128,7 @@ function DocCard({ doc, lang }: { doc: QaDocument; lang: RLang }) {
 
           {doc.unfilled.length > 0 && (
             <p className="srep__qa-unfilled">
-              <strong>{txt('qaDocUnfilled', lang)}:</strong> {doc.unfilled.map((u) => tr(u, lang)).join('、')}
+              <strong>{txt('qaDocUnfilled', lang)}:</strong> {doc.unfilled.map((u) => tr(u, lang)).join(listSep(lang))}
             </p>
           )}
         </div>

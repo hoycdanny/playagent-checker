@@ -1,7 +1,7 @@
 import { apiGet } from '../../api/client.ts';
 import { useQuery } from '../../api/useQuery.ts';
 import { useI18n } from '../../i18n/I18nProvider.tsx';
-import { loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
+import { listSep, loc5, pick5, type L5, type Loc5 } from '../../i18n/locale5.ts';
 import { reportLang, tr } from '../report/reportText.ts';
 import { ControlGlyph } from './ControlGlyph.tsx';
 import { KeyMapEditor, type KeyOption } from './KeyMapEditor.tsx';
@@ -339,7 +339,7 @@ export function ControlSchemePicker({
           <div className="ctl__btns">
             {suggested.length > 0 && (
               <button type="button" className="ctl__btn" onClick={() => onChange(order(suggested))}>
-                {t('apply', lc)}({suggested.map((id) => schemeLabel(allItems.find((i) => i.id === id)) || id).join('、')})
+                {t('apply', lc)}({suggested.map((id) => schemeLabel(allItems.find((i) => i.id === id)) || id).join(listSep(lc))})
               </button>
             )}
             {value !== undefined && (

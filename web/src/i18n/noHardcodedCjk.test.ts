@@ -16,8 +16,8 @@ import { describe, expect, it } from 'vitest';
 
 const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Han, Kana, Hangul and CJK compatibility ideographs. */
-const CJK = /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff]/;
+/** Han, Kana, Hangul, CJK compatibility ideographs, CJK punctuation (、「」…) and full-width forms. */
+const CJK = /[\u3000-\u30ff\u3400-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/;
 
 /** Per-locale catalogs and guide texts (exact paths, no globs). */
 const TABLE_FILES: readonly string[] = [

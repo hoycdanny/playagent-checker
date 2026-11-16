@@ -888,7 +888,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   <div className="tform__chips tform__chips--pool">
                     {(kbShowAll || query ? rest : rest.slice(0, 12)).map((kb) => (
                       <button key={kb.id} type="button" className="tform__chip" aria-pressed="false" onClick={() => toggle(kb.id, true)}>
-                        <span aria-hidden="true">＋</span><span>{kbDisplayName(kb, t)}</span>
+                        <span aria-hidden="true">+</span><span>{kbDisplayName(kb, t)}</span>
                       </button>
                     ))}
                     {!query && rest.length > 12 && (

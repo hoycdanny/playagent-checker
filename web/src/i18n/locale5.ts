@@ -33,6 +33,21 @@ export function pick5(v: L5, lang: Loc5): string {
   return s && s.trim() !== '' ? s : v[1];
 }
 
+const LIST_SEP: L5 = ['、', ', ', '、', '、', ', '];
+const QUOTE_OPEN: L5 = ['「', '"', '「', '「', '"'];
+const QUOTE_CLOSE: L5 = ['」', '"', '」', '」', '"'];
+
+/** List separator for the locale: ideographic comma for zh / ja, ASCII comma + space for en / ko. */
+export function listSep(locale: string): string {
+  return pick5(LIST_SEP, loc5(locale));
+}
+
+/** Wrap a value in the locale's quotation marks (corner brackets for zh / ja, ASCII quotes for en / ko). */
+export function quote(s: string, locale: string): string {
+  const lc = loc5(locale);
+  return `${pick5(QUOTE_OPEN, lc)}${s}${pick5(QUOTE_CLOSE, lc)}`;
+}
+
 /** 把 `{name}` 這類佔位符換掉。 */
 export function fill(s: string, vars?: Record<string, string | number>): string {
   if (!vars) return s;

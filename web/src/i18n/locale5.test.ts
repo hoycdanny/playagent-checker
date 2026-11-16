@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { fill, loc5, pick5, type L5 } from './locale5.ts';
+import { fill, listSep, loc5, pick5, quote, type L5 } from './locale5.ts';
 
 const V: L5 = ['繁中', 'English', '简中', '日本語', '한국어'];
 
@@ -39,5 +39,18 @@ describe('fill', () => {
     expect(fill('沒有佔位符')).toBe('沒有佔位符');
     // 找不到對應變數時留著原樣,不會變成 undefined
     expect(fill('版本 {v}', { other: 1 })).toBe('版本 {v}');
+  });
+});
+
+describe('listSep / quote', () => {
+  test('CJK punctuation only for zh and ja; en and ko get ASCII', () => {
+    expect(['zh-Hant', 'zh-Hans', 'ja'].map((l) => listSep(l))).toEqual(['\u3001', '\u3001', '\u3001']);
+    expect(['en', 'ko'].map((l) => listSep(l))).toEqual([', ', ', ']);
+    expect(quote('x', 'zh-Hant')).toBe('\u300cx\u300d');
+    expect(quote('x', 'ja')).toBe('\u300cx\u300d');
+    expect(quote('x', 'en')).toBe('"x"');
+    expect(quote('x', 'ko')).toBe('"x"');
+    // an unknown locale falls back to English, like pick5
+    expect(listSep('fr')).toBe(', ');
   });
 });

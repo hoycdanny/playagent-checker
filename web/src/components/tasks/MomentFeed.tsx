@@ -6,7 +6,7 @@ import { DEFAULT_FILTER, FEED_KINDS, applyFilter, feedCounts, type FeedEvent, ty
 import { InfoIcon } from './InfoIcon.tsx';
 import { memoryChips, type StepMemory } from './memoryUsage.ts';
 import { fmtClock, lastAtOrBefore, levelAt, stepAt, tracesAt, type Timeline } from './timeline.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { listSep, pick5, quote } from '../../i18n/locale5.ts';
 import './MomentFeed.css';
 
 /**
@@ -232,7 +232,7 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
                 </span>
                 <b className="mfeed__now-step">#{step.index} {step.screen ?? ''}</b>
                 {(step.action || step.target) && (
-                  <span className="mfeed__now-act">{step.action ?? ''}{step.target ? `「${step.target}」` : ''}</span>
+                  <span className="mfeed__now-act">{step.action ?? ''}{step.target ? quote(step.target, lang) : ''}</span>
                 )}
                 {typeof plan?.scriptStep === 'number' && typeof plan.scriptTotal === 'number' && (
                   <span
@@ -367,7 +367,7 @@ export function MomentFeed({ tl, steps, events, cursor, onSeek, lang }: {
           {Object.entries(f.subs).map(([k, list]) => (list?.length ? (
             <button key={k} type="button" className="mfeed__pill" title={tx('remove', lang)} onClick={() => setF((p) => { const subs = { ...p.subs }; delete subs[k as FeedKind]; return { ...p, subs }; })}>
               <InfoIcon name={KIND_ICON[k as FeedKind]} size={12} />
-              {kindText(k as FeedKind, lang)}:{list.map((s) => subText(s, lang)).join('、')}
+              {kindText(k as FeedKind, lang)}:{list.map((s) => subText(s, lang)).join(listSep(lang))}
               <InfoIcon name="x" size={11} />
             </button>
           ) : null))}

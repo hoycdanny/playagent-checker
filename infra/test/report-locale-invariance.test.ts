@@ -107,3 +107,80 @@ describe('終態訊息', () => {
     expect(g!.description.en).toBe(msg);
   });
 });
+
+describe('plain-string report fields follow the job locale', () => {
+  // qaDocs (the QA-DS delivery documents) is still Chinese-only plain text; tracked separately.
+  const cjkPaths = (v: unknown, path = 'r', out: string[] = []): string[] => {
+    if (typeof v === 'string') { if (CJK.test(v)) out.push(path); return out; }
+    if (Array.isArray(v)) { v.forEach((x) => cjkPaths(x, `${path}[]`, out)); return out; }
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      const isPair = typeof o['zh'] === 'string' && typeof o['en'] === 'string' && Object.keys(o).length === 2;
+      if (isPair) return cjkPaths(o['en'], `${path}.en`, out);
+      for (const [k, x] of Object.entries(o)) if (!(path === 'r' && k === 'qaDocs')) cjkPaths(x, `${path}.${k}`, out);
+    }
+    return out;
+  };
+  const STATES = ['pass', 'fail', 'error', 'cancelled', 'budget_exceeded'];
+  const run = (l: Loc | undefined, state: string, withSteps: boolean) =>
+    buildStructuredReport({
+      raw: { state, task: 'play a slot', steps: withSteps ? recordedRun('en') : [], message: state === 'pass' ? undefined : 'Reached the step limit (30)' },
+      job: { jobId: 'job-x', ...(l ? { locale: l } : {}) },
+      app: { genre: 'slot' },
+    });
+  /** Every plain-string field this change localizes. */
+  const fields = (r: ReturnType<typeof run>) => [
+    ...r.checks.filter((c) => c.kind === 'milestone').flatMap((c) => [c.expected, c.actual, c.reason].filter((x): x is string => typeof x === 'string')),
+    ...r.claimScope.envelope.map((e) => e.value),
+    ...r.acceptance.references.map((x) => x.title),
+  ];
+  const KANA = /[\u3040-\u30ff]/;
+  const HANGUL = /[\uac00-\ud7af]/;
+  // Characters that differ between Traditional and Simplified, taken from the zh-Hant strings of these fields.
+  const TRAD_ONLY = /[測試畫擷啟執觀確項遊戲與無過這錯誤實際應請權據覺階標選]/;
+
+  test('en: no CJK in checks, claim scope, references or findings (all states)', () => {
+    for (const state of STATES) for (const withSteps of [true, false]) {
+      expect(cjkPaths(run('en', state, withSteps)), `en ${state} steps=${withSteps}`).toEqual([]);
+    }
+  });
+
+  test('ja gets kana, ko gets hangul, zh-Hans gets no Traditional-only characters', () => {
+    for (const state of STATES) for (const withSteps of [true, false]) {
+      const ja = fields(run('ja', state, withSteps)).join('\n');
+      const ko = fields(run('ko', state, withSteps)).join('\n');
+      const hans = fields(run('zh-Hans', state, withSteps)).join('\n');
+      expect(ja, `ja ${state} ${withSteps}`).toMatch(KANA);
+      expect(ja).not.toMatch(HANGUL);
+      expect(ko, `ko ${state} ${withSteps}`).toMatch(HANGUL);
+      expect(ko).not.toMatch(KANA);
+      expect(hans, `zh-Hans ${state} ${withSteps}`).toMatch(/[\u4e00-\u9fff]/);
+      expect(hans, `zh-Hans ${state} ${withSteps}`).not.toMatch(TRAD_ONLY);
+      expect(hans).not.toMatch(KANA);
+    }
+  });
+
+  test('each locale gets its own text for the milestone rows', () => {
+    const texts = LOCS.map((l) => JSON.stringify(run(l, 'pass', true).checks.slice(0, 5).map((c) => [c.expected, c.reason])));
+    expect(new Set(texts).size).toBe(5);
+  });
+
+  test('zh-Hant and an absent locale keep the Chinese milestone text and are identical to each other', () => {
+    const a = run(undefined, 'fail', true);
+    const b = run('zh-Hant', 'fail', true);
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    expect(a.checks[0]!.reason).toMatch(CJK);
+    expect(a.claimScope.envelope.some((e) => CJK.test(e.value))).toBe(true);
+  });
+
+  test('verdicts, counts, check ids, claim-scope flags and reference ids are identical in all five locales', () => {
+    for (const state of STATES) for (const withSteps of [true, false]) {
+      const p = (l: Loc | undefined) => {
+        const r = run(l, state, withSteps);
+        return { ...projection(r), checkIds: r.checks.map((c) => [c.id, c.kind, c.result]), observed: r.claimScope.envelope.map((e) => [e.id, e.observed]), refs: r.acceptance.references.map((x) => x.id) };
+      };
+      const base = p('zh-Hant');
+      for (const l of LOCS) expect(p(l), `${l} ${state} steps=${withSteps}`).toEqual(base);
+    }
+  });
+});

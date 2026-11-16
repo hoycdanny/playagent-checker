@@ -7,7 +7,7 @@ import type { RLang } from '../report/reportText.ts';
 import { memoryChips, type StepMemory } from './memoryUsage.ts';
 import type { SoundEvent } from './soundEvents.ts';
 import type { Timeline } from './timeline.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { pick5, quote } from '../../i18n/locale5.ts';
 
 export type FeedKind = 'step' | 'ai' | 'memory' | 'script' | 'log' | 'sound' | 'operator';
 export const FEED_KINDS: FeedKind[] = ['step', 'ai', 'memory', 'script', 'log', 'sound', 'operator'];
@@ -56,7 +56,7 @@ export function buildFeed({ tl, steps, sounds = [], lang }: {
       t: ts.t,
       kind: 'step',
       sub,
-      title: `#${ts.index} ${ts.screen ?? ''} · ${ts.action ?? ''}${ts.target ? `「${ts.target}」` : ''}`.trim(),
+      title: `#${ts.index} ${ts.screen ?? ''} · ${ts.action ?? ''}${ts.target ? quote(ts.target, lang) : ''}`.trim(),
       ...(ts.thinking ? { detail: ts.thinking } : {}),
       step: ts.index,
       ...(s.parseFailed ? { tone: 'warn' as const } : {}),
@@ -129,7 +129,7 @@ export function buildFeed({ tl, steps, sounds = [], lang }: {
       t: e.t,
       kind: 'sound',
       sub: e.kind,
-      title: e.kind === 'onset' ? `〰 ${e.peakDb ?? ''} dB · ${((e.durMs ?? 0) / 1000).toFixed(1)}s` : e.title,
+      title: e.kind === 'onset' ? `≈ ${e.peakDb ?? ''} dB · ${((e.durMs ?? 0) / 1000).toFixed(1)}s` : e.title,
       ...(e.detail ? { detail: e.detail } : {}),
       ...(e.step !== undefined ? { step: e.step } : {}),
       ...(e.kind === 'fail' || e.heard === false ? { tone: 'bad' as const } : {}),

@@ -657,7 +657,7 @@ type SoundFilter = 'all' | SoundKind;
 const SOUND_KINDS: Array<{ id: SoundKind; label: keyof typeof T; icon: string }> = [
   { id: 'game', label: 'sndGame', icon: '♪' },
   { id: 'fail', label: 'sndFail', icon: '⚠' },
-  { id: 'onset', label: 'sndOnset', icon: '〰' },
+  { id: 'onset', label: 'sndOnset', icon: '≈' },
   { id: 'stream', label: 'sndStream', icon: '⏯' },
 ];
 

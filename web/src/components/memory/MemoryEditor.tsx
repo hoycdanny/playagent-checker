@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { apiDelete, apiGet, apiPost, apiPut } from '../../api/client.ts';
 import type { RLang } from '../report/reportText.ts';
 import type { MemOp } from './memoryScript.ts';
-import { pick5 } from '../../i18n/locale5.ts';
+import { listSep, pick5 } from '../../i18n/locale5.ts';
 import './MemoryEditor.css';
 
 /**
@@ -393,7 +393,7 @@ export function PageInfo({ lang, appId, page, edges, pageName, api, onDeleted, o
 
   return (
     <div className="memedit memedit__info">
-        <p className="memedit__muted">{page.visitCount} {mt('visits', lang)}{aliasList.length ? ` · ${mt('aliases', lang)}: ${aliasList.slice(0, 8).join('、')}` : ''}</p>
+        <p className="memedit__muted">{page.visitCount} {mt('visits', lang)}{aliasList.length ? ` · ${mt('aliases', lang)}: ${aliasList.slice(0, 8).join(listSep(lang))}` : ''}</p>
 
         <form
           className="memedit__rename"

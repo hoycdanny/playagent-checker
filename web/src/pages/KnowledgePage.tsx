@@ -18,7 +18,7 @@ import { KbSpecEditor } from '../components/kb/KbSpecEditor.tsx';
 import { kbLang, kt, tr, type KbLang } from '../components/kb/kbText.ts';
 import { builtinKbDescription, genreFromBuiltinKbId } from '../components/kb/builtinKbText.ts';
 import type { KbKind, KbListResponse, KbUsage, KnowledgeBase, ReportSpecInput } from '../components/kb/kbTypes.ts';
-import type { L5 } from '../i18n/locale5.ts';
+import { listSep, type L5 } from '../i18n/locale5.ts';
 import './ListPage.css';
 import './KnowledgePage.css';
 
@@ -454,7 +454,7 @@ export default function KnowledgePage() {
                     </ul>
                   )}
                   {p && p.specValues.length > 0 && (
-                    <p className="kb__spec-preview">{p.specValues.map((v) => tr(SPEC_VALUE_TEXT[v.key] ?? v.label, lang)).join('、')}</p>
+                    <p className="kb__spec-preview">{p.specValues.map((v) => tr(SPEC_VALUE_TEXT[v.key] ?? v.label, lang)).join(listSep(locale))}</p>
                   )}
                   <div className="kb__card-actions">
                     <button type="button" className="kb__card-btn" onClick={() => openKb(kb)}>{kt('view', lang)}</button>
