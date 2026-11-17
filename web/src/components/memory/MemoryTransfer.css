@@ -10,7 +10,8 @@
   gap: var(--space-2);
   flex-wrap: wrap;
 }
-.memxfer__btn:hover {
+/* 比 .memory__clear-btn:hover(紅色,危險操作)更具體:匯出 / 匯入不是危險操作。 */
+.memxfer .memxfer__btn:hover {
   border-color: var(--brand);
   color: var(--brand);
 }
