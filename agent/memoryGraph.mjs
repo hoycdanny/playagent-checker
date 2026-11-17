@@ -479,6 +479,14 @@ export function forgetHash(struct, pageId, pHash, { tol = 24 } = {}) {
  * 回新的結構物件(不修改輸入)。可重複套用(冪等)。
  */
 export function compactStructure(input) {
+  return compactStructureWithMap(input).structure;
+}
+
+/**
+ * 同 compactStructure,另外回傳「原 pageId → 收斂後 pageId」的對照。
+ * 被丟掉的佔位畫面不在對照裡。匯入記憶時用它把路線、應用記憶與操作修正重新指到合併後的畫面。
+ */
+export function compactStructureWithMap(input) {
   const src = input && typeof input === 'object' ? input : emptyStructure();
   const out = emptyStructure(src.appName);
   out.lastUpdatedAt = src.lastUpdatedAt ?? null;
@@ -558,7 +566,7 @@ export function compactStructure(input) {
     // 人工標註(只出現在套過 edits 的讀取結果;runner 寫回的 structure.json 不含)。
     if (e.manual) edge.manual = true;
   }
-  return out;
+  return { structure: out, remap };
 }
 
 /** 合併兩份同畫面操作清單(次數相加、操作細節取較新)。 */

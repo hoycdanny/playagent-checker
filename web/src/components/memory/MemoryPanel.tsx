@@ -14,9 +14,11 @@ import {
   type DeletedInfo,
 } from './MemoryEditor.tsx';
 import { ScreenStudio } from './ScreenStudio.tsx';
+import MemoryTransfer from './MemoryTransfer.tsx';
 import type { MemOp, OpEdit, SelfOp } from './memoryScript.ts';
 import { listSep, pick5 } from '../../i18n/locale5.ts';
 import './ScreenStudio.css';
+import './MemoryTransfer.css';
 
 const ScreenGraph = lazy(() =>
   import('../ScreenGraph.tsx').then((m) => ({ default: m.ScreenGraph })),
@@ -202,6 +204,15 @@ export default function MemoryPanel({
     }
   }
 
+  // 匯入記憶後重新載入地圖與範本,並讓外層更新統計(與清空記憶同一個通知)。
+  const onImported = useCallback(() => {
+    loadOverview();
+    apiGet<{ items: ScenarioTemplate[] }>(`/memory/templates?app=${encodeURIComponent(appId)}`)
+      .then((r) => setTemplates(r.items ?? []))
+      .catch(() => setTemplates([]));
+    onCleared?.();
+  }, [appId, loadOverview, onCleared]);
+
   const pages = useMemo(() => (overview ? Object.values(overview.structure.pages) : []), [overview]);
   // 穩定參考:關係圖以這些陣列重算排版,父層其他狀態變動時不該把拖曳中的圖重置。
   const pagesWithShots = useMemo(
@@ -242,7 +253,10 @@ export default function MemoryPanel({
       {loading ? (
         <div className="listpage__skeleton" aria-hidden="true"><div className="listpage__skeleton-row" /></div>
       ) : pages.length === 0 ? (
-        <div className="listpage__empty"><p>{t('page.memory.empty')}</p></div>
+        <div className="listpage__empty">
+          <p>{t('page.memory.empty')}</p>
+          {appId && <MemoryTransfer appId={appId} lang={lang} onImported={onImported} />}
+        </div>
       ) : (
         <>
           {/* 1. 關係圖(最上面) */}
@@ -266,6 +280,7 @@ export default function MemoryPanel({
                   className={`memory__tab ${view === 'grid' ? 'memory__tab--active' : ''}`}
                   onClick={() => setView('grid')}>{t('memory.tabGrid')}</button>
               </div>
+              {appId && <MemoryTransfer appId={appId} lang={lang} onImported={onImported} />}
               <button
                 type="button"
                 className="memory__clear-btn"

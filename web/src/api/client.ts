@@ -7,6 +7,8 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /** 後端回的機器可讀錯誤碼(例如 APP_HAS_RUNNING_JOBS),前端據此顯示在地化訊息。 */
+    readonly code?: string,
   ) {
     super(message);
   }
@@ -40,9 +42,11 @@ export function setUnauthorizedHandler(handler: (() => void) | null): void {
 /** 統一處理非 2xx 回應:401 觸發全域登出;其餘拋 ApiError。 */
 async function handleErrorResponse(res: Response): Promise<never> {
   let msg = `HTTP ${res.status}`;
+  let code: string | undefined;
   try {
-    const b = (await res.json()) as { error?: string };
+    const b = (await res.json()) as { error?: string; code?: unknown };
     if (b.error) msg = b.error;
+    if (typeof b.code === 'string') code = b.code;
   } catch {
     /* 忽略解析失敗 */
   }
@@ -50,7 +54,7 @@ async function handleErrorResponse(res: Response): Promise<never> {
     // token 失效:清除並回登入頁。
     onUnauthorized?.();
   }
-  throw new ApiError(res.status, msg);
+  throw new ApiError(res.status, msg, code);
 }
 
 /**

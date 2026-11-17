@@ -80,7 +80,7 @@ export interface OpEdit {
 }
 export const MAX_OP_EDITS = 500;
 /** 路徑 / 同畫面操作的識別鍵:page_x>page_y>動作>目標(目標 ≤ 40 字)。 */
-const OP_KEY_RE = /^page_[a-f0-9]{8,32}>page_[a-f0-9]{8,32}>[a-z]{2,8}>[^\n]{0,40}$/;
+export const OP_KEY_RE = /^page_[a-f0-9]{8,32}>page_[a-f0-9]{8,32}>[a-z]{2,8}>[^\n]{0,40}$/;
 
 /** 路線的一步:到某個畫面、在那裡做什麼。 */
 export interface RouteStep { id: string; pageId: string; action: string }

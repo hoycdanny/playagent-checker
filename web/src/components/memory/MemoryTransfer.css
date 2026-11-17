@@ -1,0 +1,81 @@
+/* 記憶匯出 / 匯入(沿用記憶地圖的按鈕樣式與設計 tokens) */
+.memxfer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.memxfer__bar {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.memxfer__btn:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.memxfer__status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.memxfer__error {
+  margin: 0;
+  font-size: 13px;
+  color: var(--status-fail);
+}
+.memxfer__preview {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 720px;
+}
+.memxfer__title {
+  margin: 0;
+  font-size: 15px;
+}
+.memxfer__from,
+.memxfer__note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.memxfer__warn {
+  margin: 0;
+  font-size: 13px;
+  color: var(--status-error);
+}
+.memxfer__table {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.memxfer__table th,
+.memxfer__table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-3) var(--space-1) 0;
+  font-weight: normal;
+}
+.memxfer__table th {
+  color: var(--text-secondary);
+}
+.memxfer__actions {
+  display: flex;
+  gap: var(--space-2);
+}
+.memxfer__confirm {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--brand);
+  border-radius: var(--radius-sm);
+  background: var(--brand);
+  color: var(--brand-contrast);
+  font-size: 13px;
+  cursor: pointer;
+}
+.memxfer__confirm:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

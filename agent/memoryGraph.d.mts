@@ -83,4 +83,5 @@ export declare function identifyPage(
 ): { pageId: string; dist: number; transient: boolean } | null;
 export declare function normTarget(t: unknown): string;
 export declare function compactStructure(input: unknown): GraphStructure;
+export declare function compactStructureWithMap(input: unknown): { structure: GraphStructure; remap: Map<string, string> };
 export declare function summarizeForAgent(struct: unknown, maxChars?: number): string;

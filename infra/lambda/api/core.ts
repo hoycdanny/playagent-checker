@@ -70,6 +70,7 @@ import {
 import { writeStatus, readStatus, isTerminal, type TaskState } from './status.js';
 import { ACCEPTANCE_STANDARD_TAG } from './report/acceptance.js';
 import { GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { listMediaSegments, readAudioLevels, withRecordingUrls } from './liveMedia.js';
 import { DEVICE_LOG_KINDS, readDeviceLogs, type DeviceLogKind } from './deviceLogs.js';
 import {
@@ -161,6 +162,16 @@ import {
   type OperatorCommand,
 } from './operatorCommands.js';
 import { readMemoryOverview, memScreenshotKey } from './memoryStructure.js';
+import {
+  MemoryImportConflictError,
+  buildMemoryExport,
+  importScreenshotKey,
+  parseImportBundle,
+  parseMdLang,
+  planMemoryImport,
+  readImportTarget,
+  writeImport,
+} from './memoryTransfer.js';
 import { generateScenarioTemplates } from './scenarioTemplates.js';
 import {
   listKnowledgeBases,
@@ -966,6 +977,67 @@ export async function handleRequest(
         const s3 = await deps.getTenantS3(tenant.tenantId);
         const edits = await applyEdit(s3, deps.bucket, tenant.tenantId, app, parseEditOp(b));
         return json(200, edits);
+      }
+
+      case 'GET /memory/export': {
+        // 記憶匯出:資料 + memory.md + 每張截圖的限時下載網址。zip 由瀏覽器組(截圖可能數百 MB)。
+        const app = req.query?.['app'];
+        if (!app) return json(400, { error: 'app 為必填' });
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        const appRec = await getApp(s3, deps.bucket, tenant.tenantId, app).catch(() => null);
+        const out = await buildMemoryExport(s3, deps.bucket, tenant.tenantId, app, {
+          ...(appRec?.name ? { appName: appRec.name } : {}),
+          lang: parseMdLang(req.query?.['lang']),
+          ...(tenant.email ? { exportedBy: tenant.email } : {}),
+          // 截圖下載要花時間(數百張),網址給一小時。
+          presignGet: (key) => createDownloadUrl(s3, deps.bucket, key, 3600),
+        });
+        return json(200, out);
+      }
+
+      case 'POST /memory/import/preview':
+      case 'POST /memory/import/apply': {
+        // 記憶匯入:瀏覽器拆 zip 後送 data/*.json + 截圖清單。預覽與套用走同一個合併函式,
+        // 套用時重新讀目標、重新計算,不信任預覽的結果。
+        const b = (req.body ?? {}) as Record<string, unknown>;
+        const app = typeof b['app'] === 'string' ? b['app'] : '';
+        if (!app) return json(400, { error: 'app 為必填' });
+        const apply = req.path.endsWith('/apply');
+        const s3 = await deps.getTenantS3(tenant.tenantId);
+        // runner 每一步都整份重寫 structure.json:測試進行中匯入,結果會被下一步蓋掉。
+        const { items: recent } = await listJobs(s3, deps.bucket, tenant.tenantId, { limit: 100 });
+        const running = recent.filter((x) => x.appId === app && !isTerminal(x.state as TaskState)).map((x) => x.jobId);
+        if (running.length) {
+          return json(409, { error: '這個應用有測試正在進行,等測試結束再匯入記憶', code: 'APP_HAS_RUNNING_JOBS', running });
+        }
+        const bundle = parseImportBundle(b);
+        const shotsRaw = Array.isArray(b['screenshots']) ? (b['screenshots'] as unknown[]) : [];
+        const screenshotsInBundle = new Set(shotsRaw.filter((x): x is string => typeof x === 'string' && /^page_[a-f0-9]{8,32}$/.test(x)).slice(0, 2000));
+        const target = await readImportTarget(s3, deps.bucket, tenant.tenantId, app);
+        // 同一份匯出檔再匯一次會讓造訪 / 成功次數重複相加(那些是觀察紀錄,不能虛增)。
+        const log = await s3.send(new GetObjectCommand({ Bucket: deps.bucket, Key: `${tenantPrefix(tenant.tenantId)}memory/${app}/imports.json` }))
+          .then(async (r) => JSON.parse((await r.Body?.transformToString()) ?? '{}') as { items?: Array<{ fromApp?: string; exportedAt?: string }> })
+          .catch(() => ({ items: [] as Array<{ fromApp?: string; exportedAt?: string }> }));
+        const already = Boolean(bundle.manifest.exportedAt) && (log.items ?? []).some(
+          (x) => x.fromApp === bundle.manifest.app.id && x.exportedAt === bundle.manifest.exportedAt,
+        );
+        if (already) {
+          return json(409, { error: '這份匯出檔已經匯入過這個應用;再匯一次會讓造訪與成功次數重複計算', code: 'ALREADY_IMPORTED' });
+        }
+        const importedAt = new Date().toISOString();
+        const plan = planMemoryImport(target, bundle, { importedAt, screenshotsInBundle });
+        if (!apply) return json(200, { summary: plan.summary });
+        await writeImport(s3, deps.bucket, tenant.tenantId, app, plan, target.etags, {
+          at: importedAt,
+          ...(tenant.email ? { by: tenant.email } : {}),
+        });
+        // 截圖在寫入成功後才發上傳網址:寫入失敗時不會留下孤兒截圖。
+        const uploads = await Promise.all(plan.uploads.map(async (u) => ({
+          from: u.from,
+          to: u.to,
+          url: await getSignedUrl(s3, new PutObjectCommand({ Bucket: deps.bucket, Key: importScreenshotKey(tenant.tenantId, app, u.to), ContentType: 'image/png' }), { expiresIn: 3600 }),
+        })));
+        return json(200, { summary: plan.summary, uploads });
       }
 
       case 'GET /memory/screenshot': {
@@ -2062,6 +2134,7 @@ export async function handleRequest(
     if (err instanceof KbNotFoundError) return json(404, { error: err.message });
     if (err instanceof KbValidationError) return json(400, { error: err.message });
     if (err instanceof HintValidationError) return json(400, { error: err.message });
+    if (err instanceof MemoryImportConflictError) return json(409, { error: err.message, code: 'MEMORY_CHANGED' });
     if (err instanceof HintNotFoundError) return json(404, { error: err.message });
     if (err instanceof CommandValidationError) return json(400, { error: err.message });
     if (err instanceof KbProvisionError) return json(400, { error: err.message });
