@@ -58,7 +58,8 @@
       ],
       "Resource": [
         "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/playagent-exploration-runner",
-        "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/playagent-web-runner"
+        "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/playagent-web-runner",
+        "arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/playagent-keepalive-runner"
       ]
     },
     {

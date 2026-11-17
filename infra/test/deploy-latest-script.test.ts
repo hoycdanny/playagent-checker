@@ -126,6 +126,18 @@ describe('least-privilege deployer (no AdministratorAccess)', () => {
     for (const a of allowed) expect(a, a).not.toMatch(/\*|^iam:|^s3:|^cloudformation:(Create|Update|Delete|Execute)/);
   });
 
+  test('every ECR repository the installer pushes to is granted', () => {
+    // A runner added to the push list without its repository in the policy fails a fresh
+    // install at docker push (ecr:InitiateLayerUpload denied), after the stacks are created.
+    const block = core.slice(core.indexOf('const repos = ['), core.indexOf('];', core.indexOf('const repos = [')));
+    const pushed = [...block.matchAll(/name: '([a-z0-9-]+)'/g)].map((m) => m[1]);
+    expect(pushed.length).toBeGreaterThanOrEqual(3);
+    const ecrPush = policy.Statement.find((s) => list(s.Action).includes('ecr:InitiateLayerUpload'))!;
+    for (const repo of pushed) {
+      expect(list(ecrPush.Resource), repo).toContain(`arn:aws:ecr:<REGION>:<ACCOUNT_ID>:repository/${repo}`);
+    }
+  });
+
   test('wildcard resources only where AWS has no resource-level support', () => {
     for (const s of policy.Statement) {
       if (list(s.Resource).includes('*')) {
