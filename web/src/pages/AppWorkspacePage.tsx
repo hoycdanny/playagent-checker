@@ -410,7 +410,15 @@ export default function AppWorkspacePage() {
       {/* 記憶地圖(與 /memory 同一份實作;樣片本、關係圖、應用記憶、場景範本都在) */}
       {tab === 'memory' && (
         <div className="ws__panel">
-          <MemoryPanel appId={appId} onCleared={() => setMemStats({ pages: 0, edges: 0 })} />
+          <MemoryPanel
+            appId={appId}
+            onCleared={() => setMemStats({ pages: 0, edges: 0 })}
+            onImported={() => {
+              apiGet<{ stats: { pages: number; edges: number } }>(`/memory?app=${encodeURIComponent(appId)}`)
+                .then((o) => setMemStats(o.stats))
+                .catch(() => {});
+            }}
+          />
         </div>
       )}
 

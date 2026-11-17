@@ -111,10 +111,13 @@ const lt = (k: keyof typeof L, lang: RLang) => pick5(L[k], lang);
 export default function MemoryPanel({
   appId,
   onCleared,
+  onImported: onImportedOuter,
 }: {
   appId: string;
   /** 清空記憶後通知外層(例如工作區要更新統計)。 */
   onCleared?: () => void;
+  /** 匯入記憶後通知外層(統計要重新讀,不是歸零)。 */
+  onImported?: () => void;
 }) {
   const { t, locale } = useI18n();
   const lang = reportLang(locale);
@@ -204,14 +207,14 @@ export default function MemoryPanel({
     }
   }
 
-  // 匯入記憶後重新載入地圖與範本,並讓外層更新統計(與清空記憶同一個通知)。
+  // 匯入記憶後重新載入地圖與範本,並讓外層重新讀統計。
   const onImported = useCallback(() => {
     loadOverview();
     apiGet<{ items: ScenarioTemplate[] }>(`/memory/templates?app=${encodeURIComponent(appId)}`)
       .then((r) => setTemplates(r.items ?? []))
       .catch(() => setTemplates([]));
-    onCleared?.();
-  }, [appId, loadOverview, onCleared]);
+    onImportedOuter?.();
+  }, [appId, loadOverview, onImportedOuter]);
 
   const pages = useMemo(() => (overview ? Object.values(overview.structure.pages) : []), [overview]);
   // 穩定參考:關係圖以這些陣列重算排版,父層其他狀態變動時不該把拖曳中的圖重置。
