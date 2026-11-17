@@ -253,13 +253,12 @@ export default function MemoryPanel({
 
   return (
     <div className="memory memory--v2">
+      {/* 匯出 / 匯入固定在最上面:不隨載入 / 空狀態切換而卸載,匯入完成的訊息才不會在地圖重新載入時消失。 */}
+      {appId && <MemoryTransfer appId={appId} lang={lang} onImported={onImported} />}
       {loading ? (
         <div className="listpage__skeleton" aria-hidden="true"><div className="listpage__skeleton-row" /></div>
       ) : pages.length === 0 ? (
-        <div className="listpage__empty">
-          <p>{t('page.memory.empty')}</p>
-          {appId && <MemoryTransfer appId={appId} lang={lang} onImported={onImported} />}
-        </div>
+        <div className="listpage__empty"><p>{t('page.memory.empty')}</p></div>
       ) : (
         <>
           {/* 1. 關係圖(最上面) */}
@@ -283,7 +282,6 @@ export default function MemoryPanel({
                   className={`memory__tab ${view === 'grid' ? 'memory__tab--active' : ''}`}
                   onClick={() => setView('grid')}>{t('memory.tabGrid')}</button>
               </div>
-              {appId && <MemoryTransfer appId={appId} lang={lang} onImported={onImported} />}
               <button
                 type="button"
                 className="memory__clear-btn"
