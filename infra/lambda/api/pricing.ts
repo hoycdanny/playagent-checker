@@ -22,6 +22,11 @@ export interface ModelPrice {
   cacheReadPerM?: number;
   /** 是否為估算價(報告標「估算」) */
   estimated?: boolean;
+  /**
+   * geo 前綴(us. 等)是否加收 10%。預設:Anthropic 加、其他不加。
+   * 較舊的 Anthropic 模型(Sonnet 4、Opus 4.1、Claude 3 Haiku)官方價目表上 geo 與 Global 同價,設 false。
+   */
+  geoPremium?: boolean;
   /** 促銷價失效日(過期後改標準價),ISO 日期 */
   promoUntil?: string;
   /** 促銷失效後的標準價 */
@@ -35,23 +40,26 @@ export interface ModelPrice {
  * 要更新價格:重跑 Pricing API 抓價腳本後同步此表。此表為 Model Catalog 的定價前提(catalog ⊆ 此表)。
  */
 const TABLE: Record<string, ModelPrice> = {
-  // --- Anthropic Claude(公開 list 價)---
+  // --- Anthropic Claude(Global 價;us. 前綴的 geo 價 = ×1.1,見 resolvePrice)---
+  // 2026-11-18 逐筆對過 AWS Price List(us-west-2 on-demand standard),見 infra/test/pricing-official.test.ts。
   'anthropic.claude-sonnet-4-5-20250929-v1:0': { inputPerM: 3, outputPerM: 15 },
   'anthropic.claude-sonnet-4-6': { inputPerM: 3, outputPerM: 15 },
-  'anthropic.claude-sonnet-4-20250514-v1:0': { inputPerM: 3, outputPerM: 15 },
-  // 以下由帳單校正(見檔頭);Opus 4.6 / Opus 5.5 / Opus 4.7 / 4.8 的 output 帳單樣本不足,依同代比例推估。
+  // 舊模型:官方 geo 與 Global 同價(沒有 +10%)。
+  'anthropic.claude-sonnet-4-20250514-v1:0': { inputPerM: 3, outputPerM: 15, geoPremium: false },
   'anthropic.claude-sonnet-5': { inputPerM: 2, outputPerM: 10 },
-  'anthropic.claude-opus-4-1-20250805-v1:0': { inputPerM: 15, outputPerM: 75 },
+  'anthropic.claude-opus-4-1-20250805-v1:0': { inputPerM: 15, outputPerM: 75, geoPremium: false },
   'anthropic.claude-opus-4-5-20251101-v1:0': { inputPerM: 5, outputPerM: 25 },
   'anthropic.claude-opus-4-6-v1': { inputPerM: 5, outputPerM: 25 },
   'anthropic.claude-opus-4-7': { inputPerM: 5, outputPerM: 25 },
   'anthropic.claude-opus-4-8': { inputPerM: 5, outputPerM: 25 },
   'anthropic.claude-opus-5': { inputPerM: 5, outputPerM: 25 },
-  'anthropic.claude-opus-5-5': { inputPerM: 4, outputPerM: 20 },
+  // 快取讀取官方 $0.20(= input 的 5%,不是預設的 10%)。
+  'anthropic.claude-opus-5-5': { inputPerM: 4, outputPerM: 20, cacheReadPerM: 0.2 },
   'anthropic.claude-haiku-4-5-20251001-v1:0': { inputPerM: 1, outputPerM: 5 },
-  'anthropic.claude-3-haiku-20240307-v1:0': { inputPerM: 0.25, outputPerM: 1.25 },
-  'anthropic.claude-fable-5': { inputPerM: 1, outputPerM: 5 },
-  'anthropic.claude-fable-5-1': { inputPerM: 1, outputPerM: 5 },
+  'anthropic.claude-3-haiku-20240307-v1:0': { inputPerM: 0.25, outputPerM: 1.25, geoPremium: false },
+  // 舊表寫 $1/$5,官方是 $10/$50(低估 10 倍)。Fable 5.1 的快取讀取官方 $0.25。
+  'anthropic.claude-fable-5': { inputPerM: 10, outputPerM: 50 },
+  'anthropic.claude-fable-5-1': { inputPerM: 10, outputPerM: 50, cacheReadPerM: 0.25 },
   // --- 其餘供應商(AWS Pricing API us-east-2 抓價,標估算)---
   'qwen.qwen3-235b-a22b-2507-v1:0': { inputPerM: 0.22, outputPerM: 0.88, estimated: true },
   'moonshotai.kimi-k2.5': { inputPerM: 0.6, outputPerM: 3.0, estimated: true },
@@ -63,7 +71,8 @@ const TABLE: Record<string, ModelPrice> = {
   'nvidia.nemotron-nano-3-30b': { inputPerM: 0.06, outputPerM: 0.24, estimated: true },
   'minimax.minimax-m2': { inputPerM: 0.3, outputPerM: 1.2, estimated: true },
   'zai.glm-4.7-flash': { inputPerM: 0.07, outputPerM: 0.4, estimated: true },
-  'amazon.nova-pro-v1:0': { inputPerM: 0.8, outputPerM: 3.2, estimated: true },
+  // Nova:快取寫入官方 $0、快取讀取 = input 的 25%(不是預設的 1.25× / 10%)。
+  'amazon.nova-pro-v1:0': { inputPerM: 0.8, outputPerM: 3.2, cacheWritePerM: 0, cacheReadPerM: 0.2, estimated: true },
   'minimax.minimax-m2.5': { inputPerM: 0.3, outputPerM: 1.2, estimated: true },
   'google.gemma-3-12b-it': { inputPerM: 0.09, outputPerM: 0.29, estimated: true },
   'moonshot.kimi-k2-thinking': { inputPerM: 0.6, outputPerM: 2.5, estimated: true },
@@ -89,8 +98,8 @@ const TABLE: Record<string, ModelPrice> = {
   'mistral.ministral-3-3b-instruct': { inputPerM: 0.1, outputPerM: 0.1, estimated: true },
   'qwen.qwen3-coder-30b-a3b-v1:0': { inputPerM: 0.15, outputPerM: 0.6, estimated: true },
   'openai.gpt-oss-safeguard-20b': { inputPerM: 0.07, outputPerM: 0.2, estimated: true },
-  'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24, estimated: true },
-  'amazon.nova-micro-v1:0': { inputPerM: 0.035, outputPerM: 0.14, estimated: true },
+  'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24, cacheWritePerM: 0, cacheReadPerM: 0.015, estimated: true },
+  'amazon.nova-micro-v1:0': { inputPerM: 0.035, outputPerM: 0.14, cacheWritePerM: 0, cacheReadPerM: 0.00875, estimated: true },
   // OpenAI GPT(Bedrock 上架,多模態可看圖):官方 model card 公告價(商業區域短內容 In-Region/Geo 標準層,已內含 +10%)。
   // 註:GPT-6 Luna 僅 bedrock-mantle、不支援 bedrock-runtime Converse,本平台用不到,故不定價(維持隱藏)。
   'openai.gpt-5.6-luna': { inputPerM: 0.22, outputPerM: 1.32 },
@@ -99,10 +108,11 @@ const TABLE: Record<string, ModelPrice> = {
   'openai.gpt-6-sol': { inputPerM: 2.2, outputPerM: 11 },
   'openai.gpt-6-astra': { inputPerM: 11, outputPerM: 55 },
   // xAI Grok(AWS Price List us-west-2 標準層;多模態可看圖)。
-  'xai.grok-4.7': { inputPerM: 2.2, outputPerM: 6.6, estimated: true },
-  'xai.grok-4.6': { inputPerM: 2.2, outputPerM: 6.6, estimated: true },
-  // Amazon Nova 2 Lite(Price List;多模態、便宜)。
-  'amazon.nova-2-lite-v1:0': { inputPerM: 0.33, outputPerM: 2.75, estimated: true },
+  // 快取讀取官方 $0.55(= input 的 25%)。
+  'xai.grok-4.7': { inputPerM: 2.2, outputPerM: 6.6, cacheReadPerM: 0.55, estimated: true },
+  'xai.grok-4.6': { inputPerM: 2.2, outputPerM: 6.6, cacheReadPerM: 0.55, estimated: true },
+  // Amazon Nova 2 Lite(Price List;多模態、便宜)。快取寫入 $0、讀取 = input 的 25%。
+  'amazon.nova-2-lite-v1:0': { inputPerM: 0.33, outputPerM: 2.75, cacheWritePerM: 0, cacheReadPerM: 0.0825, estimated: true },
   // Mistral / Meta / NVIDIA(Price List us-west-2 標準層)。
   'mistral.magistral-small-2509': { inputPerM: 0.5, outputPerM: 1.5, estimated: true },
   'mistral.ministral-3-8b-instruct': { inputPerM: 0.15, outputPerM: 0.15, estimated: true },
@@ -174,7 +184,7 @@ export function resolvePrice(modelId: string, now = new Date()): ModelPrice & { 
   }
   let cacheWrite = entry.cacheWritePerM ?? input * CACHE_WRITE_FACTOR;
   let cacheRead = entry.cacheReadPerM ?? input * CACHE_READ_FACTOR;
-  if (isGeo && GEO_PREMIUM_PROVIDERS.some((p) => base.startsWith(p))) {
+  if (isGeo && entry.geoPremium !== false && GEO_PREMIUM_PROVIDERS.some((p) => base.startsWith(p))) {
     input *= GEO_MULTIPLIER;
     output *= GEO_MULTIPLIER;
     cacheWrite *= GEO_MULTIPLIER;

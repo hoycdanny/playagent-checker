@@ -331,8 +331,10 @@ describe('API:預覽 → 套用', () => {
 
   test('應用有測試正在進行時拒絕匯入', async () => {
     const { store, d } = deps();
-    store.set('tenants/t-1/jobs/job-zzz/job.json', JSON.stringify({ jobId: 'job-zzz', appId: 'app-dst', caseId: 'c', backend: 'emulator', createdAt: AT }));
-    store.set('tenants/t-1/jobs/job-zzz/status.json', JSON.stringify({ jobId: 'job-zzz', state: 'running', updatedAt: AT }));
+    // 用現在的時間:心跳太久沒更新的 running 會被判為 dead(終態),固定時間的測試過幾小時就會失效。
+    const now = new Date().toISOString();
+    store.set('tenants/t-1/jobs/job-zzz/job.json', JSON.stringify({ jobId: 'job-zzz', appId: 'app-dst', caseId: 'c', backend: 'emulator', createdAt: now }));
+    store.set('tenants/t-1/jobs/job-zzz/status.json', JSON.stringify({ jobId: 'job-zzz', state: 'running', updatedAt: now }));
     const r = await handleRequest({ method: 'POST', path: '/memory/import/preview', claims, body: body() }, d);
     expect(r.status).toBe(409);
     expect((r.body as { code: string }).code).toBe('APP_HAS_RUNNING_JOBS');
