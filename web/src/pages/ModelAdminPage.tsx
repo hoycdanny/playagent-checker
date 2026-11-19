@@ -4,6 +4,7 @@ import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import './ListPage.css';
 import './ModelAdminPage.css';
+import { formatPerM } from '../components/modelPrice.ts';
 
 type Seat = 'agent' | 'vlm' | 'subagent' | 'draft' | 'ask';
 const SEATS: Seat[] = ['agent', 'vlm', 'subagent', 'draft', 'ask'];
@@ -191,7 +192,7 @@ export default function ModelAdminPage() {
     const outs = rows.map((r) => r.pricing.outputPerM);
     const rng = (a: number[]) => {
       const lo = Math.min(...a), hi = Math.max(...a);
-      return lo === hi ? `$${lo.toFixed(2)}` : `$${lo.toFixed(2)}–$${hi.toFixed(2)}`;
+      return lo === hi ? formatPerM(lo) : `${formatPerM(lo)}–${formatPerM(hi)}`;
     };
     const picked = rows.filter((r) => SEATS.some((s) => sel[r.modelId]?.[s])).length;
     const starred = rows.filter((r) => SEATS.some((s) => rec[r.modelId]?.[s])).length;
@@ -233,7 +234,7 @@ export default function ModelAdminPage() {
   }
 
   const price = (m: ModelRow) =>
-    `$${m.pricing.inputPerM.toFixed(2)} / $${m.pricing.outputPerM.toFixed(2)}${m.pricing.estimated ? '*' : ''}`;
+    `${formatPerM(m.pricing.inputPerM)} / ${formatPerM(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}`;
 
   return (
     <section className="listpage listpage--wide">

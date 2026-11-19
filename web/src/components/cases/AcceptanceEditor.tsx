@@ -12,6 +12,7 @@ import {
 import { pick5 } from '../../i18n/locale5.ts';
 import type { RLang } from '../report/reportText.ts';
 import './AcceptanceEditor.css';
+import { formatPerM } from '../modelPrice.ts';
 
 interface ModelEntry {
   modelId: string;
@@ -149,7 +150,7 @@ export function AcceptanceEditor({ lang, value, onChange }: Props) {
     if (!m.pricing) return m.displayName;
     const { inputPerM, outputPerM, estimated } = m.pricing;
     if (inputPerM === 0 && outputPerM === 0) return m.displayName;
-    const fmt = (n: number) => `$${n.toFixed(2)}`;
+    const fmt = formatPerM;
     return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)}${estimated ? '*' : ''}`;
   }
 

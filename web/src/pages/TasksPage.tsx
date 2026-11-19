@@ -9,6 +9,7 @@ import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, deviceFil
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
+import { formatPerM } from '../components/modelPrice.ts';
 import { recommendedDefault, recommendStyle, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import { outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import RangeSlider from '../components/RangeSlider.tsx';
@@ -96,7 +97,7 @@ function modelOptionLabel(m: ModelEntry, locale: string): string {
   if (!m.pricing) return m.displayName;
   const { inputPerM, outputPerM, estimated } = m.pricing;
   if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — ${pick5(GPU_BILLING, lc)}`;
-  const fmt = (n: number) => `$${n.toFixed(2)}`;
+  const fmt = formatPerM;
   return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} ${pick5(PER_MILLION, lc)}${estimated ? pick5(ESTIMATED, lc) : ''}`;
 }
 

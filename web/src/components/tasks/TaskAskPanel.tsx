@@ -5,6 +5,7 @@ import { recommendStyle, sortByRecommend, starLabel } from '../modelRecommend.ts
 import { InfoIcon } from './InfoIcon.tsx';
 import { pick5 } from '../../i18n/locale5.ts';
 import './TaskAskPanel.css';
+import { formatPerM } from '../modelPrice.ts';
 
 /** GET /models?seat=ask 的一筆(管理員在模型管理「AI 問答」欄開放的模型)。 */
 interface AskModel {
@@ -118,7 +119,7 @@ export function TaskAskPanel({ jobId, lang, embedded = false, onStep }: {
   const modelName = (id?: string) => (id ? models.find((m) => m.modelId === id)?.displayName ?? id.replace(/^(us|global)\./, '') : '');
   const optionLabel = (m: AskModel) => {
     if (!m.pricing) return m.displayName;
-    const f = (n: number) => `$${n.toFixed(2)}`;
+    const f = formatPerM;
     return `${m.displayName} — ${f(m.pricing.inputPerM)}/${f(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}`;
   };
 
