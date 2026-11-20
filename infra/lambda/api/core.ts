@@ -725,10 +725,15 @@ export async function handleRequest(
         const unpriced: unknown[] = [];
         for (const m of all) {
           if (m.modelId === 'uitars' && !uitarsOn) continue; // UI-TARS 關閉時不列(開了才可選)
-          let pricing: { inputPerM: number; outputPerM: number; estimated?: boolean } | null = null;
+          let pricing: { inputPerM: number; outputPerM: number; estimated?: boolean; globalPrice?: { inputPerM: number; outputPerM: number } } | null = null;
           try {
             const p = resolvePrice(m.modelId);
-            pricing = { inputPerM: p.inputPerM, outputPerM: p.outputPerM, ...(p.estimated ? { estimated: true } : {}) };
+            pricing = {
+              inputPerM: p.inputPerM,
+              outputPerM: p.outputPerM,
+              ...(p.estimated ? { estimated: true } : {}),
+              ...(p.globalPrice ? { globalPrice: p.globalPrice } : {}),
+            };
           } catch { pricing = null; }
           const row = {
             modelId: m.modelId,
@@ -831,6 +836,8 @@ export async function handleRequest(
                 inputPerM: p.inputPerM,
                 outputPerM: p.outputPerM,
                 ...(p.estimated ? { estimated: true } : {}),
+                // 顯示的是區域價、官方另有較便宜的 Global 價時才帶(介面標「區域價」)。
+                ...(p.globalPrice ? { globalPrice: p.globalPrice } : {}),
               },
             };
           } catch {

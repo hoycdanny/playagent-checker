@@ -9,7 +9,7 @@ import { AndroidVersionSelect, EmulatorScreenSelect, FormFactorSelect, deviceFil
 import type { MessageKey } from '../i18n/messages.ts';
 import type { AppRef } from '../components/AppRef.tsx';
 import { modelLabel } from '../components/modelProvider.ts';
-import { formatPerM } from '../components/modelPrice.ts';
+import { formatPerM, regionalNote, regionalSuffix, regionalTip, type ModelPricing } from '../components/modelPrice.ts';
 import { recommendedDefault, recommendStyle, sortByRecommend, starLabel } from '../components/modelRecommend.ts';
 import { outcomeKey, outcomeOf, type VerdictInfo } from '../components/outcome.ts';
 import RangeSlider from '../components/RangeSlider.tsx';
@@ -82,7 +82,7 @@ interface ModelEntry {
   displayName: string;
   /** 有值 = 這個模型目前叫不動(原因為英文短句,來自後端實呼驗證);選項反灰。 */
   unavailable?: string;
-  pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
+  pricing?: ModelPricing;
   /** 管理員在模型管理頁標為推薦(金勾勾)。 */
   recommended?: boolean;
 }
@@ -98,7 +98,7 @@ function modelOptionLabel(m: ModelEntry, locale: string): string {
   const { inputPerM, outputPerM, estimated } = m.pricing;
   if (inputPerM === 0 && outputPerM === 0) return `${m.displayName} — ${pick5(GPU_BILLING, lc)}`;
   const fmt = formatPerM;
-  return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} ${pick5(PER_MILLION, lc)}${estimated ? pick5(ESTIMATED, lc) : ''}`;
+  return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)} ${pick5(PER_MILLION, lc)}${estimated ? pick5(ESTIMATED, lc) : ''}${regionalSuffix(m.pricing, lc)}`;
 }
 
 /** 狀態篩選:測試結論(通過 / 有風險 / 失敗 / 受阻)+ 執行狀態(排隊、執行中、錯誤…)。值 = outcomeOf。 */
@@ -811,7 +811,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <span className="tasks__field-hint">{t('detail.roleAgentHint')}</span>
                     <select value={agentModel} onChange={(e) => setAgentModel(e.target.value)}>
                       {agentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? regionalTip(m.pricing, loc5(locale))} style={recommendStyle(m)}>
                           {starLabel('agent', m, modelOptionLabel(m, locale))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
@@ -827,7 +827,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     </span>
                     <select value={vlmModel} onChange={(e) => setVlmModel(e.target.value)}>
                       {vlmModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? regionalTip(m.pricing, loc5(locale))} style={recommendStyle(m)}>
                           {starLabel('vlm', m, modelOptionLabel(m, locale))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
@@ -841,7 +841,7 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                     <span className="tasks__field-hint">{t('detail.roleSubagentHint')}</span>
                     <select value={subagentModel} onChange={(e) => setSubagentModel(e.target.value)}>
                       {subagentModels.map((m) => (
-                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? ''} style={recommendStyle(m)}>
+                        <option key={m.modelId} value={m.modelId} disabled={!!m.unavailable} title={m.unavailable ?? regionalTip(m.pricing, loc5(locale))} style={recommendStyle(m)}>
                           {starLabel('subagent', m, modelOptionLabel(m, locale))}
                           {m.unavailable ? `(${t('tasks.modelUnavailable')})` : ''}
                         </option>
@@ -850,6 +850,11 @@ export default function TasksPage({ appId: lockedApp }: { appId?: string } = {})
                   </label>
                 )}
               </div>
+              {(() => {
+                // 有區域價模型時說明:顯示的是區域價,比 AWS 官網的 Global 價高 10%。
+                const note = regionalNote([...agentModels, ...vlmModels, ...subagentModels], loc5(locale));
+                return note ? <p className="tasks__field-hint tform__price-note">{note}</p> : null;
+              })()}
             </fieldset>
           )}
 

@@ -5,7 +5,7 @@ import { recommendStyle, sortByRecommend, starLabel } from '../modelRecommend.ts
 import { InfoIcon } from './InfoIcon.tsx';
 import { pick5 } from '../../i18n/locale5.ts';
 import './TaskAskPanel.css';
-import { formatPerM } from '../modelPrice.ts';
+import { formatPerM, regionalSuffix, type ModelPricing } from '../modelPrice.ts';
 
 /** GET /models?seat=ask 的一筆(管理員在模型管理「AI 問答」欄開放的模型)。 */
 interface AskModel {
@@ -13,7 +13,7 @@ interface AskModel {
   displayName: string;
   unavailable?: string;
   recommended?: boolean;
-  pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
+  pricing?: ModelPricing;
 }
 const MODEL_PREF_KEY = 'pa.taskAsk.model';
 
@@ -120,7 +120,7 @@ export function TaskAskPanel({ jobId, lang, embedded = false, onStep }: {
   const optionLabel = (m: AskModel) => {
     if (!m.pricing) return m.displayName;
     const f = formatPerM;
-    return `${m.displayName} — ${f(m.pricing.inputPerM)}/${f(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}`;
+    return `${m.displayName} — ${f(m.pricing.inputPerM)}/${f(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}${regionalSuffix(m.pricing, lang)}`;
   };
 
   // 新訊息 / 分析中時捲到底。

@@ -12,13 +12,13 @@ import {
 import { pick5 } from '../../i18n/locale5.ts';
 import type { RLang } from '../report/reportText.ts';
 import './AcceptanceEditor.css';
-import { formatPerM } from '../modelPrice.ts';
+import { formatPerM, regionalSuffix, type ModelPricing } from '../modelPrice.ts';
 
 interface ModelEntry {
   modelId: string;
   displayName: string;
   unavailable?: string;
-  pricing?: { inputPerM: number; outputPerM: number; estimated?: boolean };
+  pricing?: ModelPricing;
   recommended?: boolean;
 }
 
@@ -151,7 +151,7 @@ export function AcceptanceEditor({ lang, value, onChange }: Props) {
     const { inputPerM, outputPerM, estimated } = m.pricing;
     if (inputPerM === 0 && outputPerM === 0) return m.displayName;
     const fmt = formatPerM;
-    return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)}${estimated ? '*' : ''}`;
+    return `${m.displayName} — ${fmt(inputPerM)}/${fmt(outputPerM)}${estimated ? '*' : ''}${regionalSuffix(m.pricing, lang)}`;
   }
 
   return (

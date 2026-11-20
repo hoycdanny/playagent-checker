@@ -4,7 +4,8 @@ import { useAuth } from '../auth/AuthProvider.tsx';
 import { useI18n } from '../i18n/I18nProvider.tsx';
 import './ListPage.css';
 import './ModelAdminPage.css';
-import { formatPerM } from '../components/modelPrice.ts';
+import { formatPerM, regionalNote, regionalSuffix, regionalTip, type ModelPricing } from '../components/modelPrice.ts';
+import { loc5 } from '../i18n/locale5.ts';
 
 type Seat = 'agent' | 'vlm' | 'subagent' | 'draft' | 'ask';
 const SEATS: Seat[] = ['agent', 'vlm', 'subagent', 'draft', 'ask'];
@@ -19,7 +20,7 @@ interface ModelRow {
   image: boolean;
   text: boolean;
   onDemand: boolean;
-  pricing: { inputPerM: number; outputPerM: number; estimated?: boolean };
+  pricing: ModelPricing;
   seats: Seat[];
   /** 被標為推薦(金勾勾)的座位。 */
   recommended?: Seat[];
@@ -234,7 +235,8 @@ export default function ModelAdminPage() {
   }
 
   const price = (m: ModelRow) =>
-    `${formatPerM(m.pricing.inputPerM)} / ${formatPerM(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}`;
+    `${formatPerM(m.pricing.inputPerM)} / ${formatPerM(m.pricing.outputPerM)}${m.pricing.estimated ? '*' : ''}${regionalSuffix(m.pricing, loc5(locale))}`;
+  const priceNote = regionalNote(models, loc5(locale));
 
   return (
     <section className="listpage listpage--wide">
@@ -255,6 +257,7 @@ export default function ModelAdminPage() {
         <span className="modeladmin__cell modeladmin__cell--on" aria-hidden="true">✓</span> {T.legendOn}
         <span className="modeladmin__cell modeladmin__cell--rec" aria-hidden="true">★</span> {T.legendRec}
       </p>
+      {priceNote && <p className="modeladmin__muted">{priceNote}</p>}
       {config && <p className="modeladmin__muted">{T.lastSaved.replace('{who}', config.updatedBy).replace('{when}', new Date(config.updatedAt).toLocaleString())}</p>}
 
       {error && <p className="modeladmin__error" role="alert">{error}</p>}
@@ -324,7 +327,7 @@ export default function ModelAdminPage() {
                           {m.text && <span className="modeladmin__tag">{T.capText}</span>}
                           <span className="modeladmin__tag modeladmin__tag--muted">{m.coordSystem === 'pixel' ? T.coordPixel : T.coordNorm}</span>
                         </td>
-                        <td className="modeladmin__price">{price(m)}</td>
+                        <td className="modeladmin__price" title={regionalTip(m.pricing, loc5(locale)) || undefined}>{price(m)}</td>
                         {SEATS.map((s) => (
                           <td key={s} className="modeladmin__c">
                             {(() => {

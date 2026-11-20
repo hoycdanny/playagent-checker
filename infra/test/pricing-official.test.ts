@@ -52,3 +52,63 @@ describe('單價表 = 官方價目表(us-west-2 on-demand standard)', () => {
     expect(resolvePrice('us.anthropic.claude-sonnet-4-6').inputPerM).toBeCloseTo(resolvePrice('anthropic.claude-sonnet-4-6').inputPerM * 1.1, 6);
   });
 });
+
+/**
+ * 官方另有較便宜 Global 價的模型(2026-11-18 Price List:這 21 個的區域價 ≠ Global 價)。
+ * 介面依 globalPrice 標「區域價」,否則客戶拿官網 Global 那欄比會以為我們算錯。
+ */
+const HAS_CHEAPER_GLOBAL: Array<[string, number, number]> = [
+  ['us.anthropic.claude-sonnet-4-5-20250929-v1:0', 3, 15],
+  ['us.anthropic.claude-sonnet-4-6', 3, 15],
+  ['us.anthropic.claude-sonnet-5', 2, 10],
+  ['us.anthropic.claude-opus-4-5-20251101-v1:0', 5, 25],
+  ['us.anthropic.claude-opus-4-6-v1', 5, 25],
+  ['us.anthropic.claude-opus-4-7', 5, 25],
+  ['us.anthropic.claude-opus-4-8', 5, 25],
+  ['us.anthropic.claude-opus-5', 5, 25],
+  ['us.anthropic.claude-opus-5-5', 4, 20],
+  ['us.anthropic.claude-haiku-4-5-20251001-v1:0', 1, 5],
+  ['us.anthropic.claude-fable-5', 10, 50],
+  ['us.anthropic.claude-fable-5-1', 10, 50],
+  ['us.moonshotai.kimi-k3', 3, 15],
+  ['us.openai.gpt-5.6-luna', 0.2, 1.2],
+  ['us.openai.gpt-5.6-terra', 2, 12],
+  ['us.openai.gpt-5.6-sol', 4, 20],
+  ['us.openai.gpt-6-sol', 2, 10],
+  ['us.openai.gpt-6-astra', 10, 50],
+  ['xai.grok-4.7', 2, 6],
+  ['xai.grok-4.6', 2, 6],
+  ['us.amazon.nova-2-lite-v1:0', 0.3, 2.5],
+];
+
+describe('區域價與官方 Global 價', () => {
+  test.each(HAS_CHEAPER_GLOBAL)('%s 帶出官方 Global 價', (id, gin, gout) => {
+    const p = resolvePrice(id);
+    expect(p.globalPrice?.inputPerM).toBeCloseTo(gin, 6);
+    expect(p.globalPrice?.outputPerM).toBeCloseTo(gout, 6);
+    expect(p.inputPerM).toBeGreaterThan(gin);
+  });
+
+  test('官方 Global 與區域同價的模型不帶(不該被標成區域價)', () => {
+    for (const id of ['us.anthropic.claude-sonnet-4-20250514-v1:0', 'us.anthropic.claude-opus-4-1-20250805-v1:0', 'us.amazon.nova-lite-v1:0', 'us.amazon.nova-micro-v1:0', 'qwen.qwen3-vl-235b-a22b', 'moonshotai.kimi-k2.5']) {
+      expect(resolvePrice(id).globalPrice, id).toBeUndefined();
+    }
+  });
+
+  test('用 global. 前綴呼叫就按 Global 價計,不再帶「區域價」', () => {
+    const k = resolvePrice('global.moonshotai.kimi-k3');
+    expect(k.inputPerM).toBeCloseTo(3, 6);
+    expect(k.outputPerM).toBeCloseTo(15, 6);
+    expect(k.cacheReadPerM).toBeCloseTo(0.3, 6);
+    expect(k.globalPrice).toBeUndefined();
+    expect(resolvePrice('global.anthropic.claude-sonnet-4-6').inputPerM).toBeCloseTo(3, 6);
+    expect(resolvePrice('global.anthropic.claude-sonnet-4-6').globalPrice).toBeUndefined();
+  });
+
+  test('對過官方的價格不再標「估算」;只剩按 GPU 時數計費的 UI-TARS', () => {
+    for (const [id] of [...OFFICIAL, ...HAS_CHEAPER_GLOBAL.map(([i]) => [i] as const)]) {
+      expect(resolvePrice(id).estimated, id).toBeUndefined();
+    }
+    expect(resolvePrice('uitars').estimated).toBe(true);
+  });
+});

@@ -20,8 +20,13 @@ export interface ModelPrice {
   cacheWritePerM?: number;
   /** 每百萬「讀取 prompt 快取」token 美元(未填 = 0.1 × input)。 */
   cacheReadPerM?: number;
-  /** 是否為估算價(報告標「估算」) */
+  /** 是否為估算價(報告標「估算」)。對過官方價目表的價格不標。 */
   estimated?: boolean;
+  /**
+   * 非 Anthropic 模型的官方 Global 價(本表的價格是區域 / 美國跨區價,比 Global 貴)。
+   * Anthropic 的 Global 價就是本表的基礎價,不必填。用於介面標示「區域價,Global 為 …」。
+   */
+  globalPrice?: { inputPerM: number; outputPerM: number };
   /**
    * geo 前綴(us. 等)是否加收 10%。預設:Anthropic 加、其他不加。
    * 較舊的 Anthropic 模型(Sonnet 4、Opus 4.1、Claude 3 Haiku)官方價目表上 geo 與 Global 同價,設 false。
@@ -35,9 +40,10 @@ export interface ModelPrice {
 
 /**
  * 以「去前綴」的基礎 modelId 為鍵。geo 前綴在 resolvePrice 處理。
- * Anthropic Claude:公開 list 價(權威)。其餘供應商:由 AWS Pricing API(us-east-2 on-demand)
- * 於建表時抓取,標 estimated=true(報告顯示「估算」)——實際計費仍以 Bedrock 為準,估算價僅供護欄與呈現。
- * 要更新價格:重跑 Pricing API 抓價腳本後同步此表。此表為 Model Catalog 的定價前提(catalog ⊆ 此表)。
+ * 2026-11-18 全表逐筆對過 AWS Price List API(us-west-2、On-demand、standard tier),所以除了
+ * UI-TARS(按 GPU 時數計費)以外都不標 estimated。實際計費仍以 AWS 帳單為準。
+ * 要更新價格:重抓 Price List 後同步此表與 infra/test/pricing-official.test.ts。
+ * 此表為 Model Catalog 的定價前提(catalog ⊆ 此表)。
  */
 const TABLE: Record<string, ModelPrice> = {
   // --- Anthropic Claude(Global 價;us. 前綴的 geo 價 = ×1.1,見 resolvePrice)---
@@ -61,78 +67,78 @@ const TABLE: Record<string, ModelPrice> = {
   'anthropic.claude-fable-5': { inputPerM: 10, outputPerM: 50 },
   'anthropic.claude-fable-5-1': { inputPerM: 10, outputPerM: 50, cacheReadPerM: 0.25 },
   // --- 其餘供應商(AWS Pricing API us-east-2 抓價,標估算)---
-  'qwen.qwen3-235b-a22b-2507-v1:0': { inputPerM: 0.22, outputPerM: 0.88, estimated: true },
-  'moonshotai.kimi-k2.5': { inputPerM: 0.6, outputPerM: 3.0, estimated: true },
-  'openai.gpt-oss-120b-1:0': { inputPerM: 0.15, outputPerM: 0.6, estimated: true },
-  'qwen.qwen3-next-80b-a3b': { inputPerM: 0.14, outputPerM: 1.2, estimated: true },
+  'qwen.qwen3-235b-a22b-2507-v1:0': { inputPerM: 0.22, outputPerM: 0.88 },
+  'moonshotai.kimi-k2.5': { inputPerM: 0.6, outputPerM: 3.0 },
+  'openai.gpt-oss-120b-1:0': { inputPerM: 0.15, outputPerM: 0.6 },
+  'qwen.qwen3-next-80b-a3b': { inputPerM: 0.14, outputPerM: 1.2 },
   // 帳單實收:input 3.3 / output 16.5 / 快取寫入 4.125 / 快取讀取 0.33(us. profile 沒有另加 ×1.1)。
-  'moonshotai.kimi-k3': { inputPerM: 3.3, outputPerM: 16.5 },
-  'deepseek.v3.2': { inputPerM: 0.62, outputPerM: 1.85, estimated: true },
-  'nvidia.nemotron-nano-3-30b': { inputPerM: 0.06, outputPerM: 0.24, estimated: true },
-  'minimax.minimax-m2': { inputPerM: 0.3, outputPerM: 1.2, estimated: true },
-  'zai.glm-4.7-flash': { inputPerM: 0.07, outputPerM: 0.4, estimated: true },
+  'moonshotai.kimi-k3': { inputPerM: 3.3, outputPerM: 16.5, globalPrice: { inputPerM: 3, outputPerM: 15 } },
+  'deepseek.v3.2': { inputPerM: 0.62, outputPerM: 1.85 },
+  'nvidia.nemotron-nano-3-30b': { inputPerM: 0.06, outputPerM: 0.24 },
+  'minimax.minimax-m2': { inputPerM: 0.3, outputPerM: 1.2 },
+  'zai.glm-4.7-flash': { inputPerM: 0.07, outputPerM: 0.4 },
   // Nova:快取寫入官方 $0、快取讀取 = input 的 25%(不是預設的 1.25× / 10%)。
-  'amazon.nova-pro-v1:0': { inputPerM: 0.8, outputPerM: 3.2, cacheWritePerM: 0, cacheReadPerM: 0.2, estimated: true },
-  'minimax.minimax-m2.5': { inputPerM: 0.3, outputPerM: 1.2, estimated: true },
-  'google.gemma-3-12b-it': { inputPerM: 0.09, outputPerM: 0.29, estimated: true },
-  'moonshot.kimi-k2-thinking': { inputPerM: 0.6, outputPerM: 2.5, estimated: true },
-  'mistral.mistral-large-3-675b-instruct': { inputPerM: 0.5, outputPerM: 1.5, estimated: true },
-  'mistral.devstral-2-123b': { inputPerM: 0.4, outputPerM: 2.0, estimated: true },
-  'minimax.minimax-m2.1': { inputPerM: 0.3, outputPerM: 1.2, estimated: true },
-  'nvidia.nemotron-super-3-120b': { inputPerM: 0.15, outputPerM: 0.65, estimated: true },
-  'qwen.qwen3-32b-v1:0': { inputPerM: 0.15, outputPerM: 0.6, estimated: true },
-  'mistral.ministral-3-14b-instruct': { inputPerM: 0.2, outputPerM: 0.2, estimated: true },
-  'zai.glm-5': { inputPerM: 1.0, outputPerM: 3.2, estimated: true },
-  'openai.gpt-oss-20b-1:0': { inputPerM: 0.07, outputPerM: 0.3, estimated: true },
-  'google.gemma-3-4b-it': { inputPerM: 0.04, outputPerM: 0.08, estimated: true },
-  'openai.gpt-oss-safeguard-120b': { inputPerM: 0.15, outputPerM: 0.6, estimated: true },
-  'google.gemma-3-27b-it': { inputPerM: 0.23, outputPerM: 0.38, estimated: true },
-  'qwen.qwen3-vl-235b-a22b': { inputPerM: 0.53, outputPerM: 2.66, estimated: true },
+  'amazon.nova-pro-v1:0': { inputPerM: 0.8, outputPerM: 3.2, cacheWritePerM: 0, cacheReadPerM: 0.2 },
+  'minimax.minimax-m2.5': { inputPerM: 0.3, outputPerM: 1.2 },
+  'google.gemma-3-12b-it': { inputPerM: 0.09, outputPerM: 0.29 },
+  'moonshot.kimi-k2-thinking': { inputPerM: 0.6, outputPerM: 2.5 },
+  'mistral.mistral-large-3-675b-instruct': { inputPerM: 0.5, outputPerM: 1.5 },
+  'mistral.devstral-2-123b': { inputPerM: 0.4, outputPerM: 2.0 },
+  'minimax.minimax-m2.1': { inputPerM: 0.3, outputPerM: 1.2 },
+  'nvidia.nemotron-super-3-120b': { inputPerM: 0.15, outputPerM: 0.65 },
+  'qwen.qwen3-32b-v1:0': { inputPerM: 0.15, outputPerM: 0.6 },
+  'mistral.ministral-3-14b-instruct': { inputPerM: 0.2, outputPerM: 0.2 },
+  'zai.glm-5': { inputPerM: 1.0, outputPerM: 3.2 },
+  'openai.gpt-oss-20b-1:0': { inputPerM: 0.07, outputPerM: 0.3 },
+  'google.gemma-3-4b-it': { inputPerM: 0.04, outputPerM: 0.08 },
+  'openai.gpt-oss-safeguard-120b': { inputPerM: 0.15, outputPerM: 0.6 },
+  'google.gemma-3-27b-it': { inputPerM: 0.23, outputPerM: 0.38 },
+  'qwen.qwen3-vl-235b-a22b': { inputPerM: 0.53, outputPerM: 2.66 },
   // UI-TARS 自建 SageMaker endpoint:成本是「每小時 GPU 常駐費」(g6e.xlarge ~US$1.86/hr),
   // 非 per-token。token 價設 0 以滿足 catalog 可定價不變式;實際成本由 endpoint 開機時數計,另行掌握。
   'uitars': { inputPerM: 0, outputPerM: 0, estimated: true },
-  'zai.glm-4.7': { inputPerM: 0.6, outputPerM: 2.2, estimated: true },
-  'writer.palmyra-vision-7b': { inputPerM: 0.15, outputPerM: 0.6, estimated: true },
-  'qwen.qwen3-coder-480b-a35b-v1:0': { inputPerM: 0.45, outputPerM: 1.8, estimated: true },
-  'deepseek.v3-v1:0': { inputPerM: 0.58, outputPerM: 1.68, estimated: true },
-  'mistral.ministral-3-3b-instruct': { inputPerM: 0.1, outputPerM: 0.1, estimated: true },
-  'qwen.qwen3-coder-30b-a3b-v1:0': { inputPerM: 0.15, outputPerM: 0.6, estimated: true },
-  'openai.gpt-oss-safeguard-20b': { inputPerM: 0.07, outputPerM: 0.2, estimated: true },
-  'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24, cacheWritePerM: 0, cacheReadPerM: 0.015, estimated: true },
-  'amazon.nova-micro-v1:0': { inputPerM: 0.035, outputPerM: 0.14, cacheWritePerM: 0, cacheReadPerM: 0.00875, estimated: true },
+  'zai.glm-4.7': { inputPerM: 0.6, outputPerM: 2.2 },
+  'writer.palmyra-vision-7b': { inputPerM: 0.15, outputPerM: 0.6 },
+  'qwen.qwen3-coder-480b-a35b-v1:0': { inputPerM: 0.45, outputPerM: 1.8 },
+  'deepseek.v3-v1:0': { inputPerM: 0.58, outputPerM: 1.68 },
+  'mistral.ministral-3-3b-instruct': { inputPerM: 0.1, outputPerM: 0.1 },
+  'qwen.qwen3-coder-30b-a3b-v1:0': { inputPerM: 0.15, outputPerM: 0.6 },
+  'openai.gpt-oss-safeguard-20b': { inputPerM: 0.07, outputPerM: 0.2 },
+  'amazon.nova-lite-v1:0': { inputPerM: 0.06, outputPerM: 0.24, cacheWritePerM: 0, cacheReadPerM: 0.015 },
+  'amazon.nova-micro-v1:0': { inputPerM: 0.035, outputPerM: 0.14, cacheWritePerM: 0, cacheReadPerM: 0.00875 },
   // OpenAI GPT(Bedrock 上架,多模態可看圖):官方 model card 公告價(商業區域短內容 In-Region/Geo 標準層,已內含 +10%)。
   // 註:GPT-6 Luna 僅 bedrock-mantle、不支援 bedrock-runtime Converse,本平台用不到,故不定價(維持隱藏)。
-  'openai.gpt-5.6-luna': { inputPerM: 0.22, outputPerM: 1.32 },
-  'openai.gpt-5.6-terra': { inputPerM: 2.2, outputPerM: 13.2 },
-  'openai.gpt-5.6-sol': { inputPerM: 4.4, outputPerM: 22 },
-  'openai.gpt-6-sol': { inputPerM: 2.2, outputPerM: 11 },
-  'openai.gpt-6-astra': { inputPerM: 11, outputPerM: 55 },
+  'openai.gpt-5.6-luna': { inputPerM: 0.22, outputPerM: 1.32, globalPrice: { inputPerM: 0.2, outputPerM: 1.2 } },
+  'openai.gpt-5.6-terra': { inputPerM: 2.2, outputPerM: 13.2, globalPrice: { inputPerM: 2, outputPerM: 12 } },
+  'openai.gpt-5.6-sol': { inputPerM: 4.4, outputPerM: 22, globalPrice: { inputPerM: 4, outputPerM: 20 } },
+  'openai.gpt-6-sol': { inputPerM: 2.2, outputPerM: 11, globalPrice: { inputPerM: 2, outputPerM: 10 } },
+  'openai.gpt-6-astra': { inputPerM: 11, outputPerM: 55, globalPrice: { inputPerM: 10, outputPerM: 50 } },
   // xAI Grok(AWS Price List us-west-2 標準層;多模態可看圖)。
   // 快取讀取官方 $0.55(= input 的 25%)。
-  'xai.grok-4.7': { inputPerM: 2.2, outputPerM: 6.6, cacheReadPerM: 0.55, estimated: true },
-  'xai.grok-4.6': { inputPerM: 2.2, outputPerM: 6.6, cacheReadPerM: 0.55, estimated: true },
+  'xai.grok-4.7': { inputPerM: 2.2, outputPerM: 6.6, cacheReadPerM: 0.55, globalPrice: { inputPerM: 2, outputPerM: 6 } },
+  'xai.grok-4.6': { inputPerM: 2.2, outputPerM: 6.6, cacheReadPerM: 0.55, globalPrice: { inputPerM: 2, outputPerM: 6 } },
   // Amazon Nova 2 Lite(Price List;多模態、便宜)。快取寫入 $0、讀取 = input 的 25%。
-  'amazon.nova-2-lite-v1:0': { inputPerM: 0.33, outputPerM: 2.75, cacheWritePerM: 0, cacheReadPerM: 0.0825, estimated: true },
+  'amazon.nova-2-lite-v1:0': { inputPerM: 0.33, outputPerM: 2.75, cacheWritePerM: 0, cacheReadPerM: 0.0825, globalPrice: { inputPerM: 0.3, outputPerM: 2.5 } },
   // Mistral / Meta / NVIDIA(Price List us-west-2 標準層)。
-  'mistral.magistral-small-2509': { inputPerM: 0.5, outputPerM: 1.5, estimated: true },
-  'mistral.ministral-3-8b-instruct': { inputPerM: 0.15, outputPerM: 0.15, estimated: true },
-  'mistral.mistral-7b-instruct-v0:2': { inputPerM: 0.15, outputPerM: 0.2, estimated: true },
-  'mistral.mistral-large-2402-v1:0': { inputPerM: 4, outputPerM: 12, estimated: true },
-  'mistral.mistral-large-2407-v1:0': { inputPerM: 2, outputPerM: 6, estimated: true },
-  'mistral.mixtral-8x7b-instruct-v0:1': { inputPerM: 0.45, outputPerM: 0.7, estimated: true },
-  'meta.llama3-70b-instruct-v1:0': { inputPerM: 2.65, outputPerM: 3.5, estimated: true },
-  'meta.llama3-8b-instruct-v1:0': { inputPerM: 0.3, outputPerM: 0.6, estimated: true },
-  'nvidia.nemotron-nano-12b-v2': { inputPerM: 0.2, outputPerM: 0.6, estimated: true },
-  'nvidia.nemotron-nano-9b-v2': { inputPerM: 0.06, outputPerM: 0.23, estimated: true },
-  'deepseek.r1-v1:0': { inputPerM: 1.35, outputPerM: 5.4, estimated: true },
-  'mistral.pixtral-large-2502-v1:0': { inputPerM: 2.0, outputPerM: 6.0, estimated: true },
-  'meta.llama3-1-8b-instruct-v1:0:128k': { inputPerM: 0.22, outputPerM: 0.22, estimated: true },
-  'meta.llama3-1-8b-instruct-v1:0': { inputPerM: 0.22, outputPerM: 0.22, estimated: true },
-  'meta.llama3-1-70b-instruct-v1:0:128k': { inputPerM: 0.72, outputPerM: 0.72, estimated: true },
-  'meta.llama3-1-70b-instruct-v1:0': { inputPerM: 0.72, outputPerM: 0.72, estimated: true },
-  'meta.llama3-3-70b-instruct-v1:0': { inputPerM: 0.72, outputPerM: 0.72, estimated: true },
-  'meta.llama4-scout-17b-instruct-v1:0': { inputPerM: 0.17, outputPerM: 0.66, estimated: true },
-  'meta.llama4-maverick-17b-instruct-v1:0': { inputPerM: 0.24, outputPerM: 0.97, estimated: true },
+  'mistral.magistral-small-2509': { inputPerM: 0.5, outputPerM: 1.5 },
+  'mistral.ministral-3-8b-instruct': { inputPerM: 0.15, outputPerM: 0.15 },
+  'mistral.mistral-7b-instruct-v0:2': { inputPerM: 0.15, outputPerM: 0.2 },
+  'mistral.mistral-large-2402-v1:0': { inputPerM: 4, outputPerM: 12 },
+  'mistral.mistral-large-2407-v1:0': { inputPerM: 2, outputPerM: 6 },
+  'mistral.mixtral-8x7b-instruct-v0:1': { inputPerM: 0.45, outputPerM: 0.7 },
+  'meta.llama3-70b-instruct-v1:0': { inputPerM: 2.65, outputPerM: 3.5 },
+  'meta.llama3-8b-instruct-v1:0': { inputPerM: 0.3, outputPerM: 0.6 },
+  'nvidia.nemotron-nano-12b-v2': { inputPerM: 0.2, outputPerM: 0.6 },
+  'nvidia.nemotron-nano-9b-v2': { inputPerM: 0.06, outputPerM: 0.23 },
+  'deepseek.r1-v1:0': { inputPerM: 1.35, outputPerM: 5.4 },
+  'mistral.pixtral-large-2502-v1:0': { inputPerM: 2.0, outputPerM: 6.0 },
+  'meta.llama3-1-8b-instruct-v1:0:128k': { inputPerM: 0.22, outputPerM: 0.22 },
+  'meta.llama3-1-8b-instruct-v1:0': { inputPerM: 0.22, outputPerM: 0.22 },
+  'meta.llama3-1-70b-instruct-v1:0:128k': { inputPerM: 0.72, outputPerM: 0.72 },
+  'meta.llama3-1-70b-instruct-v1:0': { inputPerM: 0.72, outputPerM: 0.72 },
+  'meta.llama3-3-70b-instruct-v1:0': { inputPerM: 0.72, outputPerM: 0.72 },
+  'meta.llama4-scout-17b-instruct-v1:0': { inputPerM: 0.17, outputPerM: 0.66 },
+  'meta.llama4-maverick-17b-instruct-v1:0': { inputPerM: 0.24, outputPerM: 0.97 },
 };
 
 const GEO_PREFIXES = ['us.', 'eu.', 'apac.', 'jp.', 'au.'];
@@ -184,18 +190,37 @@ export function resolvePrice(modelId: string, now = new Date()): ModelPrice & { 
   }
   let cacheWrite = entry.cacheWritePerM ?? input * CACHE_WRITE_FACTOR;
   let cacheRead = entry.cacheReadPerM ?? input * CACHE_READ_FACTOR;
-  if (isGeo && entry.geoPremium !== false && GEO_PREMIUM_PROVIDERS.some((p) => base.startsWith(p))) {
-    input *= GEO_MULTIPLIER;
-    output *= GEO_MULTIPLIER;
-    cacheWrite *= GEO_MULTIPLIER;
-    cacheRead *= GEO_MULTIPLIER;
+  const anthropicGeo = entry.geoPremium !== false && GEO_PREMIUM_PROVIDERS.some((p) => base.startsWith(p));
+  // 官方 Global 價(比區域價便宜的那一欄);有這個值,介面就標「區域價」。
+  let globalPrice: { inputPerM: number; outputPerM: number } | undefined;
+  if (anthropicGeo) {
+    globalPrice = { inputPerM: input, outputPerM: output };
+    if (isGeo) {
+      input *= GEO_MULTIPLIER;
+      output *= GEO_MULTIPLIER;
+      cacheWrite *= GEO_MULTIPLIER;
+      cacheRead *= GEO_MULTIPLIER;
+    }
+  } else if (entry.globalPrice) {
+    globalPrice = { ...entry.globalPrice };
+    // 用 global. 前綴呼叫就按 Global 價計(快取依同比例);平台目前不這樣呼叫,但算錯就是收錯錢。
+    if (modelId.startsWith(GLOBAL_PREFIX)) {
+      const r = entry.globalPrice.inputPerM / entry.inputPerM;
+      input = entry.globalPrice.inputPerM;
+      output = entry.globalPrice.outputPerM;
+      cacheWrite *= r;
+      cacheRead *= r;
+    }
   }
+  const regional = Boolean(globalPrice) && !modelId.startsWith(GLOBAL_PREFIX) && (isGeo || !anthropicGeo);
   return {
     inputPerM: input,
     outputPerM: output,
     cacheWritePerM: cacheWrite,
     cacheReadPerM: cacheRead,
     ...(entry.estimated ? { estimated: true } : {}),
+    // 只有「顯示的是區域價、而官方另有較便宜的 Global 價」時才帶,介面據此加註。
+    ...(regional && globalPrice ? { globalPrice } : {}),
   };
 }
 
